@@ -1,6 +1,16 @@
 {# templates/simulacion/reportes/partials/kpis_cards_duales.html #}
 {# Chips principales con KPI Interno vs Compromiso #}
 
+{% set kpi_card_tip = '% a tiempo = entregas FV a tiempo / (a tiempo + tarde). Base: ofertas FV con fecha de entrega y deadline; las "Sin Fecha Entrega" NO entran al %. No se calcula sobre Solicitudes ni Total Sitios. Excluye BESS puro, Monitoreo y Montaje.' %}
+{% macro kpi_card_info(tip, color) %}
+<span class="inline-flex align-middle {{ color }} cursor-help ml-1" title="{{ tip }}">
+    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+</span>
+{% endmacro %}
+
 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
 
     {# 1. Solicitudes #}
@@ -40,7 +50,7 @@
             </svg>
         </div>
         <div class="relative z-10">
-            <h4 class="text-{{ sem_int }}-800 font-bold mb-1 text-sm uppercase tracking-wide">KPI Interno</h4>
+            <h4 class="text-{{ sem_int }}-800 font-bold mb-1 text-sm uppercase tracking-wide">KPI Interno{{ kpi_card_info(kpi_card_tip, 'text-' ~ sem_int ~ '-500') }}</h4>
             <div class="flex items-baseline gap-2 mb-1">
                 <span class="text-3xl font-bold text-{{ sem_int }}-700">{{ metricas.porcentaje_a_tiempo_interno
                     }}%</span>
@@ -70,7 +80,7 @@
             </svg>
         </div>
         <div class="relative z-10">
-            <h4 class="text-{{ sem_comp }}-800 font-bold mb-1 text-sm uppercase tracking-wide">KPI Compromiso</h4>
+            <h4 class="text-{{ sem_comp }}-800 font-bold mb-1 text-sm uppercase tracking-wide">KPI Compromiso{{ kpi_card_info(kpi_card_tip, 'text-' ~ sem_comp ~ '-500') }}</h4>
             <div class="flex items-baseline gap-2 mb-1">
                 <span class="text-3xl font-bold text-{{ sem_comp }}-700">{{ metricas.porcentaje_a_tiempo_compromiso
                     }}%</span>

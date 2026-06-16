@@ -163,6 +163,12 @@
                             <td class="py-2 px-2 text-center text-gray-600">{{ tech.solicitudes }}</td>
                             <td class="py-2 px-2 text-center text-gray-600">{{ tech.ofertas }}</td>
                             <td class="py-2 px-2 text-center text-teal-600">{{ tech.total_sitios }}</td>
+                            {% if tech.nombre == 'BESS' %}
+                            <td colspan="2" class="py-2 px-2 text-center text-gray-400 italic"
+                                title="Los KPI de BESS se reportan en la sección Almacenamiento (BESS), aparte de los KPI de FV.">
+                                &mdash; <span class="text-[10px] not-italic">(ver Almacenamiento)</span>
+                            </td>
+                            {% else %}
                             <td
                                 class="py-2 px-2 text-center {% if tech.pct_interno >= 90 %}text-green-600{% elif tech.pct_interno >= 85 %}text-amber-600{% else %}text-red-600{% endif %}">
                                 {{ tech.pct_interno }}%
@@ -171,6 +177,7 @@
                                 class="py-2 px-2 text-center font-bold {% if tech.pct_compromiso >= 90 %}text-green-600{% elif tech.pct_compromiso >= 85 %}text-amber-600{% else %}text-red-600{% endif %}">
                                 {{ tech.pct_compromiso }}%
                             </td>
+                            {% endif %}
                         </tr>
                         {% endfor %}
                     </tbody>
