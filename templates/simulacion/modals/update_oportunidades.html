@@ -405,7 +405,16 @@
                             class="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
                             <div class="flex items-start justify-between gap-3">
                                 <div class="min-w-0">
-                                    <p class="text-sm font-bold text-amber-800">Entrega FV (independiente de BESS)</p>
+                                    <p class="text-sm font-bold text-amber-800 flex items-center gap-1">
+                                        Entrega FV (independiente de BESS)
+                                        <span class="inline-flex text-amber-500 hover:text-amber-700 cursor-help"
+                                            title="Registra la entrega de la parte FV con la hora actual, independiente de BESS, y recalcula el KPI de FV (a tiempo/tarde) contra el deadline. «Volver a marcar FV» sobrescribe la fecha con el momento actual y recalcula el KPI —sirve para corregir si se marcó por error o antes de tiempo—; no desmarca ni revierte la entrega FV.">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                        </span>
+                                    </p>
                                     {% if fv_terminado_fecha %}
                                     <p class="text-xs text-amber-700 mt-1">
                                         FV marcado como terminado el {{ fv_terminado_fecha | time_mx("%d/%m/%Y %H:%M") }}.
