@@ -1,12 +1,19 @@
 {# templates/simulacion/partials/detalle_oportunidades_entrega.html #}
 
+{# Solo mostramos las columnas Bruto/Monitoreo cuando alguna oportunidad estuvo en
+   "Monitoreo de Cotización" antes de su entrega; si no, neto == bruto y esas columnas
+   solo agregan ruido, así que colapsamos a una sola columna "Lead time". #}
+{% set hay_monitoreo = (oportunidades | selectattr('dias_monitoreo', 'gt', 0) | list | length) > 0 %}
+
 <div class="p-4">
     <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-200">
         <span class="text-sm text-gray-600">
             <strong>{{ oportunidades | length }}</strong> oportunidades entregadas, ordenadas
             por lead time (más lento primero)
         </span>
+        {% if hay_monitoreo %}
         <span class="text-xs text-gray-400">«Neto» descuenta el tiempo en Monitoreo de Cotización</span>
+        {% endif %}
     </div>
 
     {% if oportunidades %}
@@ -19,9 +26,13 @@
                     <th class="px-3 py-2 text-left font-semibold text-gray-700">Proyecto</th>
                     <th class="px-3 py-2 text-left font-semibold text-gray-700">Tecnología</th>
                     <th class="px-3 py-2 text-left font-semibold text-gray-700">Responsable</th>
+                    {% if hay_monitoreo %}
                     <th class="px-3 py-2 text-center font-semibold text-gray-700">Lead time neto</th>
                     <th class="px-3 py-2 text-center font-semibold text-gray-700">Bruto</th>
                     <th class="px-3 py-2 text-center font-semibold text-gray-700">Monitoreo</th>
+                    {% else %}
+                    <th class="px-3 py-2 text-center font-semibold text-gray-700">Lead time</th>
+                    {% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -52,6 +63,7 @@
                             {{ op.dias_netos | dhm }}
                         </span>
                     </td>
+                    {% if hay_monitoreo %}
                     <td class="px-3 py-2 text-center text-gray-500">{{ op.dias_brutos | dhm }}</td>
                     <td class="px-3 py-2 text-center">
                         {% if op.dias_monitoreo > 0 %}
@@ -60,6 +72,7 @@
                         <span class="text-gray-300">—</span>
                         {% endif %}
                     </td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>
