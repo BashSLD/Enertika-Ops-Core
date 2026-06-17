@@ -23,12 +23,25 @@ class FakeConn:
 
 
 class FakeProyectosDB:
-    def __init__(self, asignacion_actual=None, responsable=None, jefes=None):
+    def __init__(self, asignacion_actual=None, responsable=None, jefes=None,
+                 asignaciones_equipo=None, jefes_org=None, dept_users=None):
         self.asignacion_actual = asignacion_actual
         self.responsable = responsable  # id del RC/RI ya definido (o None)
         self.jefes = jefes or {}        # {id_usuario: rol_organizacional}
+        self.asignaciones_equipo = asignaciones_equipo or []
+        self.jefes_org = jefes_org or []
+        self.dept_users = dept_users or []
         self.desactivadas = []
         self.insertadas = []
+
+    async def get_asignaciones_equipo(self, conn, id_proyecto):
+        return self.asignaciones_equipo
+
+    async def get_jefes_organizacionales(self, conn):
+        return self.jefes_org
+
+    async def get_usuarios_por_departamentos(self, conn, slugs):
+        return self.dept_users
 
     async def usuario_activo_en_departamento(self, conn, id_usuario, dept_slug):
         return True
@@ -235,3 +248,50 @@ async def test_autoasignacion_off_no_aborta_guardado(monkeypatch):
     roles = [r[2] for r in service.db.insertadas]
     assert "coordinador_obra" in roles               # se guarda sin abortar
     assert "responsable_construccion" not in roles   # autoasignacion off -> no RC
+
+
+@pytest.mark.asyncio
+async def test_get_equipo_muestra_rc_persistido_aunque_no_sea_jefe_activo():
+    id_proyecto = uuid4()
+    id_rc = uuid4()           # RC persistido que ya no figura como jefe activo
+    id_jefe_activo = uuid4()
+    service = ProyectosService()
+    service.db = FakeProyectosDB(
+        asignaciones_equipo=[
+            {"rol_proyecto": "responsable_construccion", "area": "CONSTRUCCION",
+             "id_usuario": id_rc, "nombre_usuario": "RC Persistido"},
+        ],
+        jefes_org=[
+            {"id_usuario": id_jefe_activo, "nombre": "Jefe Activo",
+             "rol_organizacional": "jefe_construccion"},
+        ],
+    )
+
+    data = await service.get_equipo_proyecto(FakeConn(), id_proyecto)
+
+    # Se muestra el RC persistido (desde la asignacion), no el jefe activo por defecto
+    assert data["jefe_construccion"] == {"id_usuario": id_rc, "nombre": "RC Persistido"}
+    # El RC persistido esta entre las opciones del selector, para poder preseleccionarse
+    ids = [str(j["id_usuario"]) for j in data["jefes_construccion"]]
+    assert str(id_rc) in ids
+    assert str(id_jefe_activo) in ids
+
+
+@pytest.mark.asyncio
+async def test_get_equipo_fallback_jefe_organizacional_sin_rc():
+    id_proyecto = uuid4()
+    id_jefe = uuid4()
+    service = ProyectosService()
+    service.db = FakeProyectosDB(
+        asignaciones_equipo=[],   # sin RC/RI persistido
+        jefes_org=[
+            {"id_usuario": id_jefe, "nombre": "Jefe Ing",
+             "rol_organizacional": "jefe_ingenieria"},
+        ],
+    )
+
+    data = await service.get_equipo_proyecto(FakeConn(), id_proyecto)
+
+    # Fallback al jefe organizacional, en forma homogenea {id_usuario, nombre}
+    assert data["jefe_ingenieria"] == {"id_usuario": id_jefe, "nombre": "Jefe Ing"}
+    assert data["jefe_construccion"] is None   # no hay jefe_construccion configurado
