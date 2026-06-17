@@ -99,6 +99,7 @@ from .db_service import (
 
 # Shared Services
 from modules.shared.services import IdGeneratorService, ClientService, BessService
+from modules.proyectos.service import ROL_COORDINADOR_OBRA, ROL_ENCARGADO_OYM
 
 # Sub-Services
 from .services import DashboardService, NotificationService
@@ -1342,11 +1343,11 @@ class ComercialService:
         encargado_area = None
         encargado_oym = None
         for m in equipo_rows:
-            if m['rol_proyecto'] == 'coordinador_obra':
+            if m['rol_proyecto'] == ROL_COORDINADOR_OBRA:
                 coordinador = m['nombre_usuario']
-            elif m['rol_proyecto'] == 'encargado' and m['area'] == area:
+            elif m['rol_proyecto'] == ROL_ENCARGADO_OYM and m['area'] == area:
                 encargado_area = m['nombre_usuario']
-            elif m['rol_proyecto'] == 'encargado' and m['area'] == 'OYM':
+            elif m['rol_proyecto'] == ROL_ENCARGADO_OYM and m['area'] == 'OYM':
                 encargado_oym = m['nombre_usuario']
 
         dias_en_area = 0

@@ -50,6 +50,11 @@ RESPONSABLE_POR_AREA = {
     for r in ROLES_EQUIPO if r["rol_jefe"]
 }
 
+# Constantes de rol_proyecto para consumidores externos (p. ej. modules/comercial),
+# derivadas de ROLES_EQUIPO en vez de repetir el literal.
+ROL_COORDINADOR_OBRA = next(r["rol"] for r in ROLES_EQUIPO if r["area"] == "CONSTRUCCION")
+ROL_ENCARGADO_OYM = next(r["rol"] for r in ROLES_EQUIPO if r["area"] == "OYM")
+
 
 class ProyectosService:
 
