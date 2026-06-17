@@ -222,6 +222,25 @@ class ProyectosService:
                 id_proyecto, area, responsable_id,
             )
 
+    async def reasignar_responsable(
+        self, conn, id_proyecto: UUID, area: str,
+        nuevo_responsable_id: Optional[UUID], asignado_por_id: UUID,
+    ) -> None:
+        """Reasigna el RC/RI del proyecto. Solo lo invoca el router con permiso de Direccion/ADMIN."""
+        if area not in RESPONSABLE_POR_AREA:
+            raise ValueError("Area invalida")
+        rol_resp, rol_jefe = RESPONSABLE_POR_AREA[area]
+        if nuevo_responsable_id is not None:
+            if not await self.db.usuario_tiene_rol_organizacional(conn, nuevo_responsable_id, rol_jefe):
+                raise ValueError(f"El responsable indicado no tiene el rol {rol_jefe}")
+        async with conn.transaction():
+            await self.db.desactivar_asignacion_equipo(conn, id_proyecto, rol_resp, area)
+            if nuevo_responsable_id is not None:
+                await self.db.insertar_asignacion_equipo(
+                    conn, id_proyecto, nuevo_responsable_id, rol_resp, area, asignado_por_id
+                )
+        logger.info("Responsable %s reasignado en proyecto %s por %s", area, id_proyecto, asignado_por_id)
+
     async def permisos_equipo(
         self, conn, context: Dict, id_proyecto: UUID
     ) -> Dict[str, bool]:

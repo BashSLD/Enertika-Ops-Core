@@ -133,9 +133,9 @@ async def get_equipo_partial(
     service: ProyectosService = Depends(get_service),
 ):
     data = await service.get_equipo_proyecto(conn, id_proyecto)
-    permisos = await service.permisos_equipo(conn, context)
+    permisos = await service.permisos_equipo(conn, context, id_proyecto)
 
-    return templates.TemplateResponse(request, 
+    return templates.TemplateResponse(request,
         "proyectos/partials/equipo_modal.html",
         _equipo_template_data(request, id_proyecto, data, permisos),
     )
@@ -150,7 +150,7 @@ async def save_equipo(
     conn=Depends(get_db_connection),
     service: ProyectosService = Depends(get_service),
 ):
-    permisos = await service.permisos_equipo(conn, context)
+    permisos = await service.permisos_equipo(conn, context, id_proyecto)
     if not any([permisos["puede_asignar_ingenieria"], permisos["puede_asignar_construccion"], permisos["puede_asignar_oym"]]):
         raise HTTPException(status_code=403, detail="Sin permisos para editar el equipo")
 
@@ -175,8 +175,15 @@ async def save_equipo(
             })
             n += 1
 
+        responsables_explicitos = {}
+        for area in ("INGENIERIA", "CONSTRUCCION"):
+            val = form.get(f"responsable_{area.lower()}")
+            if val:
+                responsables_explicitos[area] = UUID(val)
+
         await service.save_equipo_proyecto(
-            conn, id_proyecto, asignaciones, user_db_id, permisos
+            conn, id_proyecto, asignaciones, user_db_id, permisos,
+            context=context, responsables_explicitos=responsables_explicitos,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -185,8 +192,42 @@ async def save_equipo(
         raise HTTPException(status_code=500, detail="Error interno al guardar el equipo")
 
     data = await service.get_equipo_proyecto(conn, id_proyecto)
-    return templates.TemplateResponse(request, 
+    return templates.TemplateResponse(request,
         "proyectos/partials/equipo_modal.html",
+        _equipo_template_data(request, id_proyecto, data, permisos, guardado=True),
+    )
+
+
+@router.post("/equipo/{id_proyecto}/responsable", include_in_schema=False)
+async def reasignar_responsable(
+    request: Request,
+    id_proyecto: UUID,
+    context=Depends(get_current_user_context),
+    _=require_module_access("proyectos"),
+    conn=Depends(get_db_connection),
+    service: ProyectosService = Depends(get_service),
+):
+    permisos = await service.permisos_equipo(conn, context, id_proyecto)
+    if not permisos["puede_reasignar_responsable"]:
+        raise HTTPException(status_code=403, detail="Solo Direccion puede reasignar al responsable")
+
+    user_db_id = context.get("user_db_id")
+    try:
+        form = await request.form()
+        area = form.get("area", "")
+        nuevo = form.get("id_usuario", "")
+        await service.reasignar_responsable(
+            conn, id_proyecto, area, UUID(nuevo) if nuevo else None, user_db_id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al reasignar responsable")
+        raise HTTPException(status_code=500, detail="Error interno al reasignar")
+
+    data = await service.get_equipo_proyecto(conn, id_proyecto)
+    return templates.TemplateResponse(
+        request, "proyectos/partials/equipo_modal.html",
         _equipo_template_data(request, id_proyecto, data, permisos, guardado=True),
     )
 
