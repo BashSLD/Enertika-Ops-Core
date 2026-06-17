@@ -144,6 +144,50 @@ class ProyectosDBService:
             asignado_por_id,
         )
 
+    async def get_responsable_proyecto(
+        self, conn, id_proyecto: UUID, area: str
+    ) -> Optional[UUID]:
+        """RC/RI persistido del proyecto para un area, o None si aun no esta definido."""
+        rol_resp = {
+            "CONSTRUCCION": "responsable_construccion",
+            "INGENIERIA": "responsable_ingenieria",
+        }.get(area)
+        if rol_resp is None:
+            return None
+        return await conn.fetchval(
+            """
+            SELECT id_usuario
+            FROM tb_proyecto_usuarios
+            WHERE id_proyecto = $1
+              AND rol_proyecto = $2
+              AND area = $3
+              AND activo = TRUE
+            LIMIT 1
+            """,
+            id_proyecto,
+            rol_resp,
+            area,
+        )
+
+    async def usuario_tiene_rol_organizacional(
+        self, conn, id_usuario: UUID, rol_organizacional: str
+    ) -> bool:
+        """True si el usuario activo tiene ese rol organizacional."""
+        return bool(
+            await conn.fetchval(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM tb_usuarios
+                    WHERE id_usuario = $1
+                      AND rol_organizacional = $2
+                      AND is_active = TRUE
+                )
+                """,
+                id_usuario,
+                rol_organizacional,
+            )
+        )
+
 
 def get_db_service() -> ProyectosDBService:
     return ProyectosDBService()
