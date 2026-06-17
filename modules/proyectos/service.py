@@ -85,14 +85,17 @@ class ProyectosService:
         """
         asignaciones = await self.db.get_asignaciones_equipo(conn, id_proyecto)
 
-        # Responsables organizacionales (referencia, no asignables desde este modal)
+        # Responsables del proyecto: RC/RI persistido (decision 3 del modelo cerrado);
+        # fallback al primer jefe organizacional solo si el proyecto aun no tiene RC/RI.
         jefes_rows = await self.db.get_jefes_organizacionales(conn)
-        jefe_ingenieria = next(
-            (j for j in jefes_rows if j["rol_organizacional"] == "jefe_ingenieria"), None
-        )
-        jefe_construccion = next(
-            (j for j in jefes_rows if j["rol_organizacional"] == "jefe_construccion"), None
-        )
+        jefe_ing_default = next((j for j in jefes_rows if j["rol_organizacional"] == "jefe_ingenieria"), None)
+        jefe_const_default = next((j for j in jefes_rows if j["rol_organizacional"] == "jefe_construccion"), None)
+
+        ri_id = await self.db.get_responsable_proyecto(conn, id_proyecto, "INGENIERIA")
+        rc_id = await self.db.get_responsable_proyecto(conn, id_proyecto, "CONSTRUCCION")
+        by_id = {str(j["id_usuario"]): j for j in jefes_rows}
+        jefe_ingenieria = by_id.get(str(ri_id)) if ri_id else jefe_ing_default
+        jefe_construccion = by_id.get(str(rc_id)) if rc_id else jefe_const_default
 
         # Usuarios activos filtrados por departamento (via slug de tb_cat_departamentos)
         dept_rows = await self.db.get_usuarios_por_departamentos(
