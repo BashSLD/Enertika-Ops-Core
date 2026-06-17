@@ -1,35 +1,63 @@
 # Pendientes — Módulo Simulación
 
-**Última actualización:** 2026-06-16
+**Última actualización:** 2026-06-17
 
 ---
 
-## 0. Rama `feat/decouple-fv-bess` — pendiente de pipe + deploy
+## 0. Decouple FV/BESS — MERGEADO Y DESPLEGADO a `main` (2026-06-16)
 
-**Estado (2026-06-16):** Decouple FV/BESS + Montaje de oferta + correcciones de reportes
-**IMPLEMENTADOS**. Migraciones **108–112 aplicadas en PROD y DEV**. La rama está 16+ commits
-adelante de `main`, con cambios adicionales de esta sesión **sin commitear** en el working tree.
+**Estado (2026-06-17, verificado):** Decouple FV/BESS + Montaje de oferta + correcciones de reportes
+**IMPLEMENTADOS, mergeados y desplegados**. `main` @ `099f573` incluye todo hasta `ffac007`
+(fast-forward `e17244e..ffac007`). Migraciones **108–112 aplicadas en PROD y DEV**. El sync de
+Fase 5 ya corre en producción — las entregas nuevas registran fila de componente.
 
 **HECHO (ya no es pendiente):**
 - Montaje de oferta + exclusión KPIs (mig 111). Detalle: `MD/PLAN_MONTAJE_OFERTA_KPIS_SIMULACION.md`.
-- Decouple Fases 1 (mig 108), 3 (botón "FV Terminado"), 4 (reportes), 5 (sync, mig 110) — código.
+- Decouple Fases 1 (mig 108), 3 (botón "FV Terminado"), 4 (reportes), 5 (sync, mig 110) — código,
+  commiteado y desplegado.
 - Correcciones UI/PDF (commiteadas). Detalle: `MD/CORRECCIONES_REPORTES_DECOUPLE_FV_BESS.md`.
-- **Sesión 2 (sin commitear):** tiempo de entrega ahora se mide desde el componente FV
-  (`_TIEMPO_FV_HORAS`, 9 queries en `report_db_service.py`) → limpia la contaminación de BESS en
-  híbridos; tooltips en cards KPI (denominador = ofertas FV evaluables) y en secciones de reportes;
-  tabla "Desempeño por Tecnología" muestra "—" para BESS; fix de días negativos (`GREATEST(...,0)`)
-  en 3 métodos de `metrics_db_service.py`; drill-down por tecnología en "Tiempo de entrega"; ícono
-  Resumen Ejecutivo reducido; separación de la sección BESS en el PDF.
+- Sesión 2: tiempo de entrega medido desde el componente FV (`_TIEMPO_FV_HORAS`,
+  `report_db_service.py`); tooltips en cards KPI y secciones; tabla "Desempeño por Tecnología"
+  muestra "—" para BESS; fix de días negativos (`GREATEST(...,0)`) en `metrics_db_service.py`;
+  drill-down por tecnología en "Tiempo de entrega"; separación de la sección BESS en el PDF.
+  Commiteado en `cce7d83` / `399c8da` / `ffac007`.
+
+**HECHO — Decouple Fase 2 (Excel), aplicada en PROD 2026-06-17:**
+`scripts/decouple_fv_bess/importar_correccion.py --apply` corrido contra PROD (296 oportunidades)
+con `correccion_fv_bess.xlsx` (45 filas revisadas por el equipo). Resultado: 40 componentes con
+`fecha_entrega` FV actualizada, 37 magnitudes kWp y 33 magnitudes kWh corregidas. 11 filas omitidas
+sin cambios (levantamientos, canceladas, no localizadas, "todo ok") — `validate()` se ajustó para
+omitirlas (en vez de error) cuando tienen NOTAS que lo justifican. 16 reclasificaciones de tecnología
+(`RECLASIFICAR_TECNOLOGIA`) quedaron **fuera de alcance a propósito** (decisión: "Solo Fase 2") — no
+se tocó `id_tecnologia` ni se reclasificó ninguna oportunidad; quedan como seguimiento manual aparte
+(Fase 2b, sin fecha). Verificación Paso 4 del runbook: invariante FV-family intacto (híbrido/BESS
+puro sin cambios), 0 híbridos entregados sin fecha FV, magnitudes reconciliadas (BESS 66,332.52 kWh /
+FV 59,291.81 kWp).
 
 **PENDIENTE:**
-1. **Pipe + deploy** — correr `/simplify` y `/code-review` sobre el diff (sesión nueva, sobre el
-   working tree sin commitear), commit, merge a `main` y desplegar. *Bloqueante:* sin deploy, el sync
-   de Fase 5 no corre → las entregas nuevas no generan fila de componente.
-2. **Decouple Fase 2 (Excel)** — script listo (`scripts/decouple_fv_bess/importar_correccion.py`);
-   espera a que el equipo llene las 45 filas. Las reclasificaciones de tecnología se aplican aparte (manual).
-3. **Decouple Fase 6 (recordatorio 16:00 MX)** — **NO construido**. Worker task + sección de
-   destinatarios en admin (`SIMULACION_RECORDATORIO_TARGETS`). Independiente del resto.
-4. **Full-sync Fase 5 (opcional)** — 2 KPIs NULL históricos; se auto-corrigen al tocar esas oportunidades.
+1. **Decouple Fase 2b (reclasificación de tecnología)** — De las 16 filas con
+   `RECLASIFICAR_TECNOLOGIA`, solo 6 OPs son cambios reales (las otras 10 son confirmaciones de
+   "sigue igual"): OP-2605251110 (BESS→FV), OP-2603110722, OP-2605120529, OP-2605171727 (FV→FV+BESS),
+   OP-2602170749 (FV+BESS→FV), OP-2602200751 (FV+BESS→BESS). **Decisión 2026-06-17: no se aplican
+   por ahora** — se quedan como están. Mientras no se reclasifiquen, sus componentes con
+   `magnitud=0` (ej. OP-2602200751) siguen contando en el KPI de tiempo de entrega del componente
+   que ya no aplica (a tiempo/tarde), aunque no afecten el KPI de volumen. Retomar solo si el equipo
+   pide cerrar esto formalmente.
+2. ~~Decouple Fase 6 (recordatorio 16:00 MX)~~ — **CERRADO 2026-06-17, no procede.** Decisión del
+   equipo: no se construye el recordatorio por correo (worker task + destinatarios en admin).
+3. ~~Full-sync Fase 5~~ — **HECHO 2026-06-17**: corrido `sync_componentes_oportunidad` para
+   OP-2605210946 y OP-2605221002 (los 2 KPI NULL históricos reales); ambos quedaron con
+   `kpi_status` calculado. OP-2606150852 también salió en el barrido con KPI NULL pero es
+   exclusión legítima (`excluir_kpis_simulacion=true`, pasó por Montaje/Monitoreo) — NULL correcto
+   por diseño, no requiere acción.
+4. ~~Bug `editado_manual` en Fase 2~~ — **CORREGIDO 2026-06-17**: `importar_correccion.py` (Fase 2)
+   escribió fecha/magnitud en 83 filas de `tb_entregas_componente` sin marcar `editado_manual=true`,
+   dejándolas expuestas a que un `sync_componentes_oportunidad` futuro las revirtiera
+   silenciosamente. Fix aplicado en dos partes: (a) retroactivo — nuevo modo
+   `--fix-editado-manual` del script, corrido contra PROD, marcó 74 componentes (verificado por
+   query independiente); los 9 de diferencia con el "83" inicial eran filas tocadas hoy por otras
+   razones, no por la corrección del Excel; (b) las tres `UPDATE` de `apply_row()` ahora marcan
+   `editado_manual=true` para que una futura re-ejecución no repita el problema.
 
 ---
 
@@ -158,3 +186,52 @@ hardcode `IN(entregado,perdido,ganada)`). Sección BESS aparte (`SeccionBESS` + 
 **`migrations/112_backfill_entregas_componente_historico.sql` YA APLICADA** en PROD y DEV
 (backfill histórico completo de `tb_entregas_componente`; verificado 2026-06-16: 435 filas).
 Lo único que falta es el **pipe + deploy** de la rama (ver sección 0).
+
+---
+
+## 6. Tiempo de entrega FV — negativos no clampados en reportes (nit, no urgente)
+
+**Estado:** Detectado en code-review 2026-06-16. Impacto marginal; documentado, sin corregir.
+
+**Contexto:** `_TIEMPO_FV_HORAS` en `modules/simulacion/report_db_service.py`
+(`EXTRACT(EPOCH FROM (ec.fecha_entrega - o.fecha_solicitud)) / 3600.0`) **no** clampa a 0,
+mientras que `modules/simulacion/metrics_db_service.py` sí usa `GREATEST(..., 0)` para el mismo
+concepto. En PROD hay **4 componentes FV** con `fecha_entrega < fecha_solicitud` (error de captura),
+lo que produce días negativos en el promedio de los reportes.
+
+**Impacto medido (PROD, 2026-06-16):** el promedio FV cambia de **7.403 → 7.408 días** (5 milésimas;
+peor negativo −0.7 días). Un tipo/tecnología con un único componente negativo podría mostrar días
+negativos en la tabla.
+
+**Fix (opcional, ~1 línea):** envolver la constante `_TIEMPO_FV_HORAS` en
+`GREATEST(EXTRACT(...) / 3600.0, 0)` para alinearla con `metrics_db_service` (aplica a las ~6 queries
+que la usan). Alternativa: corregir las 4 capturas de `fecha_entrega` en origen.
+
+---
+
+## 7. Reportes — `SUM(DISTINCT)` en totales de potencia/capacidad
+
+**Estado:** Detectado en validación de la Fase 4 (2026-06-16). No bloqueante; probablemente
+preexistente (el refactor de Fase 4 conservó el patrón, no lo introdujo). No afecta los KPIs de
+entrega/cumplimiento.
+
+**Contexto:** En `modules/simulacion/report_db_service.py`, los métodos `get_report_metricas_tech`
+y `get_report_metricas_tech_batch` calculan los totales por tecnología así:
+
+```sql
+COALESCE(SUM(DISTINCT potencia_cierre_fv_kwp), 0) as potencia_total_kwp,
+COALESCE(SUM(DISTINCT capacidad_cierre_bess_kwh), 0) as capacidad_total_kwh,
+```
+
+El `SUM(DISTINCT)` busca evitar inflar el total cuando una oportunidad multisitio repite el mismo
+`o.potencia_cierre_fv_kwp` en cada fila del UNION (sitios + sim_adicionales). El problema es que
+`DISTINCT` deduplica por **valor**, no por oportunidad: si dos oportunidades distintas de la misma
+tecnología tienen exactamente el mismo kWp (o kWh), se suma una sola vez → el total queda
+subestimado.
+
+**Fix sugerido:** sumar potencia/capacidad una sola vez por oportunidad antes de agregar por
+tecnología (CTE que tome `DISTINCT (id_oportunidad, potencia_cierre_fv_kwp)` y luego `SUM`), en lugar
+de `SUM(DISTINCT valor)` sobre las filas explotadas por sitio.
+
+**Esfuerzo estimado:** Bajo. Verificar antes si esos totales se consumen en algún tablero/PDF
+sensible; si nadie los usa para decisiones, baja prioridad.
