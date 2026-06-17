@@ -222,28 +222,44 @@ class ProyectosService:
                 id_proyecto, area, responsable_id,
             )
 
-    async def permisos_equipo(self, conn, context: Dict) -> Dict[str, bool]:
+    async def permisos_equipo(
+        self, conn, context: Dict, id_proyecto: UUID
+    ) -> Dict[str, bool]:
         """
-        Retorna flags de permiso granulares por seccion del equipo.
-        - Ingenieria: jefe_ingenieria organizacional.
-        - Construccion: jefe_construccion organizacional.
-        - O&M: usuario cuyo departamento resuelve al catalogo con slug oym.
+        Flags de permiso por seccion del equipo, conscientes del proyecto.
+        - Sin RC/RI definido: cualquier jefe del area puede tomar el proyecto.
+        - Con RC/RI definido: solo ese RC/RI gestiona su coordinador (candado de
+          propiedad, configurable via equipo.gestion_solo_responsable).
+        - ADMIN y Direccion sobrescriben; Direccion reasigna el RC/RI.
         """
-        if context.get("role") == "ADMIN":
-            return {
-                "puede_asignar_ingenieria": True,
-                "puede_asignar_construccion": True,
-                "puede_asignar_oym": True,
-                "puede_ver_modal": True,
-            }
-
+        role = context.get("role")
         rol_org = (context.get("rol_organizacional") or "").strip().lower()
+        user_id = context.get("user_db_id")
+        es_admin = role == "ADMIN"
+        es_director = rol_org == "director"
+
+        rc_id = await self.db.get_responsable_proyecto(conn, id_proyecto, "CONSTRUCCION")
+        ri_id = await self.db.get_responsable_proyecto(conn, id_proyecto, "INGENIERIA")
+        solo_responsable = await ConfigService.get_global_config(
+            conn, "equipo.gestion_solo_responsable", True, bool
+        )
+
+        def _puede_gestionar(responsable_id, es_jefe_area):
+            if es_admin or es_director:
+                return True
+            if responsable_id is None:
+                return es_jefe_area
+            if not solo_responsable:
+                return es_jefe_area
+            return str(responsable_id) == str(user_id)
+
         dept_slug = await self.db.get_department_slug(conn, context.get("department"))
 
         return {
-            "puede_asignar_ingenieria": rol_org == "jefe_ingenieria",
-            "puede_asignar_construccion": rol_org == "jefe_construccion",
-            "puede_asignar_oym": dept_slug == "oym",
+            "puede_asignar_ingenieria": _puede_gestionar(ri_id, rol_org == "jefe_ingenieria"),
+            "puede_asignar_construccion": _puede_gestionar(rc_id, rol_org == "jefe_construccion"),
+            "puede_asignar_oym": es_admin or dept_slug == "oym",
+            "puede_reasignar_responsable": es_admin or es_director,
             "puede_ver_modal": True,
         }
 
