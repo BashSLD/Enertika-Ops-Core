@@ -89,18 +89,21 @@ class ProyectosService:
         # Responsables del proyecto: RC/RI persistido (decision 3 del modelo cerrado);
         # fallback al primer jefe organizacional solo si el proyecto aun no tiene RC/RI.
         jefes_rows = await self.db.get_jefes_organizacionales(conn)
-        jefe_ing_default = next((j for j in jefes_rows if j["rol_organizacional"] == "jefe_ingenieria"), None)
-        jefe_const_default = next((j for j in jefes_rows if j["rol_organizacional"] == "jefe_construccion"), None)
+        jefes_ingenieria = [j for j in jefes_rows if j["rol_organizacional"] == "jefe_ingenieria"]
+        jefes_construccion = [j for j in jefes_rows if j["rol_organizacional"] == "jefe_construccion"]
 
-        # RC/RI persistido: ya viene en asignaciones (get_asignaciones_equipo trae
-        # todas las filas activas del proyecto), evitamos 2 queries extra.
-        ri_id = next((a["id_usuario"] for a in asignaciones
-                      if a["rol_proyecto"] == "responsable_ingenieria"), None)
-        rc_id = next((a["id_usuario"] for a in asignaciones
-                      if a["rol_proyecto"] == "responsable_construccion"), None)
-        by_id = {str(j["id_usuario"]): j for j in jefes_rows}
-        jefe_ingenieria = by_id.get(str(ri_id)) if ri_id else jefe_ing_default
-        jefe_construccion = by_id.get(str(rc_id)) if rc_id else jefe_const_default
+        # RC/RI persistido: ya viene en asignaciones (get_asignaciones_equipo trae todas
+        # las filas activas del proyecto), evitamos 2 queries extra. Se resuelve desde la
+        # propia asignacion (id + nombre), de modo que un RC/RI que ya no sea jefe activo
+        # se sigue mostrando. Fallback al primer jefe organizacional si no hay RC/RI.
+        def _responsable(rol_proyecto, default):
+            row = next((a for a in asignaciones if a["rol_proyecto"] == rol_proyecto), None)
+            if row:
+                return {"id_usuario": row["id_usuario"], "nombre": row["nombre_usuario"]}
+            return default
+
+        jefe_ingenieria = _responsable("responsable_ingenieria", jefes_ingenieria[0] if jefes_ingenieria else None)
+        jefe_construccion = _responsable("responsable_construccion", jefes_construccion[0] if jefes_construccion else None)
 
         # Usuarios activos filtrados por departamento (via slug de tb_cat_departamentos)
         dept_rows = await self.db.get_usuarios_por_departamentos(
@@ -115,6 +118,8 @@ class ProyectosService:
             "asignaciones": asignaciones,
             "jefe_ingenieria": jefe_ingenieria,
             "jefe_construccion": jefe_construccion,
+            "jefes_ingenieria": jefes_ingenieria,
+            "jefes_construccion": jefes_construccion,
             "usuarios_ingenieria": usuarios_ingenieria,
             "usuarios_construccion": usuarios_construccion,
             "usuarios_oym": usuarios_oym,
@@ -213,7 +218,15 @@ class ProyectosService:
             if not await self.db.usuario_tiene_rol_organizacional(conn, responsable_id, rol_jefe):
                 raise ValueError(f"El responsable indicado no tiene el rol {rol_jefe}")
         else:
-            raise ValueError("Debe indicarse el jefe responsable del proyecto")
+            # No se puede determinar el RC/RI automaticamente (ADMIN/Direccion sin
+            # seleccion explicita, o autoasignacion deshabilitada). No abortamos el
+            # guardado del coordinador: el RC/RI queda sin definir y Direccion lo fija
+            # luego via reasignacion. Evita el 400 + rollback del equipo completo.
+            logger.info(
+                "RC/RI no autodefinido en proyecto %s area %s: se guarda el equipo sin responsable",
+                id_proyecto, area,
+            )
+            return
 
         # Savepoint anidado: si el jefe ya esta activo en esta area con otro rol
         # (uq_proyecto_usuario_area_activo, mig 086), el INSERT viola el indice. Sin el

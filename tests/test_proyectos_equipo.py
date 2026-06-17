@@ -183,3 +183,55 @@ async def test_no_cambia_rc_existente_al_rotar_coordinador(monkeypatch):
 
     roles_insertados = [r[2] for r in service.db.insertadas]
     assert "responsable_construccion" not in roles_insertados  # no se redefine el RC
+
+
+@pytest.mark.asyncio
+async def test_admin_asigna_coordinador_sin_rc_no_aborta(monkeypatch):
+    from core.config_service import ConfigService
+    monkeypatch.setattr(ConfigService, "get_global_config", classmethod(
+        lambda cls, conn, clave, default, tipo=str: _async_value(default)))
+
+    id_proyecto = uuid4()
+    id_coord = uuid4()
+    id_admin = uuid4()
+    service = ProyectosService()
+    service.db = FakeProyectosDB(responsable=None)
+
+    await service.save_equipo_proyecto(
+        FakeConn(),
+        id_proyecto,
+        [{"rol_proyecto": "coordinador_obra", "area": "CONSTRUCCION", "id_usuario": id_coord}],
+        id_admin,
+        {"puede_asignar_ingenieria": True, "puede_asignar_construccion": True, "puede_asignar_oym": True},
+        context={"role": "ADMIN", "rol_organizacional": ""},
+    )
+
+    roles = [r[2] for r in service.db.insertadas]
+    assert "coordinador_obra" in roles               # el coordinador se guarda
+    assert "responsable_construccion" not in roles   # ADMIN no autodefine el RC (sin abortar)
+
+
+@pytest.mark.asyncio
+async def test_autoasignacion_off_no_aborta_guardado(monkeypatch):
+    from core.config_service import ConfigService
+    monkeypatch.setattr(ConfigService, "get_global_config", classmethod(
+        lambda cls, conn, clave, default, tipo=str: _async_value(False)))
+
+    id_proyecto = uuid4()
+    id_coord = uuid4()
+    id_jefe = uuid4()
+    service = ProyectosService()
+    service.db = FakeProyectosDB(responsable=None, jefes={id_jefe: "jefe_construccion"})
+
+    await service.save_equipo_proyecto(
+        FakeConn(),
+        id_proyecto,
+        [{"rol_proyecto": "coordinador_obra", "area": "CONSTRUCCION", "id_usuario": id_coord}],
+        id_jefe,
+        {"puede_asignar_ingenieria": False, "puede_asignar_construccion": True, "puede_asignar_oym": False},
+        context={"role": "USER", "rol_organizacional": "jefe_construccion"},
+    )
+
+    roles = [r[2] for r in service.db.insertadas]
+    assert "coordinador_obra" in roles               # se guarda sin abortar
+    assert "responsable_construccion" not in roles   # autoasignacion off -> no RC

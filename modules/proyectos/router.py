@@ -110,6 +110,8 @@ def _equipo_template_data(request, id_proyecto, data, permisos, guardado=False):
         "asignaciones": data["asignaciones"],
         "jefe_ingenieria": data["jefe_ingenieria"],
         "jefe_construccion": data["jefe_construccion"],
+        "jefes_ingenieria": data["jefes_ingenieria"],
+        "jefes_construccion": data["jefes_construccion"],
         "usuarios_ingenieria": data["usuarios_ingenieria"],
         "usuarios_construccion": data["usuarios_construccion"],
         "usuarios_oym": data["usuarios_oym"],
