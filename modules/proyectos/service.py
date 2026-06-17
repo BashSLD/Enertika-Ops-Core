@@ -14,35 +14,40 @@ from .db_service import ProyectosDBService, get_db_service, ROL_RESPONSABLE_POR_
 
 logger = logging.getLogger("ProyectosService")
 
-# Roles asignables al equipo de proyecto (almacenados en tb_proyecto_usuarios)
+# Roles asignables al equipo de proyecto (almacenados en tb_proyecto_usuarios).
+# Fuente unica: todos los mapas derivados (ROLES_EQUIPO_MAP, PERMISO_POR_ROL, etc.)
+# se construyen a partir de esta lista para evitar repetir las tuplas (rol, area).
 ROLES_EQUIPO = [
-    {"rol": "ingeniero_asignado", "area": "INGENIERIA",   "label": "Ingeniero Asignado"},
-    {"rol": "coordinador_obra",   "area": "CONSTRUCCION", "label": "Coordinador de Obra"},
-    {"rol": "encargado",          "area": "OYM",          "label": "Encargado O&M"},
+    {
+        "rol": "ingeniero_asignado", "area": "INGENIERIA", "label": "Ingeniero Asignado",
+        "permiso": "puede_asignar_ingenieria", "departamento": "ingenieria",
+        "rol_jefe": "jefe_ingenieria",
+    },
+    {
+        "rol": "coordinador_obra", "area": "CONSTRUCCION", "label": "Coordinador de Obra",
+        "permiso": "puede_asignar_construccion", "departamento": "construccion",
+        "rol_jefe": "jefe_construccion",
+    },
+    {
+        "rol": "encargado", "area": "OYM", "label": "Encargado O&M",
+        "permiso": "puede_asignar_oym", "departamento": "oym",
+        "rol_jefe": None,
+    },
 ]
 
 ROLES_EQUIPO_MAP = {(r["rol"], r["area"]): r for r in ROLES_EQUIPO}
-PERMISO_POR_ROL = {
-    ("ingeniero_asignado", "INGENIERIA"): "puede_asignar_ingenieria",
-    ("coordinador_obra", "CONSTRUCCION"): "puede_asignar_construccion",
-    ("encargado", "OYM"): "puede_asignar_oym",
-}
-DEPARTAMENTO_POR_ROL = {
-    ("ingeniero_asignado", "INGENIERIA"): "ingenieria",
-    ("coordinador_obra", "CONSTRUCCION"): "construccion",
-    ("encargado", "OYM"): "oym",
-}
+PERMISO_POR_ROL = {(r["rol"], r["area"]): r["permiso"] for r in ROLES_EQUIPO}
+DEPARTAMENTO_POR_ROL = {(r["rol"], r["area"]): r["departamento"] for r in ROLES_EQUIPO}
 
 # Rol editable que, al asignarse por primera vez, define el RC/RI del proyecto
 ROL_EDITABLE_DEFINE_RESPONSABLE = {
-    ("ingeniero_asignado", "INGENIERIA"): "INGENIERIA",
-    ("coordinador_obra", "CONSTRUCCION"): "CONSTRUCCION",
+    (r["rol"], r["area"]): r["area"] for r in ROLES_EQUIPO if r["rol_jefe"]
 }
 # Por area: (rol_proyecto del responsable, rol_organizacional del jefe del area).
 # El rol_resp se toma de ROL_RESPONSABLE_POR_AREA (fuente unica en db_service).
 RESPONSABLE_POR_AREA = {
-    "INGENIERIA": (ROL_RESPONSABLE_POR_AREA["INGENIERIA"], "jefe_ingenieria"),
-    "CONSTRUCCION": (ROL_RESPONSABLE_POR_AREA["CONSTRUCCION"], "jefe_construccion"),
+    r["area"]: (ROL_RESPONSABLE_POR_AREA[r["area"]], r["rol_jefe"])
+    for r in ROLES_EQUIPO if r["rol_jefe"]
 }
 
 

@@ -115,11 +115,6 @@ def _equipo_template_data(request, id_proyecto, data, permisos, guardado=False):
         "usuarios_ingenieria": data["usuarios_ingenieria"],
         "usuarios_construccion": data["usuarios_construccion"],
         "usuarios_oym": data["usuarios_oym"],
-        "roles_equipo": [r for r in [
-            {"rol": "ingeniero_asignado", "area": "INGENIERIA"},
-            {"rol": "coordinador_obra",   "area": "CONSTRUCCION"},
-            {"rol": "encargado",          "area": "OYM"},
-        ]],
         **permisos,
         "guardado": guardado,
     }
