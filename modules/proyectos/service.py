@@ -6,6 +6,9 @@ from typing import Optional, List, Dict, Any
 from uuid import UUID
 import logging
 
+import asyncpg
+
+from core.config_service import ConfigService
 from core.transfers.service import TransferService, get_transfer_service
 from .db_service import ProyectosDBService, get_db_service
 
@@ -116,12 +119,18 @@ class ProyectosService:
         asignaciones: List[Dict],
         asignado_por_id: UUID,
         permisos: Dict[str, bool],
+        context: Optional[Dict] = None,
+        responsables_explicitos: Optional[Dict[str, UUID]] = None,
     ) -> None:
         """
         Actualiza solo las secciones del equipo que el usuario puede editar.
         Preserva asignaciones existentes para secciones sin permiso.
+        Al definir coordinador/ingeniero en un proyecto sin RC/RI, autoasigna el
+        responsable (ver _asegurar_responsable).
         asignaciones = [{"rol_proyecto": ..., "area": ..., "id_usuario": UUID|None}, ...]
         """
+        context = context or {}
+        responsables_explicitos = responsables_explicitos or {}
         asignaciones_por_rol = {}
         for item in asignaciones:
             key = (item.get("rol_proyecto"), item.get("area"))
@@ -164,8 +173,54 @@ class ProyectosService:
                     await self.db.insertar_asignacion_equipo(
                         conn, id_proyecto, id_usuario, key[0], key[1], asignado_por_id
                     )
+                    if key in ROL_EDITABLE_DEFINE_RESPONSABLE:
+                        await self._asegurar_responsable(
+                            conn, id_proyecto, ROL_EDITABLE_DEFINE_RESPONSABLE[key],
+                            asignado_por_id, context, responsables_explicitos,
+                        )
 
         logger.info("Equipo actualizado para proyecto %s por usuario %s", id_proyecto, asignado_por_id)
+
+    async def _asegurar_responsable(
+        self, conn, id_proyecto: UUID, area: str, asignado_por_id: UUID,
+        context: Dict, responsables_explicitos: Dict[str, UUID],
+    ) -> None:
+        """Define el RC/RI del proyecto si aun no existe. No lo cambia en rotaciones."""
+        rol_resp, rol_jefe = RESPONSABLE_POR_AREA[area]
+        existente = await self.db.get_responsable_proyecto(conn, id_proyecto, area)
+        if existente is not None:
+            return  # ya definido: las rotaciones de coordinador no cambian el RC/RI
+
+        es_admin = context.get("role") == "ADMIN"
+        rol_org = (context.get("rol_organizacional") or "").strip().lower()
+        es_director = rol_org == "director"
+        autoasignacion = await ConfigService.get_global_config(
+            conn, "equipo.autoasignacion_rc_por_jefes", True, bool
+        )
+
+        if not es_admin and not es_director and autoasignacion and rol_org == rol_jefe:
+            responsable_id = asignado_por_id
+        elif area in responsables_explicitos and responsables_explicitos[area]:
+            responsable_id = responsables_explicitos[area]
+            if not await self.db.usuario_tiene_rol_organizacional(conn, responsable_id, rol_jefe):
+                raise ValueError(f"El responsable indicado no tiene el rol {rol_jefe}")
+        else:
+            raise ValueError("Debe indicarse el jefe responsable del proyecto")
+
+        # Savepoint anidado: si el jefe ya esta activo en esta area con otro rol
+        # (uq_proyecto_usuario_area_activo, mig 086), el INSERT viola el indice. Sin el
+        # savepoint, la excepcion abortaria la transaccion externa de save_equipo_proyecto.
+        # Con el savepoint solo se revierte este INSERT y el resto del guardado persiste.
+        try:
+            async with conn.transaction():
+                await self.db.insertar_asignacion_equipo(
+                    conn, id_proyecto, responsable_id, rol_resp, area, asignado_por_id
+                )
+        except asyncpg.UniqueViolationError:
+            logger.warning(
+                "No se autoasigno RC/RI en proyecto %s area %s: usuario %s ya activo en el area",
+                id_proyecto, area, responsable_id,
+            )
 
     async def permisos_equipo(self, conn, context: Dict) -> Dict[str, bool]:
         """
