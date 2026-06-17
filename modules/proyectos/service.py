@@ -30,6 +30,17 @@ DEPARTAMENTO_POR_ROL = {
     ("encargado", "OYM"): "oym",
 }
 
+# Rol editable que, al asignarse por primera vez, define el RC/RI del proyecto
+ROL_EDITABLE_DEFINE_RESPONSABLE = {
+    ("ingeniero_asignado", "INGENIERIA"): "INGENIERIA",
+    ("coordinador_obra", "CONSTRUCCION"): "CONSTRUCCION",
+}
+# Por area: (rol_proyecto del responsable, rol_organizacional del jefe del area)
+RESPONSABLE_POR_AREA = {
+    "INGENIERIA": ("responsable_ingenieria", "jefe_ingenieria"),
+    "CONSTRUCCION": ("responsable_construccion", "jefe_construccion"),
+}
+
 
 class ProyectosService:
 
