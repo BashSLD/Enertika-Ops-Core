@@ -5,6 +5,13 @@ Queries SQL puras con asyncpg. Recibe conn como parametro.
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 
+# Rol persistido del responsable (RC/RI) por area de proyecto. Fuente unica:
+# modules.proyectos.service.RESPONSABLE_POR_AREA la referencia para el rol_resp.
+ROL_RESPONSABLE_POR_AREA = {
+    "INGENIERIA": "responsable_ingenieria",
+    "CONSTRUCCION": "responsable_construccion",
+}
+
 
 class ProyectosDBService:
     """Capa de acceso a datos para Proyectos."""
@@ -148,10 +155,7 @@ class ProyectosDBService:
         self, conn, id_proyecto: UUID, area: str
     ) -> Optional[UUID]:
         """RC/RI persistido del proyecto para un area, o None si aun no esta definido."""
-        rol_resp = {
-            "CONSTRUCCION": "responsable_construccion",
-            "INGENIERIA": "responsable_ingenieria",
-        }.get(area)
+        rol_resp = ROL_RESPONSABLE_POR_AREA.get(area)
         if rol_resp is None:
             return None
         return await conn.fetchval(

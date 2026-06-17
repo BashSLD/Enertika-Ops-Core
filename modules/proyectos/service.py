@@ -10,7 +10,7 @@ import asyncpg
 
 from core.config_service import ConfigService
 from core.transfers.service import TransferService, get_transfer_service
-from .db_service import ProyectosDBService, get_db_service
+from .db_service import ProyectosDBService, get_db_service, ROL_RESPONSABLE_POR_AREA
 
 logger = logging.getLogger("ProyectosService")
 
@@ -38,10 +38,11 @@ ROL_EDITABLE_DEFINE_RESPONSABLE = {
     ("ingeniero_asignado", "INGENIERIA"): "INGENIERIA",
     ("coordinador_obra", "CONSTRUCCION"): "CONSTRUCCION",
 }
-# Por area: (rol_proyecto del responsable, rol_organizacional del jefe del area)
+# Por area: (rol_proyecto del responsable, rol_organizacional del jefe del area).
+# El rol_resp se toma de ROL_RESPONSABLE_POR_AREA (fuente unica en db_service).
 RESPONSABLE_POR_AREA = {
-    "INGENIERIA": ("responsable_ingenieria", "jefe_ingenieria"),
-    "CONSTRUCCION": ("responsable_construccion", "jefe_construccion"),
+    "INGENIERIA": (ROL_RESPONSABLE_POR_AREA["INGENIERIA"], "jefe_ingenieria"),
+    "CONSTRUCCION": (ROL_RESPONSABLE_POR_AREA["CONSTRUCCION"], "jefe_construccion"),
 }
 
 
@@ -91,8 +92,12 @@ class ProyectosService:
         jefe_ing_default = next((j for j in jefes_rows if j["rol_organizacional"] == "jefe_ingenieria"), None)
         jefe_const_default = next((j for j in jefes_rows if j["rol_organizacional"] == "jefe_construccion"), None)
 
-        ri_id = await self.db.get_responsable_proyecto(conn, id_proyecto, "INGENIERIA")
-        rc_id = await self.db.get_responsable_proyecto(conn, id_proyecto, "CONSTRUCCION")
+        # RC/RI persistido: ya viene en asignaciones (get_asignaciones_equipo trae
+        # todas las filas activas del proyecto), evitamos 2 queries extra.
+        ri_id = next((a["id_usuario"] for a in asignaciones
+                      if a["rol_proyecto"] == "responsable_ingenieria"), None)
+        rc_id = next((a["id_usuario"] for a in asignaciones
+                      if a["rol_proyecto"] == "responsable_construccion"), None)
         by_id = {str(j["id_usuario"]): j for j in jefes_rows}
         jefe_ingenieria = by_id.get(str(ri_id)) if ri_id else jefe_ing_default
         jefe_construccion = by_id.get(str(rc_id)) if rc_id else jefe_const_default
@@ -259,6 +264,16 @@ class ProyectosService:
         user_id = context.get("user_db_id")
         es_admin = role == "ADMIN"
         es_director = rol_org == "director"
+
+        # ADMIN sobrescribe todo: evita consultar RC/RI y config.
+        if es_admin:
+            return {
+                "puede_asignar_ingenieria": True,
+                "puede_asignar_construccion": True,
+                "puede_asignar_oym": True,
+                "puede_reasignar_responsable": True,
+                "puede_ver_modal": True,
+            }
 
         rc_id = await self.db.get_responsable_proyecto(conn, id_proyecto, "CONSTRUCCION")
         ri_id = await self.db.get_responsable_proyecto(conn, id_proyecto, "INGENIERIA")
