@@ -96,14 +96,29 @@ class ProyectosService:
         # las filas activas del proyecto), evitamos 2 queries extra. Se resuelve desde la
         # propia asignacion (id + nombre), de modo que un RC/RI que ya no sea jefe activo
         # se sigue mostrando. Fallback al primer jefe organizacional si no hay RC/RI.
-        def _responsable(rol_proyecto, default):
+        # Forma homogenea {id_usuario, nombre} en ambos casos (persistido y default).
+        def _slim(usuario):
+            return {"id_usuario": usuario["id_usuario"], "nombre": usuario["nombre"]} if usuario else None
+
+        def _responsable(rol_proyecto, jefes):
             row = next((a for a in asignaciones if a["rol_proyecto"] == rol_proyecto), None)
             if row:
                 return {"id_usuario": row["id_usuario"], "nombre": row["nombre_usuario"]}
-            return default
+            return _slim(jefes[0] if jefes else None)
 
-        jefe_ingenieria = _responsable("responsable_ingenieria", jefes_ingenieria[0] if jefes_ingenieria else None)
-        jefe_construccion = _responsable("responsable_construccion", jefes_construccion[0] if jefes_construccion else None)
+        jefe_ingenieria = _responsable("responsable_ingenieria", jefes_ingenieria)
+        jefe_construccion = _responsable("responsable_construccion", jefes_construccion)
+
+        # El RC/RI actual debe poder preseleccionarse en el selector de reasignacion
+        # aunque ya no sea jefe activo (no estaria en jefes_*); lo agregamos si falta.
+        def _con_responsable(jefes, responsable):
+            jefes = [_slim(j) for j in jefes]
+            if responsable and not any(str(j["id_usuario"]) == str(responsable["id_usuario"]) for j in jefes):
+                jefes.append(responsable)
+            return jefes
+
+        jefes_ingenieria = _con_responsable(jefes_ingenieria, jefe_ingenieria)
+        jefes_construccion = _con_responsable(jefes_construccion, jefe_construccion)
 
         # Usuarios activos filtrados por departamento (via slug de tb_cat_departamentos)
         dept_rows = await self.db.get_usuarios_por_departamentos(

@@ -38,6 +38,7 @@ class ProyectosDBService:
             FROM tb_usuarios
             WHERE rol_organizacional IN ('jefe_ingenieria', 'jefe_construccion')
               AND is_active = TRUE
+            ORDER BY nombre ASC
             """
         )
         return [dict(r) for r in rows]
