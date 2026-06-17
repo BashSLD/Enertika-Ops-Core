@@ -661,6 +661,34 @@ class BomDBService:
             )
         return dict(rows[0]) if rows else None
 
+    async def get_responsable_proyecto_o_global(
+        self, conn, id_proyecto, rol_organizacional: str
+    ) -> Optional[dict]:
+        """
+        Resuelve el jefe del area para un proyecto: primero el RC/RI persistido en
+        tb_proyecto_usuarios; si el proyecto aun no lo tiene, cae al primer jefe
+        organizacional activo (comportamiento previo).
+        """
+        rol_resp = {
+            "jefe_construccion": "responsable_construccion",
+            "jefe_ingenieria": "responsable_ingenieria",
+        }.get(rol_organizacional)
+        if rol_resp:
+            row = await conn.fetchrow(
+                """
+                SELECT u.id_usuario, u.nombre, u.email
+                FROM tb_proyecto_usuarios pu
+                JOIN tb_usuarios u ON u.id_usuario = pu.id_usuario
+                WHERE pu.id_proyecto = $1 AND pu.rol_proyecto = $2 AND pu.activo = TRUE
+                  AND u.is_active = TRUE
+                LIMIT 1
+                """,
+                id_proyecto, rol_resp,
+            )
+            if row:
+                return dict(row)
+        return await self.get_usuario_activo_por_rol_org(conn, rol_organizacional)
+
     async def get_asignacion_proyecto(
         self, conn, id_proyecto: UUID, rol_proyecto: str, area: str
     ) -> Optional[dict]:

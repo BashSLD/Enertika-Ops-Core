@@ -100,14 +100,14 @@ class BomService:
 
         await self._validar_retomar_bom_ingenieria(conn, id_proyecto, elaborado_por)
 
-        responsable = await self.db.get_usuario_activo_por_rol_org(
-            conn, "jefe_ingenieria"
+        responsable = await self.db.get_responsable_proyecto_o_global(
+            conn, id_proyecto, "jefe_ingenieria"
         )
         if not responsable:
             raise ValueError("No hay jefe de Ingenieria activo configurado")
 
-        jefe_const = await self.db.get_usuario_activo_por_rol_org(
-            conn, "jefe_construccion"
+        jefe_const = await self.db.get_responsable_proyecto_o_global(
+            conn, id_proyecto, "jefe_construccion"
         )
         if not jefe_const:
             raise ValueError("No hay jefe de Construccion activo configurado")
@@ -782,8 +782,8 @@ class BomService:
 
         # Crear nueva version — re-resolver responsables frescos con fallback al BOM anterior
         nueva_version = bom['version'] + 1
-        responsable = await self.db.get_usuario_activo_por_rol_org(conn, "jefe_ingenieria")
-        jefe_const = await self.db.get_usuario_activo_por_rol_org(conn, "jefe_construccion")
+        responsable = await self.db.get_responsable_proyecto_o_global(conn, bom['id_proyecto'], "jefe_ingenieria")
+        jefe_const = await self.db.get_responsable_proyecto_o_global(conn, bom['id_proyecto'], "jefe_construccion")
         coordinador = await self.db.get_asignacion_proyecto(
             conn, bom['id_proyecto'], "coordinador_obra", "CONSTRUCCION"
         )
