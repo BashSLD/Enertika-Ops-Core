@@ -43,6 +43,15 @@
             Equipo guardado correctamente.
         </div>
 
+        {% if not puede_asignar_construccion and not puede_reasignar_responsable %}
+        <div class="mx-5 mt-3 flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            Solo el responsable del proyecto o Direccion pueden actualizar esta asignacion.
+        </div>
+        {% endif %}
+
         <form id="form-equipo"
             hx-post="/proyectos/equipo/{{ id_proyecto }}"
             hx-target="#modal-equipo"
@@ -67,7 +76,22 @@
                         <div class="text-[10px] text-blue-500 uppercase tracking-wide mt-0.5">Rol organizacional</div>
                     </div>
                     <div class="text-sm font-medium text-right">
-                        {% if jefe_ingenieria %}
+                        {% if puede_reasignar_responsable %}
+                        <form hx-post="/proyectos/equipo/{{ id_proyecto }}/responsable"
+                            hx-target="#modal-equipo" hx-swap="outerHTML" class="flex items-center gap-1">
+                            <input type="hidden" name="area" value="INGENIERIA">
+                            <select name="id_usuario" onchange="this.form.requestSubmit()"
+                                class="text-sm border border-blue-300 rounded-md px-2 py-1 bg-white text-blue-800 w-44">
+                                <option value="">— Sin asignar —</option>
+                                {% for u in usuarios_ingenieria %}
+                                <option value="{{ u.id_usuario }}"
+                                    {% if jefe_ingenieria and jefe_ingenieria.id_usuario | string == u.id_usuario | string %}selected{% endif %}>
+                                    {{ u.nombre }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </form>
+                        {% elif jefe_ingenieria %}
                             <span class="text-blue-800">{{ jefe_ingenieria.nombre }}</span>
                         {% else %}
                             <span class="text-blue-300 italic text-xs">Sin asignar</span>
@@ -117,7 +141,22 @@
                         <div class="text-[10px] text-amber-500 uppercase tracking-wide mt-0.5">Rol organizacional</div>
                     </div>
                     <div class="text-sm font-medium text-right">
-                        {% if jefe_construccion %}
+                        {% if puede_reasignar_responsable %}
+                        <form hx-post="/proyectos/equipo/{{ id_proyecto }}/responsable"
+                            hx-target="#modal-equipo" hx-swap="outerHTML" class="flex items-center gap-1">
+                            <input type="hidden" name="area" value="CONSTRUCCION">
+                            <select name="id_usuario" onchange="this.form.requestSubmit()"
+                                class="text-sm border border-amber-300 rounded-md px-2 py-1 bg-white text-amber-800 w-44">
+                                <option value="">— Sin asignar —</option>
+                                {% for u in usuarios_construccion %}
+                                <option value="{{ u.id_usuario }}"
+                                    {% if jefe_construccion and jefe_construccion.id_usuario | string == u.id_usuario | string %}selected{% endif %}>
+                                    {{ u.nombre }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </form>
+                        {% elif jefe_construccion %}
                             <span class="text-amber-800">{{ jefe_construccion.nombre }}</span>
                         {% else %}
                             <span class="text-amber-300 italic text-xs">Sin asignar</span>
