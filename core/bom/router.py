@@ -118,7 +118,7 @@ def _toast_response(
         request,
         "shared/toast.html",
         {"message": message, "type": type_, "title": title},
-        headers={"HX-Reswap": "none"},
+        headers={"HX-Reswap": "none", "HX-Push-Url": "false"},
     )
 
 
