@@ -147,8 +147,10 @@ async def bom_ui(
     tiene_construccion = is_admin or bool(module_roles.get("construccion"))
     tiene_compras = is_admin or bool(module_roles.get("compras"))
     tiene_finanzas = is_admin or bool(module_roles.get("finanzas"))
+    es_director = context.get("rol_organizacional") == "director"
+    tiene_acceso_bom = any([tiene_ingenieria, tiene_construccion, tiene_compras, tiene_finanzas]) or es_director
 
-    if not any([tiene_ingenieria, tiene_construccion, tiene_compras, tiene_finanzas]):
+    if not tiene_acceso_bom:
         return _toast_response(
             request,
             "El BOM solo lo pueden abrir Ingeniería, Construcción, Compras o Finanzas.",
@@ -166,6 +168,11 @@ async def bom_ui(
     )
 
     if not bom:
+        if es_director and not tiene_ingenieria:
+            return _toast_response(
+                request,
+                "El BOM no ha sido iniciado para este proyecto.",
+            )
         if not tiene_ingenieria:
             return _toast_response(
                 request,
@@ -679,28 +686,24 @@ async def aprobar_ing(
     service: BomService = Depends(get_bom_service),
     _=require_manager_access("ingenieria"),
 ):
-    """Aprueba BOM por responsable de ingenieria."""
     form = await request.form()
     user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
     comentarios = form.get("comentarios", "").strip() or None
 
     try:
-        bom = await service.aprobar_ing(conn, id_bom, user_id, comentarios)
-
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM aprobado por ingenieria",
+        bom = await service.aprobar_ing(conn, id_bom, user_id, user_role, rol_org, comentarios)
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "message": "BOM aprobado por ingenieria",
             "type": "success",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
-
     except ValueError as e:
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
-            "type": "error",
-        })
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"})
     except asyncpg.PostgresError:
         logger.exception("Error de BD al aprobar BOM")
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al aprobar",
-            "type": "error",
-        })
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al aprobar", "type": "error"})
 
 
 @router.post("/{id_bom}/rechazar-ing", include_in_schema=False)
@@ -712,28 +715,24 @@ async def rechazar_ing(
     service: BomService = Depends(get_bom_service),
     _=require_manager_access("ingenieria"),
 ):
-    """Rechaza BOM por responsable de ingenieria."""
     form = await request.form()
     user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
     comentarios = form.get("comentarios", "").strip() or None
 
     try:
-        bom = await service.rechazar_ing(conn, id_bom, user_id, comentarios)
-
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM rechazado. Se devolvio a borrador.",
+        bom = await service.rechazar_ing(conn, id_bom, user_id, user_role, rol_org, comentarios)
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "message": "BOM rechazado. Se devolvio a borrador.",
             "type": "warning",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
-
     except ValueError as e:
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
-            "type": "error",
-        })
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"})
     except asyncpg.PostgresError:
         logger.exception("Error de BD al rechazar BOM")
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al rechazar",
-            "type": "error",
-        })
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al rechazar", "type": "error"})
 
 
 @router.post("/{id_bom}/enviar-const", include_in_schema=False)
@@ -778,28 +777,24 @@ async def aprobar_const(
     service: BomService = Depends(get_bom_service),
     _=require_manager_access("construccion"),
 ):
-    """Aprueba BOM por coordinador de construccion."""
     form = await request.form()
     user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
     comentarios = form.get("comentarios", "").strip() or None
 
     try:
-        bom = await service.aprobar_const(conn, id_bom, user_id, comentarios)
-
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM aprobado por construccion. Listo para compras.",
+        bom = await service.aprobar_const(conn, id_bom, user_id, user_role, rol_org, comentarios)
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "message": "BOM aprobado por construccion. Listo para compras.",
             "type": "success",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
-
     except ValueError as e:
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
-            "type": "error",
-        })
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"})
     except asyncpg.PostgresError:
         logger.exception("Error de BD al aprobar BOM por construccion")
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al aprobar",
-            "type": "error",
-        })
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al aprobar", "type": "error"})
 
 
 @router.post("/{id_bom}/rechazar-const", include_in_schema=False)
@@ -811,28 +806,24 @@ async def rechazar_const(
     service: BomService = Depends(get_bom_service),
     _=require_manager_access("construccion"),
 ):
-    """Rechaza BOM por construccion. Vuelve a APROBADO_ING."""
     form = await request.form()
     user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
     comentarios = form.get("comentarios", "").strip() or None
 
     try:
-        bom = await service.rechazar_const(conn, id_bom, user_id, comentarios)
-
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM rechazado por construccion. Devuelto a ingenieria.",
+        bom = await service.rechazar_const(conn, id_bom, user_id, user_role, rol_org, comentarios)
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "message": "BOM rechazado por construccion. Devuelto a ingenieria.",
             "type": "warning",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
-
     except ValueError as e:
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
-            "type": "error",
-        })
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"})
     except asyncpg.PostgresError:
         logger.exception("Error de BD al rechazar BOM por construccion")
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al rechazar",
-            "type": "error",
-        })
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al rechazar", "type": "error"})
 
 
 @router.post("/{id_bom}/devolver-borrador", include_in_schema=False)
@@ -1152,23 +1143,23 @@ async def aprobar_obra(
     service: BomService = Depends(get_bom_service),
     _=require_manager_access("construccion"),
 ):
-    """Aprueba BOM por coordinador de obra. Avanza automaticamente a EN_REVISION_CONST."""
     form = await request.form()
     user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
     comentarios = form.get("comentarios", "").strip() or None
     try:
-        bom = await service.aprobar_revision_obra(conn, id_bom, user_id, comentarios)
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM aprobado por Obra y enviado a Construccion",
+        bom = await service.aprobar_revision_obra(conn, id_bom, user_id, user_role, rol_org, comentarios)
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "message": "BOM aprobado por Obra y enviado a Construccion",
             "type": "success",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
     except ValueError as e:
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"
-        })
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"})
     except asyncpg.PostgresError:
         logger.exception("Error de BD en aprobacion obra BOM")
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno", "type": "error"
-        })
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno", "type": "error"})
 
 
 @router.post("/{id_bom}/rechazar-obra", include_in_schema=False)
@@ -1180,23 +1171,23 @@ async def rechazar_obra(
     service: BomService = Depends(get_bom_service),
     _=require_manager_access("construccion"),
 ):
-    """Rechaza BOM por coordinador de obra. Vuelve a APROBADO_ING."""
     form = await request.form()
     user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
     comentarios = form.get("comentarios", "").strip() or None
     try:
-        bom = await service.rechazar_obra(conn, id_bom, user_id, comentarios)
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM devuelto a Ingenieria para revision.",
+        bom = await service.rechazar_obra(conn, id_bom, user_id, user_role, rol_org, comentarios)
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "message": "BOM devuelto a Ingenieria para revision.",
             "type": "warning",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
     except ValueError as e:
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"
-        })
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"})
     except asyncpg.PostgresError:
         logger.exception("Error de BD en rechazo obra BOM")
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno", "type": "error"
-        })
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno", "type": "error"})
 
 
 # ========================================
