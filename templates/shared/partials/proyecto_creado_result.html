@@ -19,14 +19,7 @@
 
 <script>
     setTimeout(() => {
-        cerrarModalProyecto();
-        if (typeof htmx !== 'undefined') {
-            htmx.ajax('GET', '/compras/ui', {
-                target: '#main-content',
-                swap: 'innerHTML',
-                headers: { 'HX-Request': 'true' }
-            }).catch(() => {});
-        }
+        window.location.reload();
     }, 2000);
 </script>
 {% else %}
