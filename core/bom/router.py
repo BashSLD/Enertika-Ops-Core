@@ -184,6 +184,14 @@ async def bom_ui(
                 request,
                 f"No tienes este proyecto asignado como ingeniero. Solicita a {jefe_label} que te asigne o que cree el BOM.",
             )
+        ingeniero_asignado = await service.db.get_asignacion_proyecto(
+            conn, id_proyecto, "ingeniero_asignado", "INGENIERIA"
+        )
+        if not ingeniero_asignado:
+            return _toast_response(
+                request,
+                "Asigna un Ingeniero de Diseño al proyecto antes de crear el BOM. Puedes asignarte a ti mismo desde el Equipo del Proyecto.",
+            )
 
     # Si el usuario solo tiene acceso por compras/finanzas, validar que el BOM este aprobado.
     is_downstream_only = (

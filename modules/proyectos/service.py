@@ -19,7 +19,7 @@ logger = logging.getLogger("ProyectosService")
 # se construyen a partir de esta lista para evitar repetir las tuplas (rol, area).
 ROLES_EQUIPO = [
     {
-        "rol": "ingeniero_asignado", "area": "INGENIERIA", "label": "Ingeniero Asignado",
+        "rol": "ingeniero_asignado", "area": "INGENIERIA", "label": "Ingeniero de Diseño",
         "permiso": "puede_asignar_ingenieria", "departamento": "ingenieria",
         "rol_jefe": "jefe_ingenieria",
     },

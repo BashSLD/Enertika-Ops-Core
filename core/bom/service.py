@@ -136,7 +136,7 @@ class BomService:
             conn, id_proyecto, "ingeniero_asignado", "INGENIERIA"
         )
         if not ingeniero:
-            raise ValueError("Asigna un Ingeniero Asignado al proyecto antes de crear el BOM")
+            raise ValueError("Asigna un Ingeniero de Diseño al proyecto antes de crear el BOM")
 
         coordinador = await self.db.get_asignacion_proyecto(
             conn, id_proyecto, "coordinador_obra", "CONSTRUCCION"
