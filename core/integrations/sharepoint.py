@@ -112,7 +112,7 @@ class SharePointService:
 
     async def _upload_small_file(self, endpoint: str, file: UploadFile, size: int) -> dict:
         """Carga directa para archivos pequeños."""
-        url = f"{self.BASE_URL}{endpoint}:/content"
+        url = f"{self.BASE_URL}{endpoint}:/content?@microsoft.graph.conflictBehavior=replace"
         
         # Leer contenido (FastAPI UploadFile read is async safe)
         content = await file.read()
@@ -399,7 +399,7 @@ class SharePointService:
             resp = await client.delete(url, headers=headers)
             if resp.status_code in (204, 404):
                 return True
-            logger.error(
+            logger.warning(
                 "Error borrando archivo SP item_id=%s: %s %s",
                 drive_item_id,
                 resp.status_code,
