@@ -508,6 +508,28 @@ class BomService:
         bom_updated = await self.db.get_bom_by_id(conn, id_bom)
         await self._notify_bom(conn, bom_updated, bom_updated.get('responsable_ing'),
                                'ENVIADO_REVISION_ING', por_user_id=user_id)
+
+        # Recordatorio si falta RC o coordinador de obra: notifica a director y RC/jefe_const
+        rc = await self.db.get_asignacion_proyecto(
+            conn, bom['id_proyecto'], "responsable_construccion", "CONSTRUCCION"
+        )
+        coordinador = await self.db.get_asignacion_proyecto(
+            conn, bom['id_proyecto'], "coordinador_obra", "CONSTRUCCION"
+        )
+        if not rc or not coordinador:
+            director = await self.db.get_director(conn)
+            jefe_const = await self.db.get_responsable_proyecto_o_global(
+                conn, bom['id_proyecto'], "jefe_construccion"
+            )
+            notificados: set = set()
+            if director:
+                notificados.add(str(director['id_usuario']))
+                await self._notify_bom(conn, bom_updated, director['id_usuario'],
+                                       'FALTA_ASIGNACION_CONSTRUCCION', por_user_id=user_id)
+            if jefe_const and str(jefe_const['id_usuario']) not in notificados:
+                await self._notify_bom(conn, bom_updated, jefe_const['id_usuario'],
+                                       'FALTA_ASIGNACION_CONSTRUCCION', por_user_id=user_id)
+
         return bom_updated
 
     async def aprobar_ing(
@@ -1060,6 +1082,7 @@ class BomService:
                 'APROBADO_FINAL':         f"BOM {bom.get('proyecto_id_estandar', '')} - Aprobado definitivamente",
                 'RECHAZADO_FINAL':        f"BOM {bom.get('proyecto_id_estandar', '')} - Devuelto por Aprobador Final",
                 'FALTA_COORDINADOR_OBRA': f"BOM {bom.get('proyecto_id_estandar', '')} - Asignar coordinador de obra",
+                'FALTA_ASIGNACION_CONSTRUCCION': f"BOM {bom.get('proyecto_id_estandar', '')} - Falta equipo de Construccion",
             }
             subject = subject_map.get(evento, f"BOM {bom.get('proyecto_id_estandar', '')} - Actualizacion")
 
