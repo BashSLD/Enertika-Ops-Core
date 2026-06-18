@@ -168,7 +168,7 @@ async def bom_ui(
     )
 
     if not bom:
-        if es_director and not tiene_ingenieria:
+        if es_director:
             return _toast_response(
                 request,
                 "El BOM no ha sido iniciado para este proyecto.",

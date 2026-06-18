@@ -96,28 +96,25 @@ class ProyectosService:
         """
         asignaciones = await self.db.get_asignaciones_equipo(conn, id_proyecto)
 
-        # Responsables del proyecto: RC/RI persistido (decision 3 del modelo cerrado);
-        # fallback al primer jefe organizacional solo si el proyecto aun no tiene RC/RI.
+        # RC/RI persistido por proyecto (modelo cerrado, decision 3). Solo se muestra
+        # si hay una fila activa en tb_proyecto_usuarios; sin ella el campo queda vacio.
+        # La auto-asignacion ocurre en save_equipo_proyecto al asignar el primer ingeniero
+        # o coordinador — no se infiere un default aqui para evitar confusion en el modal.
         jefes_rows = await self.db.get_jefes_organizacionales(conn)
         jefes_ingenieria = [j for j in jefes_rows if j["rol_organizacional"] == "jefe_ingenieria"]
         jefes_construccion = [j for j in jefes_rows if j["rol_organizacional"] == "jefe_construccion"]
 
-        # RC/RI persistido: ya viene en asignaciones (get_asignaciones_equipo trae todas
-        # las filas activas del proyecto), evitamos 2 queries extra. Se resuelve desde la
-        # propia asignacion (id + nombre), de modo que un RC/RI que ya no sea jefe activo
-        # se sigue mostrando. Fallback al primer jefe organizacional si no hay RC/RI.
-        # Forma homogenea {id_usuario, nombre} en ambos casos (persistido y default).
         def _slim(usuario):
             return {"id_usuario": usuario["id_usuario"], "nombre": usuario["nombre"]} if usuario else None
 
-        def _responsable(rol_proyecto, jefes):
+        def _responsable(rol_proyecto):
             row = next((a for a in asignaciones if a["rol_proyecto"] == rol_proyecto), None)
             if row:
                 return {"id_usuario": row["id_usuario"], "nombre": row["nombre_usuario"]}
-            return _slim(jefes[0] if jefes else None)
+            return None
 
-        jefe_ingenieria = _responsable("responsable_ingenieria", jefes_ingenieria)
-        jefe_construccion = _responsable("responsable_construccion", jefes_construccion)
+        jefe_ingenieria = _responsable("responsable_ingenieria")
+        jefe_construccion = _responsable("responsable_construccion")
 
         # El RC/RI actual debe poder preseleccionarse en el selector de reasignacion
         # aunque ya no sea jefe activo (no estaria en jefes_*); lo agregamos si falta.

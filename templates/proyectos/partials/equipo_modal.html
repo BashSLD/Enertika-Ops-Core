@@ -8,6 +8,8 @@
 {% set cur_oym = asig_map.get(('encargado', 'OYM'), {}) %}
 {% set init_ri = jefe_ingenieria.id_usuario | string if jefe_ingenieria else '' %}
 {% set init_rc = jefe_construccion.id_usuario | string if jefe_construccion else '' %}
+{% set sera_ri = puede_asignar_ingenieria and not puede_reasignar_responsable and not jefe_ingenieria %}
+{% set sera_rc = puede_asignar_construccion and not puede_reasignar_responsable and not jefe_construccion %}
 
 <div id="modal-equipo"
     class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
@@ -18,11 +20,27 @@
         ing: '{{ cur_ing.id or '' }}', coord: '{{ cur_coord.id or '' }}', oym: '{{ cur_oym.id or '' }}',
         initRi: '{{ init_ri }}', initRc: '{{ init_rc }}',
         initIng: '{{ cur_ing.id or '' }}', initCoord: '{{ cur_coord.id or '' }}', initOym: '{{ cur_oym.id or '' }}',
+        seraRI: {{ 'true' if sera_ri else 'false' }},
+        seraRC: {{ 'true' if sera_rc else 'false' }},
+        confirming: false,
+        confirmMsg: '',
         get dirty() {
             return this.ri !== this.initRi || this.rc !== this.initRc ||
                 this.ing !== this.initIng || this.coord !== this.initCoord || this.oym !== this.initOym;
         },
         async guardar() {
+            const msgs = [];
+            if (this.seraRI && this.ing !== this.initIng && this.ing !== '') msgs.push('Responsable de Ingenieria');
+            if (this.seraRC && this.coord !== this.initCoord && this.coord !== '') msgs.push('Responsable de Construccion');
+            if (msgs.length > 0) {
+                this.confirmMsg = msgs.join(' y ');
+                this.confirming = true;
+                return;
+            }
+            await this.ejecutarGuardado();
+        },
+        async ejecutarGuardado() {
+            this.confirming = false;
             this.guardando = true;
             try {
                 const tareas = [];
@@ -51,7 +69,7 @@
     }"
     @keydown.escape.window="document.getElementById('modal-equipo').remove()">
 
-    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg mx-3 flex flex-col border border-gray-200 overflow-hidden">
+    <div class="relative bg-white rounded-xl shadow-xl w-full max-w-lg mx-3 flex flex-col border border-gray-200 overflow-hidden">
 
         <!-- Header -->
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200"
@@ -166,6 +184,15 @@
                     {% endif %}
                 </div>
 
+                {% if sera_ri %}
+                <div class="flex items-start gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-md">
+                    <svg class="w-3.5 h-3.5 shrink-0 text-blue-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <span class="text-[11px] text-blue-700">Al asignar un Ingeniero Asignado, quedas como Responsable de Ingenieria de este proyecto.</span>
+                </div>
+                {% endif %}
+
                 {# ─── CONSTRUCCIÓN ─────────────────────────────────────── #}
                 <div class="flex items-center gap-2 pt-3 pb-1">
                     <div class="w-3 h-3 rounded-full bg-amber-600"></div>
@@ -229,6 +256,15 @@
                     {% endif %}
                 </div>
 
+                {% if sera_rc %}
+                <div class="flex items-start gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-md">
+                    <svg class="w-3.5 h-3.5 shrink-0 text-amber-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <span class="text-[11px] text-amber-700">Al asignar un Coordinador de Obra, quedas como Responsable de Construccion de este proyecto.</span>
+                </div>
+                {% endif %}
+
                 {# ─── O&M ──────────────────────────────────────────────── #}
                 <div class="flex items-center gap-2 pt-3 pb-1">
                     <div class="w-3 h-3 rounded-full bg-teal-600"></div>
@@ -289,5 +325,38 @@
             </div>
         </form>
 
+    </div>
+
+    <!-- Popup confirmacion auto-asignacion RI/RC -->
+    <div x-show="confirming" x-cloak
+        class="absolute inset-0 z-10 flex items-center justify-center bg-black/40 rounded-xl backdrop-blur-sm">
+        <div class="bg-white rounded-xl shadow-2xl w-80 mx-4 overflow-hidden">
+            <div class="px-6 py-5 text-center space-y-3">
+                <div class="flex items-center justify-center w-12 h-12 mx-auto rounded-full bg-amber-100">
+                    <svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-sm font-semibold text-gray-800">Confirmacion de responsabilidad</p>
+                    <p class="text-sm text-gray-600 mt-1">
+                        En este proyecto quedas como<br>
+                        <strong class="text-gray-900" x-text="confirmMsg"></strong>.
+                    </p>
+                </div>
+            </div>
+            <div class="flex border-t border-gray-100">
+                <button type="button" @click="confirming = false"
+                    class="flex-1 px-4 py-3 text-sm text-gray-600 hover:bg-gray-50 transition-colors border-r border-gray-100">
+                    Cancelar
+                </button>
+                <button type="button" @click="ejecutarGuardado()"
+                    class="flex-1 px-4 py-3 text-sm font-semibold text-white transition-colors"
+                    style="background-color: #123456;">
+                    Aceptar
+                </button>
+            </div>
+        </div>
     </div>
 </div>
