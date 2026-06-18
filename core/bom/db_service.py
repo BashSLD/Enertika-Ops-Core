@@ -8,6 +8,8 @@ from uuid import UUID
 from typing import Optional, List
 from datetime import datetime
 
+from core.bom.schemas import EstatusBOM
+
 logger = logging.getLogger("BOM.DBService")
 
 
@@ -29,10 +31,10 @@ class BomDBService:
             INSERT INTO tb_bom (id_proyecto, version, estatus, elaborado_por,
                                 responsable_ing, jefe_construccion,
                                 coordinador_obra, notas)
-            VALUES ($1, $2, 'BORRADOR', $3, $4, $5, $6, $7)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
-        """, id_proyecto, version, elaborado_por, responsable_ing,
-            jefe_construccion, coordinador_obra, notas)
+        """, id_proyecto, version, EstatusBOM.BORRADOR.value, elaborado_por,
+            responsable_ing, jefe_construccion, coordinador_obra, notas)
         return dict(row)
 
     async def get_bom_by_proyecto(self, conn, id_proyecto: UUID) -> Optional[dict]:
@@ -98,10 +100,10 @@ class BomDBService:
         row = await conn.fetchrow("""
             SELECT id_bom, version, estatus
             FROM tb_bom
-            WHERE id_proyecto = $1 AND estatus = 'BORRADOR'
+            WHERE id_proyecto = $1 AND estatus = $2
             ORDER BY version DESC
             LIMIT 1
-        """, id_proyecto)
+        """, id_proyecto, EstatusBOM.BORRADOR.value)
         return dict(row) if row else None
 
     async def update_bom_estatus(
