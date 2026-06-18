@@ -16,9 +16,8 @@ from dataclasses import asdict
 
 # IMPORTS OBLIGATORIOS para permisos
 from core.security import get_current_user_context
-from core.permissions import require_module_access, require_manager_access, require_role
+from core.permissions import require_module_access, require_manager_access
 from core.config import settings
-from core.config_service import ConfigService
 
 from core.database import get_db_connection
 
@@ -639,35 +638,6 @@ async def get_detalle_modal(
 
 # --- ENDPOINTS DE GESTIÓN (MODALES Y UPDATES) ---
 
-def _compose_historial_ctx(
-    op,
-    estatus_global: list,
-    historial_timeline: list,
-    umbral_lag_registro_min: int,
-    context: dict,
-    permisos_update: dict,
-    *,
-    historial_message: Optional[str] = None,
-    historial_error: Optional[str] = None,
-) -> dict:
-    current_status = next((s for s in estatus_global if s["id"] == op["id_estatus_global"]), None)
-    estatus_reversion = [s for s in estatus_global if not s["es_estatus_final"] and s["orden"] in (1, 2, 3, 4)]
-    # current_status is None when the op's status was excluded from the dropdown
-    # (e.g. 'ganada', which is filtered out but is still a terminal state).
-    is_terminal = bool(current_status and current_status["es_estatus_final"]) or current_status is None
-    return {
-        "op": dict(op),
-        "historial_timeline": historial_timeline,
-        "umbral_lag_registro_min": umbral_lag_registro_min,
-        "estatus_global": [dict(r) for r in estatus_global],
-        "estatus_reversion": estatus_reversion,
-        "can_reconstruct_history": permisos_update["can_edit_sensitive"],
-        "can_reverse_terminal": context.get("role") == "ADMIN" and is_terminal,
-        "historial_message": historial_message,
-        "historial_error": historial_error,
-    }
-
-
 async def _build_edit_modal_context(
     conn,
     id_oportunidad: UUID,
@@ -675,8 +645,6 @@ async def _build_edit_modal_context(
     db_service: SimulacionDBService,
     context: dict,
     form_message: Optional[str] = None,
-    historial_message: Optional[str] = None,
-    historial_error: Optional[str] = None
 ) -> Optional[dict]:
     op = await db_service.get_oportunidad_by_id(conn, id_oportunidad)
     if not op:
@@ -703,11 +671,10 @@ async def _build_edit_modal_context(
 
     simulaciones_adicionales = await db_service.get_simulaciones_adicionales(conn, id_oportunidad)
     fv_terminado = await db_service.get_fv_terminado(conn, id_oportunidad)
-    historial_timeline = await service.get_historial_timeline(conn, id_oportunidad)
-    umbral_lag_registro_min = await ConfigService.get_global_config(conn, "UMBRAL_LAG_NOTIFICACION", 1440, int)
 
     return {
-        **_compose_historial_ctx(op, estatus_global, historial_timeline, umbral_lag_registro_min, context, permisos_update, historial_message=historial_message, historial_error=historial_error),
+        "op": dict(op),
+        "estatus_global": [dict(r) for r in estatus_global],
         "responsables": responsables,
         "motivos_cierre": [dict(r) for r in motivos_cierre],
         "status_ids": status_ids,
@@ -877,166 +844,6 @@ async def update_simulacion(
             
         return templates.TemplateResponse(request, "simulacion/partials/messages/error_inline.html", {"message": e.detail
         }, status_code=e.status_code)
-
-async def _build_historial_context(
-    conn,
-    id_oportunidad: UUID,
-    service: SimulacionService,
-    db_service: SimulacionDBService,
-    context: dict,
-    historial_message: Optional[str] = None,
-    historial_error: Optional[str] = None,
-) -> Optional[dict]:
-    op = await db_service.get_oportunidad_by_id(conn, id_oportunidad)
-    if not op:
-        return None
-    status_ids = await service._get_status_ids(conn)
-    estatus_global = await db_service.get_estatus_simulacion_dropdown(conn, exclude_id=status_ids["ganada"])
-    historial_timeline = await service.get_historial_timeline(conn, id_oportunidad)
-    umbral_lag_registro_min = await ConfigService.get_global_config(conn, "UMBRAL_LAG_NOTIFICACION", 1440, int)
-    permisos_update = resolve_update_permissions(context)
-    return _compose_historial_ctx(
-        op, estatus_global, historial_timeline, umbral_lag_registro_min, context, permisos_update,
-        historial_message=historial_message, historial_error=historial_error,
-    )
-
-
-async def _render_historial_timeline_partial(
-    request: Request,
-    conn,
-    id_oportunidad: UUID,
-    service: SimulacionService,
-    db_service: SimulacionDBService,
-    context: dict,
-    historial_message: Optional[str] = None,
-    historial_error: Optional[str] = None,
-):
-    ctx = await _build_historial_context(
-        conn, id_oportunidad, service, db_service, context,
-        historial_message=historial_message,
-        historial_error=historial_error,
-    )
-    if not ctx:
-        raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
-    return templates.TemplateResponse(request, "simulacion/partials/historial_timeline.html", ctx)
-
-
-@router.post("/historial/{id_oportunidad}/insertar-transicion", include_in_schema=False)
-async def insertar_transicion_historica(
-    request: Request,
-    id_oportunidad: UUID,
-    id_estatus: int = Form(...),
-    fecha_cambio_real: str = Form(...),
-    service: SimulacionService = Depends(get_simulacion_service),
-    db_service: SimulacionDBService = Depends(get_db_service),
-    conn = Depends(get_db_connection),
-    context = Depends(get_current_user_context),
-    _ = require_manager_access("simulacion"),
-):
-    try:
-        try:
-            fecha_real = datetime.fromisoformat(fecha_cambio_real)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail="Formato de fecha inválido. Use el selector de fecha del formulario.",
-            ) from exc
-
-        await service.insertar_transicion_historica(
-            conn,
-            id_oportunidad,
-            id_estatus,
-            fecha_real,
-            context,
-        )
-        return await _render_historial_timeline_partial(
-            request,
-            conn,
-            id_oportunidad,
-            service,
-            db_service,
-            context,
-            historial_message="Evento histórico insertado correctamente.",
-        )
-    except HTTPException as exc:
-        return await _render_historial_timeline_partial(
-            request,
-            conn,
-            id_oportunidad,
-            service,
-            db_service,
-            context,
-            historial_error=str(exc.detail),
-        )
-    except asyncpg.PostgresError:
-        logger.exception("Error de base de datos insertando transición histórica %s", id_oportunidad)
-        return await _render_historial_timeline_partial(
-            request,
-            conn,
-            id_oportunidad,
-            service,
-            db_service,
-            context,
-            historial_error="Error de base de datos al insertar el evento histórico.",
-        )
-
-
-@router.post("/historial/{id_oportunidad}/revertir-cierre", include_in_schema=False)
-async def revertir_cierre_admin(
-    request: Request,
-    id_oportunidad: UUID,
-    id_estatus_destino: int = Form(...),
-    confirmar_reversion: Optional[str] = Form(None),
-    service: SimulacionService = Depends(get_simulacion_service),
-    db_service: SimulacionDBService = Depends(get_db_service),
-    conn = Depends(get_db_connection),
-    context = Depends(get_current_user_context),
-    _ = require_role(["ADMIN"]),
-):
-    try:
-        if confirmar_reversion != "on":
-            raise HTTPException(
-                status_code=400,
-                detail="Debe confirmar explícitamente la reversión del cierre.",
-            )
-
-        await service.revertir_cierre_admin(
-            conn,
-            id_oportunidad,
-            id_estatus_destino,
-            context,
-        )
-        return await _render_historial_timeline_partial(
-            request,
-            conn,
-            id_oportunidad,
-            service,
-            db_service,
-            context,
-            historial_message="Cierre revertido correctamente.",
-        )
-    except HTTPException as exc:
-        return await _render_historial_timeline_partial(
-            request,
-            conn,
-            id_oportunidad,
-            service,
-            db_service,
-            context,
-            historial_error=str(exc.detail),
-        )
-    except asyncpg.PostgresError:
-        logger.exception("Error de base de datos revirtiendo cierre %s", id_oportunidad)
-        return await _render_historial_timeline_partial(
-            request,
-            conn,
-            id_oportunidad,
-            service,
-            db_service,
-            context,
-            historial_error="Error de base de datos al revertir el cierre.",
-        )
-
 
 @router.put("/sitios/batch-update")
 async def batch_update_sitios(

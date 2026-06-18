@@ -1,0 +1,9 @@
+<button type="button" hx-get="/simulacion/historial/{{ op.id_oportunidad }}/modal"
+    hx-target="#modal-action-container" hx-swap="innerHTML"
+    hx-disabled-elt="this" hx-sync="this:drop" hx-indicator="#global-loading-overlay"
+    class="text-amber-600 hover:text-amber-800" title="Ver historial de estatus">
+    <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+</button>

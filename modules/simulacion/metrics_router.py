@@ -1,13 +1,16 @@
 """
 Router de Métricas Operativas del Módulo Simulación (solo Admin/Manager).
 """
-from fastapi import APIRouter, Request, Depends, HTTPException, Query
+from fastapi import APIRouter, Request, Depends, HTTPException, Query, Form
 from fastapi.templating import Jinja2Templates
 from datetime import datetime, date
 from uuid import UUID
+from typing import Optional
+import logging
+import asyncpg
 
 from core.security import get_current_user_context
-from core.permissions import require_module_access
+from core.permissions import require_module_access, require_manager_access, require_role
 from core.config import settings
 from core.database import get_db_connection
 from core.timezone import now_mx
@@ -17,10 +20,12 @@ from modules.shared.utils import is_htmx
 from .db_service import SimulacionDBService, get_db_service
 from .metrics_service import MetricsService, get_metrics_service
 from .metrics_db_service import MetricsDBService, get_metrics_db_service
+from .service import SimulacionService, get_simulacion_service, build_historial_context
 
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
 register_timezone_filters(templates.env)
+logger = logging.getLogger("SimulacionModule")
 
 router = APIRouter(
     prefix="/simulacion",
@@ -336,3 +341,161 @@ async def get_detalle_entrega(
         "oportunidades": oportunidades,
         **context
     })
+
+
+@router.get("/historial/{id_oportunidad}/modal", include_in_schema=False)
+async def get_historial_modal(
+    request: Request,
+    id_oportunidad: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: SimulacionService = Depends(get_simulacion_service),
+    db_service: SimulacionDBService = Depends(get_db_service),
+    _=require_module_access("simulacion", "viewer")
+):
+    """Modal de solo lectura con el historial de transiciones de una oportunidad."""
+    if not _puede_ver_kpis(context):
+        return templates.TemplateResponse(request, "simulacion/partials/messages/error.html", {"title": "Acceso denegado", "message": "No tienes permisos para esta sección."})
+
+    ctx = await build_historial_context(conn, id_oportunidad, service, db_service, context)
+    if not ctx:
+        raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
+
+    return templates.TemplateResponse(request, "simulacion/modals/historial_modal.html", ctx)
+
+
+async def _render_historial_timeline_partial(
+    request: Request,
+    conn,
+    id_oportunidad: UUID,
+    service: SimulacionService,
+    db_service: SimulacionDBService,
+    context: dict,
+    historial_message: Optional[str] = None,
+    historial_error: Optional[str] = None,
+):
+    ctx = await build_historial_context(
+        conn, id_oportunidad, service, db_service, context,
+        historial_message=historial_message,
+        historial_error=historial_error,
+    )
+    if not ctx:
+        raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
+    return templates.TemplateResponse(request, "simulacion/partials/historial_timeline.html", ctx)
+
+
+@router.post("/historial/{id_oportunidad}/insertar-transicion", include_in_schema=False)
+async def insertar_transicion_historica(
+    request: Request,
+    id_oportunidad: UUID,
+    id_estatus: int = Form(...),
+    fecha_cambio_real: str = Form(...),
+    service: SimulacionService = Depends(get_simulacion_service),
+    db_service: SimulacionDBService = Depends(get_db_service),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_manager_access("simulacion"),
+):
+    try:
+        try:
+            fecha_real = datetime.fromisoformat(fecha_cambio_real)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Formato de fecha inválido. Use el selector de fecha del formulario.",
+            ) from exc
+
+        await service.insertar_transicion_historica(
+            conn,
+            id_oportunidad,
+            id_estatus,
+            fecha_real,
+            context,
+        )
+        return await _render_historial_timeline_partial(
+            request,
+            conn,
+            id_oportunidad,
+            service,
+            db_service,
+            context,
+            historial_message="Evento histórico insertado correctamente.",
+        )
+    except HTTPException as exc:
+        return await _render_historial_timeline_partial(
+            request,
+            conn,
+            id_oportunidad,
+            service,
+            db_service,
+            context,
+            historial_error=str(exc.detail),
+        )
+    except asyncpg.PostgresError:
+        logger.exception("Error de base de datos insertando transición histórica %s", id_oportunidad)
+        return await _render_historial_timeline_partial(
+            request,
+            conn,
+            id_oportunidad,
+            service,
+            db_service,
+            context,
+            historial_error="Error de base de datos al insertar el evento histórico.",
+        )
+
+
+@router.post("/historial/{id_oportunidad}/revertir-cierre", include_in_schema=False)
+async def revertir_cierre_admin(
+    request: Request,
+    id_oportunidad: UUID,
+    id_estatus_destino: int = Form(...),
+    confirmar_reversion: Optional[str] = Form(None),
+    service: SimulacionService = Depends(get_simulacion_service),
+    db_service: SimulacionDBService = Depends(get_db_service),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_role(["ADMIN"]),
+):
+    try:
+        if confirmar_reversion != "on":
+            raise HTTPException(
+                status_code=400,
+                detail="Debe confirmar explícitamente la reversión del cierre.",
+            )
+
+        await service.revertir_cierre_admin(
+            conn,
+            id_oportunidad,
+            id_estatus_destino,
+            context,
+        )
+        return await _render_historial_timeline_partial(
+            request,
+            conn,
+            id_oportunidad,
+            service,
+            db_service,
+            context,
+            historial_message="Cierre revertido correctamente.",
+        )
+    except HTTPException as exc:
+        return await _render_historial_timeline_partial(
+            request,
+            conn,
+            id_oportunidad,
+            service,
+            db_service,
+            context,
+            historial_error=str(exc.detail),
+        )
+    except asyncpg.PostgresError:
+        logger.exception("Error de base de datos revirtiendo cierre %s", id_oportunidad)
+        return await _render_historial_timeline_partial(
+            request,
+            conn,
+            id_oportunidad,
+            service,
+            db_service,
+            context,
+            historial_error="Error de base de datos al revertir el cierre.",
+        )

@@ -40,6 +40,65 @@ def resolve_update_permissions(user_context: dict) -> dict:
     }
 
 
+def compose_historial_ctx(
+    op,
+    estatus_global: list,
+    historial_timeline: list,
+    umbral_lag_registro_min: int,
+    context: dict,
+    permisos_update: dict,
+    *,
+    historial_message: Optional[str] = None,
+    historial_error: Optional[str] = None,
+) -> dict:
+    current_status = next((s for s in estatus_global if s["id"] == op["id_estatus_global"]), None)
+    estatus_reversion = [s for s in estatus_global if not s["es_estatus_final"] and s["orden"] in (1, 2, 3, 4)]
+    # current_status is None when the op's status was excluded from the dropdown
+    # (e.g. 'ganada', which is filtered out but is still a terminal state).
+    is_terminal = bool(current_status and current_status["es_estatus_final"]) or current_status is None
+    return {
+        "op": dict(op),
+        "historial_timeline": historial_timeline,
+        "umbral_lag_registro_min": umbral_lag_registro_min,
+        "estatus_global": [dict(r) for r in estatus_global],
+        "estatus_reversion": estatus_reversion,
+        "can_reconstruct_history": permisos_update["can_edit_sensitive"],
+        "can_reverse_terminal": context.get("role") == "ADMIN" and is_terminal,
+        "historial_message": historial_message,
+        "historial_error": historial_error,
+    }
+
+
+async def build_historial_context(
+    conn,
+    id_oportunidad: UUID,
+    service: "SimulacionService",
+    db_service: SimulacionDBService,
+    context: dict,
+    historial_message: Optional[str] = None,
+    historial_error: Optional[str] = None,
+) -> Optional[dict]:
+    op = await db_service.get_oportunidad_by_id(conn, id_oportunidad)
+    if not op:
+        return None
+
+    # El catálogo de estatus solo alimenta los forms de edición avanzada
+    # (insertar evento / revertir cierre) que el partial oculta para quien
+    # no puede usarlos — evitamos la query cuando ninguno de los dos aplica.
+    permisos_update = resolve_update_permissions(context)
+    estatus_global = []
+    if permisos_update["can_edit_sensitive"]:
+        status_ids = await service._get_status_ids(conn)
+        estatus_global = await db_service.get_estatus_simulacion_dropdown(conn, exclude_id=status_ids["ganada"])
+
+    historial_timeline = await service.get_historial_timeline(conn, id_oportunidad)
+    umbral_lag_registro_min = await ConfigService.get_global_config(conn, "UMBRAL_LAG_NOTIFICACION", 1440, int)
+    return compose_historial_ctx(
+        op, estatus_global, historial_timeline, umbral_lag_registro_min, context, permisos_update,
+        historial_message=historial_message, historial_error=historial_error,
+    )
+
+
 class SimulacionService:
     """Encapsula la lógica de negocio del módulo Simulación (v3.1 Multisitio)."""
 

@@ -22,6 +22,7 @@
                     <th class="px-3 py-2 font-semibold text-gray-700">Responsable Sim</th>
                     <th class="px-3 py-2 font-semibold text-gray-700">Solicitado por</th>
                     <th class="px-3 py-2 font-semibold text-gray-700 text-right">Días en Estatus</th>
+                    <th class="px-3 py-2 font-semibold text-gray-700 text-center">Historial</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-200">
@@ -70,6 +71,9 @@
                             class="font-bold {% if op.dias_en_estatus > 7 %}text-red-600{% elif op.dias_en_estatus > 3 %}text-orange-600{% else %}text-gray-700{% endif %}">
                             {{ op.dias_en_estatus | dhm }}
                         </span>
+                    </td>
+                    <td class="px-3 py-2 text-center">
+                        {% include "simulacion/partials/_btn_historial.html" %}
                     </td>
                 </tr>
                 {% endfor %}

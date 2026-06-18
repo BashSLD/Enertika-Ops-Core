@@ -1,0 +1,35 @@
+<!-- Modal: Historial de Estatus (Métricas Operativas) -->
+<div id="modal-backdrop-historial"
+    class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-[9999] animate-fade-in p-4">
+
+    <div class="bg-white rounded-xl shadow-2xl overflow-visible w-full
+                max-w-[95vw] sm:max-w-[600px] lg:max-w-[700px]
+                max-h-[90dvh] flex flex-col animate-scale-in" @click.stop>
+
+        <div x-data="{ showTooltip: false }"
+            class="relative px-6 py-4 rounded-t-xl bg-gradient-to-r from-[#00BABB] to-[#123456] flex justify-between items-center">
+            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                <svg @mouseenter="showTooltip = true" @mouseleave="showTooltip = false"
+                    class="w-6 h-6 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {{ op.op_id_estandar }} — Historial de Estatus
+            </h3>
+            <button type="button" @click="$el.closest('#modal-backdrop-historial').remove()"
+                class="text-white/80 hover:text-white hover:bg-white/20 rounded-lg p-2 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <div x-show="showTooltip" x-transition
+                class="absolute top-full left-6 right-6 mt-2 px-4 py-2 bg-gray-900 text-white text-sm font-normal rounded-lg shadow-lg whitespace-normal z-50 pointer-events-none">
+                Línea de tiempo auditada de los cambios de estatus de esta oportunidad. Si tienes permisos, también puedes insertar un evento que falte en el registro o revertir un cierre marcado por error (solo Admin).
+            </div>
+        </div>
+
+        <div class="p-6 flex-1 min-h-0 overflow-y-auto">
+            {% include "simulacion/partials/historial_timeline.html" %}
+        </div>
+    </div>
+</div>

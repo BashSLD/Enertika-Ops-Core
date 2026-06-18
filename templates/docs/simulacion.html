@@ -24,6 +24,15 @@
                 class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
                 <span>🌍</span> Multisitio y Retrabajo
             </button>
+            <button @click="activeTab = 'historial'"
+                :class="{'border-[#00BABB] text-[#00BABB]': activeTab === 'historial', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': activeTab !== 'historial'}"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Historial y Reconstrucción
+            </button>
         </nav>
     </div>
 
@@ -415,6 +424,109 @@
                 </section>
             </div>
 
+        </div>
+
+        <!-- TAB: Historial y Reconstrucción -->
+        <div x-show="activeTab === 'historial'" x-transition:enter="transition ease-out duration-300">
+
+            <h3 class="text-2xl font-bold text-[#123456] mb-2">Historial de Estatus</h3>
+            <p class="text-gray-600 mb-8">
+                Desde <strong>Métricas Operativas</strong>, en cualquier tabla de detalle (cuellos de botella o
+                transiciones), cada fila tiene un ícono de reloj en la columna <strong>Historial</strong>. Al hacer
+                clic se abre un modal con la línea de tiempo auditada de todos los cambios de estatus de esa
+                oportunidad.
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+                <div class="p-4 bg-cyan-50 rounded border border-cyan-200">
+                    <span class="block font-bold text-cyan-800 text-sm mb-1">En vivo</span>
+                    <span class="text-xs text-cyan-700">Transición sin marcas especiales: se capturó en tiempo real,
+                        sin retraso ni corrección manual.</span>
+                </div>
+                <div class="p-4 bg-amber-50 rounded border border-amber-200">
+                    <span class="block font-bold text-amber-800 text-sm mb-1">Registrado tarde / Reconstruido</span>
+                    <span class="text-xs text-amber-700">El lag entre la fecha real y el registro superó el umbral
+                        configurado, o el evento fue insertado manualmente para llenar un hueco.</span>
+                </div>
+                <div class="p-4 bg-red-50 rounded border border-red-200">
+                    <span class="block font-bold text-red-800 text-sm mb-1">Reversión Admin</span>
+                    <span class="text-xs text-red-700">La oportunidad fue reabierta por un Administrador después de
+                        haberse cerrado.</span>
+                </div>
+            </div>
+
+            <p class="text-sm text-gray-500 mb-8">
+                Quién ve qué dentro del modal depende del rol: cualquiera con acceso a Métricas Operativas ve la línea
+                de tiempo. Los dos formularios de corrección que siguen solo aparecen para quien tiene el permiso
+                correspondiente.
+            </p>
+
+            <div class="space-y-10">
+                <!-- Insertar evento faltante -->
+                <section>
+                    <h4 class="text-lg font-bold text-gray-800 mb-1">Insertar evento faltante</h4>
+                    <p class="text-xs text-gray-500 italic mb-4">
+                        Visible para ADMIN global, admin del módulo, o MANAGER con rol editor/admin en Simulación.
+                    </p>
+                    <div class="bg-white border border-gray-200 rounded-lg p-5">
+                        <p class="text-sm text-gray-600 mb-4">
+                            Llena un hueco de captura en el historial: un cambio de estatus que ocurrió pero nunca se
+                            registró a tiempo en el sistema.
+                        </p>
+                        <ul class="list-disc list-inside text-sm text-gray-600 space-y-2">
+                            <li>Solo puede insertarse <strong>entre dos eventos que ya existen</strong> — nunca al
+                                inicio ni al final del historial. Si no hay un evento posterior a la fecha que
+                                escribes, el sistema rechaza la inserción.</li>
+                            <li>La fecha <strong>no puede ser futura</strong>; tampoco puede coincidir exactamente con
+                                la de un evento ya registrado.</li>
+                            <li>Debe respetar un mínimo de minutos de separación con el evento anterior y el
+                                siguiente (configurable, por defecto 1 minuto).</li>
+                            <li>La secuencia de estatus se valida igual que en una transición normal del flujo.</li>
+                        </ul>
+                        <div class="mt-4 bg-amber-50 border-l-4 border-amber-400 p-3 rounded-r text-xs text-amber-800">
+                            <strong>No sirve para cerrar una oportunidad activa.</strong> Como siempre necesita un
+                            evento posterior a la fecha indicada, no se puede usar para registrar el estado actual o
+                            más reciente de la OP — eso se hace desde el flujo normal de edición, que sí recalcula los
+                            KPIs de cierre.
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Reversión de cierre Admin -->
+                <section>
+                    <h4 class="text-lg font-bold text-gray-800 mb-1">Reversión de cierre Admin</h4>
+                    <p class="text-xs text-gray-500 italic mb-4">Visible solo para ADMIN global.</p>
+                    <div class="bg-white border border-gray-200 rounded-lg p-5">
+                        <p class="text-sm text-gray-600 mb-4">
+                            Reabre una oportunidad que se cerró por error, devolviéndola a un paso activo del flujo.
+                        </p>
+                        <ul class="list-disc list-inside text-sm text-gray-600 space-y-2">
+                            <li>Solo aplica si la oportunidad está <strong>en un estatus terminal</strong> (Entregado,
+                                Cancelado, Perdida, etc.).</li>
+                            <li>Solo puede reabrirse hacia uno de los primeros pasos activos del flujo — no hacia otro
+                                estatus terminal.</li>
+                            <li>Usa siempre la <strong>fecha/hora actual</strong> del servidor; no se puede elegir una
+                                fecha manual.</li>
+                            <li>Limpia por completo los datos de cierre (fecha de entrega, KPIs de SLA y compromiso,
+                                tiempo de elaboración, montos y magnitudes de cierre) — queda como si nunca se
+                                hubiera cerrado.</li>
+                            <li>No envía correo, a diferencia de un cierre normal.</li>
+                        </ul>
+                    </div>
+                </section>
+
+                <!-- Impacto en métricas -->
+                <section class="bg-blue-50 border border-blue-100 p-4 rounded-lg">
+                    <h5 class="font-bold text-blue-900 text-sm mb-1">Impacto en métricas</h5>
+                    <p class="text-sm text-blue-800">
+                        El historial de estatus es la fuente de todas las métricas operativas (días por estatus,
+                        cuellos de botella, transiciones, tiempos de entrega). Insertar un evento corrige esos
+                        cálculos retroactivamente, que es justo su propósito. Sin embargo, <strong>no recalcula los
+                        KPIs de cierre</strong> ya fijados en la oportunidad — esos solo se actualizan desde el flujo
+                        normal de edición.
+                    </p>
+                </section>
+            </div>
         </div>
 
     </div>
