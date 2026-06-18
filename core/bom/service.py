@@ -94,10 +94,12 @@ class BomService:
         solo_responsable = await ConfigService.get_global_config(
             conn, 'bom.gestion_solo_responsable', True, bool
         )
-        if solo_responsable and responsable_id and responsable_id != user_id:
-            raise ValueError(f"Solo el {label} del proyecto puede ejecutar esta accion")
-        if solo_responsable and responsable_id:
-            return
+        if solo_responsable:
+            if responsable_id:
+                if responsable_id != user_id:
+                    raise ValueError(f"Solo el {label} del proyecto puede ejecutar esta accion")
+                return
+            # responsable_id=None: sin asignado en este proyecto, aplica fallback de rol global
         if fallback_rol_org and not await self.db.usuario_tiene_rol_org(conn, user_id, fallback_rol_org):
             raise ValueError(f"Solo el {label} puede ejecutar esta accion")
 

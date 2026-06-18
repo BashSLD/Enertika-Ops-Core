@@ -9,7 +9,7 @@
 
     <div class="p-6 border-b">
         <h2 class="text-xl font-bold text-gray-900">Aprobaciones del BOM</h2>
-        <p class="text-sm text-gray-500 mt-1">Controla quien puede aprobar cada paso del workflow.</p>
+        <p class="text-sm text-gray-500 mt-1">Controla quién puede aprobar cada paso del workflow.</p>
     </div>
 
     <div class="flex-1 min-h-0 overflow-y-auto p-6 space-y-6">
@@ -29,7 +29,7 @@
                            class="mt-0.5 h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500">
                     <span>
                         <span class="block text-sm font-medium text-gray-900">Exigir responsable por proyecto</span>
-                        <span class="block text-xs text-gray-500">Solo el RI / Coordinador de Obra / Jefe de Construccion asignado al proyecto puede aprobar su paso. Si esta desactivado, cualquier jefe del area puede aprobar cualquier proyecto.</span>
+                        <span class="block text-xs text-gray-500">Solo el RI / Coordinador de Obra / Jefe de Construcción asignado al proyecto puede aprobar su paso. Si está desactivado, cualquier jefe del área puede aprobar cualquier proyecto.</span>
                     </span>
                 </label>
 
@@ -38,7 +38,7 @@
                            {% if bom_director %}checked{% endif %}
                            class="mt-0.5 h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500">
                     <span>
-                        <span class="block text-sm font-medium text-gray-900">Permitir que Direccion apruebe como respaldo</span>
+                        <span class="block text-sm font-medium text-gray-900">Permitir que Dirección apruebe como respaldo</span>
                         <span class="block text-xs text-gray-500">El Director puede aprobar cualquier paso intermedio (Ing / Obra / Const) independientemente del responsable asignado.</span>
                     </span>
                 </label>
@@ -52,8 +52,8 @@
                            {% if equipo_gestion %}checked{% endif %}
                            class="mt-0.5 h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500">
                     <span>
-                        <span class="block text-sm font-medium text-gray-900">Exigir responsable para gestion de equipo (RC/RI)</span>
-                        <span class="block text-xs text-gray-500">Solo el RC o RI asignado puede gestionar el equipo de su area. Si esta desactivado, cualquier jefe del area puede hacerlo.</span>
+                        <span class="block text-sm font-medium text-gray-900">Exigir responsable para gestión de equipo (RC/RI)</span>
+                        <span class="block text-xs text-gray-500">Solo el RC o RI asignado puede gestionar el equipo de su área. Si está desactivado, cualquier jefe del área puede hacerlo.</span>
                     </span>
                 </label>
 
@@ -62,8 +62,8 @@
                            {% if equipo_autoasign %}checked{% endif %}
                            class="mt-0.5 h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500">
                     <span>
-                        <span class="block text-sm font-medium text-gray-900">Autoasignacion de RC por jefes de area</span>
-                        <span class="block text-xs text-gray-500">Al asignar coordinador de obra, el jefe de Construccion queda autoasignado como RC del proyecto.</span>
+                        <span class="block text-sm font-medium text-gray-900">Autoasignación de RC por jefes de área</span>
+                        <span class="block text-xs text-gray-500">Al asignar coordinador de obra, el jefe de Construcción queda autoasignado como RC del proyecto.</span>
                     </span>
                 </label>
             </div>
@@ -71,7 +71,7 @@
             <div class="flex justify-end">
                 <button type="submit"
                         class="px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700">
-                    Guardar configuracion
+                    Guardar configuración
                 </button>
             </div>
         </form>
@@ -79,7 +79,7 @@
         <!-- Aprobador final (form separado — endpoint BOM existente) -->
         <div class="border rounded-lg p-4">
             <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1">Aprobador final del BOM</h3>
-            <p class="text-xs text-gray-500 mb-3">Usuario unico que aprueba el paso final. Sin bypass, incluso para ADMIN.</p>
+            <p class="text-xs text-gray-500 mb-3">Usuario único que aprueba el paso final. Sin bypass, incluso para ADMIN.</p>
             <form hx-post="/bom/admin/aprobador-final"
                   hx-target="#toast-container"
                   hx-swap="afterbegin"

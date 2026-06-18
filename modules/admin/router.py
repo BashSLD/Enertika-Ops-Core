@@ -1765,10 +1765,17 @@ async def guardar_config_bom_aprobaciones(
         'equipo.gestion_solo_responsable': 'true' if form.get('equipo_gestion') else 'false',
         'equipo.autoasignacion_rc_por_jefes': 'true' if form.get('equipo_autoasign') else 'false',
     }
-    for clave, valor in flags.items():
-        await service.db.upsert_global_config(conn, clave, valor)
-    await ConfigService.invalidar_cache()
-    return templates.TemplateResponse(request, "shared/toast.html", {
-        "message": "Configuracion de aprobaciones guardada",
-        "type": "success",
-    })
+    try:
+        for clave, valor in flags.items():
+            await service.db.upsert_global_config(conn, clave, valor)
+        ConfigService.invalidar_cache()
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "message": "Configuración de aprobaciones guardada",
+            "type": "success",
+        })
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al guardar config aprobaciones BOM")
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "message": "Error al guardar la configuración. Intenta de nuevo.",
+            "type": "error",
+        }, status_code=500)

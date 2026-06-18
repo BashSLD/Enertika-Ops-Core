@@ -188,6 +188,7 @@ async def bom_ui(
     # Si el usuario solo tiene acceso por compras/finanzas, validar que el BOM este aprobado.
     is_downstream_only = (
         not is_admin
+        and not es_director
         and not module_roles.get("ingenieria")
         and not module_roles.get("construccion")
         and (module_roles.get("compras") or module_roles.get("finanzas"))
@@ -1756,7 +1757,7 @@ async def get_autorizaciones_tab(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_director=True),
 ):
     bom = await service.db.get_bom_by_id(conn, id_bom)  # autorizaciones tab
     if not bom:
