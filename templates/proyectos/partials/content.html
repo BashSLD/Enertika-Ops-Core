@@ -1,6 +1,7 @@
 <div class="h-full flex flex-col animate-fade-in-down">
     {# MOVIL: template de acciones para el header (poblado via JS) #}
     <div id="mobile-actions-template" style="display:none">
+        {% if puede_crear_proyecto %}
         <button onclick="abrirModalCrearProyecto()"
             class="bg-blue-600 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -8,6 +9,7 @@
             </svg>
             Crear Proyecto
         </button>
+        {% endif %}
         <a hx-get="/materials/ui" hx-target="#main-content" hx-push-url="true"
             class="bg-indigo-600 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full cursor-pointer">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -47,6 +49,7 @@
             <p class="text-gray-500 text-xs mt-0.5">Vista global de la cartera de proyectos</p>
         </div>
         <div class="flex flex-wrap gap-2 items-center">
+            {% if puede_crear_proyecto %}
             <button onclick="abrirModalCrearProyecto()"
                 class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors flex items-center gap-1.5 shadow-sm">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -54,6 +57,7 @@
                 </svg>
                 Crear Proyecto
             </button>
+            {% endif %}
             <a href="/materials/ui" hx-get="/materials/ui" hx-target="#main-content" hx-push-url="true"
                 class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-1.5 px-3 text-sm rounded-lg shadow-sm flex items-center gap-1.5 transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

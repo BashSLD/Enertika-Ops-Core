@@ -16,6 +16,7 @@ from dataclasses import asdict
 
 # IMPORTS OBLIGATORIOS para permisos
 from core.security import get_current_user_context
+from core.projects.router import check_puede_crear_proyecto
 from core.permissions import require_module_access, require_manager_access
 from core.config import settings
 
@@ -633,7 +634,8 @@ async def get_detalle_modal(
     return templates.TemplateResponse(request, "shared/modals/detalle_oportunidad_modal.html", {"op": dict(op),
         "can_edit_comercial": can_edit_comercial,
         "can_close_sale": can_close_sale,
-        "context": context
+        "context": context,
+        "puede_crear_proyecto": check_puede_crear_proyecto(context),
     })
 
 # --- ENDPOINTS DE GESTIÓN (MODALES Y UPDATES) ---

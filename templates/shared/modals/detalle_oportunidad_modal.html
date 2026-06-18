@@ -369,7 +369,7 @@
                             <p class="text-sm text-gray-700 truncate">{{ sitio.nombre_sitio }}</p>
                             {% endif %}
                         </div>
-                        {% if not sitio.tiene_proyecto %}
+                        {% if not sitio.tiene_proyecto and puede_crear_proyecto %}
                         <button type="button"
                             hx-get="/projects/modal-crear?id_sitio={{ sitio.id_sitio }}"
                             hx-target="#modal-proyecto-container"

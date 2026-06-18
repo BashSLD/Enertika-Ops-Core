@@ -6,7 +6,7 @@ Endpoints usados por múltiples módulos (Compras, Construcción, etc.)
 
 from fastapi import APIRouter, Depends, Request, Form, HTTPException, Query
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from typing import Optional
 from uuid import UUID
 import asyncpg
@@ -35,27 +35,44 @@ router = APIRouter(
 def check_puede_crear_proyecto(context: dict) -> bool:
     """
     Verifica si el usuario puede crear proyectos.
-    
+
     Permisos:
     - Admin: siempre
+    - Dirección: siempre (el alta hardcodea aprobacion_direccion=True)
     - Compras: editor+
     - Construcción: editor+
+    - Comercial: editor+
     """
     role = context.get("role", "")
     module_roles = context.get("module_roles", {})
-    
-    # Admin siempre puede
-    if role == "ADMIN":
+    rol_org = (context.get("rol_organizacional") or "").strip().lower()
+
+    # Admin y Dirección siempre pueden
+    if role == "ADMIN" or rol_org == "director":
         return True
-    
+
     # Verificar permisos en módulos específicos
     roles_permitidos = ["editor", "admin"]
-    
+
     compras_role = module_roles.get("compras", "")
     construccion_role = module_roles.get("construccion", "")
     comercial_role = module_roles.get("comercial", "")
 
     return (compras_role in roles_permitidos) or (construccion_role in roles_permitidos) or (comercial_role in roles_permitidos)
+
+
+def _toast_response(
+    request: Request,
+    message: str,
+    type_: str = "warning",
+    title: str = "Aviso",
+) -> Response:
+    return templates.TemplateResponse(
+        request,
+        "shared/toast.html",
+        {"message": message, "type": type_, "title": title},
+        headers={"HX-Reswap": "none", "HX-Push-Url": "false"},
+    )
 
 
 # ========================================
@@ -156,7 +173,10 @@ async def get_modal_crear_proyecto(
     Acepta id_sitio opcional para pre-seleccionar el sitio en el formulario.
     """
     if not check_puede_crear_proyecto(context):
-        raise HTTPException(status_code=403, detail="Sin permisos para crear proyectos")
+        return _toast_response(
+            request,
+            "No tienes permisos para crear proyectos. Contacta a Compras, Construcción o Comercial.",
+        )
 
     sitios = await service.get_sitios_ganados_sin_proyecto(conn)
     tecnologias = await service.get_tecnologias(conn)
@@ -194,8 +214,11 @@ async def crear_proyecto(
     Retorna HTML con resultado (para HTMX).
     """
     if not check_puede_crear_proyecto(context):
-        raise HTTPException(status_code=403, detail="Sin permisos para crear proyectos")
-    
+        return _toast_response(
+            request,
+            "No tienes permisos para crear proyectos. Contacta a Compras, Construcción o Comercial.",
+        )
+
     user_id = context.get("user_db_id")
     if not user_id:
         raise HTTPException(status_code=401, detail="Usuario no identificado")

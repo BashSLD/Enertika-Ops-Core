@@ -17,6 +17,7 @@ from core.security import get_current_user_context
 from core.permissions import require_module_access
 from core.database import get_db_connection
 from .service import ProyectosService, get_service
+from core.projects.router import check_puede_crear_proyecto
 
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
@@ -52,6 +53,7 @@ async def get_proyectos_ui(
     kpis = await service.get_kpis(conn)
     proyectos = await service.get_proyectos(conn)
     proyectos_split = _separar_proyectos_globales(proyectos)
+    puede_crear_proyecto = check_puede_crear_proyecto(context)
 
     template_data = {
         "user_name": context.get("user_name"),
@@ -63,6 +65,7 @@ async def get_proyectos_ui(
         **proyectos_split,
         "area": None,
         "vista_global": True,
+        "puede_crear_proyecto": puede_crear_proyecto,
     }
 
     # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page

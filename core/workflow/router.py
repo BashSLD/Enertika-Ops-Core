@@ -18,6 +18,7 @@ from core.database import get_db_connection
 from core.jinja_filters import register_timezone_filters
 from core.security import get_current_user_context, get_valid_graph_token
 from core.workflow.service import get_workflow_service
+from core.projects.router import check_puede_crear_proyecto
 
 logger = logging.getLogger("SharedComments")
 templates = Jinja2Templates(directory="templates")
@@ -156,6 +157,7 @@ async def get_detalle_oportunidad_modal(
         logger.exception("[DETALLE OPORTUNIDAD] Error de base de datos")
         raise HTTPException(status_code=500, detail="Error al cargar detalle") from exc
 
+    template_context["puede_crear_proyecto"] = check_puede_crear_proyecto(context)
     return templates.TemplateResponse(
         request,
         "shared/modals/detalle_oportunidad_modal.html",
