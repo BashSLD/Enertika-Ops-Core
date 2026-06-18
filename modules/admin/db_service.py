@@ -288,6 +288,13 @@ class AdminDBService:
             clave, valor
         )
 
+    async def fetch_usuarios_activos_select(self, conn) -> list:
+        """Lista minima de usuarios activos para selects de admin."""
+        rows = await conn.fetch(
+            "SELECT id_usuario, nombre FROM tb_usuarios WHERE is_active = true ORDER BY nombre"
+        )
+        return [dict(r) for r in rows]
+
     async def delete_global_config_keys(self, conn, keys: List[str]) -> None:
         """Elimina claves de configuracion global."""
         await conn.execute(

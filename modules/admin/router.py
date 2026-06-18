@@ -22,6 +22,7 @@ logger = logging.getLogger("AdminRouter")
 from . import endpoints_correos_notif
 from .schemas import ConfiguracionGlobalUpdate, TecnologiaCreate
 from core.config_service import ConfigService
+from core.bom.db_service import BomDBService
 from modules.asistencia import service as asistencia_service
 
 router = APIRouter(
@@ -1463,7 +1464,6 @@ async def set_aprobador_final(
     user_id_raw = form.get("aprobador_final_id", "").strip()
     try:
         from uuid import UUID as _UUID
-        from core.bom.db_service import BomDBService
         bom_db = BomDBService()
         user_id = _UUID(user_id_raw)
         await bom_db.set_aprobador_final_id(conn, user_id)
@@ -1720,3 +1720,55 @@ async def actualizar_session_cfe(
             {"title": "Sesión CFE", "message": "Error al guardar la sesión.", "type": "error"},
             status_code=500,
         )
+
+
+# ─── CONFIG BOM APROBACIONES ────────────────────────────────────────────────
+
+@router.get("/config-bom-aprobaciones", include_in_schema=False)
+async def config_bom_aprobaciones(
+    request: Request,
+    conn=Depends(get_db_connection),
+    service: AdminService = Depends(get_admin_service),
+    _=require_role("ADMIN"),
+):
+    bom_db = BomDBService()
+    configs = await ConfigService.get_global_configs_bulk(conn, {
+        'bom.gestion_solo_responsable': (True, bool),
+        'bom.director_bypass_aprobaciones': (True, bool),
+        'equipo.gestion_solo_responsable': (True, bool),
+        'equipo.autoasignacion_rc_por_jefes': (True, bool),
+    })
+    aprobador_final_id = await bom_db.get_aprobador_final_id(conn)
+    usuarios = await service.db.fetch_usuarios_activos_select(conn)
+
+    return templates.TemplateResponse(request, "admin/config_bom_aprobaciones.html", {
+        "bom_gestion": configs['bom.gestion_solo_responsable'],
+        "bom_director": configs['bom.director_bypass_aprobaciones'],
+        "equipo_gestion": configs['equipo.gestion_solo_responsable'],
+        "equipo_autoasign": configs['equipo.autoasignacion_rc_por_jefes'],
+        "aprobador_final_id": str(aprobador_final_id) if aprobador_final_id else None,
+        "usuarios": usuarios,
+    })
+
+
+@router.post("/config-bom-aprobaciones/guardar", include_in_schema=False)
+async def guardar_config_bom_aprobaciones(
+    request: Request,
+    conn=Depends(get_db_connection),
+    service: AdminService = Depends(get_admin_service),
+    _=require_role("ADMIN"),
+):
+    form = await request.form()
+    flags = {
+        'bom.gestion_solo_responsable': 'true' if form.get('bom_gestion') else 'false',
+        'bom.director_bypass_aprobaciones': 'true' if form.get('bom_director') else 'false',
+        'equipo.gestion_solo_responsable': 'true' if form.get('equipo_gestion') else 'false',
+        'equipo.autoasignacion_rc_por_jefes': 'true' if form.get('equipo_autoasign') else 'false',
+    }
+    for clave, valor in flags.items():
+        await service.db.upsert_global_config(conn, clave, valor)
+    await ConfigService.invalidar_cache()
+    return templates.TemplateResponse(request, "shared/toast.html", {
+        "message": "Configuracion de aprobaciones guardada",
+        "type": "success",
+    })
