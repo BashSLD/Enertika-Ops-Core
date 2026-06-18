@@ -14,6 +14,7 @@ from core.bom.db_service import BomDBService
 from core.bom.schemas import EstatusBOM, AccionHistorial, TipoAprobacion
 from core.config import settings
 from core.timezone import now_mx, today_mx
+from core.config_service import ConfigService
 
 logger = logging.getLogger("BOM.Service")
 
@@ -79,9 +80,26 @@ class BomService:
                 "Solo el jefe de Ingenieria o el ingeniero asignado pueden crear o retomar el BOM"
             )
 
-    async def _validar_jefe_ingenieria(self, conn, user_id: UUID) -> None:
-        if not await self.db.usuario_tiene_rol_org(conn, user_id, "jefe_ingenieria"):
-            raise ValueError("Solo el jefe de Ingenieria puede ejecutar esta accion")
+    async def _validar_aprobador_bom(
+        self, conn, user_id: UUID, user_role: str, rol_org: Optional[str],
+        responsable_id: Optional[UUID], label: str, fallback_rol_org: Optional[str] = None
+    ) -> None:
+        if user_role == 'ADMIN':
+            return
+        director_bypass = await ConfigService.get_global_config(
+            conn, 'bom.director_bypass_aprobaciones', True, bool
+        )
+        if rol_org == 'director' and director_bypass:
+            return
+        solo_responsable = await ConfigService.get_global_config(
+            conn, 'bom.gestion_solo_responsable', True, bool
+        )
+        if solo_responsable and responsable_id and responsable_id != user_id:
+            raise ValueError(f"Solo el {label} del proyecto puede ejecutar esta accion")
+        if solo_responsable and responsable_id:
+            return
+        if fallback_rol_org and not await self.db.usuario_tiene_rol_org(conn, user_id, fallback_rol_org):
+            raise ValueError(f"Solo el {label} puede ejecutar esta accion")
 
     # ─── CREAR BOM ──────────────────────────────────────────
 
@@ -491,12 +509,15 @@ class BomService:
         return bom_updated
 
     async def aprobar_ing(
-        self, conn, id_bom: UUID, user_id: UUID,
-        comentarios: Optional[str] = None
+        self, conn, id_bom: UUID, user_id: UUID, user_role: str,
+        rol_org: Optional[str] = None, comentarios: Optional[str] = None
     ) -> dict:
         """Aprueba BOM por responsable de ingenieria."""
         bom = await self.get_bom(conn, id_bom)
-        await self._validar_jefe_ingenieria(conn, user_id)
+        await self._validar_aprobador_bom(
+            conn, user_id, user_role, rol_org,
+            bom.get('responsable_ing'), "Responsable de Ingenieria", "jefe_ingenieria"
+        )
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_ING:
             raise ValueError("El BOM debe estar EN_REVISION_ING para aprobar")
@@ -505,12 +526,10 @@ class BomService:
             conn, id_bom, EstatusBOM.APROBADO_ING,
             fecha_aprobacion_ing=now_mx()
         )
-
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.APROBACION_ING,
             bom['version'], user_id, comentarios=comentarios
         )
-
         logger.info("BOM %s aprobado por ing %s", id_bom, user_id)
         bom_updated = await self.db.get_bom_by_id(conn, id_bom)
         await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
@@ -518,15 +537,18 @@ class BomService:
         return bom_updated
 
     async def rechazar_ing(
-        self, conn, id_bom: UUID, user_id: UUID,
-        comentarios: Optional[str] = None
+        self, conn, id_bom: UUID, user_id: UUID, user_role: str,
+        rol_org: Optional[str] = None, comentarios: Optional[str] = None
     ) -> dict:
         """Rechaza BOM por responsable de ingenieria. Vuelve a BORRADOR."""
         if not comentarios or not comentarios.strip():
             raise ValueError("El motivo del rechazo es obligatorio")
 
         bom = await self.get_bom(conn, id_bom)
-        await self._validar_jefe_ingenieria(conn, user_id)
+        await self._validar_aprobador_bom(
+            conn, user_id, user_role, rol_org,
+            bom.get('responsable_ing'), "Responsable de Ingenieria", "jefe_ingenieria"
+        )
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_ING:
             raise ValueError("El BOM debe estar EN_REVISION_ING para rechazar")
@@ -536,12 +558,10 @@ class BomService:
             fecha_envio_ing=None,
             fecha_aprobacion_ing=None
         )
-
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.RECHAZO_ING,
             bom['version'], user_id, comentarios=comentarios
         )
-
         logger.info("BOM %s rechazado por ing %s: %s", id_bom, user_id, comentarios)
         bom_updated = await self.db.get_bom_by_id(conn, id_bom)
         await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
@@ -575,11 +595,15 @@ class BomService:
         return await self.db.get_bom_by_id(conn, id_bom)
 
     async def aprobar_const(
-        self, conn, id_bom: UUID, user_id: UUID,
-        comentarios: Optional[str] = None
+        self, conn, id_bom: UUID, user_id: UUID, user_role: str,
+        rol_org: Optional[str] = None, comentarios: Optional[str] = None
     ) -> dict:
-        """Aprueba BOM por coordinador de construccion. Estado final."""
+        """Aprueba BOM por jefe de construccion. Estado final antes de compras."""
         bom = await self.get_bom(conn, id_bom)
+        await self._validar_aprobador_bom(
+            conn, user_id, user_role, rol_org,
+            bom.get('jefe_construccion'), "Jefe de Construccion", "jefe_construccion"
+        )
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_CONST:
             raise ValueError("El BOM debe estar EN_REVISION_CONST para aprobar")
@@ -588,12 +612,10 @@ class BomService:
             conn, id_bom, EstatusBOM.APROBADO_CONST,
             fecha_aprobacion_const=now_mx()
         )
-
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.APROBACION_CONST,
             bom['version'], user_id, comentarios=comentarios
         )
-
         logger.info("BOM %s aprobado por const %s", id_bom, user_id)
         bom_updated = await self.db.get_bom_by_id(conn, id_bom)
         await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
@@ -601,14 +623,18 @@ class BomService:
         return bom_updated
 
     async def rechazar_const(
-        self, conn, id_bom: UUID, user_id: UUID,
-        comentarios: Optional[str] = None
+        self, conn, id_bom: UUID, user_id: UUID, user_role: str,
+        rol_org: Optional[str] = None, comentarios: Optional[str] = None
     ) -> dict:
         """Rechaza BOM por construccion. Vuelve a APROBADO_ING."""
         if not comentarios or not comentarios.strip():
             raise ValueError("El motivo del rechazo es obligatorio")
 
         bom = await self.get_bom(conn, id_bom)
+        await self._validar_aprobador_bom(
+            conn, user_id, user_role, rol_org,
+            bom.get('jefe_construccion'), "Jefe de Construccion", "jefe_construccion"
+        )
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_CONST:
             raise ValueError("El BOM debe estar EN_REVISION_CONST para rechazar")
@@ -618,12 +644,10 @@ class BomService:
             fecha_envio_const=None,
             fecha_aprobacion_const=None
         )
-
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.RECHAZO_CONST,
             bom['version'], user_id, comentarios=comentarios
         )
-
         logger.info("BOM %s rechazado por const %s: %s", id_bom, user_id, comentarios)
         bom_updated = await self.db.get_bom_by_id(conn, id_bom)
         await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
@@ -655,11 +679,15 @@ class BomService:
         return bom_updated
 
     async def aprobar_revision_obra(
-        self, conn, id_bom: UUID, user_id: UUID,
-        comentarios: Optional[str] = None
+        self, conn, id_bom: UUID, user_id: UUID, user_role: str,
+        rol_org: Optional[str] = None, comentarios: Optional[str] = None
     ) -> dict:
         """Aprueba BOM por coordinador de obra. Avanza automaticamente a EN_REVISION_CONST."""
         bom = await self.get_bom(conn, id_bom)
+        await self._validar_aprobador_bom(
+            conn, user_id, user_role, rol_org,
+            bom.get('coordinador_obra'), "Coordinador de Obra", "jefe_construccion"
+        )
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_OBRA:
             raise ValueError("El BOM debe estar EN_REVISION_OBRA para aprobar")
@@ -680,14 +708,18 @@ class BomService:
         return bom_updated
 
     async def rechazar_obra(
-        self, conn, id_bom: UUID, user_id: UUID,
-        comentarios: Optional[str] = None
+        self, conn, id_bom: UUID, user_id: UUID, user_role: str,
+        rol_org: Optional[str] = None, comentarios: Optional[str] = None
     ) -> dict:
         """Rechaza BOM por coordinador de obra. Vuelve a APROBADO_ING."""
         if not comentarios or not comentarios.strip():
             raise ValueError("El motivo del rechazo es obligatorio")
 
         bom = await self.get_bom(conn, id_bom)
+        await self._validar_aprobador_bom(
+            conn, user_id, user_role, rol_org,
+            bom.get('coordinador_obra'), "Coordinador de Obra", "jefe_construccion"
+        )
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_OBRA:
             raise ValueError("El BOM debe estar EN_REVISION_OBRA para rechazar")
@@ -1405,8 +1437,9 @@ class BomService:
 
         bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
 
-        # Validar que el usuario es el coordinador_obra del proyecto o ADMIN
-        # Si coordinador_obra es NULL (no asignado al crear BOM), el jefe de construccion puede aprobar
+        # Fase D no usa _validar_aprobador_bom: opera sobre la autorizacion (no sobre roles
+        # de revision del BOM), no tiene bypass de Director (Direccion tiene su propio paso
+        # en Fase D), y el fallback es NULL-check en coordinador_obra, no rol_org global.
         if user_role != 'ADMIN':
             coordinador_obra = bom.get('coordinador_obra')
             if coordinador_obra:
