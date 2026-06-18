@@ -692,6 +692,41 @@
         </div>
     </section>
 
+    <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
+        <div class="px-5 py-3 border-b border-gray-100">
+            <button type="button" @click="open = !open" :aria-expanded="open.toString()"
+                class="flex w-full items-center gap-3 text-left">
+                <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-50 text-teal-500 flex-shrink-0">
+                    <svg class="h-4 w-4 transition-transform duration-200" :class="open ? 'rotate-90' : ''"
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </span>
+                <span class="flex-1 min-w-0">
+                    <span class="block text-sm font-semibold text-gray-800">Permisos y Aprobaciones</span>
+                    <span class="block text-xs text-gray-400">Ownership RC/RI en BOM y equipo de proyecto</span>
+                </span>
+            </button>
+        </div>
+        <div x-show="open" x-cloak x-transition class="p-6">
+            <div class="bg-teal-50 p-4 rounded-lg border border-teal-200">
+                <p class="text-sm text-gray-700 mb-3">Configura quien puede aprobar cada paso del BOM y como se gestionan los roles RC/RI del equipo de proyecto.</p>
+                <button type="button"
+                    hx-get="/admin/config-bom-aprobaciones"
+                    hx-target="#modal-config-bom-content"
+                    hx-swap="innerHTML"
+                    onclick="document.getElementById('modal-config-bom').classList.remove('hidden')"
+                    class="text-teal-600 hover:text-teal-800 text-xs font-bold flex items-center gap-1 bg-white px-2 py-1 rounded shadow-sm hover:shadow border border-teal-200">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                    </svg>
+                    Configurar aprobaciones del BOM
+                </button>
+            </div>
+        </div>
+    </section>
+
 </div>
 
 <!-- SharePoint Help Modal -->
