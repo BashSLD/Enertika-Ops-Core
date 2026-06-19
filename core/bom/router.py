@@ -168,7 +168,7 @@ async def bom_ui(
     )
 
     if not bom:
-        if es_director:
+        if es_director and not tiene_ingenieria:
             return _toast_response(
                 request,
                 "El BOM no ha sido iniciado para este proyecto.",
@@ -1765,7 +1765,7 @@ async def get_autorizaciones_tab(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_director=True),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
 ):
     bom = await service.db.get_bom_by_id(conn, id_bom)  # autorizaciones tab
     if not bom:

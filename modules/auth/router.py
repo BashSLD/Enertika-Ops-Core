@@ -59,7 +59,7 @@ async def callback(
         raise HTTPException(status_code=500, detail="Error guardando sesion de usuario") from exc
     except RuntimeError as exc:
         logger.warning("Error de Microsoft en callback de autenticacion: %s", exc)
-        return RedirectResponse(url="/auth/login")
+        return RedirectResponse(url="/auth/login", status_code=302)
 
 
 @router.get("/logout")

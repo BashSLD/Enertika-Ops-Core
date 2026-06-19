@@ -119,7 +119,7 @@ def user_has_module_access(module_slug: str, context: dict, min_role: str = "vie
     return user_role_level >= min_role_level
 
 
-def require_any_module_access(module_slugs: list[str], min_role: str = "viewer", allow_director: bool = False) -> Callable:
+def require_any_module_access(module_slugs: list[str], min_role: str = "viewer", allow_org_roles: set[str] | None = None) -> Callable:
     """
     Dependency factory para recursos compartidos entre módulos (lógica OR).
     Permite acceso si el usuario tiene min_role en AL MENOS UNO de los módulos indicados.
@@ -130,7 +130,7 @@ def require_any_module_access(module_slugs: list[str], min_role: str = "viewer",
     Args:
         module_slugs: Lista de slugs de módulo (ej: ["levantamientos", "comercial"])
         min_role: Rol mínimo requerido en al menos uno de los módulos
-        allow_director: Si True, permite acceso a usuarios con rol_organizacional='director'
+        allow_org_roles: Roles organizacionales que tienen acceso adicional (ej: {"director"})
 
     Raises:
         HTTPException 403: Si el usuario no tiene el rol mínimo en ninguno de los módulos
@@ -138,7 +138,7 @@ def require_any_module_access(module_slugs: list[str], min_role: str = "viewer",
     async def _validate(context=Depends(get_current_user_context)):
         if context.get("role") == "ADMIN":
             return True
-        if allow_director and context.get("rol_organizacional") == "director":
+        if allow_org_roles and context.get("rol_organizacional") in allow_org_roles:
             return True
 
         for slug in module_slugs:

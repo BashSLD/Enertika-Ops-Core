@@ -20,8 +20,6 @@
         ing: '{{ cur_ing.id or '' }}', coord: '{{ cur_coord.id or '' }}', oym: '{{ cur_oym.id or '' }}',
         initRi: '{{ init_ri }}', initRc: '{{ init_rc }}',
         initIng: '{{ cur_ing.id or '' }}', initCoord: '{{ cur_coord.id or '' }}', initOym: '{{ cur_oym.id or '' }}',
-        seraRI: {{ 'true' if sera_ri else 'false' }},
-        seraRC: {{ 'true' if sera_rc else 'false' }},
         confirming: false,
         confirmMsg: '',
         get dirty() {
@@ -30,8 +28,8 @@
         },
         async guardar() {
             const msgs = [];
-            if (this.seraRI && this.ing !== this.initIng && this.ing !== '') msgs.push('Responsable de Ingenieria');
-            if (this.seraRC && this.coord !== this.initCoord && this.coord !== '') msgs.push('Responsable de Construccion');
+            {% if sera_ri %}if (this.ing !== this.initIng && this.ing !== '') msgs.push('Responsable de Ingenieria');{% endif %}
+            {% if sera_rc %}if (this.coord !== this.initCoord && this.coord !== '') msgs.push('Responsable de Construccion');{% endif %}
             if (msgs.length > 0) {
                 this.confirmMsg = msgs.join(' y ');
                 this.confirming = true;
@@ -314,8 +312,7 @@
                 </button>
                 {% else %}
                 <button type="button" @click="guardar()" :disabled="guardando"
-                    class="ml-auto flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                    style="background-color: #123456;">
+                    class="ml-auto flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed bg-[#123456] hover:bg-[#0d2d4a]">
                     <svg class="w-4 h-4" :class="{'animate-spin': guardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                     </svg>
@@ -352,8 +349,7 @@
                     Cancelar
                 </button>
                 <button type="button" @click="ejecutarGuardado()"
-                    class="flex-1 px-4 py-3 text-sm font-semibold text-white transition-colors"
-                    style="background-color: #123456;">
+                    class="flex-1 px-4 py-3 text-sm font-semibold text-white transition-colors bg-[#123456] hover:bg-[#0d2d4a]">
                     Aceptar
                 </button>
             </div>

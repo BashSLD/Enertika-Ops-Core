@@ -145,7 +145,7 @@ class SharePointService:
         
         session_payload = {
             "item": {
-                "@microsoft.graph.conflictBehavior": "rename",
+                "@microsoft.graph.conflictBehavior": "replace",
                 "name": self._sanitize_filename(file.filename)
             }
         }
