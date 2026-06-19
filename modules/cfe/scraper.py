@@ -1718,22 +1718,24 @@ async def registrar_servicio_miespacio(cfg: CfeScraperConfig) -> ResultadoAlta:
 
                 # No existe: solo ahora bajamos el total del portal publico (evita
                 # ese scraping en el caso idempotente "ya_existia").
+                detalle_sin_total = ""
                 try:
                     candidatos = await _candidatos_total_publico(browser, cfg)
                 except _SCRAPER_ERRORS as exc:
                     candidatos = []
+                    detalle_sin_total = str(exc)
                     logger.warning(
                         "No se pudieron obtener candidatos de total servicio=%s: %s",
                         cfg.numero_servicio, exc,
                     )
                 if not candidatos:
-                    return ResultadoAlta(
-                        estado="sin_total",
-                        mensaje=(
-                            "No se pudo obtener el total a pagar del recibo del portal "
-                            "publico para registrar el servicio."
-                        ),
+                    mensaje = (
+                        "No se pudo obtener el total a pagar del recibo del portal "
+                        "publico para registrar el servicio."
                     )
+                    if detalle_sin_total:
+                        mensaje = f"{mensaje} Detalle: {detalle_sin_total}"
+                    return ResultadoAlta(estado="sin_total", mensaje=mensaje)
 
                 ok, total, msg = await _registrar_servicio_con_candidatos(mi_page, cfg, candidatos)
 
