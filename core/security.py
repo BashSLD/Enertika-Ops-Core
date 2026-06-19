@@ -54,7 +54,6 @@ async def get_current_user_context(
     db_puesto = None
     db_name = None
     modulo_preferido = None
-    es_rh = False
 
     if row:
         user_db_id = row['id_usuario']
@@ -63,7 +62,6 @@ async def get_current_user_context(
         db_puesto = row['puesto']
         db_name = row['nombre']
         modulo_preferido = row['modulo_preferido']
-        es_rh = bool(row['es_rh'])
     else:
         try:
             user_db_id = await security_db.create_user(conn, user_name, final_email)
@@ -102,7 +100,6 @@ async def get_current_user_context(
         "module_roles": module_roles,  # Nueva: Dict {slug: rol}
         "user_db_id": user_db_id,
         "rol_organizacional": db_rol_org,
-        "es_rh": es_rh,
     }
 
 async def get_valid_graph_token(request: Request):

@@ -8,7 +8,7 @@ class SecurityDBService:
         row = await conn.fetchrow(
             """
             SELECT id_usuario, nombre, rol_sistema, department, puesto, modulo_preferido,
-                   rol_organizacional, is_active, es_rh
+                   rol_organizacional, is_active
             FROM tb_usuarios
             WHERE email = $1
             """,
