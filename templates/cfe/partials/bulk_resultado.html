@@ -1,0 +1,50 @@
+{# templates/cfe/partials/bulk_resultado.html #}
+{% set all_ok = resultados | length > 0 and total_ok == resultados | length %}
+
+<div class="mt-4 space-y-3">
+    <p class="text-sm font-medium {% if all_ok %}text-green-700{% elif total_ok > 0 %}text-amber-700{% else %}text-red-700{% endif %}">
+        {{ total_ok }} de {{ resultados | length }} servicio(s) registrado(s) correctamente.
+    </p>
+
+    <div class="overflow-y-auto max-h-60 rounded-lg border border-gray-200">
+        <table class="w-full text-xs">
+            <thead class="bg-gray-50 sticky top-0">
+                <tr class="text-gray-500 border-b border-gray-200">
+                    <th class="text-left px-3 py-2 font-medium">RPU</th>
+                    <th class="text-left px-3 py-2 font-medium">Nombre</th>
+                    <th class="text-left px-3 py-2 font-medium">Resultado</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for r in resultados %}
+                <tr class="{% if r.ok %}bg-green-50{% else %}bg-red-50{% endif %}">
+                    <td class="px-3 py-2 font-mono align-top whitespace-nowrap">{{ r.numero }}</td>
+                    <td class="px-3 py-2 align-top">{{ r.nombre }}</td>
+                    <td class="px-3 py-2 align-top">
+                        {% if r.ok %}
+                        <span class="text-green-700 font-medium">{{ r.msg }}</span>
+                        {% else %}
+                        <span class="text-red-700">{{ r.error }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if not all_ok %}
+    <p class="text-xs text-gray-500">Corrige los servicios marcados en rojo y agrégalos de nuevo.</p>
+    {% endif %}
+
+    {% if all_ok %}
+    <p class="text-xs text-green-600 font-medium">Todos los servicios fueron registrados. Cerrando...</p>
+    <span data-close-modal hidden></span>
+    {% endif %}
+</div>
+
+{% if total_ok > 0 %}
+{% with _oob=true %}
+{% include "cfe/partials/lista_servicios.html" %}
+{% endwith %}
+{% endif %}

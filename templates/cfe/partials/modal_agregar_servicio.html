@@ -1,7 +1,15 @@
 {# templates/cfe/partials/modal_agregar_servicio.html #}
 <div class="fixed inset-0 z-50 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
-     id="cfe-agregar-modal">
-    <div class="w-full max-w-lg bg-white rounded-xl shadow-2xl">
+     id="cfe-agregar-modal"
+     x-data="{
+       tab: 'individual',
+       filas: [{rpu: '', nombre: '', alias: ''}],
+       agregar() { this.filas.push({rpu: '', nombre: '', alias: ''}) },
+       quitar(i) { if (this.filas.length > 1) this.filas.splice(i, 1) }
+     }">
+    <div class="w-full bg-white rounded-xl shadow-2xl transition-all"
+         :class="tab === 'varios' ? 'max-w-2xl' : 'max-w-lg'">
+
         <div class="bg-yellow-600 px-6 py-4 rounded-t-xl flex items-center justify-between">
             <h3 class="text-lg font-bold text-white">Agregar Servicio CFE</h3>
             <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
@@ -11,32 +19,88 @@
                 </svg>
             </button>
         </div>
-        <form hx-post="/cfe/servicios"
-              hx-target="#cfe-lista"
-              hx-swap="outerHTML"
-              hx-on::after-request="if(event.detail.successful) document.getElementById('cfe-modal-container').innerHTML=''"
-              class="p-6 space-y-4">
-            <div class="grid grid-cols-2 gap-4">
-                <div class="col-span-2">
-                    <label class="block text-sm font-bold text-gray-700 mb-1">Número de Servicio / RPU <span class="text-red-500">*</span></label>
-                    <input type="text" name="numero_servicio" required placeholder="Ej: 001000123456"
-                        class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500 font-mono">
-                    <p class="text-xs text-gray-400 mt-1">Como aparece en tu recibo CFE.</p>
+
+        <div class="flex border-b border-gray-200 px-6 pt-4">
+            <button type="button"
+                    @click="tab = 'individual'"
+                    :class="{'border-b-2 border-yellow-600 font-semibold text-yellow-700': tab === 'individual', 'text-gray-500': tab !== 'individual'}"
+                    class="pb-2 mr-6 text-sm transition-colors">
+                Un servicio
+            </button>
+            <button type="button"
+                    @click="tab = 'varios'"
+                    :class="{'border-b-2 border-yellow-600 font-semibold text-yellow-700': tab === 'varios', 'text-gray-500': tab !== 'varios'}"
+                    class="pb-2 text-sm transition-colors">
+                Varios servicios
+            </button>
+        </div>
+
+        {# ── Tab: individual ── #}
+        <div x-show="tab === 'individual'" x-cloak>
+            <form hx-post="/cfe/servicios"
+                  hx-target="#cfe-lista"
+                  hx-swap="outerHTML"
+                  hx-on::after-request="if(event.detail.successful) document.getElementById('cfe-modal-container').innerHTML=''"
+                  class="p-6 space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="col-span-2">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Número de Servicio / RPU <span class="text-red-500">*</span></label>
+                        <input type="text" name="numero_servicio" required placeholder="Ej: 001000123456"
+                            class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500 font-mono">
+                        <p class="text-xs text-gray-400 mt-1">Como aparece en tu recibo CFE.</p>
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Nombre del servicio <span class="text-red-500">*</span></label>
+                        <input type="text" name="nombre" required placeholder="Nombre exacto en el recibo CFE"
+                            class="w-full rounded-lg border-gray-300 px-3 py-2 uppercase placeholder:normal-case focus:ring-yellow-500 focus:border-yellow-500">
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Alias / Nombre corto</label>
+                        <input type="text" name="alias" placeholder="Ej: Planta Norte"
+                            class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
+                    </div>
+                    {% if modulos_accesibles | length > 1 %}
+                    <div class="col-span-2">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Departamento <span class="text-red-500">*</span></label>
+                        <select name="modulo" class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
+                            {% for m in modulos_accesibles %}
+                            <option value="{{ m }}" {% if m == modulo %}selected{% endif %}>
+                                {% if m == 'oym' %}O&M{% elif m == 'simulacion' %}Simulación{% else %}{{ m }}{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% else %}
+                    <input type="hidden" name="modulo" value="{{ modulo or (modulos_accesibles[0] if modulos_accesibles else 'oym') }}">
+                    {% endif %}
+                    <input type="hidden" name="lada" value="{{ contacto_defaults.lada }}">
+                    <input type="hidden" name="telefono" value="{{ contacto_defaults.telefono }}">
+                    <input type="hidden" name="email" value="{{ contacto_defaults.email }}">
                 </div>
-                <div class="col-span-2">
-                    <label class="block text-sm font-bold text-gray-700 mb-1">Nombre del servicio <span class="text-red-500">*</span></label>
-                    <input type="text" name="nombre" required placeholder="Nombre exacto en el recibo CFE"
-                        class="w-full rounded-lg border-gray-300 px-3 py-2 uppercase placeholder:normal-case focus:ring-yellow-500 focus:border-yellow-500">
+                <div class="flex justify-end gap-3 pt-2">
+                    <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
+                        class="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
+                        Cancelar
+                    </button>
+                    <button type="submit"
+                        class="px-4 py-2 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-lg">
+                        Registrar Servicio
+                    </button>
                 </div>
-                <div class="col-span-2">
-                    <label class="block text-sm font-bold text-gray-700 mb-1">Alias / Nombre corto</label>
-                    <input type="text" name="alias" placeholder="Ej: Planta Norte"
-                        class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
-                </div>
+            </form>
+        </div>
+
+        {# ── Tab: varios ── #}
+        <div x-show="tab === 'varios'" x-cloak class="p-6 space-y-4">
+            <form hx-post="/cfe/servicios/bulk"
+                  hx-target="#cfe-bulk-resultado"
+                  hx-swap="innerHTML"
+                  hx-on::after-swap="var r=document.getElementById('cfe-bulk-resultado'); if(r && r.querySelector('[data-close-modal]')) setTimeout(function(){ document.getElementById('cfe-modal-container').innerHTML=''; }, 1200)"
+                  class="space-y-4">
                 {% if modulos_accesibles | length > 1 %}
-                <div class="col-span-2">
+                <div>
                     <label class="block text-sm font-bold text-gray-700 mb-1">Departamento <span class="text-red-500">*</span></label>
-                    <select name="modulo" class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
+                    <select name="modulo" class="rounded-lg border-gray-300 px-3 py-2 text-sm focus:ring-yellow-500 focus:border-yellow-500">
                         {% for m in modulos_accesibles %}
                         <option value="{{ m }}" {% if m == modulo %}selected{% endif %}>
                             {% if m == 'oym' %}O&M{% elif m == 'simulacion' %}Simulación{% else %}{{ m }}{% endif %}
@@ -48,27 +112,74 @@
                 <input type="hidden" name="modulo" value="{{ modulo or (modulos_accesibles[0] if modulos_accesibles else 'oym') }}">
                 {% endif %}
                 <input type="hidden" name="lada" value="{{ contacto_defaults.lada }}">
-                <div class="hidden">
-                    <label class="block text-sm font-bold text-gray-700 mb-1">Teléfono <span class="text-red-500">*</span></label>
-                    <input type="hidden" name="telefono" value="{{ contacto_defaults.telefono }}"
-                        class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
+                <input type="hidden" name="telefono" value="{{ contacto_defaults.telefono }}">
+                <input type="hidden" name="email" value="{{ contacto_defaults.email }}">
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-xs text-gray-500 border-b border-gray-200">
+                                <th class="text-left pb-2 pr-3 font-medium w-44">RPU / N° Servicio <span class="text-red-500">*</span></th>
+                                <th class="text-left pb-2 pr-3 font-medium">Nombre <span class="text-red-500">*</span></th>
+                                <th class="text-left pb-2 pr-3 font-medium w-36">Alias</th>
+                                <th class="pb-2 w-8"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="(fila, i) in filas" :key="i">
+                                <tr class="border-b border-gray-100">
+                                    <td class="py-1.5 pr-3">
+                                        <input type="text" name="numero_servicios" x-model="fila.rpu"
+                                               required placeholder="001000123456"
+                                               class="w-full rounded border-gray-300 px-2 py-1.5 text-xs font-mono focus:ring-yellow-500 focus:border-yellow-500">
+                                    </td>
+                                    <td class="py-1.5 pr-3">
+                                        <input type="text" name="nombres" x-model="fila.nombre"
+                                               required placeholder="Nombre exacto en recibo"
+                                               class="w-full rounded border-gray-300 px-2 py-1.5 text-xs uppercase placeholder:normal-case focus:ring-yellow-500 focus:border-yellow-500">
+                                    </td>
+                                    <td class="py-1.5 pr-3">
+                                        <input type="text" name="aliases" x-model="fila.alias"
+                                               placeholder="Alias corto"
+                                               class="w-full rounded border-gray-300 px-2 py-1.5 text-xs focus:ring-yellow-500 focus:border-yellow-500">
+                                    </td>
+                                    <td class="py-1.5">
+                                        <button type="button" @click="quitar(i)"
+                                                :disabled="filas.length <= 1"
+                                                class="text-gray-400 hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed p-1 rounded transition-colors">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                            </svg>
+                                        </button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
                 </div>
-                <div class="hidden">
-                    <label class="block text-sm font-bold text-gray-700 mb-1">Correo de contacto <span class="text-red-500">*</span></label>
-                    <input type="hidden" name="email" value="{{ contacto_defaults.email }}"
-                        class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
+
+                <button type="button" @click="agregar()"
+                        class="flex items-center gap-1 text-sm text-yellow-700 hover:text-yellow-800 font-medium">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                    </svg>
+                    Agregar fila
+                </button>
+
+                <div class="flex justify-end gap-3 pt-2 border-t border-gray-100">
+                    <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
+                        class="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
+                        Cancelar
+                    </button>
+                    <button type="submit"
+                        class="px-4 py-2 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-lg">
+                        Registrar todos
+                    </button>
                 </div>
-            </div>
-            <div class="flex justify-end gap-3 pt-2">
-                <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
-                    class="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
-                    Cancelar
-                </button>
-                <button type="submit"
-                    class="px-4 py-2 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-lg">
-                    Registrar Servicio
-                </button>
-            </div>
-        </form>
+            </form>
+
+            <div id="cfe-bulk-resultado"></div>
+        </div>
+
     </div>
 </div>

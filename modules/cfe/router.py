@@ -286,6 +286,79 @@ async def crear_servicio(
     )
 
 
+@router.post("/servicios/bulk", response_class=HTMLResponse)
+async def crear_servicios_bulk(
+    request: Request,
+    numero_servicios: list[str] = Form(default=[]),
+    nombres: list[str] = Form(default=[]),
+    aliases: list[str] = Form(default=[]),
+    modulo_form: str = Form("oym", alias="modulo"),
+    lada: str = Form(CFE_PUBLIC_FORM_DEFAULTS["lada"]),
+    telefono: str = Form(CFE_PUBLIC_FORM_DEFAULTS["telefono"]),
+    email: str = Form(CFE_PUBLIC_FORM_DEFAULTS["email"]),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_viewer,
+):
+    svc = get_cfe_service()
+    if modulo_form not in CFE_MODULE_SLUGS:
+        modulo_form = CFE_MODULE_SLUGS[0]
+    modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo_form)
+    modulo_guardado = modulo_activo or modulo_form
+
+    lada = lada.strip()
+    telefono = telefono.strip()
+    email = email.strip()
+    aliases = list(aliases) + [""] * max(0, len(numero_servicios) - len(aliases))
+    resultados = []
+    for numero, nombre, alias_raw in zip(numero_servicios, nombres, aliases):
+        alias = alias_raw.strip() or None
+        numero = numero.strip()
+        nombre = nombre.strip()
+        if not numero or not nombre:
+            resultados.append({"numero": numero, "nombre": nombre, "ok": False, "error": "Número y nombre son requeridos."})
+            continue
+        try:
+            _, fue_nuevo = await svc.crear_servicio(
+                conn,
+                numero_servicio=numero,
+                nombre=nombre,
+                alias=alias,
+                lada=lada,
+                telefono=telefono,
+                email=email,
+                usuario_id=user["user_db_id"],
+                modulo=modulo_guardado,
+            )
+            msg = "Registrado." if fue_nuevo else "Módulo añadido (ya existía)."
+            resultados.append({"numero": numero, "nombre": nombre, "ok": True, "msg": msg})
+        except ValueError as exc:
+            resultados.append({"numero": numero, "nombre": nombre, "ok": False, "error": str(exc)})
+        except asyncpg.PostgresError as exc:
+            logger.error("Error de BD en alta masiva CFE: %s", exc)
+            resultados.append({"numero": numero, "nombre": nombre, "ok": False, "error": "Error interno al registrar."})
+
+    total_ok = sum(1 for r in resultados if r["ok"])
+    servicios = await svc.listar_servicios(conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles)
+    estado_sesion = await svc.get_estado_sesion(conn)
+    return templates.TemplateResponse(
+        request,
+        "cfe/partials/bulk_resultado.html",
+        {
+            "resultados": resultados,
+            "total_ok": total_ok,
+            "servicios": servicios,
+            "estado_sesion": estado_sesion,
+            "modulo": modulo_activo,
+            "modulos_accesibles": modulos_accesibles,
+            "user": user,
+            "user_name": user.get("user_name"),
+            "role": user.get("role"),
+            "module_roles": user.get("module_roles", {}),
+        },
+    )
+
+
 @router.post("/servicios/{servicio_id}/reintentar-alta", response_class=HTMLResponse)
 async def reintentar_alta_miespacio(
     request: Request,
