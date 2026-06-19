@@ -48,9 +48,26 @@ class TasksDBService:
                   WHERE la.id_levantamiento = l.id_levantamiento
                     AND la.es_responsable = true
               )
+              AND (l.recordatorio_sin_asignar_at IS NULL
+                   OR l.recordatorio_sin_asignar_at < NOW() - INTERVAL '24 hours'
+                   OR l.recordatorio_sin_asignar_jefe_id IS DISTINCT FROM l.jefe_area_id)
             """
         )
         return [dict(row) for row in rows]
+
+    # Fuera de _RECORDATORIO_COL/mark_recordatorio_enviado: este caso necesita persistir
+    # jefe_id ademas del timestamp para detectar cambio de jefe, no solo una columna *_at.
+    async def mark_sin_asignar_reminder_sent(self, conn, id_levantamiento, jefe_id) -> None:
+        await conn.execute(
+            """
+            UPDATE tb_levantamientos
+            SET recordatorio_sin_asignar_at = NOW(),
+                recordatorio_sin_asignar_jefe_id = $2
+            WHERE id_levantamiento = $1
+            """,
+            id_levantamiento,
+            jefe_id,
+        )
 
     async def get_levantamientos_recordatorios(self, conn) -> list[dict]:
         rows = await conn.fetch(
@@ -102,6 +119,8 @@ class TasksDBService:
     _RECORDATORIO_COL = {
         "pendiente_sin_agendar": "recordatorio_pendiente_at",
         "agendado_vencido": "recordatorio_agendado_at",
+        "en_proceso": "recordatorio_en_proceso_at",
+        "completado": "recordatorio_completado_at",
     }
 
     async def mark_recordatorio_enviado(self, conn, id_levantamiento, tipo: str) -> None:
@@ -163,6 +182,8 @@ class TasksDBService:
                    AND h.fecha_transicion IS NOT NULL
                    AND h.fecha_transicion < NOW() - INTERVAL '48 hours')
               )
+              AND (l.recordatorio_en_proceso_at IS NULL
+                   OR l.recordatorio_en_proceso_at < NOW() - INTERVAL '24 hours')
             """
         )
         return [dict(row) for row in rows]
@@ -206,6 +227,8 @@ class TasksDBService:
             JOIN tb_sitios_oportunidad s ON s.id_sitio = l.id_sitio
             WHERE e.codigo = 'completado'
               AND o.email_enviado = true
+              AND (l.recordatorio_completado_at IS NULL
+                   OR l.recordatorio_completado_at < NOW() - INTERVAL '24 hours')
             """
         )
         return [dict(row) for row in rows]

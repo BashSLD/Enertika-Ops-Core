@@ -89,13 +89,11 @@ async def check_levantamientos_sin_asignar_periodically(interval_seconds: int = 
     Stop: cuando existe un registro en tb_levantamiento_asignaciones con es_responsable=true.
     Edge case jefe==responsable: cubierto automaticamente porque el NOT EXISTS falla.
 
-    Anti-spam key: "{id_levantamiento}:{jefe_area_id}" — si el jefe cambia, la key
-    cambia y el nuevo jefe recibe la alerta sin esperar las 24h del ciclo.
+    Anti-spam persistido en BD (recordatorio_sin_asignar_at + recordatorio_sin_asignar_jefe_id
+    en tb_levantamientos) — si el jefe cambia, el nuevo jefe recibe la alerta sin esperar
+    las 24h del ciclo. Sobrevive redeploys.
     """
     logger.info("[LEV_REMINDER] Tarea de recordatorios inicializada (intervalo: %sh)", interval_seconds // 3600)
-
-    # Anti-spam: { "{id_levantamiento}:{jefe_area_id}": datetime_ultimo_envio }
-    _sent_reminders: dict = {}
 
     while True:
         await asyncio.sleep(interval_seconds)
@@ -126,21 +124,8 @@ async def check_levantamientos_sin_asignar_periodically(interval_seconds: int = 
                     logger.error("[LEV_REMINDER] No se pudo obtener token de aplicacion para enviar recordatorios")
                     continue
 
-                now = now_mx()
-
-                # Limpiar entradas antiguas del dict anti-spam (> 48h)
-                cutoff = now - timedelta(hours=48)
-                _sent_reminders = {k: v for k, v in _sent_reminders.items() if v > cutoff}
-
                 for row in rows:
                     lev_id = str(row['id_levantamiento'])
-                    jefe_id = str(row['jefe_area_id'])
-                    # Incluir jefe en la key: si cambia el jefe, el nuevo recibe la alerta de inmediato
-                    key = f"{lev_id}:{jefe_id}"
-
-                    last_sent = _sent_reminders.get(key)
-                    if last_sent and (now - last_sent) < timedelta(hours=24):
-                        continue
 
                     nombre_proyecto = row['nombre_proyecto'] or row['titulo_proyecto'] or 'Sin nombre'
                     op_id = row['op_id_estandar'] or ''
@@ -175,7 +160,14 @@ async def check_levantamientos_sin_asignar_periodically(interval_seconds: int = 
                     )
 
                     if success:
-                        _sent_reminders[key] = now
+                        try:
+                            await tasks_db.mark_sin_asignar_reminder_sent(
+                                conn, row['id_levantamiento'], row['jefe_area_id']
+                            )
+                        except asyncpg.PostgresError as mark_err:
+                            logger.error(
+                                "[LEV_REMINDER] No se pudo registrar envio lev=%s: %s", lev_id, mark_err
+                            )
                         logger.info(
                             "[LEV_REMINDER] Recordatorio enviado: lev=%s op=%s jefe=%s",
                             lev_id, op_id, row['jefe_email']
@@ -498,10 +490,10 @@ async def check_recordatorios_en_proceso_periodically(interval_seconds: int = 36
     2. EN_PROCESO_LARGO: sin fecha_visita_programada, pero lleva >48h en en_proceso
        según la última transición registrada en tb_levantamientos_historial.
 
-    Anti-spam en memoria: no reenvía al mismo levantamiento en <24h.
+    Anti-spam persistido en BD (recordatorio_en_proceso_at en tb_levantamientos) —
+    no reenvía al mismo levantamiento en <24h. Sobrevive redeploys.
     """
     logger.info("[LEV_EN_PROCESO] Tarea inicializada (intervalo: %sh)", interval_seconds // 3600)
-    _enviados: dict = {}
 
     while True:
         await asyncio.sleep(interval_seconds)
@@ -529,17 +521,8 @@ async def check_recordatorios_en_proceso_periodically(interval_seconds: int = 36
                     logger.debug("[LEV_EN_PROCESO] Sin levantamientos en proceso que requieran recordatorio")
                     continue
 
-                now = now_mx()
-                cutoff = now - timedelta(hours=48)
-                _enviados = {k: v for k, v in _enviados.items() if v > cutoff}
-
                 for row in rows:
                     lev_id = str(row["id_levantamiento"])
-                    key = f"en_proceso:{lev_id}"
-
-                    last = _enviados.get(key)
-                    if last and (now - last) < timedelta(hours=24):
-                        continue
 
                     recipients = [e for e in [row["ingeniero_email"], row["jefe_email"]] if e]
                     if not recipients:
@@ -605,7 +588,12 @@ async def check_recordatorios_en_proceso_periodically(interval_seconds: int = 36
                     )
 
                     if success:
-                        _enviados[key] = now
+                        try:
+                            await tasks_db.mark_recordatorio_enviado(conn, row["id_levantamiento"], "en_proceso")
+                        except asyncpg.PostgresError as mark_err:
+                            logger.error(
+                                "[LEV_EN_PROCESO] No se pudo registrar envio lev=%s: %s", lev_id, mark_err
+                            )
                         logger.info(
                             "[LEV_EN_PROCESO] Enviado subtipo=%s lev=%s a %s",
                             subtipo, lev_id, recipients,
@@ -628,10 +616,10 @@ async def check_recordatorios_completado_periodically(interval_seconds: int = 36
     El mensaje indica que si ya se compartió la evidencia por correo, solo falta
     marcarlo como Entregado en el sistema.
 
-    Anti-spam en memoria: reenvía cada 24h hasta que el estatus cambie a entregado.
+    Anti-spam persistido en BD (recordatorio_completado_at en tb_levantamientos) —
+    reenvía cada 24h hasta que el estatus cambie a entregado. Sobrevive redeploys.
     """
     logger.info("[LEV_COMPLETADO] Tarea inicializada (intervalo: %sh)", interval_seconds // 3600)
-    _enviados: dict = {}
 
     while True:
         await asyncio.sleep(interval_seconds)
@@ -659,17 +647,8 @@ async def check_recordatorios_completado_periodically(interval_seconds: int = 36
                     logger.debug("[LEV_COMPLETADO] Sin levantamientos completados pendientes de entrega")
                     continue
 
-                now = now_mx()
-                cutoff = now - timedelta(hours=48)
-                _enviados = {k: v for k, v in _enviados.items() if v > cutoff}
-
                 for row in rows:
                     lev_id = str(row["id_levantamiento"])
-                    key = f"completado:{lev_id}"
-
-                    last = _enviados.get(key)
-                    if last and (now - last) < timedelta(hours=24):
-                        continue
 
                     recipients = [e for e in [row["ingeniero_email"], row["jefe_email"]] if e]
                     if not recipients:
@@ -711,7 +690,12 @@ async def check_recordatorios_completado_periodically(interval_seconds: int = 36
                     )
 
                     if success:
-                        _enviados[key] = now
+                        try:
+                            await tasks_db.mark_recordatorio_enviado(conn, row["id_levantamiento"], "completado")
+                        except asyncpg.PostgresError as mark_err:
+                            logger.error(
+                                "[LEV_COMPLETADO] No se pudo registrar envio lev=%s: %s", lev_id, mark_err
+                            )
                         logger.info("[LEV_COMPLETADO] Enviado lev=%s a %s", lev_id, recipients)
                     else:
                         logger.error("[LEV_COMPLETADO] Error enviando lev=%s: %s", lev_id, msg)

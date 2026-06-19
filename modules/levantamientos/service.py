@@ -571,15 +571,22 @@ class LevantamientoService:
         
         # Actualizar estado (Manual history insertion to replace trigger)
         now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
-        
+
+        # Al reingresar a en_proceso/completado se limpia el recordatorio_*_at de esa
+        # columna para que el nuevo ciclo no quede suprimido por el timestamp del ciclo anterior.
+        id_en_proceso = _estatus_map.get('en_proceso')
+        id_completado = _estatus_map.get('completado')
+
         async with conn.transaction():
             await conn.execute("""
                 UPDATE tb_levantamientos
                 SET id_estatus_global = $1,
                     updated_at = $2,
-                    updated_by_id = $3
+                    updated_by_id = $3,
+                    recordatorio_en_proceso_at = CASE WHEN $1 = $5 THEN NULL ELSE recordatorio_en_proceso_at END,
+                    recordatorio_completado_at = CASE WHEN $1 = $6 THEN NULL ELSE recordatorio_completado_at END
                 WHERE id_levantamiento = $4
-            """, nuevo_estado, now_mx, user_context['user_db_id'], id_levantamiento)
+            """, nuevo_estado, now_mx, user_context['user_db_id'], id_levantamiento, id_en_proceso, id_completado)
 
             # Insertar en Historial (Reemplazo de Trigger)
             await self._registrar_en_historial(
