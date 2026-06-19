@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Optional, Dict
 import asyncpg
 import httpx
@@ -232,7 +233,6 @@ class SharePointService:
         # Caracteres no permitidos en SharePoint: " * : < > ? / \ |
         invalid_chars = r'["*:<>?/\\|]'
         clean = urllib.parse.unquote(filename) # Decodificar primero
-        import re
         clean = re.sub(invalid_chars, '_', clean)
         return clean
 
