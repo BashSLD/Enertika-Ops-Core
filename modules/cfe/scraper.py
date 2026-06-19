@@ -1681,11 +1681,16 @@ async def _registrar_servicio_con_candidatos(
     return False, None, ultimo_msg or "CFE rechazo el alta del servicio."
 
 
-async def registrar_servicio_miespacio(cfg: CfeScraperConfig) -> ResultadoAlta:
+async def registrar_servicio_miespacio(
+    cfg: CfeScraperConfig,
+    candidatos_override: list[str] | None = None,
+) -> ResultadoAlta:
     """
     Alta del servicio en MiEspacio, independiente de la descarga de recibos.
     Idempotente: si ya existe devuelve estado 'ya_existia'. Si no, obtiene el total
     del ultimo/penultimo recibo del portal publico y lo registra probando candidatos.
+    Si se pasa candidatos_override, omite el scraping del portal publico y usa
+    directamente esos candidatos (registro manual con total ingresado por el usuario).
     """
     if not (cfg.mi_user and cfg.mi_pass):
         return ResultadoAlta(estado="error", mensaje="Faltan credenciales CFE MiEspacio.")
@@ -1723,39 +1728,35 @@ async def registrar_servicio_miespacio(cfg: CfeScraperConfig) -> ResultadoAlta:
                 except MiEspacioServiceNotFound:
                     pass
 
-                # No existe: solo ahora bajamos el total del portal publico (evita
-                # ese scraping en el caso idempotente "ya_existia").
-                detalle_sin_total = ""
                 periodos_data: list[dict] = []
-                try:
-                    periodos_data = await _candidatos_total_publico(browser, cfg)
-                except _SCRAPER_ERRORS as exc:
-                    detalle_sin_total = str(exc)
-                    logger.warning(
-                        "No se pudieron obtener candidatos de total servicio=%s: %s",
-                        cfg.numero_servicio, exc,
-                    )
-
-                # Lista plana sin duplicados para el formulario de alta
-                seen: set = set()
-                candidatos: list[str] = []
-                for p in periodos_data:
-                    for t in p.get("totales", []):
-                        if t not in seen:
-                            seen.add(t)
-                            candidatos.append(t)
-
-                if not candidatos:
-                    mensaje = (
-                        "No se pudo obtener el total a pagar del recibo del portal "
-                        "publico para registrar el servicio."
-                    )
-                    if detalle_sin_total:
-                        mensaje = f"{mensaje} Detalle: {detalle_sin_total}"
-                    return ResultadoAlta(
-                        estado="sin_total", mensaje=mensaje,
-                        periodos_probados=periodos_data or None,
-                    )
+                if candidatos_override is not None:
+                    candidatos = candidatos_override
+                else:
+                    # No existe: solo ahora bajamos el total del portal publico (evita
+                    # ese scraping en el caso idempotente "ya_existia").
+                    detalle_sin_total = ""
+                    try:
+                        periodos_data = await _candidatos_total_publico(browser, cfg)
+                    except _SCRAPER_ERRORS as exc:
+                        detalle_sin_total = str(exc)
+                        logger.warning(
+                            "No se pudieron obtener candidatos de total servicio=%s: %s",
+                            cfg.numero_servicio, exc,
+                        )
+                    candidatos = list(dict.fromkeys(
+                        t for p in periodos_data for t in p.get("totales", [])
+                    ))
+                    if not candidatos:
+                        mensaje = (
+                            "No se pudo obtener el total a pagar del recibo del portal "
+                            "publico para registrar el servicio."
+                        )
+                        if detalle_sin_total:
+                            mensaje = f"{mensaje} Detalle: {detalle_sin_total}"
+                        return ResultadoAlta(
+                            estado="sin_total", mensaje=mensaje,
+                            periodos_probados=periodos_data or None,
+                        )
 
                 ok, total, msg = await _registrar_servicio_con_candidatos(mi_page, cfg, candidatos)
 
@@ -1778,89 +1779,13 @@ async def registrar_servicio_miespacio(cfg: CfeScraperConfig) -> ResultadoAlta:
                     return ResultadoAlta(
                         estado="registrado", mensaje=msg, total_usado=total,
                         session_json_nuevo=session_json, candidatos_probados=candidatos,
-                        periodos_probados=periodos_data,
+                        periodos_probados=periodos_data or None,
                     )
                 return ResultadoAlta(
                     estado="total_no_coincide",
                     mensaje=msg or "CFE rechazo el alta: el total a pagar no coincide.",
                     session_json_nuevo=session_json, candidatos_probados=candidatos,
-                    periodos_probados=periodos_data,
-                )
-            finally:
-                try:
-                    await mi_ctx.close()
-                except _SCRAPER_ERRORS:
-                    pass
-        finally:
-            try:
-                await browser.close()
-            except _SCRAPER_ERRORS:
-                pass
-
-
-async def registrar_servicio_miespacio_con_total(cfg: CfeScraperConfig, total: str) -> ResultadoAlta:
-    """Alta con un total ingresado manualmente (omite scraping del portal publico).
-    Abre MiEspacio y prueba solo ese total."""
-    if not (cfg.mi_user and cfg.mi_pass):
-        return ResultadoAlta(estado="error", mensaje="Faltan credenciales CFE MiEspacio.")
-    try:
-        from playwright.async_api import async_playwright
-    except ModuleNotFoundError as exc:
-        if exc.name != "playwright":
-            raise
-        return ResultadoAlta(estado="error", mensaje="Playwright no esta instalado en el entorno.")
-
-    launch_kwargs = _chromium_launch_kwargs()
-
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(**launch_kwargs)
-        try:
-            mi_ctx, mi_page = await _setup_miespacio_page(browser, cfg)
-            try:
-                block = await _detect_block(mi_page)
-                if block:
-                    return ResultadoAlta(estado="bloqueado", mensaje=block)
-                if not await _is_logged_in(mi_page):
-                    return ResultadoAlta(
-                        estado="sesion_invalida",
-                        mensaje=(
-                            "La sesion CFE MiEspacio expiro o no existe. "
-                            "Renueva la sesion en Recibos CFE."
-                        ),
-                    )
-                try:
-                    await _select_service_miespacio(mi_page, cfg)
-                    return ResultadoAlta(
-                        estado="ya_existia",
-                        mensaje="El servicio ya estaba registrado en MiEspacio.",
-                    )
-                except MiEspacioServiceNotFound:
-                    pass
-
-                ok, total_usado, msg = await _registrar_servicio_con_candidatos(
-                    mi_page, cfg, [total]
-                )
-                if not ok:
-                    try:
-                        await _select_service_miespacio(mi_page, cfg)
-                        ok = True
-                    except _SCRAPER_ERRORS:
-                        pass
-
-                session_json = None
-                try:
-                    session_json = json.dumps(await mi_ctx.storage_state())
-                except _SCRAPER_ERRORS:
-                    pass
-                if ok:
-                    return ResultadoAlta(
-                        estado="registrado", mensaje=msg, total_usado=total_usado,
-                        session_json_nuevo=session_json, candidatos_probados=[total],
-                    )
-                return ResultadoAlta(
-                    estado="total_no_coincide",
-                    mensaje=msg or "CFE rechazo el alta: el total no coincide.",
-                    session_json_nuevo=session_json, candidatos_probados=[total],
+                    periodos_probados=periodos_data or None,
                 )
             finally:
                 try:

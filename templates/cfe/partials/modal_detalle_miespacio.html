@@ -61,6 +61,7 @@
                 <form hx-post="/cfe/servicios/{{ servicio.id }}/registrar-manual{% if modulo %}?modulo={{ modulo }}{% endif %}"
                       hx-target="#cfe-lista"
                       hx-swap="outerHTML"
+                      hx-on::after-request="if(event.detail.successful) document.getElementById('cfe-modal-container').innerHTML=''"
                       class="flex gap-2">
                     <input type="text" name="total" required
                         placeholder="Ej: 1234"
@@ -83,6 +84,7 @@
                 hx-post="/cfe/servicios/{{ servicio.id }}/reintentar-alta{% if modulo %}?modulo={{ modulo }}{% endif %}"
                 hx-target="#cfe-lista"
                 hx-swap="outerHTML"
+                hx-on::after-request="if(event.detail.successful) document.getElementById('cfe-modal-container').innerHTML=''"
                 class="px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors">
                 Reintentar automático
             </button>
