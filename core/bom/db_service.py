@@ -708,6 +708,25 @@ class BomDBService:
         """, id_proyecto, rol_proyecto, area)
         return dict(row) if row else None
 
+    async def get_asignaciones_proyecto(
+        self, conn, id_proyecto: UUID, roles: List[str], area: str
+    ) -> dict:
+        """Obtiene varias asignaciones activas del proyecto en una sola consulta.
+
+        Retorna dict {rol_proyecto: row}, solo con los roles que tienen asignacion activa.
+        """
+        rows = await conn.fetch("""
+            SELECT pu.id_usuario, pu.rol_proyecto, pu.area, u.nombre, u.email
+            FROM tb_proyecto_usuarios pu
+            JOIN tb_usuarios u ON u.id_usuario = pu.id_usuario
+            WHERE pu.id_proyecto = $1
+              AND pu.rol_proyecto = ANY($2::text[])
+              AND pu.area = $3
+              AND pu.activo = TRUE
+              AND u.is_active = TRUE
+        """, id_proyecto, roles, area)
+        return {row['rol_proyecto']: dict(row) for row in rows}
+
     async def usuario_tiene_rol_org(
         self, conn, user_id: UUID, rol_organizacional: str
     ) -> bool:

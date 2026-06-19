@@ -61,15 +61,28 @@ class BomService:
         self.db = BomDBService()
 
     async def puede_crear_o_retomar_bom(
-        self, conn, id_proyecto: UUID, user_id: Optional[UUID]
+        self, conn, id_proyecto: UUID, user_id: Optional[UUID],
+        ingeniero_asignado: Optional[dict] = None,
     ) -> bool:
-        """Permite BOM solo a jefe de Ingenieria o ingeniero asignado al proyecto."""
+        """Permite BOM solo a jefe de Ingenieria o ingeniero asignado al proyecto.
+
+        Si el caller ya resolvio la asignacion de ingeniero_asignado (p.ej. para
+        mostrar un mensaje), puede pasarla para evitar una consulta adicional.
+        """
         if not user_id:
             return False
         if await self.db.usuario_tiene_rol_org(conn, user_id, "jefe_ingenieria"):
             return True
+        if ingeniero_asignado is not None:
+            return str(ingeniero_asignado["id_usuario"]) == str(user_id)
         return await self.db.usuario_tiene_asignacion_proyecto(
             conn, id_proyecto, user_id, "ingeniero_asignado", "INGENIERIA"
+        )
+
+    async def get_ingeniero_asignado(self, conn, id_proyecto: UUID) -> Optional[dict]:
+        """Asignacion activa de ingeniero_asignado (INGENIERIA) del proyecto."""
+        return await self.db.get_asignacion_proyecto(
+            conn, id_proyecto, "ingeniero_asignado", "INGENIERIA"
         )
 
     async def _validar_retomar_bom_ingenieria(
@@ -82,8 +95,13 @@ class BomService:
 
     async def _validar_aprobador_bom(
         self, conn, user_id: UUID, user_role: str, rol_org: Optional[str],
-        responsable_id: Optional[UUID], label: str, fallback_rol_org: Optional[str] = None
+        responsable_id: Optional[UUID], label: str, fallback_rol_org: str
     ) -> None:
+        if not fallback_rol_org:
+            raise ValueError(
+                "_validar_aprobador_bom requiere fallback_rol_org: sin el, un BOM con "
+                "responsable_id=None y gestion_solo_responsable=True quedaria sin validar"
+            )
         if user_role == 'ADMIN':
             return
         director_bypass = await ConfigService.get_global_config(
@@ -98,7 +116,7 @@ class BomService:
             raise ValueError(f"Solo el {label} del proyecto puede ejecutar esta accion")
         if solo_responsable and responsable_id:
             return  # responsable_id=None cae al fallback de rol global
-        if fallback_rol_org and not await self.db.usuario_tiene_rol_org(conn, user_id, fallback_rol_org):
+        if not await self.db.usuario_tiene_rol_org(conn, user_id, fallback_rol_org):
             raise ValueError(f"Solo el {label} puede ejecutar esta accion")
 
     # ─── CREAR BOM ──────────────────────────────────────────
@@ -508,13 +526,11 @@ class BomService:
                                'ENVIADO_REVISION_ING', por_user_id=user_id)
 
         # Recordatorio si falta RC o coordinador de obra: notifica a director y RC/jefe_const
-        rc = await self.db.get_asignacion_proyecto(
-            conn, bom['id_proyecto'], "responsable_construccion", "CONSTRUCCION"
+        asignaciones_const = await self.db.get_asignaciones_proyecto(
+            conn, bom['id_proyecto'],
+            ["responsable_construccion", "coordinador_obra"], "CONSTRUCCION"
         )
-        coordinador = await self.db.get_asignacion_proyecto(
-            conn, bom['id_proyecto'], "coordinador_obra", "CONSTRUCCION"
-        )
-        if not rc or not coordinador:
+        if "responsable_construccion" not in asignaciones_const or "coordinador_obra" not in asignaciones_const:
             director = await self.db.get_director(conn)
             jefe_const = await self.db.get_responsable_proyecto_o_global(
                 conn, bom['id_proyecto'], "jefe_construccion"

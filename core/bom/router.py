@@ -156,15 +156,18 @@ async def bom_ui(
             "El BOM solo lo pueden abrir Ingeniería, Construcción, Compras o Finanzas.",
         )
 
-    bom = await service.get_bom_proyecto(conn, id_proyecto)
     proyecto = await service.db.get_proyecto_info(conn, id_proyecto)
-
     if not proyecto:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
+    bom = await service.get_bom_proyecto(conn, id_proyecto)
+
     user_id_ctx = context.get("user_db_id")
+    ingeniero_asignado = None
+    if not bom:
+        ingeniero_asignado = await service.get_ingeniero_asignado(conn, id_proyecto)
     puede_gestionar_bom_ingenieria = await service.puede_crear_o_retomar_bom(
-        conn, id_proyecto, user_id_ctx
+        conn, id_proyecto, user_id_ctx, ingeniero_asignado=ingeniero_asignado
     )
 
     if not bom:
@@ -184,9 +187,6 @@ async def bom_ui(
                 request,
                 f"No tienes este proyecto asignado como ingeniero. Solicita a {jefe_label} que te asigne o que cree el BOM.",
             )
-        ingeniero_asignado = await service.db.get_asignacion_proyecto(
-            conn, id_proyecto, "ingeniero_asignado", "INGENIERIA"
-        )
         if not ingeniero_asignado:
             return _toast_response(
                 request,
