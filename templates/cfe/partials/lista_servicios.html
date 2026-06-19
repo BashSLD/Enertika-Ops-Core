@@ -187,6 +187,15 @@
                         Descargar ZIP
                     </a>
                     {% endif %}
+                    {% if s.miespacio_estatus == 'error' %}
+                    <button type="button"
+                        hx-get="/cfe/servicios/{{ s.id }}/modal-editar{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                        hx-target="#cfe-modal-container"
+                        hx-swap="innerHTML"
+                        class="text-xs text-gray-600 hover:text-gray-900 border border-gray-200 px-3 py-1.5 rounded-lg font-medium transition-colors">
+                        Editar
+                    </button>
+                    {% endif %}
                     {% if s.miespacio_estatus in ['error', 'no_verificado'] %}
                     <button type="button"
                         hx-post="/cfe/servicios/{{ s.id }}/reintentar-alta{% if modulo %}?modulo={{ modulo }}{% endif %}"

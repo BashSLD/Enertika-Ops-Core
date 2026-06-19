@@ -359,6 +359,74 @@ async def crear_servicios_bulk(
     )
 
 
+@router.get("/servicios/{servicio_id}/modal-editar", response_class=HTMLResponse)
+async def modal_editar_servicio(
+    request: Request,
+    servicio_id: UUID,
+    modulo: str | None = Query(default=None),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_viewer,
+):
+    svc = get_cfe_service()
+    modulo_activo, _ = _resolver_modulos(user, modulo)
+    servicio = await _get_servicio_accesible(svc, conn, servicio_id, user)
+    if servicio.get("miespacio_estatus") != "error":
+        raise HTTPException(status_code=400, detail="Solo se puede editar un servicio con error de registro.")
+    return templates.TemplateResponse(
+        request,
+        "cfe/partials/modal_editar_servicio.html",
+        {"servicio": servicio, "modulo": modulo_activo, "user": user},
+    )
+
+
+@router.post("/servicios/{servicio_id}/editar", response_class=HTMLResponse)
+async def editar_servicio(
+    request: Request,
+    servicio_id: UUID,
+    numero_servicio: str = Form(...),
+    nombre: str = Form(...),
+    alias: str = Form(""),
+    modulo: str | None = Query(default=None),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_viewer,
+):
+    svc = get_cfe_service()
+    modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
+    await _get_servicio_accesible(svc, conn, servicio_id, user)
+    toast_type = "success"
+    toast_msg = ""
+    status_code = 200
+    try:
+        toast_msg, _servicio = await svc.editar_servicio(
+            conn, servicio_id, numero_servicio=numero_servicio, nombre=nombre, alias=alias,
+        )
+    except ValueError as exc:
+        toast_msg = str(exc)
+        toast_type = "error"
+        status_code = 400
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error de BD editando servicio CFE {servicio_id}: {exc}")
+        toast_msg = "Error interno al editar el servicio."
+        toast_type = "error"
+        status_code = 500
+    servicios = await svc.listar_servicios(
+        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles
+    )
+    return templates.TemplateResponse(
+        request, "cfe/partials/lista_servicios.html",
+        {
+            "servicios": servicios,
+            "modulo": modulo_activo,
+            "modulos_accesibles": modulos_accesibles,
+            "user": user,
+            "_toast": {"message": toast_msg, "type": toast_type},
+        },
+        status_code=status_code,
+    )
+
+
 @router.post("/servicios/{servicio_id}/reintentar-alta", response_class=HTMLResponse)
 async def reintentar_alta_miespacio(
     request: Request,

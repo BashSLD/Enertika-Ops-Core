@@ -98,6 +98,24 @@ class CfeDBService:
         )
         return dict(row)
 
+    async def actualizar_servicio(
+        self, conn: asyncpg.Connection, servicio_id: UUID, *,
+        numero_servicio: str, nombre: str, alias: Optional[str],
+    ) -> Optional[dict]:
+        """Edita RPU/nombre/alias. Solo permitido si el servicio esta en estatus
+        'error' (blindaje a nivel de query, independiente de la validacion en el
+        service layer y de lo que muestre la UI)."""
+        row = await conn.fetchrow(
+            """
+            UPDATE tb_cfe_servicios
+            SET numero_servicio = $2, nombre = $3, alias = $4
+            WHERE id = $1 AND miespacio_estatus = 'error'
+            RETURNING *
+            """,
+            servicio_id, numero_servicio, nombre, alias,
+        )
+        return dict(row) if row else None
+
     async def agregar_modulo_a_servicio(
         self, conn: asyncpg.Connection, servicio_id: UUID, modulo: str
     ) -> dict:

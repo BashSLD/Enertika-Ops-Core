@@ -251,15 +251,18 @@ class CfeService:
             logger.info("[CFE] Errores invalidos limpiados: %s", borrados)
         return borrados
 
+    @staticmethod
+    def _normalizar_nombre_servicio(nombre: str) -> str:
+        # CFE exige el nombre del servicio SIEMPRE en mayusculas (portal publico + MiEspacio).
+        return (nombre or "").strip().upper()
+
     async def crear_servicio(
         self, conn: asyncpg.Connection, *, numero_servicio: str, nombre: str,
         alias: Optional[str], lada: str, telefono: str, email: str, usuario_id: UUID,
         modulo: str = "oym",
     ) -> tuple[dict, bool]:
         """Returns (servicio, fue_creado_nuevo). fue_creado_nuevo=False cuando solo se agrego el modulo a uno existente."""
-        # CFE exige el nombre del servicio SIEMPRE en mayusculas (portal publico + MiEspacio).
-        # Se normaliza aqui para que quede asi almacenado y lo use tambien el scraper.
-        nombre = (nombre or "").strip().upper()
+        nombre = self._normalizar_nombre_servicio(nombre)
 
         existing = await self.db.get_servicio_by_numero(conn, numero_servicio)
         if existing:
@@ -281,6 +284,38 @@ class CfeService:
         # Encola el alta en MiEspacio (job del worker, independiente de la descarga).
         await self.db.marcar_alta_miespacio_pendiente(conn, nuevo["id"])
         return nuevo, True
+
+    async def editar_servicio(
+        self, conn: asyncpg.Connection, servicio_id: UUID, *,
+        numero_servicio: str, nombre: str, alias: Optional[str],
+    ) -> tuple[str, dict]:
+        """Edita RPU/nombre/alias de un servicio con error de registro y reencola
+        el alta en MiEspacio. Solo permitido mientras miespacio_estatus == 'error'."""
+        servicio = await self.db.get_servicio_by_id(conn, servicio_id)
+        if not servicio:
+            raise ValueError("Servicio no encontrado.")
+        if servicio.get("miespacio_estatus") != "error":
+            raise ValueError("Solo se puede editar un servicio con error de registro.")
+
+        numero_servicio = numero_servicio.strip()
+        nombre = self._normalizar_nombre_servicio(nombre)
+        alias = (alias or "").strip() or None
+        if not numero_servicio or not nombre:
+            raise ValueError("Número y nombre son requeridos.")
+
+        try:
+            actualizado = await self.db.actualizar_servicio(
+                conn, servicio_id, numero_servicio=numero_servicio, nombre=nombre, alias=alias,
+            )
+        except asyncpg.UniqueViolationError:
+            raise ValueError(f"Ya existe un servicio con el número {numero_servicio}.")
+        if not actualizado:
+            raise ValueError("El servicio ya no está en estado de error; no se puede editar.")
+
+        await self.db.marcar_alta_miespacio_pendiente(conn, servicio_id)
+        actualizado["miespacio_estatus"] = "pendiente"
+        actualizado["miespacio_error"] = None
+        return "Servicio actualizado. Registro en MiEspacio reencolado.", actualizado
 
     async def reintentar_alta_miespacio(
         self, conn: asyncpg.Connection, servicio_id: UUID
