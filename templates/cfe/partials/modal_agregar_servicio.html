@@ -10,7 +10,7 @@
     <div class="w-full bg-white rounded-xl shadow-2xl transition-all"
          :class="tab === 'varios' ? 'max-w-2xl' : 'max-w-lg'">
 
-        <div class="bg-yellow-600 px-6 py-4 rounded-t-xl flex items-center justify-between">
+        <div class="bg-teal-600 px-6 py-4 rounded-t-xl flex items-center justify-between">
             <h3 class="text-lg font-bold text-white">Agregar Servicio CFE</h3>
             <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
                 class="text-white/80 hover:text-white p-1 rounded">
@@ -20,17 +20,17 @@
             </button>
         </div>
 
-        <div class="flex border-b border-gray-200 px-6 pt-4">
+        <div class="flex gap-6 border-b border-gray-200 px-6 pt-4">
             <button type="button"
                     @click="tab = 'individual'"
-                    :class="{'border-b-2 border-yellow-600 font-semibold text-yellow-700': tab === 'individual', 'text-gray-500': tab !== 'individual'}"
-                    class="pb-2 mr-6 text-sm transition-colors">
+                    :class="{'border-b-2 border-teal-600 font-semibold text-teal-700': tab === 'individual', 'text-gray-400 hover:text-gray-600': tab !== 'individual'}"
+                    class="px-1 pb-3 text-sm transition-colors">
                 Un servicio
             </button>
             <button type="button"
                     @click="tab = 'varios'"
-                    :class="{'border-b-2 border-yellow-600 font-semibold text-yellow-700': tab === 'varios', 'text-gray-500': tab !== 'varios'}"
-                    class="pb-2 text-sm transition-colors">
+                    :class="{'border-b-2 border-teal-600 font-semibold text-teal-700': tab === 'varios', 'text-gray-400 hover:text-gray-600': tab !== 'varios'}"
+                    class="px-1 pb-3 text-sm transition-colors">
                 Varios servicios
             </button>
         </div>
@@ -46,23 +46,23 @@
                     <div class="col-span-2">
                         <label class="block text-sm font-bold text-gray-700 mb-1">Número de Servicio / RPU <span class="text-red-500">*</span></label>
                         <input type="text" name="numero_servicio" required placeholder="Ej: 001000123456"
-                            class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500 font-mono">
+                            class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-teal-500 focus:border-teal-500 font-mono">
                         <p class="text-xs text-gray-400 mt-1">Como aparece en tu recibo CFE.</p>
                     </div>
                     <div class="col-span-2">
                         <label class="block text-sm font-bold text-gray-700 mb-1">Nombre del servicio <span class="text-red-500">*</span></label>
                         <input type="text" name="nombre" required placeholder="Nombre exacto en el recibo CFE"
-                            class="w-full rounded-lg border-gray-300 px-3 py-2 uppercase placeholder:normal-case focus:ring-yellow-500 focus:border-yellow-500">
+                            class="w-full rounded-lg border-gray-300 px-3 py-2 uppercase placeholder:normal-case focus:ring-teal-500 focus:border-teal-500">
                     </div>
                     <div class="col-span-2">
                         <label class="block text-sm font-bold text-gray-700 mb-1">Alias / Nombre corto</label>
                         <input type="text" name="alias" placeholder="Ej: Planta Norte"
-                            class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
+                            class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-teal-500 focus:border-teal-500">
                     </div>
                     {% if modulos_accesibles | length > 1 %}
                     <div class="col-span-2">
                         <label class="block text-sm font-bold text-gray-700 mb-1">Departamento <span class="text-red-500">*</span></label>
-                        <select name="modulo" class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
+                        <select name="modulo" class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-teal-500 focus:border-teal-500">
                             {% for m in modulos_accesibles %}
                             <option value="{{ m }}" {% if m == modulo %}selected{% endif %}>
                                 {% if m == 'oym' %}O&M{% elif m == 'simulacion' %}Simulación{% else %}{{ m }}{% endif %}
@@ -83,7 +83,7 @@
                         Cancelar
                     </button>
                     <button type="submit"
-                        class="px-4 py-2 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-lg">
+                        class="px-4 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg">
                         Registrar Servicio
                     </button>
                 </div>
@@ -100,7 +100,7 @@
                 {% if modulos_accesibles | length > 1 %}
                 <div>
                     <label class="block text-sm font-bold text-gray-700 mb-1">Departamento <span class="text-red-500">*</span></label>
-                    <select name="modulo" class="rounded-lg border-gray-300 px-3 py-2 text-sm focus:ring-yellow-500 focus:border-yellow-500">
+                    <select name="modulo" class="rounded-lg border-gray-300 px-3 py-2 text-sm focus:ring-teal-500 focus:border-teal-500">
                         {% for m in modulos_accesibles %}
                         <option value="{{ m }}" {% if m == modulo %}selected{% endif %}>
                             {% if m == 'oym' %}O&M{% elif m == 'simulacion' %}Simulación{% else %}{{ m }}{% endif %}
@@ -131,17 +131,17 @@
                                     <td class="py-1.5 pr-3">
                                         <input type="text" name="numero_servicios" x-model="fila.rpu"
                                                required placeholder="001000123456"
-                                               class="w-full rounded border-gray-300 px-2 py-1.5 text-xs font-mono focus:ring-yellow-500 focus:border-yellow-500">
+                                               class="w-full rounded border-gray-300 px-2 py-1.5 text-xs font-mono focus:ring-teal-500 focus:border-teal-500">
                                     </td>
                                     <td class="py-1.5 pr-3">
                                         <input type="text" name="nombres" x-model="fila.nombre"
                                                required placeholder="Nombre exacto en recibo"
-                                               class="w-full rounded border-gray-300 px-2 py-1.5 text-xs uppercase placeholder:normal-case focus:ring-yellow-500 focus:border-yellow-500">
+                                               class="w-full rounded border-gray-300 px-2 py-1.5 text-xs uppercase placeholder:normal-case focus:ring-teal-500 focus:border-teal-500">
                                     </td>
                                     <td class="py-1.5 pr-3">
                                         <input type="text" name="aliases" x-model="fila.alias"
                                                placeholder="Alias corto"
-                                               class="w-full rounded border-gray-300 px-2 py-1.5 text-xs focus:ring-yellow-500 focus:border-yellow-500">
+                                               class="w-full rounded border-gray-300 px-2 py-1.5 text-xs focus:ring-teal-500 focus:border-teal-500">
                                     </td>
                                     <td class="py-1.5">
                                         <button type="button" @click="quitar(i)"
@@ -159,7 +159,7 @@
                 </div>
 
                 <button type="button" @click="agregar()"
-                        class="flex items-center gap-1 text-sm text-yellow-700 hover:text-yellow-800 font-medium">
+                        class="flex items-center gap-1 text-sm text-teal-700 hover:text-teal-800 font-medium">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                     </svg>
@@ -172,7 +172,7 @@
                         Cancelar
                     </button>
                     <button type="submit"
-                        class="px-4 py-2 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-lg">
+                        class="px-4 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg">
                         Registrar todos
                     </button>
                 </div>
