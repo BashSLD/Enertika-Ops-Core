@@ -13,6 +13,7 @@ from jinja2 import TemplateError
 from core.bom.db_service import BomDBService
 from core.bom.schemas import EstatusBOM, AccionHistorial, TipoAprobacion
 from core.config import settings
+from core.notifications.service import get_notifications_service
 from core.timezone import now_mx, today_mx
 from core.config_service import ConfigService
 
@@ -1046,7 +1047,19 @@ class BomService:
     async def get_aprobador_final_id(self, conn) -> Optional[UUID]:
         return await self.db.get_aprobador_final_id(conn)
 
-    # ─── NOTIFICACIONES EMAIL ────────────────────────────────
+    # ─── NOTIFICACIONES ──────────────────────────────────────
+
+    async def _broadcast_bom(self, conn, to_user_id, tipo: str, titulo: str, proyecto_nombre: str) -> None:
+        notif_svc = get_notifications_service()
+        notification_data = await notif_svc.create_notification(
+            conn=conn,
+            usuario_id=to_user_id,
+            tipo=tipo,
+            titulo=titulo,
+            mensaje=f"Proyecto: {proyecto_nombre}",
+            modulo_origen="bom",
+        )
+        await notif_svc.broadcast_to_user(conn, to_user_id, notification_data)
 
     async def _notify_bom(
         self, conn, bom: dict,
@@ -1102,6 +1115,7 @@ class BomService:
 
             await notif._send_email({to_email}, set(), subject, html, sender_email)
             logger.info("BOM notify enviada: evento=%s to_user=%s", evento, to_user_id)
+            await self._broadcast_bom(conn, to_user_id, f"BOM_{evento}", subject, bom.get('proyecto_nombre', ''))
         except (asyncpg.PostgresError, KeyError, RuntimeError, TemplateError, TypeError, ValueError) as exc:
             logger.warning("BOM notify: error enviando email, evento=%s: %s", evento, exc)
 
@@ -1665,6 +1679,7 @@ class BomService:
 
             await notif._send_email({to_email}, set(), subject, html, sender_email)
             logger.info("Autorizacion notify: evento=%s to_user=%s", evento, to_user_id)
+            await self._broadcast_bom(conn, to_user_id, f"BOM_AUT_{evento}", subject, bom.get('proyecto_nombre', ''))
         except (asyncpg.PostgresError, KeyError, RuntimeError, TemplateError, TypeError, ValueError) as exc:
             logger.warning("Autorizacion notify: error enviando email, evento=%s: %s", evento, exc)
 
