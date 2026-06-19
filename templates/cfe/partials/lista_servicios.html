@@ -136,9 +136,14 @@
                         Registrando en MiEspacio…
                     </span>
                     {% elif s.miespacio_estatus == 'error' %}
-                    <span class="mt-1 inline-flex items-center gap-1 text-xs text-red-600 font-medium" title="{{ s.miespacio_error }}">
-                        <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>No registrado en MiEspacio
-                    </span>
+                    <div class="mt-1">
+                        <span class="inline-flex items-center gap-1 text-xs text-red-600 font-medium">
+                            <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>No registrado en MiEspacio
+                        </span>
+                        {% if s.miespacio_error %}
+                        <p class="text-xs text-red-500 mt-0.5 ml-2.5 line-clamp-2" title="{{ s.miespacio_error }}">{{ s.miespacio_error }}</p>
+                        {% endif %}
+                    </div>
                     {% elif s.miespacio_estatus != 'registrado' %}
                     <span class="mt-1 inline-flex items-center gap-1 text-xs text-gray-500 font-medium" title="Registra el servicio en MiEspacio para poder buscar periodos.">
                         <span class="h-1.5 w-1.5 rounded-full bg-gray-400"></span>Sin verificar en MiEspacio
