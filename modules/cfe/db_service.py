@@ -192,6 +192,7 @@ class CfeDBService:
             UPDATE tb_cfe_servicios
             SET miespacio_estatus = $2,
                 miespacio_error = $3,
+                miespacio_total_manual = NULL,
                 miespacio_detalle_json = CASE
                     WHEN $2 = 'registrado' THEN NULL
                     WHEN $4::jsonb IS NOT NULL THEN $4::jsonb
@@ -206,12 +207,12 @@ class CfeDBService:
             servicio_id, estatus, error, detalle_json,
         )
 
-    async def set_miespacio_detalle_json(
-        self, conn: asyncpg.Connection, servicio_id: UUID, detalle_json: Optional[str]
+    async def set_miespacio_total_manual(
+        self, conn: asyncpg.Connection, servicio_id: UUID, total_manual: Optional[str]
     ) -> None:
         await conn.execute(
-            "UPDATE tb_cfe_servicios SET miespacio_detalle_json = $2::jsonb WHERE id = $1",
-            servicio_id, detalle_json,
+            "UPDATE tb_cfe_servicios SET miespacio_total_manual = $2 WHERE id = $1",
+            servicio_id, total_manual,
         )
 
     async def get_descargas_por_servicio(

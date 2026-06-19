@@ -56,18 +56,6 @@ class CfeService:
         self.db = db
         self._admin_db = AdminDBService()
 
-    # ── Helpers internos ──────────────────────────────────────────────────
-
-    @staticmethod
-    def _parse_detalle_json(value) -> dict:
-        """Normaliza miespacio_detalle_json a dict (asyncpg devuelve dict; cubre strings legacy)."""
-        if isinstance(value, str):
-            try:
-                return json.loads(value)
-            except (json.JSONDecodeError, TypeError):
-                return {}
-        return value or {}
-
     # ── Config helpers ────────────────────────────────────────────────────
 
     async def _get_cfe_config(self, conn: asyncpg.Connection) -> dict:
@@ -357,15 +345,13 @@ class CfeService:
 
         total_limpio = re.sub(r"[^\d]", "", total).lstrip("0")
         if not total_limpio:
-            raise ValueError("El total debe ser un número entero positivo (solo dígitos).")
+            raise ValueError("El total debe ser mayor a cero.")
 
         encolado = await self.db.marcar_alta_miespacio_pendiente(conn, servicio_id)
         if not encolado:
             raise ValueError("El registro en MiEspacio ya está en curso.")
 
-        detalle_existente = self._parse_detalle_json(servicio.get("miespacio_detalle_json"))
-        detalle_nuevo = {**detalle_existente, "total_manual": total_limpio}
-        await self.db.set_miespacio_detalle_json(conn, servicio_id, json.dumps(detalle_nuevo, ensure_ascii=False))
+        await self.db.set_miespacio_total_manual(conn, servicio_id, total_limpio)
         servicio["miespacio_estatus"] = "pendiente"
         servicio["miespacio_error"] = None
         return "Intentando registro con el total proporcionado. La página se actualizará automáticamente.", servicio
@@ -665,8 +651,7 @@ class CfeService:
         async with pool.acquire() as conn:
             cfg_global = await self._get_cfe_config(conn)
 
-        detalle_actual = self._parse_detalle_json(servicio.get("miespacio_detalle_json"))
-        total_manual = detalle_actual.get("total_manual")
+        total_manual = servicio.get("miespacio_total_manual")
 
         cfg = self._build_scraper_config(servicio, cfg_global)
         try:
