@@ -43,6 +43,7 @@ from .scraper import (
     descargar_periodos_busqueda,
     descargar_recibo,
     registrar_servicio_miespacio,
+    registrar_servicio_miespacio_con_total,
 )
 
 logger = logging.getLogger("CfeService")
@@ -332,6 +333,36 @@ class CfeService:
         servicio["miespacio_estatus"] = "pendiente"
         servicio["miespacio_error"] = None
         return "Registro en MiEspacio encolado. La página se actualizará automáticamente.", servicio
+
+    async def iniciar_registro_manual(
+        self, conn: asyncpg.Connection, servicio_id: UUID, total: str
+    ) -> tuple[str, dict]:
+        """Encola el alta en MiEspacio usando un total ingresado manualmente por el usuario."""
+        servicio = await self.db.get_servicio_by_id(conn, servicio_id)
+        if not servicio:
+            raise ValueError("Servicio no encontrado.")
+        if servicio.get("miespacio_estatus") == "registrado":
+            raise ValueError("El servicio ya está registrado en MiEspacio.")
+
+        total_limpio = re.sub(r"[^\d]", "", total).lstrip("0")
+        if not total_limpio or not total_limpio.isdigit():
+            raise ValueError("El total debe ser un número entero positivo (solo dígitos).")
+
+        detalle_existente = servicio.get("miespacio_detalle_json") or {}
+        if isinstance(detalle_existente, str):
+            try:
+                detalle_existente = json.loads(detalle_existente)
+            except (json.JSONDecodeError, TypeError):
+                detalle_existente = {}
+        detalle_nuevo = {**detalle_existente, "total_manual": total_limpio}
+
+        await self.db.set_miespacio_detalle_json(conn, servicio_id, json.dumps(detalle_nuevo, ensure_ascii=False))
+        encolado = await self.db.marcar_alta_miespacio_pendiente(conn, servicio_id)
+        if not encolado:
+            raise ValueError("El registro en MiEspacio ya está en curso.")
+        servicio["miespacio_estatus"] = "pendiente"
+        servicio["miespacio_error"] = None
+        return "Intentando registro con el total proporcionado. La página se actualizará automáticamente.", servicio
 
     # ── Descarga ──────────────────────────────────────────────────────────
 
@@ -623,12 +654,25 @@ class CfeService:
 
     async def _ejecutar_alta_miespacio(self, pool: asyncpg.Pool, servicio: dict) -> None:
         """Registra el servicio en MiEspacio (si no existe) y actualiza su estatus.
-        Idempotente: 'ya_existia' y 'registrado' marcan 'registrado'."""
+        Idempotente: 'ya_existia' y 'registrado' marcan 'registrado'.
+        Si miespacio_detalle_json contiene 'total_manual', usa ese total en lugar de scraping."""
         async with pool.acquire() as conn:
             cfg_global = await self._get_cfe_config(conn)
+
+        detalle_actual = servicio.get("miespacio_detalle_json") or {}
+        if isinstance(detalle_actual, str):
+            try:
+                detalle_actual = json.loads(detalle_actual)
+            except (json.JSONDecodeError, TypeError):
+                detalle_actual = {}
+        total_manual = detalle_actual.get("total_manual") if isinstance(detalle_actual, dict) else None
+
         cfg = self._build_scraper_config(servicio, cfg_global)
         try:
-            resultado = await registrar_servicio_miespacio(cfg)
+            if total_manual:
+                resultado = await registrar_servicio_miespacio_con_total(cfg, total_manual)
+            else:
+                resultado = await registrar_servicio_miespacio(cfg)
         except Exception as exc:
             logger.exception(
                 "[CFE] Error inesperado en alta MiEspacio servicio=%s", servicio["numero_servicio"]
@@ -643,6 +687,18 @@ class CfeService:
             "[CFE] Alta MiEspacio servicio=%s estado=%s total=%s",
             servicio["numero_servicio"], resultado.estado, resultado.total_usado,
         )
+
+        detalle_json: Optional[str] = None
+        if resultado.periodos_probados or resultado.candidatos_probados:
+            detalle: dict = {}
+            if resultado.periodos_probados:
+                detalle["periodos"] = resultado.periodos_probados
+            if resultado.candidatos_probados:
+                detalle["candidatos"] = resultado.candidatos_probados
+            if total_manual:
+                detalle["total_manual_usado"] = total_manual
+            detalle_json = json.dumps(detalle, ensure_ascii=False)
+
         async with pool.acquire() as conn:
             if resultado.session_json_nuevo:
                 await self._save_session(conn, resultado.session_json_nuevo)
@@ -652,7 +708,9 @@ class CfeService:
             if resultado.estado == "sesion_invalida":
                 await self._marcar_sesion_invalida(conn)
             await self.db.marcar_miespacio_estatus(
-                conn, servicio["id"], "error", resultado.mensaje or "No se pudo registrar el servicio."
+                conn, servicio["id"], "error",
+                resultado.mensaje or "No se pudo registrar el servicio.",
+                detalle_json,
             )
 
     async def _ejecutar_busqueda_periodos(self, pool: asyncpg.Pool, busqueda: dict) -> None:

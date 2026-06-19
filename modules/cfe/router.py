@@ -427,6 +427,68 @@ async def editar_servicio(
     )
 
 
+@router.get("/servicios/{servicio_id}/modal-detalle-miespacio", response_class=HTMLResponse)
+async def modal_detalle_miespacio(
+    request: Request,
+    servicio_id: UUID,
+    modulo: str | None = Query(default=None),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_viewer,
+):
+    svc = get_cfe_service()
+    modulo_activo, _ = _resolver_modulos(user, modulo)
+    servicio = await _get_servicio_accesible(svc, conn, servicio_id, user)
+    return templates.TemplateResponse(
+        request,
+        "cfe/partials/modal_detalle_miespacio.html",
+        {"servicio": servicio, "modulo": modulo_activo, "user": user},
+    )
+
+
+@router.post("/servicios/{servicio_id}/registrar-manual", response_class=HTMLResponse)
+async def registrar_manual(
+    request: Request,
+    servicio_id: UUID,
+    total: str = Form(...),
+    modulo: str | None = Query(default=None),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_viewer,
+):
+    svc = get_cfe_service()
+    modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
+    await _get_servicio_accesible(svc, conn, servicio_id, user)
+    toast_type = "success"
+    toast_msg = ""
+    status_code = 200
+    try:
+        toast_msg, _servicio = await svc.iniciar_registro_manual(conn, servicio_id, total)
+    except ValueError as exc:
+        toast_msg = str(exc)
+        toast_type = "error"
+        status_code = 400
+    except asyncpg.PostgresError as exc:
+        logger.error("Error de BD en registro manual CFE para %s: %s", servicio_id, exc)
+        toast_msg = "Error interno al encolar el registro."
+        toast_type = "error"
+        status_code = 500
+    servicios = await svc.listar_servicios(
+        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles
+    )
+    return templates.TemplateResponse(
+        request, "cfe/partials/lista_servicios.html",
+        {
+            "servicios": servicios,
+            "modulo": modulo_activo,
+            "modulos_accesibles": modulos_accesibles,
+            "user": user,
+            "_toast": {"message": toast_msg, "type": toast_type},
+        },
+        status_code=status_code,
+    )
+
+
 @router.post("/servicios/{servicio_id}/reintentar-alta", response_class=HTMLResponse)
 async def reintentar_alta_miespacio(
     request: Request,

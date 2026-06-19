@@ -185,20 +185,33 @@ class CfeDBService:
 
     async def marcar_miespacio_estatus(
         self, conn: asyncpg.Connection, servicio_id: UUID, estatus: str,
-        error: Optional[str] = None,
+        error: Optional[str] = None, detalle_json: Optional[str] = None,
     ) -> None:
         await conn.execute(
             """
             UPDATE tb_cfe_servicios
             SET miespacio_estatus = $2,
                 miespacio_error = $3,
+                miespacio_detalle_json = CASE
+                    WHEN $2 = 'registrado' THEN NULL
+                    WHEN $4::jsonb IS NOT NULL THEN $4::jsonb
+                    ELSE miespacio_detalle_json
+                END,
                 miespacio_verificado_en = CASE
                     WHEN $2 = 'registrado' THEN now()
                     ELSE miespacio_verificado_en
                 END
             WHERE id = $1
             """,
-            servicio_id, estatus, error,
+            servicio_id, estatus, error, detalle_json,
+        )
+
+    async def set_miespacio_detalle_json(
+        self, conn: asyncpg.Connection, servicio_id: UUID, detalle_json: Optional[str]
+    ) -> None:
+        await conn.execute(
+            "UPDATE tb_cfe_servicios SET miespacio_detalle_json = $2::jsonb WHERE id = $1",
+            servicio_id, detalle_json,
         )
 
     async def get_descargas_por_servicio(
