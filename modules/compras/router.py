@@ -382,16 +382,11 @@ async def get_comprobantes_list(
         }
     )
 
-    # Renderizar stats OOB
     stats_html = templates.TemplateResponse(request,
         "compras/partials/estadisticas.html",
         {"estadisticas": estadisticas}
     ).body.decode("utf-8")
-    
-    # Injectar OOB en la respuesta explícitamente
-    oob_content = f'<div id="stats-container" hx-swap-oob="true">{stats_html}</div>'
-    
-    # Combinar
+    oob_content = stats_html.replace('<div id="stats-container"', '<div id="stats-container" hx-swap-oob="true"', 1)
     final_content = response.body.decode("utf-8") + oob_content
     
     return HTMLResponse(content=final_content)
