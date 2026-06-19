@@ -198,13 +198,10 @@ async def check_recordatorios_levantamientos_periodically(interval_seconds: int 
        y sin fecha de visita programada.
     2. AGENDADO_VENCIDO: fecha_visita_programada ya pasó hace > 1 día y sigue 'agendado'.
 
-    Anti-spam en memoria: no reenvía al mismo levantamiento en < 24h por tipo.
-    Se reinicia con el proceso (aceptable dado el intervalo de 1 hora).
+    Anti-spam en BD: columnas recordatorio_*_at en tb_levantamientos.
+    No reenvía al mismo levantamiento en < 24h por tipo. Sobrevive redeploysen.
     """
     logger.info("[LEV_RECORDATORIO] Tarea inicializada (intervalo: %sh)", interval_seconds // 3600)
-
-    # { "tipo:str(id_levantamiento)": datetime_ultimo_envio }
-    _enviados: dict = {}
 
     while True:
         await asyncio.sleep(interval_seconds)
@@ -235,19 +232,9 @@ async def check_recordatorios_levantamientos_periodically(interval_seconds: int 
                     logger.debug("[LEV_RECORDATORIO] Sin levantamientos que requieran recordatorio")
                     continue
 
-                now = now_mx()
-                # Limpiar anti-spam > 48h
-                cutoff = now - timedelta(hours=48)
-                _enviados = {k: v for k, v in _enviados.items() if v > cutoff}
-
                 for row in rows:
                     tipo = row["tipo_recordatorio"]
                     lev_id = str(row["id_levantamiento"])
-                    key = f"{tipo}:{lev_id}"
-
-                    last = _enviados.get(key)
-                    if last and (now - last) < timedelta(hours=24):
-                        continue
 
                     op_id = row["op_id_estandar"] or ""
                     cliente = row["cliente_nombre"] or ""
@@ -303,7 +290,15 @@ async def check_recordatorios_levantamientos_periodically(interval_seconds: int 
                     )
 
                     if success:
-                        _enviados[key] = now
+                        try:
+                            await tasks_db.mark_recordatorio_enviado(
+                                conn, row["id_levantamiento"], tipo
+                            )
+                        except asyncpg.PostgresError as mark_err:
+                            logger.error(
+                                "[LEV_RECORDATORIO] No se pudo registrar envio tipo=%s lev=%s: %s",
+                                tipo, lev_id, mark_err,
+                            )
                         logger.info(
                             "[LEV_RECORDATORIO] Enviado tipo=%s lev=%s a %s", tipo, lev_id, to_email
                         )

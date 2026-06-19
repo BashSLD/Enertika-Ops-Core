@@ -86,14 +86,30 @@ class TasksDBService:
               AND (
                   (e.codigo = 'pendiente'
                    AND l.fecha_visita_programada IS NULL
-                   AND l.created_at < NOW() - INTERVAL '24 hours')
+                   AND l.created_at < NOW() - INTERVAL '24 hours'
+                   AND (l.recordatorio_pendiente_at IS NULL
+                        OR l.recordatorio_pendiente_at < NOW() - INTERVAL '24 hours'))
                   OR
                   (e.codigo = 'agendado'
-                   AND l.fecha_visita_programada < NOW() - INTERVAL '1 day')
+                   AND l.fecha_visita_programada < NOW() - INTERVAL '1 day'
+                   AND (l.recordatorio_agendado_at IS NULL
+                        OR l.recordatorio_agendado_at < NOW() - INTERVAL '24 hours'))
               )
             """
         )
         return [dict(row) for row in rows]
+
+    _RECORDATORIO_COL = {
+        "pendiente_sin_agendar": "recordatorio_pendiente_at",
+        "agendado_vencido": "recordatorio_agendado_at",
+    }
+
+    async def mark_recordatorio_enviado(self, conn, id_levantamiento, tipo: str) -> None:
+        col = self._RECORDATORIO_COL[tipo]
+        await conn.execute(
+            f"UPDATE tb_levantamientos SET {col} = NOW() WHERE id_levantamiento = $1",
+            id_levantamiento,
+        )
 
     async def get_levantamientos_en_proceso_reminders(self, conn) -> list[dict]:
         rows = await conn.fetch(
