@@ -1,3 +1,5 @@
+{% from "shared/partials/_buscador_lupa.html" import buscador_lupa %}
+{% from "shared/partials/_chip_kpi.html" import chip_info %}
 <div class="h-full flex flex-col animate-fade-in-down"
      x-data="{ activeTab: '{{ active_tab }}' }">
 
@@ -107,14 +109,8 @@
                 Recibos CFE
             </button>
             {# Buscador — solo en tab Proyectos #}
-            <div x-show="activeTab === 'proyectos'" class="relative w-full md:w-52" x-transition>
-                <input type="text" name="q" placeholder="Buscar proyecto..."
-                    hx-get="/oym/partials/proyectos" hx-trigger="keyup changed delay:500ms"
-                    hx-target="#proyectos-list"
-                    class="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                </svg>
+            <div x-show="activeTab === 'proyectos'" x-transition>
+                {{ buscador_lupa('/oym/partials/proyectos') }}
             </div>
             {# Gestionar Plantas — solo en tab Polizas #}
             <a x-show="activeTab === 'polizas'" x-transition
@@ -306,20 +302,11 @@
 
     {# Tab Proyectos #}
     <div x-show="activeTab === 'proyectos'" class="flex-1 flex flex-col min-h-0">
-        {# KPI Cards #}
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-            <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
-                <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Plantas en Operación</h3>
-                <div class="text-2xl font-bold text-blue-700 mt-1">{{ kpis.total_en_area }}</div>
-            </div>
-            <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200 {% if kpis.pendientes_recepcion > 0 %}ring-2 ring-amber-400{% endif %}">
-                <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Pendientes recepción</h3>
-                <div class="text-2xl font-bold text-amber-600 mt-1">{{ kpis.pendientes_recepcion }}</div>
-            </div>
-            <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
-                <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Rechazados (30d)</h3>
-                <div class="text-2xl font-bold text-red-600 mt-1">{{ kpis.rechazados_recientes }}</div>
-            </div>
+        {# KPI Cards (chips compactos) #}
+        <div class="grid grid-cols-3 gap-2 mb-4">
+            {{ chip_info(kpis.total_en_area, 'En operación', 'border-blue-300', 'text-blue-700') }}
+            {{ chip_info(kpis.pendientes_recepcion, 'Recepción pend.', 'border-amber-300', 'text-amber-600') }}
+            {{ chip_info(kpis.rechazados_recientes, 'Rechazados (30d)', 'border-red-300', 'text-red-600') }}
         </div>
         {# Projects List #}
         <div class="glass-panel p-4 rounded-xl flex-1 overflow-auto">

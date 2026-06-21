@@ -1,0 +1,8 @@
+{# Chip-KPI compacto informativo (no clicable). Las clases de color se pasan
+   como literales desde el call site para que el JIT de Tailwind las detecte. #}
+{% macro chip_info(valor, label, border_cls, text_cls) %}
+<div class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 {{ border_cls }}">
+    <p class="text-lg font-bold {{ text_cls }} leading-tight">{{ valor }}</p>
+    <p class="text-[10px] text-gray-500 font-semibold uppercase tracking-wider whitespace-nowrap">{{ label }}</p>
+</div>
+{% endmacro %}

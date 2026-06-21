@@ -77,79 +77,77 @@
         </div>
     </div>
 
-    {# Filtros #}
-    <div class="glass-panel p-3 rounded-xl mb-4 border border-gray-200/70">
-        <div class="flex items-center justify-between gap-2">
-            <div>
-                <h3 class="text-sm font-semibold text-gray-800">Filtros</h3>
-                <p class="text-xs text-gray-500">Área, estatus y búsqueda de proyectos</p>
-            </div>
-            <details class="relative group">
-                <summary class="list-none cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-semibold text-gray-700">
-                    <svg class="w-4 h-4 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                    </svg>
-                    Filtros
-                    <svg class="w-4 h-4 text-gray-500 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                    </svg>
-                </summary>
-                <div class="absolute right-0 top-full mt-2 z-30 w-[20rem] sm:w-[30rem] max-w-[92vw] bg-white border border-gray-200 rounded-xl shadow-xl p-3">
-                    <form id="proyectos-filtros-form" class="grid grid-cols-1 sm:grid-cols-3 gap-3" hx-get="/proyectos/partials/proyectos" hx-target="#proyectos-list" hx-swap="innerHTML" hx-trigger="submit">
-                        <div>
-                            <label class="block text-xs text-gray-600 mb-1">Área</label>
-                            <select name="area" hx-get="/proyectos/partials/proyectos" hx-trigger="change" hx-target="#proyectos-list" hx-swap="innerHTML" hx-include="#proyectos-filtros-form"
-                                class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">Todas las áreas</option>
-                                <option value="INGENIERIA" {% if area=='INGENIERIA' %}selected{% endif %}>Ingeniería</option>
-                                <option value="CONSTRUCCION" {% if area=='CONSTRUCCION' %}selected{% endif %}>Construcción</option>
-                                <option value="OYM" {% if area=='OYM' %}selected{% endif %}>O&M</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs text-gray-600 mb-1">Estatus</label>
-                            <select name="status" hx-get="/proyectos/partials/proyectos" hx-trigger="change" hx-target="#proyectos-list" hx-swap="innerHTML" hx-include="#proyectos-filtros-form"
-                                class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">Todos los estatus</option>
-                                <option value="EN_AREA">En área</option>
-                                <option value="EN_TRANSITO">En tránsito</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs text-gray-600 mb-1">Buscar</label>
-                            <input type="text" name="q" placeholder="Proyecto, cliente..." hx-get="/proyectos/partials/proyectos"
-                                hx-trigger="keyup changed delay:400ms" hx-target="#proyectos-list" hx-swap="innerHTML" hx-include="#proyectos-filtros-form"
-                                class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        </div>
-                        <div class="sm:col-span-3 flex justify-end gap-2 pt-1 border-t border-gray-100">
-                            <button type="button" onclick="document.querySelector('#proyectos-filtros-form [name=\'area\']').value='';document.querySelector('#proyectos-filtros-form [name=\'status\']').value='';document.querySelector('#proyectos-filtros-form [name=\'q\']').value='';htmx.trigger(document.querySelector('#proyectos-filtros-form [name=\'area\']'),'change')"
-                                class="text-sm text-gray-500 hover:text-red-600 underline">Limpiar</button>
-                            <button type="submit" class="px-3 py-1.5 rounded-lg bg-[#00BABB] hover:bg-[#009a9b] text-white text-sm font-semibold">Aplicar</button>
-                        </div>
-                    </form>
+    {# Chips-filtro por area (clicables) + busqueda + estatus #}
+    <div x-data="{
+            areaSel: '{{ area or '' }}',
+            buscarAbierto: false,
+            setArea(a) {
+                this.areaSel = a;
+                document.getElementById('flt-area').value = a;
+                htmx.trigger(document.getElementById('proyectos-filtros-form'), 'filtrar');
+            }
+         }" class="mb-4">
+        <form id="proyectos-filtros-form"
+              hx-get="/proyectos/partials/proyectos"
+              hx-target="#proyectos-list" hx-swap="innerHTML"
+              hx-trigger="filtrar, change from:#flt-status, keyup changed delay:400ms from:#flt-q">
+            <input type="hidden" id="flt-area" name="area" value="{{ area or '' }}">
+            <div class="flex flex-col lg:flex-row lg:items-stretch gap-2">
+                {# Chips-filtro por area #}
+                {% set chips = [
+                    {'val': '', 'label': 'Total', 'num': kpis.total_proyectos, 'ring': 'ring-2 ring-blue-400 bg-blue-50/50', 'border': 'border-blue-300', 'text': 'text-blue-700'},
+                    {'val': 'INGENIERIA', 'label': 'Ingeniería', 'num': kpis.por_area.get('INGENIERIA', 0), 'ring': 'ring-2 ring-indigo-400 bg-indigo-50/50', 'border': 'border-indigo-300', 'text': 'text-indigo-700'},
+                    {'val': 'CONSTRUCCION', 'label': 'Construcción', 'num': kpis.por_area.get('CONSTRUCCION', 0), 'ring': 'ring-2 ring-amber-400 bg-amber-50/50', 'border': 'border-amber-300', 'text': 'text-amber-700'},
+                    {'val': 'OYM', 'label': 'O&M', 'num': kpis.por_area.get('OYM', 0), 'ring': 'ring-2 ring-emerald-400 bg-emerald-50/50', 'border': 'border-emerald-300', 'text': 'text-emerald-700'}
+                ] %}
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 flex-1">
+                    {% for c in chips %}
+                    <button type="button"
+                        @click="setArea('{{ c.val }}')"
+                        :class="{ '{{ c.ring }}': areaSel === '{{ c.val }}' }"
+                        class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 {{ c.border }} cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95">
+                        <p class="text-lg font-bold {{ c.text }} leading-tight">{{ c.num }}</p>
+                        <p class="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">{{ c.label }}</p>
+                    </button>
+                    {% endfor %}
                 </div>
-            </details>
-        </div>
-    </div>
-
-    {# KPI Cards #}
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
-            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Total Proyectos</h3>
-            <div class="text-2xl font-bold text-blue-700 mt-1">{{ kpis.total_proyectos }}</div>
-        </div>
-        <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
-            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">En Ingeniería</h3>
-            <div class="text-2xl font-bold text-purple-700 mt-1">{{ kpis.por_area.get('INGENIERIA', 0) }}</div>
-        </div>
-        <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
-            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">En Construcción</h3>
-            <div class="text-2xl font-bold text-amber-700 mt-1">{{ kpis.por_area.get('CONSTRUCCION', 0) }}</div>
-        </div>
-        <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
-            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">En O&M</h3>
-            <div class="text-2xl font-bold text-emerald-700 mt-1">{{ kpis.por_area.get('OYM', 0) }}</div>
-        </div>
+                {# Busqueda colapsable (lupa) + estatus #}
+                <div class="flex items-center gap-2">
+                    {# Boton lupa (estado colapsado) #}
+                    <button type="button" x-show="!buscarAbierto"
+                        @click="buscarAbierto = true; $nextTick(() => document.getElementById('flt-q').focus())"
+                        class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors shrink-0"
+                        aria-label="Buscar">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                        </svg>
+                    </button>
+                    {# Campo (estado expandido) — siempre en el DOM para que el form lo serialice #}
+                    <div x-show="buscarAbierto" x-cloak class="relative w-full lg:w-56">
+                        <input id="flt-q" name="q" type="text" placeholder="Buscar proyecto, cliente..."
+                            @blur="if (!$el.value) buscarAbierto = false"
+                            @keydown.escape="$el.value = ''; buscarAbierto = false; htmx.trigger(document.getElementById('proyectos-filtros-form'), 'filtrar')"
+                            class="w-full pl-8 pr-8 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                        </svg>
+                        <button type="button"
+                            @click="document.getElementById('flt-q').value = ''; buscarAbierto = false; htmx.trigger(document.getElementById('proyectos-filtros-form'), 'filtrar')"
+                            class="absolute right-2 top-2 text-gray-400 hover:text-gray-600" aria-label="Limpiar busqueda">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <select id="flt-status" name="status"
+                        class="text-sm border border-gray-300 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shrink-0">
+                        <option value="">Todos</option>
+                        <option value="EN_AREA">En área</option>
+                        <option value="EN_TRANSITO">En tránsito</option>
+                    </select>
+                </div>
+            </div>
+        </form>
     </div>
 
     {# Projects List #}

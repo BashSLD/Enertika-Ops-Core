@@ -1,3 +1,5 @@
+{% from "shared/partials/_buscador_lupa.html" import buscador_lupa %}
+{% from "shared/partials/_chip_kpi.html" import chip_info %}
 <div class="h-full flex flex-col animate-fade-in-down">
     {# MOVIL: template de acciones para el header (poblado via JS) #}
     <div id="mobile-actions-template" style="display:none">
@@ -31,35 +33,15 @@
             </h2>
             <p class="text-gray-500 text-xs mt-0.5">Proyectos en fase de ingeniería y diseño</p>
         </div>
-        <div class="relative w-full md:w-52">
-            <input type="text" name="q" placeholder="Buscar proyecto..."
-                hx-get="/ingenieria/partials/proyectos" hx-trigger="keyup changed delay:500ms"
-                hx-target="#proyectos-list"
-                class="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-            </svg>
-        </div>
+        {{ buscador_lupa('/ingenieria/partials/proyectos') }}
     </div>
 
-    {# KPI Cards #}
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
-            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Proyectos en área</h3>
-            <div class="text-2xl font-bold text-blue-700 mt-1">{{ kpis.total_en_area }}</div>
-        </div>
-        <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
-            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Enviados (Pendientes)</h3>
-            <div class="text-2xl font-bold text-blue-700 mt-1">{{ kpis.enviados_pendientes }}</div>
-        </div>
-        <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
-            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Rechazados (30d)</h3>
-            <div class="text-2xl font-bold text-red-600 mt-1">{{ kpis.rechazados_recientes }}</div>
-        </div>
-        <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
-            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Recepción pendiente</h3>
-            <div class="text-2xl font-bold text-amber-600 mt-1">{{ kpis.pendientes_recepcion }}</div>
-        </div>
+    {# KPI Cards (chips compactos) #}
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-4">
+        {{ chip_info(kpis.total_en_area, 'En área', 'border-blue-300', 'text-blue-700') }}
+        {{ chip_info(kpis.enviados_pendientes, 'Enviados pend.', 'border-indigo-300', 'text-indigo-700') }}
+        {{ chip_info(kpis.rechazados_recientes, 'Rechazados (30d)', 'border-red-300', 'text-red-600') }}
+        {{ chip_info(kpis.pendientes_recepcion, 'Recepción pend.', 'border-amber-300', 'text-amber-600') }}
     </div>
 
     {# Projects List #}

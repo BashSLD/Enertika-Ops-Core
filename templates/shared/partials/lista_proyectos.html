@@ -1,5 +1,8 @@
-{# Lista de proyectos reutilizable - incluye pendientes de recepcion #}
-{% from "shared/partials/card_proyecto.html" import render_card %}
+{# Lista de proyectos reutilizable: tabla densa (escritorio) + tarjetas (movil) #}
+{% from "shared/partials/card_proyecto.html" import render_tabla %}
+
+{# La columna Area solo aplica en la vista global (en las vistas por modulo el area es fija) #}
+{% set mostrar_area = vista_global is defined and vista_global %}
 
 {# Seccion: Pendientes de recepcion #}
 {% if pendientes is defined and pendientes|length > 0 %}
@@ -8,47 +11,84 @@
         <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
         Pendientes de Recepcion ({{ pendientes|length }})
     </h3>
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {% for pend in pendientes %}
-        <div class="glass-card p-4 rounded-xl border-l-4 border-amber-400 bg-amber-50/50">
-            <div class="flex justify-between items-start">
-                <div class="flex-1">
-                    <span class="text-sm font-mono font-bold text-gray-800">{{ pend.proyecto_id_estandar }}</span>
-                    <p class="text-xs text-gray-600 mt-1">{{ pend.nombre_proyecto or pend.nombre_corto or '' }}</p>
-                    <p class="text-xs text-gray-500 mt-1">
-                        <span class="font-medium">Cliente:</span> {{ pend.cliente_nombre or 'N/A' }}
-                    </p>
-                    <p class="text-xs text-gray-500 mt-1">
-                        <span class="font-medium">Enviado por:</span> {{ pend.enviado_por_nombre or 'N/A' }}
-                        {% if pend.fecha_envio %}
-                        <span class="text-gray-400">- {{ pend.fecha_envio.strftime('%d/%m/%Y') }}</span>
-                        {% endif %}
-                    </p>
-                    {% if pend.comentario_envio %}
-                    <p class="text-xs text-gray-500 mt-1 italic">"{{ pend.comentario_envio }}"</p>
+    {% set module_prefix = {'CONSTRUCCION': 'construccion', 'OYM': 'oym'}.get(area, '') %}
+    {# Escritorio: tabla compacta con acento ambar #}
+    <div class="hidden md:block rounded-xl border border-amber-200 overflow-hidden">
+        <table class="w-full text-left">
+            <thead>
+                <tr class="text-[11px] font-semibold text-amber-700 uppercase tracking-wider bg-amber-50 border-b border-amber-200">
+                    <th class="px-3 py-2">ID</th>
+                    <th class="px-3 py-2">Proyecto / Cliente</th>
+                    <th class="px-3 py-2">Enviado por</th>
+                    <th class="px-3 py-2 text-right">Dias</th>
+                    {% if puede_recibir is defined and puede_recibir %}<th class="px-3 py-2 text-right">Acciones</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for pend in pendientes %}
+                <tr class="border-b border-amber-100 last:border-0 hover:bg-amber-50/50 transition-colors">
+                    <td class="px-3 py-2.5 align-middle">
+                        <span class="text-xs font-mono font-bold text-gray-800 whitespace-nowrap">{{ pend.proyecto_id_estandar }}</span>
+                    </td>
+                    <td class="px-3 py-2.5 align-middle max-w-[18rem]">
+                        <p class="text-xs font-medium text-gray-700 truncate">{{ pend.nombre_proyecto or pend.nombre_corto or '-' }}</p>
+                        <p class="text-[11px] text-gray-500 truncate">{{ pend.cliente_nombre or 'Sin cliente' }}</p>
+                    </td>
+                    <td class="px-3 py-2.5 align-middle">
+                        <p class="text-xs text-gray-700 truncate">{{ pend.enviado_por_nombre or 'N/A' }}</p>
+                        {% if pend.fecha_envio %}<p class="text-[11px] text-gray-400">{{ pend.fecha_envio.strftime('%d/%m/%Y') }}</p>{% endif %}
+                    </td>
+                    <td class="px-3 py-2.5 align-middle text-right">
+                        <span class="font-bold tabular-nums text-amber-700">{{ pend.dias_pendiente or 0 }}</span>
+                    </td>
+                    {% if puede_recibir is defined and puede_recibir %}
+                    <td class="px-3 py-2.5 align-middle">
+                        <div class="flex gap-1.5 justify-end whitespace-nowrap">
+                            <button hx-get="/{{ module_prefix }}/modal/rechazar/{{ pend.id_traspaso }}"
+                                hx-target="#modal-action-container" hx-swap="innerHTML"
+                                hx-disabled-elt="this" hx-sync="this:drop"
+                                class="text-xs px-2.5 py-1 rounded-md border border-red-300 text-red-600 hover:bg-red-50 transition font-medium">Rechazar</button>
+                            <button hx-get="/{{ module_prefix }}/modal/recibir/{{ pend.id_traspaso }}"
+                                hx-target="#modal-action-container" hx-swap="innerHTML"
+                                hx-disabled-elt="this" hx-sync="this:drop"
+                                class="text-xs px-2.5 py-1 rounded-md bg-green-600 text-white hover:bg-green-700 transition font-medium">Aceptar</button>
+                        </div>
+                    </td>
                     {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {# Movil: tarjetas #}
+    <div class="md:hidden space-y-2">
+        {% for pend in pendientes %}
+        <div class="glass-card p-3 rounded-xl border-l-4 border-amber-400 bg-amber-50/50">
+            <div class="flex justify-between items-start gap-2">
+                <div class="flex-1 min-w-0">
+                    <span class="text-xs font-mono font-bold text-gray-800">{{ pend.proyecto_id_estandar }}</span>
+                    <p class="text-xs text-gray-700 truncate mt-0.5">{{ pend.nombre_proyecto or pend.nombre_corto or '-' }}</p>
+                    <p class="text-[11px] text-gray-500 truncate">{{ pend.cliente_nombre or 'Sin cliente' }}</p>
+                    <p class="text-[11px] text-gray-500 mt-1">
+                        <span class="font-medium">Enviado por:</span> {{ pend.enviado_por_nombre or 'N/A' }}
+                        {% if pend.fecha_envio %}<span class="text-gray-400">- {{ pend.fecha_envio.strftime('%d/%m/%Y') }}</span>{% endif %}
+                    </p>
                 </div>
-                <div class="text-right flex-shrink-0 ml-4">
-                    <div class="text-xs text-amber-600">Dias pendiente</div>
-                    <div class="text-lg font-bold text-amber-700">{{ pend.dias_pendiente or 0 }}</div>
+                <div class="text-right flex-shrink-0">
+                    <div class="text-[10px] text-amber-600 uppercase">Dias</div>
+                    <div class="text-lg font-bold text-amber-700 leading-none mt-0.5">{{ pend.dias_pendiente or 0 }}</div>
                 </div>
             </div>
-
             {% if puede_recibir is defined and puede_recibir %}
-            <div class="mt-3 flex gap-2 justify-end">
-                {% set module_prefix = {'CONSTRUCCION': 'construccion', 'OYM': 'oym'}.get(area, '') %}
+            <div class="mt-2.5 pt-2.5 border-t border-amber-100 flex gap-1.5 justify-end">
                 <button hx-get="/{{ module_prefix }}/modal/rechazar/{{ pend.id_traspaso }}"
                     hx-target="#modal-action-container" hx-swap="innerHTML"
                     hx-disabled-elt="this" hx-sync="this:drop"
-                    class="text-xs px-3 py-1 rounded border border-red-300 text-red-600 hover:bg-red-50 transition font-medium">
-                    Rechazar
-                </button>
+                    class="text-xs px-3 py-1 rounded-md border border-red-300 text-red-600 hover:bg-red-50 transition font-medium">Rechazar</button>
                 <button hx-get="/{{ module_prefix }}/modal/recibir/{{ pend.id_traspaso }}"
                     hx-target="#modal-action-container" hx-swap="innerHTML"
                     hx-disabled-elt="this" hx-sync="this:drop"
-                    class="text-xs px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 transition font-medium">
-                    Aceptar
-                </button>
+                    class="text-xs px-3 py-1 rounded-md bg-green-600 text-white hover:bg-green-700 transition font-medium">Aceptar</button>
             </div>
             {% endif %}
         </div>
@@ -67,17 +107,12 @@
                 <span class="w-2 h-2 rounded-full bg-blue-500"></span>
                 Proyectos Activos ({{ proyectos_activos|length }})
             </h3>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {% for p in proyectos_activos %}
-                {{ render_card(
-                    p, area,
-                    area_destino=area_destino if area_destino is defined else None,
-                    puede_enviar=puede_enviar if puede_enviar is defined else False,
-                    puede_recibir=puede_recibir if puede_recibir is defined else False,
-                    vista_global=vista_global if vista_global is defined else False
-                ) }}
-                {% endfor %}
-            </div>
+            {{ render_tabla(
+                proyectos_activos, area,
+                area_destino=area_destino if area_destino is defined else None,
+                puede_enviar=puede_enviar if puede_enviar is defined else False,
+                mostrar_area=mostrar_area
+            ) }}
         </div>
         {% endif %}
 
@@ -87,49 +122,63 @@
                 <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
                 Terminados / O&M ({{ proyectos_terminados|length }})
             </h3>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {% for p in proyectos_terminados %}
-                {{ render_card(
-                    p, area,
-                    area_destino=area_destino if area_destino is defined else None,
-                    puede_enviar=puede_enviar if puede_enviar is defined else False,
-                    puede_recibir=puede_recibir if puede_recibir is defined else False,
-                    vista_global=vista_global if vista_global is defined else False
-                ) }}
-                {% endfor %}
-            </div>
+            {{ render_tabla(
+                proyectos_terminados, area,
+                area_destino=area_destino if area_destino is defined else None,
+                puede_enviar=puede_enviar if puede_enviar is defined else False,
+                mostrar_area=mostrar_area
+            ) }}
         </div>
         {% endif %}
     {% else %}
-    <div class="text-center py-12 text-gray-400">
-        <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
-        </svg>
-        <p class="text-sm">No hay proyectos para los filtros seleccionados</p>
-    </div>
+    {% include "shared/partials/_empty_proyectos.html" %}
     {% endif %}
 {% else %}
-{# Seccion: Proyectos en area #}
+{# Seccion: Proyectos en area (vista por modulo) #}
 {% if proyectos|length > 0 %}
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-    {% for p in proyectos %}
-    {{ render_card(
-        p, area,
+    {{ render_tabla(
+        proyectos, area,
         area_destino=area_destino if area_destino is defined else None,
         puede_enviar=puede_enviar if puede_enviar is defined else False,
-        puede_recibir=puede_recibir if puede_recibir is defined else False,
-        vista_global=vista_global if vista_global is defined else False
+        mostrar_area=mostrar_area
     ) }}
-    {% endfor %}
-</div>
 {% else %}
-<div class="text-center py-12 text-gray-400">
-    <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-            d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
-    </svg>
-    <p class="text-sm">No hay proyectos en esta area</p>
-</div>
+{% include "shared/partials/_empty_proyectos.html" %}
 {% endif %}
 {% endif %}
+
+{# Ordenamiento client-side de las tablas de proyectos (se re-aplica tras cada swap HTMX) #}
+<script>
+(function() {
+    document.querySelectorAll('.proyectos-table').forEach(function(table) {
+        if (table.dataset.sortReady) return;
+        table.dataset.sortReady = '1';
+        var tbody = table.querySelector('tbody');
+        function sortBy(key, dir) {
+            var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr.proyecto-row'));
+            rows.sort(function(a, b) {
+                var va = a.dataset[key] || '', vb = b.dataset[key] || '';
+                var cmp;
+                if (key === 'dias') { cmp = (parseFloat(va) || 0) - (parseFloat(vb) || 0); }
+                else { cmp = va.localeCompare(vb); }
+                return dir === 'asc' ? cmp : -cmp;
+            });
+            rows.forEach(function(r) { tbody.appendChild(r); });
+            table.querySelectorAll('th[data-sort] .sort-arrow').forEach(function(s) { s.textContent = ''; });
+            var th = table.querySelector('th[data-sort="' + key + '"] .sort-arrow');
+            if (th) th.textContent = dir === 'asc' ? ' ↑' : ' ↓';
+        }
+        table.querySelectorAll('th[data-sort]').forEach(function(th) {
+            th.addEventListener('click', function() {
+                var key = th.dataset.sort;
+                var dir = th.dataset.dir === 'desc' ? 'asc' : 'desc';
+                th.dataset.dir = dir;
+                sortBy(key, dir);
+            });
+        });
+        // Orden por defecto: dias descendente (los estancados arriba)
+        var diasTh = table.querySelector('th[data-sort="dias"]');
+        if (diasTh) { diasTh.dataset.dir = 'desc'; sortBy('dias', 'desc'); }
+    });
+})();
+</script>
