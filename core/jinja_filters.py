@@ -5,6 +5,7 @@ import logging
 import os
 import subprocess
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,12 @@ def _compute_static_version() -> str:
     v = os.environ.get("RAILWAY_GIT_COMMIT_SHA", "")[:7]
     if v:
         return v
+    # En dev: usar mtime del CSS compilado — cambia con cada npm run build:css
+    css = Path(__file__).parent.parent / "static" / "css" / "tailwind.css"
+    try:
+        return str(int(css.stat().st_mtime))
+    except OSError:
+        pass
     try:
         result = subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -22,7 +29,7 @@ def _compute_static_version() -> str:
         ).decode().strip()
         return result or "dev"
     except Exception:
-        logger.warning("cache-busting CSS: no se pudo obtener git hash, usando 'dev'")
+        logger.warning("cache-busting CSS: no se pudo obtener version, usando 'dev'")
         return "dev"
 
 
