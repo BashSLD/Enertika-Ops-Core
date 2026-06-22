@@ -502,13 +502,14 @@ class BomDBService:
                         similarity(m.descripcion_proveedor, $1),
                         word_similarity($1, m.descripcion_proveedor)
                     )                                                  AS similitud,
-                    m.id_material_interno
+                    vlink.id_material_interno
                 FROM tb_materiales_historial m
                 LEFT JOIN tb_proveedores p ON p.id_proveedor = m.id_proveedor
+                LEFT JOIN tb_materiales_interno_xml vlink ON vlink.id_material_xml = m.id
                 WHERE m.descripcion_proveedor ILIKE '%' || $1 || '%'
                    OR word_similarity($1, m.descripcion_proveedor) >= $2
                 ORDER BY m.descripcion_proveedor,
-                         (m.id_material_interno IS NOT NULL) DESC,
+                         (vlink.id_material_interno IS NOT NULL) DESC,
                          m.fecha_factura DESC
             )
             SELECT
@@ -543,8 +544,8 @@ class BomDBService:
               AND (c.descripcion_norm ILIKE '%' || $3 || '%'
                    OR word_similarity($3, c.descripcion_norm) >= $2)
               AND NOT EXISTS (
-                  SELECT 1 FROM tb_materiales_historial mh
-                  WHERE mh.id_material_interno = c.id
+                  SELECT 1 FROM tb_materiales_interno_xml v
+                  WHERE v.id_material_interno = c.id
               )
         """, query, umbral, query_norm or query)
         rows_list = [dict(r) for r in rows]
@@ -579,11 +580,12 @@ class BomDBService:
                     m.fecha_factura,
                     'XML'::text                             AS fuente,
                     1.0::real                               AS similitud,
-                    m.id_material_interno
+                    vlink.id_material_interno
                 FROM tb_materiales_historial m
                 LEFT JOIN tb_proveedores p ON p.id_proveedor = m.id_proveedor
+                LEFT JOIN tb_materiales_interno_xml vlink ON vlink.id_material_xml = m.id
                 ORDER BY m.descripcion_proveedor,
-                         (m.id_material_interno IS NOT NULL) DESC,
+                         (vlink.id_material_interno IS NOT NULL) DESC,
                          m.fecha_factura DESC
             )
             SELECT
@@ -613,8 +615,8 @@ class BomDBService:
             LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
             WHERE c.activo = TRUE
               AND NOT EXISTS (
-                  SELECT 1 FROM tb_materiales_historial mh
-                  WHERE mh.id_material_interno = c.id
+                  SELECT 1 FROM tb_materiales_interno_xml v
+                  WHERE v.id_material_interno = c.id
               )
         """)
         rows_list = [dict(r) for r in rows]
