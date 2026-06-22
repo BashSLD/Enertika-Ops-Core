@@ -4,6 +4,33 @@
 {% include "shared/toast.html" %}
 {% endwith %}
 {% endif %}
+<style>
+    .cfe-action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 600;
+        padding: 0.5rem 0.625rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        line-height: 1.25rem;
+        transition-property: color, background-color, border-color;
+        transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+        transition-duration: 150ms;
+    }
+    .cfe-action-label {
+        max-width: 0;
+        opacity: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        transition: max-width 0.2s ease, opacity 0.16s ease;
+    }
+    .cfe-action-btn:hover .cfe-action-label,
+    .cfe-action-btn:focus-visible .cfe-action-label {
+        max-width: 180px;
+        opacity: 1;
+    }
+</style>
 
 <div id="cfe-lista" {% if _oob %}hx-swap-oob="outerHTML"{% endif %} class="p-6 space-y-4">
     <div class="flex items-center justify-between">
@@ -39,12 +66,13 @@
                 hx-get="/cfe/ui/modal-renovar-sesion{% if modulo %}?modulo={{ modulo }}{% endif %}"
                 hx-target="#cfe-modal-container"
                 hx-swap="innerHTML"
-                class="flex items-center gap-2 {% if _expira_pronto %}bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200{% else %}bg-red-50 hover:bg-red-100 text-red-700 border-red-200{% endif %} font-semibold px-4 py-2 rounded-lg text-sm transition-colors border">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                class="cfe-action-btn {% if _expira_pronto %}bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200{% else %}bg-red-50 hover:bg-red-100 text-red-700 border-red-200{% endif %} border"
+                aria-label="Renovar sesión">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                 </svg>
-                Renovar sesión
+                <span class="cfe-action-label">Renovar sesión</span>
             </button>
             {% endif %}
             <button type="button"
@@ -52,43 +80,47 @@
                 hx-target="#cfe-lista"
                 hx-swap="outerHTML"
                 hx-confirm="¿Descargar el último recibo de todos los servicios registrados en MiEspacio? Las descargas se procesan en segundo plano y pueden tardar varios minutos."
-                class="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                class="cfe-action-btn bg-teal-600 hover:bg-teal-700 text-white"
+                aria-label="Descargar último de todos">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
                 </svg>
-                Descargar último de todos
+                <span class="cfe-action-label">Descargar último de todos</span>
             </button>
             {% if servicios | selectattr('total_descargas') | list %}
             <a href="/cfe/servicios/zip-global{% if modulo %}?modulo={{ modulo }}{% endif %}"
-                class="flex items-center gap-2 bg-green-700 hover:bg-green-800 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                class="cfe-action-btn bg-green-700 hover:bg-green-800 text-white"
+                aria-label="Descargar todo (ZIP)">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
                 </svg>
-                Descargar todo (ZIP)
+                <span class="cfe-action-label">Descargar todo (ZIP)</span>
             </a>
             {% endif %}
             <button type="button"
                 hx-get="/cfe/ui/modal-xml-excel"
                 hx-target="#cfe-modal-container"
                 hx-swap="innerHTML"
-                class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                class="cfe-action-btn bg-blue-600 hover:bg-blue-700 text-white"
+                aria-label="XML a Excel">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
                 </svg>
-                XML a Excel
+                <span class="cfe-action-label">XML a Excel</span>
             </button>
             <button type="button"
                 hx-get="/cfe/ui/modal-agregar{% if modulo %}?modulo={{ modulo }}{% endif %}"
                 hx-target="#cfe-modal-container"
                 hx-swap="innerHTML"
-                class="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                class="cfe-action-btn bg-teal-600 hover:bg-teal-700 text-white"
+                aria-label="Agregar Servicio">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                 </svg>
-                Agregar Servicio
+                <span class="cfe-action-label">Agregar Servicio</span>
             </button>
         </div>
     </div>

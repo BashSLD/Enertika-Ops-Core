@@ -32,7 +32,11 @@ except ModuleNotFoundError:
     sys.exit(1)
 
 MIESPACIO_URL = "https://app.cfe.mx/Aplicaciones/CCFE/MiEspacio/Default.aspx"
-CONFIG_PATH = Path(__file__).resolve().parent / "cfe_config.json"
+CONFIG_PATH = (
+    Path(sys.executable).resolve().parent / "cfe_config.json"
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parent / "cfe_config.json"
+)
 POLL_INTERVAL_S = 2
 LOGIN_TIMEOUT_S = 600  # 10 min para resolver el CAPTCHA con calma
 

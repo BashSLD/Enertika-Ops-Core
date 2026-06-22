@@ -1540,7 +1540,9 @@ class CfeService:
         usados: set[str] = set()
         with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for numero_servicio in sorted(por_servicio):
-                nombre_servicio = _sanitize_zip_component(f"CFE_{numero_servicio}", "CFE_servicio")
+                primera_fila, _ = por_servicio[numero_servicio][0]
+                label = primera_fila.get("servicio_nombre") or numero_servicio
+                nombre_carpeta = _sanitize_zip_component(label, numero_servicio)
                 xml_inputs: list[CfeXmlInput] = []
                 for row, content in sorted(
                     por_servicio[numero_servicio],
@@ -1553,7 +1555,7 @@ class CfeService:
                         f"recibo.{tipo}",
                     )
                     zip_path = _dedupe_zip_path(
-                        usados, f"{nombre_servicio}/{tipo.upper()}/{periodo}_{nombre_archivo}"
+                        usados, f"{nombre_carpeta}/{periodo}_{nombre_archivo}"
                     )
                     zf.writestr(zip_path, content)
                     if tipo == "xml":
@@ -1563,8 +1565,8 @@ class CfeService:
                         ))
                 if xml_inputs:
                     excel_bytes = generar_excel_cfe(xml_inputs, perfil_slug).getvalue()
-                    nombre_excel = _sanitize_zip_component(f"CFE_{numero_servicio}.xlsx", "recibos_cfe.xlsx")
-                    zf.writestr(_dedupe_zip_path(usados, f"{nombre_servicio}/{nombre_excel}"), excel_bytes)
+                    nombre_excel = _sanitize_zip_component(f"{label}.xlsx", "recibos_cfe.xlsx")
+                    zf.writestr(_dedupe_zip_path(usados, f"{nombre_carpeta}/{nombre_excel}"), excel_bytes)
 
         nombre_zip = f"CFE_ultimos_recibos_{now_mx().strftime('%Y%m%d')}.zip"
         return zip_buffer.getvalue(), nombre_zip
