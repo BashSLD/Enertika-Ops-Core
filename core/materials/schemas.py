@@ -117,6 +117,14 @@ class MaterialInternoCreate(BaseModel):
     clave_prod_serv: Optional[str] = None
     precio_referencia: Optional[Decimal] = None
     notas: Optional[str] = None
+    # Nomenclatura estructurada (catalogo de productos)
+    material: Optional[str] = None
+    tipo: Optional[str] = None
+    acabado: Optional[str] = None
+    marca: Optional[str] = None
+    adicional: Optional[str] = None
+    medida: Optional[str] = None
+    moneda: Optional[str] = "MXN"
 
     @field_validator('descripcion_canonica', mode='before')
     @classmethod
@@ -131,6 +139,14 @@ class MaterialInternoUpdate(BaseModel):
     clave_prod_serv: Optional[str] = None
     precio_referencia: Optional[Decimal] = None
     notas: Optional[str] = None
+    # Nomenclatura estructurada (catalogo de productos)
+    material: Optional[str] = None
+    tipo: Optional[str] = None
+    acabado: Optional[str] = None
+    marca: Optional[str] = None
+    adicional: Optional[str] = None
+    medida: Optional[str] = None
+    moneda: Optional[str] = None
 
     @field_validator('descripcion_canonica', mode='before')
     @classmethod

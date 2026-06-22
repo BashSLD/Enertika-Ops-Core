@@ -8,11 +8,34 @@ from uuid import UUID
 from typing import List, Dict, Optional, Tuple
 from decimal import Decimal
 import logging
-from core.materials.normalizer import normalizar_descripcion
+import re
+import unicodedata
+from core.materials.normalizer import normalizar_descripcion, normalizar_unidad
 
 from .db_service import MaterialsDBService, get_materials_db_service
 
 logger = logging.getLogger("MaterialsService")
+
+# Columnas esperadas en la plantilla de carga masiva (orden de salida).
+PLANTILLA_COLUMNAS = [
+    "material", "tipo", "acabado", "marca", "adicional", "medida",
+    "concepto", "unidad", "categoria", "precio_referencia", "moneda",
+    "clave_sat", "notas",
+]
+
+# Alias de nombres de categoria del Excel de origen -> nombre real en BD.
+_CATEGORIA_ALIASES = {
+    "INVERSOR FV": "Inversores",
+    "MODULO FV": "Panel",
+}
+
+
+def _norm_cat(texto: str) -> str:
+    """Normaliza un nombre de categoria para comparacion (UPPER, sin acentos)."""
+    if not texto:
+        return ""
+    t = unicodedata.normalize("NFKD", str(texto).strip().upper())
+    return "".join(c for c in t if not unicodedata.combining(c))
 
 
 class MaterialsService:
@@ -162,60 +185,249 @@ class MaterialsService:
     async def eliminar_vinculo_xml(self, conn, id_interno: UUID, id_xml: UUID) -> None:
         await self.db.eliminar_vinculo_xml(conn, id_interno, id_xml)
 
-    async def importar_internos_excel(self, conn, archivo_bytes: bytes) -> dict:
+    # ====================================================================
+    # CARGA MASIVA DE CATALOGO INTERNO (template + validar + cargar)
+    # ====================================================================
+
+    # Sinonimos de encabezado aceptados -> campo canonico de la plantilla.
+    _HEADER_ALIASES = {
+        'material': 'material', 'tipo': 'tipo', 'acabado': 'acabado',
+        'marca': 'marca', 'adicional': 'adicional', 'medida': 'medida',
+        'concepto': 'concepto', 'descripcion': 'concepto', 'descripcion_canonica': 'concepto',
+        'unidad': 'unidad', 'unidad_medida': 'unidad',
+        'categoria': 'categoria',
+        'precio_referencia': 'precio_referencia', 'precio referencia': 'precio_referencia',
+        'precio': 'precio_referencia', 'p. u. mxn': 'precio_referencia', 'p.u. mxn': 'precio_referencia',
+        'moneda': 'moneda',
+        'clave_sat': 'clave_sat', 'clave sat': 'clave_sat', 'clave_prod_serv': 'clave_sat',
+        'notas': 'notas',
+    }
+
+    async def _build_resolucion(self, conn) -> Tuple[dict, dict]:
+        """Construye los mapas de resolucion: unidades (alias->id) y categorias (norm->id)."""
+        unidad_map = await self.db.get_unidad_alias_map(conn)
+        categorias = (await self.db.get_catalogos(conn)).get('categorias', [])
+        cat_map = {_norm_cat(c['nombre']): c['id'] for c in categorias}
+        for alias, nombre_db in _CATEGORIA_ALIASES.items():
+            cid = cat_map.get(_norm_cat(nombre_db))
+            if cid:
+                cat_map[alias] = cid
+        return unidad_map, cat_map
+
+    def _parse_y_validar(self, archivo_bytes: bytes, unidad_map: dict,
+                         cat_map: dict, norms_existentes: set) -> dict:
+        """Parsea el Excel y valida cada fila SIN escribir en BD.
+        Devuelve filas listas para insertar + detalles por fila + resumen de conteos."""
         from openpyxl import load_workbook
         from io import BytesIO
 
-        wb = load_workbook(BytesIO(archivo_bytes), read_only=True)
+        wb = load_workbook(BytesIO(archivo_bytes), read_only=True, data_only=True)
         ws = wb.active
 
-        unidades_cache = {u['codigo'].upper(): u['id'] for u in await self.db.get_cat_unidades(conn)}
-        cats_raw = await self.db.get_catalogos(conn)
-        cats_cache = {c['nombre'].upper(): c['id'] for c in cats_raw.get('categorias', [])}
-
-        headers = None
-        creados, duplicados = 0, 0
-        errores: List[str] = []
+        validas: List[dict] = []
+        detalles: List[dict] = []
         norms_sesion: set = set()
+        a_cargar = advertencias = errores = duplicados = 0
 
-        for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
-            if i == 1:
-                headers = [str(c).strip().lower() if c else '' for c in row]
+        headers: Optional[List[str]] = None
+        fila_num = 0
+        for row in ws.iter_rows(values_only=True):
+            fila_num += 1
+            # Localizar la fila de encabezados (la que contiene 'concepto' o 'material')
+            if headers is None:
+                celdas = [self._HEADER_ALIASES.get(str(c).strip().lower(), '') if c else '' for c in row]
+                if 'concepto' in celdas or 'material' in celdas:
+                    headers = celdas
                 continue
             if not any(row):
                 continue
-            try:
-                fila = dict(zip(headers, row))
-                desc = str(fila.get('descripcion') or '').strip()
-                if not desc:
-                    errores.append(f"Fila {i}: descripcion vacía")
-                    continue
-                norm = normalizar_descripcion(desc)
-                if norm in norms_sesion:
-                    duplicados += 1
-                    continue
-                unidad_txt = str(fila.get('unidad') or '').strip().upper()
-                cat_txt    = str(fila.get('categoria') or '').strip().upper()
-                precio_raw = fila.get('precio_referencia')
-                try:
-                    precio = float(precio_raw) if precio_raw is not None and precio_raw != '' else None
-                except (ValueError, TypeError):
-                    precio = None
-                data = {
-                    'descripcion_canonica': desc,
-                    'id_unidad_medida': unidades_cache.get(unidad_txt),
-                    'id_categoria':     cats_cache.get(cat_txt),
-                    'clave_prod_serv':  str(fila.get('clave_sat') or '').strip() or None,
-                    'precio_referencia': precio,
-                    'notas':            str(fila.get('notas') or '').strip() or None,
-                }
-                await self.db.crear_interno(conn, data)
-                norms_sesion.add(norm)
-                creados += 1
-            except Exception as e:
-                errores.append(f"Fila {i}: {e}")
 
-        return {'creados': creados, 'duplicados': duplicados, 'errores': errores}
+            fila = {}
+            for h, val in zip(headers, row):
+                if h:
+                    fila[h] = ('' if val is None else str(val).strip())
+
+            concepto = fila.get('concepto', '').strip()
+            partes = [fila.get(k, '').strip() for k in
+                      ('material', 'tipo', 'acabado', 'marca', 'adicional', 'medida')]
+            if not concepto:
+                concepto = ' '.join(p for p in partes if p and p.upper() != 'NA').strip()
+            concepto = re.sub(r'\s{2,}', ' ', concepto).strip()
+            if not concepto:
+                continue  # fila totalmente vacia: se ignora en silencio
+
+            errs: List[str] = []
+            warns: List[str] = []
+
+            # Unidad
+            unidad_txt = fila.get('unidad', '').strip()
+            id_unidad = None
+            if unidad_txt:
+                id_unidad = unidad_map.get(normalizar_unidad(unidad_txt))
+                if id_unidad is None:
+                    errs.append(f"unidad '{unidad_txt}' no reconocida")
+
+            # Categoria (opcional)
+            cat_txt = fila.get('categoria', '').strip()
+            id_categoria = None
+            if cat_txt:
+                id_categoria = cat_map.get(_norm_cat(cat_txt))
+                if id_categoria is None:
+                    warns.append(f"categoria '{cat_txt}' no existe (se carga sin categoria)")
+
+            # Precio
+            precio = None
+            precio_raw = fila.get('precio_referencia', '')
+            if precio_raw not in ('', None):
+                try:
+                    precio = float(str(precio_raw).replace(',', ''))
+                    if precio < 0:
+                        errs.append("precio negativo")
+                except (ValueError, TypeError):
+                    errs.append(f"precio '{precio_raw}' no es numerico")
+
+            # Moneda
+            moneda = (fila.get('moneda', '') or '').strip().upper() or 'MXN'
+            if moneda not in ('MXN', 'USD'):
+                warns.append(f"moneda '{moneda}' no valida (se usa MXN)")
+                moneda = 'MXN'
+
+            norm = normalizar_descripcion(concepto)
+
+            if errs:
+                errores += 1
+                detalles.append({'fila': fila_num, 'concepto': concepto,
+                                 'estado': 'error', 'mensaje': '; '.join(errs)})
+                continue
+            if norm in norms_existentes or norm in norms_sesion:
+                duplicados += 1
+                detalles.append({'fila': fila_num, 'concepto': concepto,
+                                 'estado': 'duplicado', 'mensaje': 'ya existe en el catalogo'})
+                continue
+
+            norms_sesion.add(norm)
+            registro = {
+                'descripcion_canonica': concepto,
+                'descripcion_norm': norm,
+                'id_unidad_medida': id_unidad,
+                'id_categoria': id_categoria,
+                'clave_prod_serv': fila.get('clave_sat', '').strip() or None,
+                'precio_referencia': precio,
+                'notas': fila.get('notas', '').strip() or None,
+                'material': partes[0] or None, 'tipo': partes[1] or None,
+                'acabado': partes[2] or None, 'marca': partes[3] or None,
+                'adicional': partes[4] or None, 'medida': partes[5] or None,
+                'moneda': moneda,
+            }
+            validas.append(registro)
+            a_cargar += 1
+            if warns:
+                advertencias += 1
+                detalles.append({'fila': fila_num, 'concepto': concepto,
+                                 'estado': 'advertencia', 'mensaje': '; '.join(warns)})
+
+        if headers is None:
+            raise ValueError("No se encontro la fila de encabezados (se requiere 'concepto' o 'material')")
+
+        resumen = {
+            'a_cargar': a_cargar, 'advertencias': advertencias,
+            'errores': errores, 'duplicados': duplicados,
+        }
+        return {'validas': validas, 'detalles': detalles, 'resumen': resumen}
+
+    async def validar_internos_excel(self, conn, archivo_bytes: bytes) -> dict:
+        """Fase 1: parsea y valida sin escribir. Devuelve preview."""
+        unidad_map, cat_map = await self._build_resolucion(conn)
+        norms_existentes = await self.db.get_norms_existentes(conn)
+        parsed = self._parse_y_validar(archivo_bytes, unidad_map, cat_map, norms_existentes)
+        return {
+            'fase': 'validacion',
+            'resumen': parsed['resumen'],
+            'detalles': parsed['detalles'],
+        }
+
+    async def cargar_internos_excel(self, conn, archivo_bytes: bytes) -> dict:
+        """Fase 2: re-valida e inserta solo las filas validas en una transaccion."""
+        unidad_map, cat_map = await self._build_resolucion(conn)
+        norms_existentes = await self.db.get_norms_existentes(conn)
+        parsed = self._parse_y_validar(archivo_bytes, unidad_map, cat_map, norms_existentes)
+        async with conn.transaction():
+            creados = await self.db.crear_internos_bulk(conn, parsed['validas'])
+        return {
+            'fase': 'carga',
+            'creados': creados,
+            'resumen': parsed['resumen'],
+            'detalles': parsed['detalles'],
+        }
+
+    async def generar_plantilla_internos(self, conn) -> bytes:
+        """Genera la plantilla .xlsx de carga masiva con hoja de catalogos y validaciones."""
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.worksheet.datavalidation import DataValidation
+        from openpyxl.utils import get_column_letter
+        from io import BytesIO
+
+        unidades = await self.db.get_cat_unidades(conn)
+        categorias = (await self.db.get_catalogos(conn)).get('categorias', [])
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Materiales"
+
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+        header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        for col, name in enumerate(PLANTILLA_COLUMNAS, 1):
+            cell = ws.cell(row=1, column=col, value=name)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            ws.column_dimensions[get_column_letter(col)].width = 16
+
+        # Fila de ejemplo
+        ejemplo = ["ABRAZADERA", "CLIP", "PARED DELGADA", "", "", '(1/2")',
+                   'ABRAZADERA CLIP PARED DELGADA (1/2")', "pza", "Accesorios electricos",
+                   "5.24", "MXN", "", "Ejemplo: borrar esta fila"]
+        for col, val in enumerate(ejemplo, 1):
+            ws.cell(row=2, column=col, value=val)
+
+        # Hoja de catalogos (referencia + origen de las listas desplegables)
+        cat_ws = wb.create_sheet("Catalogos")
+        cat_ws.cell(row=1, column=1, value="unidad (codigo)").font = header_font
+        cat_ws.cell(row=1, column=2, value="unidad (nombre)").font = header_font
+        cat_ws.cell(row=1, column=4, value="categoria").font = header_font
+        for i, u in enumerate(unidades, 2):
+            cat_ws.cell(row=i, column=1, value=u['codigo'])
+            cat_ws.cell(row=i, column=2, value=u['nombre'])
+        for i, c in enumerate(categorias, 2):
+            cat_ws.cell(row=i, column=4, value=c['nombre'])
+        cat_ws.column_dimensions['A'].width = 14
+        cat_ws.column_dimensions['B'].width = 24
+        cat_ws.column_dimensions['D'].width = 24
+
+        # Validaciones de datos (dropdowns) sobre las primeras 1000 filas
+        n_uni = len(unidades) + 1
+        n_cat = len(categorias) + 1
+        dv_unidad = DataValidation(type="list", formula1=f"Catalogos!$A$2:$A${n_uni}", allow_blank=True)
+        dv_cat = DataValidation(type="list", formula1=f"Catalogos!$D$2:$D${n_cat}", allow_blank=True)
+        dv_moneda = DataValidation(type="list", formula1='"MXN,USD"', allow_blank=True)
+        ws.add_data_validation(dv_unidad)
+        ws.add_data_validation(dv_cat)
+        ws.add_data_validation(dv_moneda)
+        col_unidad = get_column_letter(PLANTILLA_COLUMNAS.index('unidad') + 1)
+        col_cat = get_column_letter(PLANTILLA_COLUMNAS.index('categoria') + 1)
+        col_mon = get_column_letter(PLANTILLA_COLUMNAS.index('moneda') + 1)
+        dv_unidad.add(f"{col_unidad}2:{col_unidad}1000")
+        dv_cat.add(f"{col_cat}2:{col_cat}1000")
+        dv_moneda.add(f"{col_mon}2:{col_mon}1000")
+
+        ws.freeze_panes = "A2"
+
+        buffer = BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        return buffer.getvalue()
 
     async def export_to_excel(self, conn, filtros: dict) -> bytes:
         """Genera archivo Excel con materiales filtrados."""

@@ -10,12 +10,16 @@
             id_categoria: '',
             clave_prod_serv: '',
             precio_referencia: '',
-            notas: ''
+            notas: '',
+            material: '', tipo: '', acabado: '', marca: '', adicional: '', medida: '', moneda: 'MXN'
+        },
+        formVacio() {
+            return { descripcion_canonica: '', id_unidad_medida: '', id_categoria: '', clave_prod_serv: '', precio_referencia: '', notas: '', material: '', tipo: '', acabado: '', marca: '', adicional: '', medida: '', moneda: 'MXN' };
         },
         abrirCrear() {
             this.modoEditar = false;
             this.editandoId = '';
-            this.form = { descripcion_canonica: '', id_unidad_medida: '', id_categoria: '', clave_prod_serv: '', precio_referencia: '', notas: '' };
+            this.form = this.formVacio();
             this.modalAbierto = true;
         },
         abrirEditar(jsonStr) {
@@ -28,7 +32,10 @@
                 id_categoria: d.id_categoria ? String(d.id_categoria) : '',
                 clave_prod_serv: d.clave || '',
                 precio_referencia: d.precio || '',
-                notas: d.notas || ''
+                notas: d.notas || '',
+                material: d.material || '', tipo: d.tipo || '', acabado: d.acabado || '',
+                marca: d.marca || '', adicional: d.adicional || '', medida: d.medida || '',
+                moneda: d.moneda || 'MXN'
             };
             this.modalAbierto = true;
         },
@@ -230,23 +237,30 @@
                 </button>
             </div>
             <div class="px-6 py-4 space-y-3">
-                <p class="text-sm text-gray-600">El archivo debe tener las columnas (primera fila = encabezado):</p>
-                <code class="block text-xs bg-gray-100 rounded p-2 text-gray-700">
-                    descripcion | unidad | categoria | clave_sat | precio_referencia | notas
-                </code>
+                <p class="text-sm text-gray-600">
+                    Descarga la plantilla, llénala y súbela. El sistema <strong>valida</strong> la
+                    información antes de cargar.
+                </p>
+                <a href="/materials/internos/plantilla"
+                    class="inline-flex items-center gap-2 text-sm font-medium text-[#00BABB] hover:text-[#009999]">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    Descargar plantilla
+                </a>
                 <form hx-post="/materials/internos/importar"
                     hx-target="#resultado-importar"
                     hx-swap="innerHTML"
                     hx-encoding="multipart/form-data"
                     class="space-y-3">
-                    <input type="file" name="archivo" accept=".xlsx,.xls"
+                    <input type="file" name="archivo" accept=".xlsx,.xls" required
                         class="block w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-[#00BABB] file:text-white file:font-semibold hover:file:bg-[#009999]">
                     <button type="submit"
-                        class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-semibold">
-                        Importar
+                        class="w-full bg-[#123456] hover:bg-[#0d2640] text-white py-2 rounded-lg text-sm font-semibold">
+                        Validar archivo
                     </button>
+                    <div id="resultado-importar"></div>
                 </form>
-                <div id="resultado-importar"></div>
             </div>
         </div>
     </div>

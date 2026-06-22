@@ -321,6 +321,7 @@ class MaterialsDBService:
                 SELECT
                     c.id, c.descripcion_canonica, c.id_unidad_medida, c.id_categoria,
                     c.clave_prod_serv, c.precio_referencia, c.notas, c.activo,
+                    c.material, c.tipo, c.acabado, c.marca, c.adicional, c.medida, c.moneda,
                     c.created_at, c.updated_at,
                     u.codigo AS unidad_codigo, u.nombre AS unidad_nombre,
                     cat.nombre AS categoria_nombre,
@@ -360,6 +361,7 @@ class MaterialsDBService:
             SELECT
                 c.id, c.descripcion_canonica, c.id_unidad_medida, c.id_categoria,
                 c.clave_prod_serv, c.precio_referencia, c.notas, c.activo,
+                c.material, c.tipo, c.acabado, c.marca, c.adicional, c.medida, c.moneda,
                 c.created_at, c.updated_at,
                 u.codigo AS unidad_codigo, u.nombre AS unidad_nombre,
                 cat.nombre AS categoria_nombre
@@ -370,26 +372,69 @@ class MaterialsDBService:
         """, id)
         return dict(row) if row else None
 
-    async def crear_interno(self, conn, data: dict) -> dict:
-        norm = normalizar_descripcion(data['descripcion_canonica'])
-        row = await conn.fetchrow("""
+    # Orden de columnas para INSERT en tb_cat_materiales (compartido por alta y bulk).
+    _INTERNO_INSERT_SQL = """
             INSERT INTO tb_cat_materiales
                 (descripcion_canonica, descripcion_norm, id_unidad_medida, id_categoria,
-                 clave_prod_serv, precio_referencia, notas)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING id
-        """,
+                 clave_prod_serv, precio_referencia, notas,
+                 material, tipo, acabado, marca, adicional, medida, moneda)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    """
+
+    @staticmethod
+    def _interno_values(data: dict) -> tuple:
+        """Tupla de valores en el orden de _INTERNO_INSERT_SQL. Usa descripcion_norm
+        precalculado si viene; si no, lo deriva de la descripcion canonica."""
+        norm = data.get('descripcion_norm') or normalizar_descripcion(data['descripcion_canonica'])
+        return (
             data['descripcion_canonica'], norm,
             data.get('id_unidad_medida'), data.get('id_categoria'),
-            data.get('clave_prod_serv') or None,
-            data.get('precio_referencia'),
+            data.get('clave_prod_serv') or None, data.get('precio_referencia'),
             data.get('notas') or None,
+            data.get('material') or None, data.get('tipo') or None,
+            data.get('acabado') or None, data.get('marca') or None,
+            data.get('adicional') or None, data.get('medida') or None,
+            data.get('moneda') or 'MXN',
+        )
+
+    async def crear_interno(self, conn, data: dict) -> dict:
+        row = await conn.fetchrow(
+            self._INTERNO_INSERT_SQL + " RETURNING id", *self._interno_values(data)
         )
         return await self.get_interno_by_id(conn, row['id'])
 
+    async def crear_internos_bulk(self, conn, registros: List[dict]) -> int:
+        """Insercion por lotes para carga masiva. Cada registro ya viene validado y
+        con 'descripcion_norm' precalculado por el service. Inserta en una sola pasada."""
+        if not registros:
+            return 0
+        await conn.executemany(
+            self._INTERNO_INSERT_SQL, [self._interno_values(r) for r in registros]
+        )
+        return len(registros)
+
+    async def get_unidad_alias_map(self, conn) -> dict:
+        """Mapa {clave_normalizada_upper: id_unidad} desde codigos + aliases activos.
+        Permite resolver 'Pieza'->pza, 'Metros'->m, etc."""
+        rows = await conn.fetch("""
+            SELECT UPPER(codigo) AS k, id FROM tb_cat_unidades_medida WHERE activo
+            UNION
+            SELECT UPPER(a.alias) AS k, a.unidad_id AS id
+            FROM tb_cat_unidad_aliases a WHERE a.activo
+        """)
+        return {r['k']: r['id'] for r in rows}
+
+    async def get_norms_existentes(self, conn) -> set:
+        """Conjunto de descripcion_norm ya registradas (para deteccion de duplicados)."""
+        rows = await conn.fetch(
+            "SELECT descripcion_norm FROM tb_cat_materiales WHERE descripcion_norm IS NOT NULL"
+        )
+        return {r['descripcion_norm'] for r in rows}
+
     async def actualizar_interno(self, conn, id: UUID, data: dict) -> bool:
         allowed = ['descripcion_canonica', 'id_unidad_medida', 'id_categoria',
-                   'clave_prod_serv', 'precio_referencia', 'notas']
+                   'clave_prod_serv', 'precio_referencia', 'notas',
+                   'material', 'tipo', 'acabado', 'marca', 'adicional', 'medida', 'moneda']
         sets, params, idx = [], [], 1
         for field in allowed:
             if field not in data:

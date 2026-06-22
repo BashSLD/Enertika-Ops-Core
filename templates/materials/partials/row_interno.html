@@ -52,7 +52,7 @@
 
             {% if can_edit %}
             <button
-                data-interno='{{ {"id": m.id|string, "descripcion": m.descripcion_canonica, "id_unidad": m.id_unidad_medida, "id_categoria": m.id_categoria, "clave": m.clave_prod_serv, "precio": m.precio_referencia|string if m.precio_referencia else "", "notas": m.notas} | tojson }}'
+                data-interno='{{ {"id": m.id|string, "descripcion": m.descripcion_canonica, "id_unidad": m.id_unidad_medida, "id_categoria": m.id_categoria, "clave": m.clave_prod_serv, "precio": m.precio_referencia|string if m.precio_referencia else "", "notas": m.notas, "material": m.material, "tipo": m.tipo, "acabado": m.acabado, "marca": m.marca, "adicional": m.adicional, "medida": m.medida, "moneda": m.moneda} | tojson }}'
                 @click="abrirEditar($el.dataset.interno)"
                 class="text-[#00BABB] hover:text-[#009999] transition-colors" title="Editar">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

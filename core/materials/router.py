@@ -391,6 +391,13 @@ async def crear_interno(
             clave_prod_serv=form.get("clave_prod_serv") or None,
             precio_referencia=float(form["precio_referencia"]) if form.get("precio_referencia") else None,
             notas=form.get("notas") or None,
+            material=form.get("material") or None,
+            tipo=form.get("tipo") or None,
+            acabado=form.get("acabado") or None,
+            marca=form.get("marca") or None,
+            adicional=form.get("adicional") or None,
+            medida=form.get("medida") or None,
+            moneda=form.get("moneda") or "MXN",
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -421,7 +428,8 @@ async def actualizar_interno(
 ):
     form = await request.form()
     data = {}
-    for field in ['descripcion_canonica', 'clave_prod_serv', 'notas']:
+    for field in ['descripcion_canonica', 'clave_prod_serv', 'notas',
+                  'material', 'tipo', 'acabado', 'marca', 'adicional', 'medida', 'moneda']:
         if field in form:
             data[field] = form[field] or None
     for field in ['id_unidad_medida', 'id_categoria']:
@@ -461,6 +469,21 @@ async def desactivar_interno(
     return HTMLResponse("")
 
 
+@router.get("/internos/plantilla")
+async def descargar_plantilla_internos(
+    conn=Depends(get_db_connection),
+    service: MaterialsService = Depends(get_materials_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Descarga la plantilla .xlsx de carga masiva del catalogo interno."""
+    excel_bytes = await service.generar_plantilla_internos(conn)
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="plantilla_catalogo_interno.xlsx"'},
+    )
+
+
 @router.post("/internos/importar", response_class=HTMLResponse)
 async def importar_internos(
     request: Request,
@@ -468,19 +491,28 @@ async def importar_internos(
     service: MaterialsService = Depends(get_materials_service),
     _=require_module_access("compras", "editor"),
 ):
+    """Carga masiva en 2 fases. Sin 'confirmar': valida y previsualiza (no escribe).
+    Con confirmar=true: inserta solo las filas validas."""
     form = await request.form()
     archivo = form.get("archivo")
     if not archivo or not getattr(archivo, 'filename', None):
         raise HTTPException(status_code=400, detail="Archivo requerido")
+    confirmar = str(form.get("confirmar", "")).lower() == "true"
     contenido = await archivo.read()
     try:
-        resultado = await service.importar_internos_excel(conn, contenido)
+        if confirmar:
+            resultado = await service.cargar_internos_excel(conn, contenido)
+        else:
+            resultado = await service.validar_internos_excel(conn, contenido)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error al leer archivo: {e}")
+    headers = {"HX-Trigger": "internos-importados"} if confirmar else {}
     return templates.TemplateResponse(
         request, "materials/partials/importar_resultado.html",
         {"resultado": resultado},
-        headers={"HX-Trigger": "internos-importados"},
+        headers=headers,
     )
 
 
