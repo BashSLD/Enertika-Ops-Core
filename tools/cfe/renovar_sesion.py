@@ -33,7 +33,7 @@ except ModuleNotFoundError:
 
 MIESPACIO_URL = "https://app.cfe.mx/Aplicaciones/CCFE/MiEspacio/Default.aspx"
 CONFIG_PATH = (
-    Path(sys.executable).resolve().parent / "cfe_config.json"
+    Path.home() / ".enertika" / "cfe_config.json"
     if getattr(sys, "frozen", False)
     else Path(__file__).resolve().parent / "cfe_config.json"
 )
@@ -62,8 +62,9 @@ def cargar_config() -> dict:
         "token": input("Token de renovacion CFE: ").strip(),
     }
     try:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-        print(f"Configuracion guardada en {CONFIG_PATH.name}")
+        print(f"Configuracion guardada en {CONFIG_PATH}")
     except OSError as exc:
         print(f"Aviso: no se pudo guardar la configuracion: {exc}")
     return cfg
