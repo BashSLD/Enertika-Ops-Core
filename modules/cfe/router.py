@@ -75,8 +75,13 @@ async def cfe_ui(
 ):
     svc = get_cfe_service()
     modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
+    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
     await svc.limpiar_errores_invalidos(conn)
-    servicios = await svc.listar_servicios(conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles)
+    servicios = await svc.listar_servicios(
+        conn,
+        modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
+        creado_por_ids=zona_filter,
+    )
     estado_sesion = await svc.get_estado_sesion(conn)
     is_htmx = request.headers.get("hx-request")
     is_restore = request.headers.get("hx-history-restore-request")
@@ -270,8 +275,10 @@ async def crear_servicio(
         toast_msg = "Error interno al registrar el servicio."
         toast_type = "error"
         status_code = 500
+    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
     servicios = await svc.listar_servicios(
-        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles
+        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
+        creado_por_ids=zona_filter,
     )
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
@@ -339,7 +346,11 @@ async def crear_servicios_bulk(
             resultados.append({"numero": numero, "nombre": nombre, "ok": False, "error": "Error interno al registrar."})
 
     total_ok = sum(1 for r in resultados if r["ok"])
-    servicios = await svc.listar_servicios(conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles)
+    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
+    servicios = await svc.listar_servicios(
+        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
+        creado_por_ids=zona_filter,
+    )
     estado_sesion = await svc.get_estado_sesion(conn)
     return templates.TemplateResponse(
         request,
@@ -411,8 +422,10 @@ async def editar_servicio(
         toast_msg = "Error interno al editar el servicio."
         toast_type = "error"
         status_code = 500
+    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
     servicios = await svc.listar_servicios(
-        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles
+        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
+        creado_por_ids=zona_filter,
     )
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
@@ -473,8 +486,10 @@ async def registrar_manual(
         toast_msg = "Error interno al encolar el registro."
         toast_type = "error"
         status_code = 500
+    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
     servicios = await svc.listar_servicios(
-        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles
+        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
+        creado_por_ids=zona_filter,
     )
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
@@ -515,8 +530,10 @@ async def reintentar_alta_miespacio(
         toast_msg = "Error interno al reencolar el registro."
         toast_type = "error"
         status_code = 500
+    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
     servicios = await svc.listar_servicios(
-        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles
+        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
+        creado_por_ids=zona_filter,
     )
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
@@ -627,12 +644,14 @@ async def descargar_todos(
     svc = get_cfe_service()
     modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
     modulos = [modulo_activo] if modulo_activo else modulos_accesibles
+    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
     toast_type = "success"
     toast_msg = ""
     status_code = 200
     try:
         encolados, omitidos = await svc.iniciar_descarga_masiva(
-            conn, modulos=modulos, usuario_id=user["user_db_id"]
+            conn, modulos=modulos, usuario_id=user["user_db_id"],
+            creado_por_ids=zona_filter,
         )
         if encolados:
             toast_msg = f"{encolados} servicio(s) encolado(s) para descarga del último recibo."
@@ -649,7 +668,7 @@ async def descargar_todos(
         toast_msg = "Error interno al encolar las descargas."
         toast_type = "error"
         status_code = 500
-    servicios = await svc.listar_servicios(conn, modulos=modulos)
+    servicios = await svc.listar_servicios(conn, modulos=modulos, creado_por_ids=zona_filter)
     estado_sesion = await svc.get_estado_sesion(conn)
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
@@ -968,8 +987,11 @@ async def descargar_zip_global(
     svc = get_cfe_service()
     modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
     modulos = [modulo_activo] if modulo_activo else modulos_accesibles
+    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
     try:
-        zip_bytes, nombre = await svc.generar_zip_global(conn, modulos=modulos)
+        zip_bytes, nombre = await svc.generar_zip_global(
+            conn, modulos=modulos, creado_por_ids=zona_filter
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except httpx.HTTPError as exc:

@@ -2,16 +2,18 @@
 Router del Modulo O&M (Operacion y Mantenimiento)
 Recibe proyectos de Construccion. Destino final del flujo de traspasos.
 """
-from fastapi import APIRouter, Request, Depends, Query, HTTPException
+from fastapi import APIRouter, Request, Depends, Form, Query
 from fastapi.templating import Jinja2Templates
 from uuid import UUID
 from typing import Optional
 import logging
+
+import asyncpg
 from core.config import settings
 from core.timezone import today_mx
 
 from core.security import get_current_user_context
-from core.permissions import require_module_access
+from core.permissions import require_module_access, require_manager_access
 from core.database import get_db_connection
 from .service import OyMService, get_service
 
@@ -58,7 +60,7 @@ async def get_oym_ui(
 
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     is_admin = context.get("role") == "ADMIN"
-    active_tab = tab if tab in ("proyectos", "polizas", "incidencias", "plantas") else "proyectos"
+    active_tab = tab if tab in ("proyectos", "polizas", "incidencias", "plantas", "config") else "proyectos"
 
     template_data = {
         "user_name": context.get("user_name"),
@@ -72,6 +74,11 @@ async def get_oym_ui(
         "area_origen": "CONSTRUCCION",
         "puede_recibir": mod_role in ("editor", "admin") or is_admin,
         "puede_editar": mod_role in ("editor", "admin") or is_admin,
+        "puede_config": (
+            is_admin
+            or mod_role == "admin"
+            or (context.get("role") == "MANAGER" and mod_role in ("editor", "admin"))
+        ),
         "active_tab": active_tab,
         "resumen_plantas": resumen_plantas,
     }
@@ -194,6 +201,65 @@ async def get_plantas_portfolio(
             "puede_editar": puede_editar,
         },
     )
+
+
+# ── Config: Zonas ─────────────────────────────────────────────────────────────
+
+async def _render_zonas(request: Request, service: OyMService, conn, toast: dict | None = None):
+    asignaciones = await service.get_asignaciones_zona(conn)
+    ctx: dict = {"asignaciones": asignaciones}
+    if toast:
+        ctx["_toast"] = toast
+    return templates.TemplateResponse(request, "oym/partials/config_zonas.html", ctx)
+
+
+@router.get("/config/zonas", include_in_schema=False)
+async def config_zonas(
+    request: Request,
+    _=require_manager_access("oym"),
+    conn=Depends(get_db_connection),
+    service: OyMService = Depends(get_service),
+):
+    return await _render_zonas(request, service, conn)
+
+
+@router.post("/config/zonas/{usuario_id}", include_in_schema=False)
+async def asignar_zona_usuario(
+    request: Request,
+    usuario_id: UUID,
+    zona: str = Form(...),
+    _=require_manager_access("oym"),
+    conn=Depends(get_db_connection),
+    service: OyMService = Depends(get_service),
+):
+    toast: dict
+    try:
+        await service.asignar_zona(conn, usuario_id, zona)
+        toast = {"message": "Zona asignada correctamente.", "type": "success"}
+    except ValueError as exc:
+        toast = {"message": str(exc), "type": "error"}
+    except asyncpg.PostgresError as exc:
+        logger.error("Error de BD asignando zona OyM a %s: %s", usuario_id, exc)
+        toast = {"message": "Error interno al asignar la zona.", "type": "error"}
+    return await _render_zonas(request, service, conn, toast)
+
+
+@router.post("/config/zonas/{usuario_id}/quitar", include_in_schema=False)
+async def quitar_zona_usuario(
+    request: Request,
+    usuario_id: UUID,
+    _=require_manager_access("oym"),
+    conn=Depends(get_db_connection),
+    service: OyMService = Depends(get_service),
+):
+    toast: dict
+    try:
+        await service.eliminar_zona(conn, usuario_id)
+        toast = {"message": "Zona eliminada.", "type": "success"}
+    except asyncpg.PostgresError as exc:
+        logger.error("Error de BD quitando zona OyM a %s: %s", usuario_id, exc)
+        toast = {"message": "Error interno al quitar la zona.", "type": "error"}
+    return await _render_zonas(request, service, conn, toast)
 
 
 @router.get("/modal/recibir/{id_traspaso}", include_in_schema=False)

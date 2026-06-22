@@ -32,6 +32,8 @@ from modules.shared.services.cfe.extractor import extraer_datos_xml, rpu_del_xml
 from modules.shared.services.cfe.excel import generar_excel_cfe
 from modules.shared.services.cfe.schemas import CfeReceipt, CfeXmlInput
 
+from core.permissions import get_user_module_role
+from modules.oym.db_service import get_oym_db_service
 from .analysis import analisis_sin_datos, construir_analisis_recibos, filtrar_xmls_completados
 from .constants import (
     CFE_BUSQUEDA_TIMEOUT_MIN_SEGUNDOS,
@@ -243,10 +245,32 @@ class CfeService:
 
     # ── Servicios ─────────────────────────────────────────────────────────
 
+    async def resolver_filtro_zona(
+        self, conn: asyncpg.Connection, user: dict, modulo_activo: str | None
+    ) -> list[UUID] | None:
+        """
+        Devuelve lista de UUIDs de creado_por a filtrar, o None para sin filtro.
+        Solo activa cuando modulo_activo == 'oym'.
+        ADMIN de sistema y module-admin de oym bypass (ven todo).
+        Usuarios sin zona asignada tambien ven todo.
+        """
+        if modulo_activo != "oym":
+            return None
+        if get_user_module_role("oym", user) == "admin":
+            return None
+        usuario_id = user.get("user_db_id")
+        if not usuario_id:
+            return None
+        oym_db = get_oym_db_service()
+        ids = await oym_db.get_usuario_ids_en_misma_zona(conn, usuario_id)
+        return ids or None
+
     async def listar_servicios(
-        self, conn: asyncpg.Connection, modulos: list[str] | None = None
+        self, conn: asyncpg.Connection,
+        modulos: list[str] | None = None,
+        creado_por_ids: list[UUID] | None = None,
     ) -> list[dict]:
-        return await self.db.get_all_servicios(conn, modulos=modulos)
+        return await self.db.get_all_servicios(conn, modulos=modulos, creado_por_ids=creado_por_ids)
 
     async def limpiar_errores_invalidos(
         self, conn: asyncpg.Connection, servicio_id: Optional[UUID] = None
@@ -394,6 +418,7 @@ class CfeService:
         *,
         modulos: list[str] | None,
         usuario_id: UUID,
+        creado_por_ids: list[UUID] | None = None,
     ) -> tuple[int, int]:
         """
         Encola la descarga del ultimo recibo de TODOS los servicios registrados en
@@ -401,7 +426,7 @@ class CfeService:
         ya tienen una descarga en curso. El worker procesa la cola de a uno.
         Retorna (encolados, omitidos).
         """
-        servicios = await self.db.get_all_servicios(conn, modulos=modulos)
+        servicios = await self.db.get_all_servicios(conn, modulos=modulos, creado_por_ids=creado_por_ids)
         registrados = [s for s in servicios if s.get("miespacio_estatus") == "registrado"]
 
         encolados = 0
@@ -1518,13 +1543,16 @@ class CfeService:
         *,
         modulos: list[str] | None,
         perfil_slug: str = "oym",
+        creado_por_ids: list[UUID] | None = None,
     ) -> tuple[bytes, str]:
         """
         ZIP unico con el ultimo recibo (XML + PDF + Excel) de cada servicio
         registrado en MiEspacio dentro de los modulos dados. Un folder por
         servicio. Corresponde al resultado de la descarga masiva.
         """
-        rows = await self.db.get_ultimas_descargas_completadas_por_modulo(conn, modulos)
+        rows = await self.db.get_ultimas_descargas_completadas_por_modulo(
+            conn, modulos, creado_por_ids=creado_por_ids
+        )
         if not rows:
             raise ValueError("No hay recibos descargados para incluir en el ZIP.")
 
