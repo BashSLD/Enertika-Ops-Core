@@ -48,6 +48,28 @@
             </button>
             {% endif %}
             <button type="button"
+                hx-post="/cfe/servicios/descargar-todos{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                hx-target="#cfe-lista"
+                hx-swap="outerHTML"
+                hx-confirm="¿Descargar el último recibo de todos los servicios registrados en MiEspacio? Las descargas se procesan en segundo plano y pueden tardar varios minutos."
+                class="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                </svg>
+                Descargar último de todos
+            </button>
+            {% if servicios | selectattr('total_descargas') | list %}
+            <a href="/cfe/servicios/zip-global{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                class="flex items-center gap-2 bg-green-700 hover:bg-green-800 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+                </svg>
+                Descargar todo (ZIP)
+            </a>
+            {% endif %}
+            <button type="button"
                 hx-get="/cfe/ui/modal-xml-excel"
                 hx-target="#cfe-modal-container"
                 hx-swap="innerHTML"

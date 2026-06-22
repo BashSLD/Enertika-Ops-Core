@@ -1373,6 +1373,120 @@ async def descargar_pdf_periodo(cfg: CfeScraperConfig, periodo: str) -> Descarga
     return result
 
 
+async def descargar_ultimo_recibo_miespacio(cfg: CfeScraperConfig) -> DescargaResult:
+    """
+    Descarga el ultimo recibo (XML + PDF) directamente desde MiEspacio · Otras
+    Facturas, sin tocar el portal publico. Pensado para servicios ya registrados
+    en MiEspacio: ambos archivos salen de la misma fila, evitando el portal
+    publico (mas lento y expuesto al challenge de Incapsula).
+
+    Si el servicio no esta registrado, _select_service_miespacio lanza
+    MiEspacioServiceNotFound y se devuelve el error correspondiente. El consumidor
+    (_ejecutar_descarga) trata result.error como fallo total y result.pdf_error
+    como "XML ok, PDF fallo", igual que descargar_recibo.
+    """
+    result = DescargaResult()
+    try:
+        from playwright.async_api import async_playwright
+    except ModuleNotFoundError as exc:
+        if exc.name != "playwright":
+            raise
+        result.error = (
+            "Playwright no esta instalado en el entorno. "
+            "Reconstruye la imagen Docker para instalar dependencias CFE."
+        )
+        logger.error(result.error)
+        return result
+
+    if not cfg.mi_user or not cfg.mi_pass:
+        result.error = (
+            "Faltan credenciales CFE MiEspacio. "
+            "Configúralas en Admin > Configuración Global > Recibos CFE."
+        )
+        return result
+
+    launch_kwargs = _chromium_launch_kwargs()
+
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(**launch_kwargs)
+            try:
+                mi_ctx, mi_page = await _setup_miespacio_page(browser, cfg)
+                try:
+                    block_msg = await _detect_block(mi_page)
+                    if block_msg:
+                        result.error = block_msg
+                        return result
+
+                    if not await _is_logged_in(mi_page):
+                        result.error = (
+                            "La sesión CFE MiEspacio expiró o no existe. "
+                            "Un administrador debe renovar la sesión en Admin > Configuración Global > Recibos CFE."
+                        )
+                        return result
+
+                    try:
+                        await _select_service_miespacio(mi_page, cfg)
+                    except MiEspacioServiceNotFound:
+                        result.error = _MSG_SERVICIO_NO_REGISTRADO
+                        result.session_json_nuevo = json.dumps(await mi_ctx.storage_state())
+                        return result
+
+                    rows_raw = await _abrir_otras_facturas(mi_page, cfg)
+                    facturas = _otras_facturas_por_periodo(rows_raw)
+                    if not facturas:
+                        result.error = (
+                            "No se encontraron recibos en Otras Facturas de MiEspacio "
+                            f"para el servicio {cfg.numero_servicio}."
+                        )
+                        result.session_json_nuevo = json.dumps(await mi_ctx.storage_state())
+                        return result
+
+                    row = facturas[0]  # _otras_facturas_por_periodo ordena de mas reciente a mas antiguo
+                    result.periodo = row["periodo"]
+
+                    try:
+                        result.xml_content, result.xml_filename = await _descargar_otras_factura_reintento(
+                            mi_page, cfg, row, "xml"
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "No se pudo descargar XML CFE servicio=%s periodo=%s error=%s",
+                            cfg.numero_servicio, result.periodo, exc,
+                        )
+                        result.error = f"No se pudo descargar el XML de MiEspacio: {exc}"
+
+                    try:
+                        result.pdf_content, result.pdf_filename = await _descargar_otras_factura_reintento(
+                            mi_page, cfg, row, "pdf"
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "No se pudo descargar PDF CFE servicio=%s periodo=%s error=%s",
+                            cfg.numero_servicio, result.periodo, exc,
+                        )
+                        result.pdf_error = f"No se pudo descargar el PDF de MiEspacio: {exc}"
+
+                    result.session_json_nuevo = json.dumps(await mi_ctx.storage_state())
+                finally:
+                    try:
+                        await mi_ctx.close()
+                    except Exception:
+                        pass
+            finally:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+    except ValueError as exc:
+        result.error = str(exc)
+    except Exception as exc:
+        logger.exception("Error inesperado descargando recibo MiEspacio para %s", cfg.numero_servicio)
+        result.error = f"Error inesperado descargando recibo: {exc}"
+
+    return result
+
+
 async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
     """
     Orquesta descarga completa: XML portal público + PDF MiEspacio.

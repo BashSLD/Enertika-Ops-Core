@@ -21,6 +21,7 @@ from fastapi import UploadFile
 
 from core.database import get_db_pool
 from core.config_service import ConfigService
+from core.timezone import now_mx
 from core.integrations.sharepoint import SharePointService
 from core.microsoft import get_ms_auth
 from modules.admin.db_service import AdminDBService
@@ -42,6 +43,7 @@ from .scraper import (
     descargar_pdf_periodo,
     descargar_periodos_busqueda,
     descargar_recibo,
+    descargar_ultimo_recibo_miespacio,
     registrar_servicio_miespacio,
 )
 
@@ -382,6 +384,42 @@ class CfeService:
             estatus="pendiente", descargado_por=usuario_id,
         )
         return "Descarga encolada. La página se actualizará automáticamente.", servicio
+
+    async def iniciar_descarga_masiva(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        modulos: list[str] | None,
+        usuario_id: UUID,
+    ) -> tuple[int, int]:
+        """
+        Encola la descarga del ultimo recibo de TODOS los servicios registrados en
+        MiEspacio dentro de los modulos dados. Salta (sin abortar el lote) los que
+        ya tienen una descarga en curso. El worker procesa la cola de a uno.
+        Retorna (encolados, omitidos).
+        """
+        servicios = await self.db.get_all_servicios(conn, modulos=modulos)
+        registrados = [s for s in servicios if s.get("miespacio_estatus") == "registrado"]
+
+        encolados = 0
+        omitidos = 0
+        for servicio in registrados:
+            # descarga_activa viene en el mismo snapshot de get_all_servicios
+            # (BOOL_OR pendiente/descargando) — evita una query por servicio.
+            if servicio.get("descarga_activa"):
+                omitidos += 1
+                continue
+            await self.db.upsert_descarga(
+                conn, servicio_id=servicio["id"], periodo="pendiente", tipo="xml",
+                estatus="pendiente", descargado_por=usuario_id,
+            )
+            encolados += 1
+
+        logger.info(
+            "[CFE] Descarga masiva encolada encolados=%s omitidos=%s modulos=%s",
+            encolados, omitidos, modulos,
+        )
+        return encolados, omitidos
 
     # ── Worker: consumo de la cola ───────────────────────────────────────────
 
@@ -911,7 +949,13 @@ class CfeService:
             servicio["nombre"],
         )
         cfg = self._build_scraper_config(servicio, cfg_global)
-        result = await descargar_recibo(cfg)
+        # Servicio ya registrado en MiEspacio: ambos archivos (XML + PDF) salen de
+        # la misma fila de Otras Facturas, sin tocar el portal publico. Solo se
+        # usa el portal publico como fallback para servicios aun no registrados.
+        if servicio.get("miespacio_estatus") == "registrado":
+            result = await descargar_ultimo_recibo_miespacio(cfg)
+        else:
+            result = await descargar_recibo(cfg)
         logger.info(
             "[CFE] Scraper finalizado servicio=%s periodo=%s xml=%s pdf=%s error=%s pdf_error=%s",
             servicio["numero_servicio"],
@@ -1463,6 +1507,66 @@ class CfeService:
                 excel_bytes,
             )
 
+        return zip_buffer.getvalue(), nombre_zip
+
+    async def generar_zip_global(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        modulos: list[str] | None,
+        perfil_slug: str = "oym",
+    ) -> tuple[bytes, str]:
+        """
+        ZIP unico con el ultimo recibo (XML + PDF + Excel) de cada servicio
+        registrado en MiEspacio dentro de los modulos dados. Un folder por
+        servicio. Corresponde al resultado de la descarga masiva.
+        """
+        rows = await self.db.get_ultimas_descargas_completadas_por_modulo(conn, modulos)
+        if not rows:
+            raise ValueError("No hay recibos descargados para incluir en el ZIP.")
+
+        archivos = await self._descargar_archivos_sharepoint(rows)
+        if not archivos:
+            raise ValueError("No se pudieron obtener los archivos desde SharePoint.")
+        if not any(row["tipo"] == "xml" for row, _ in archivos):
+            raise ValueError("No se pudieron obtener XMLs desde SharePoint para generar el Excel.")
+
+        # Agrupa por servicio para armar un folder + Excel por cada uno.
+        por_servicio: dict[str, list[tuple[dict, bytes]]] = {}
+        for row, content in archivos:
+            por_servicio.setdefault(row["numero_servicio"], []).append((row, content))
+
+        zip_buffer = BytesIO()
+        usados: set[str] = set()
+        with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for numero_servicio in sorted(por_servicio):
+                nombre_servicio = _sanitize_zip_component(f"CFE_{numero_servicio}", "CFE_servicio")
+                xml_inputs: list[CfeXmlInput] = []
+                for row, content in sorted(
+                    por_servicio[numero_servicio],
+                    key=lambda item: (item[0].get("tipo") or "", item[0].get("nombre_archivo") or ""),
+                ):
+                    tipo = row["tipo"]
+                    periodo = _sanitize_zip_component(row.get("periodo") or "sin_periodo", "sin_periodo")
+                    nombre_archivo = _sanitize_zip_component(
+                        row.get("nombre_archivo") or f"{numero_servicio}_{periodo}.{tipo}",
+                        f"recibo.{tipo}",
+                    )
+                    zip_path = _dedupe_zip_path(
+                        usados, f"{nombre_servicio}/{tipo.upper()}/{periodo}_{nombre_archivo}"
+                    )
+                    zf.writestr(zip_path, content)
+                    if tipo == "xml":
+                        xml_inputs.append(CfeXmlInput(
+                            filename=row.get("nombre_archivo") or f"{numero_servicio}_{periodo}.xml",
+                            content=content,
+                        ))
+                if xml_inputs:
+                    excel_bytes = generar_excel_cfe(xml_inputs, perfil_slug).getvalue()
+                    nombre_excel = _sanitize_zip_component(f"CFE_{numero_servicio}.xlsx", "recibos_cfe.xlsx")
+                    zf.writestr(_dedupe_zip_path(usados, f"{nombre_servicio}/{nombre_excel}"), excel_bytes)
+
+        nombre_zip = f"CFE_ultimos_recibos_{now_mx().strftime('%Y%m%d')}.zip"
         return zip_buffer.getvalue(), nombre_zip
 
     # ── Vista previa ──────────────────────────────────────────────────────

@@ -259,6 +259,45 @@ class CfeDBService:
             resumen.setdefault(periodo, {})[row["tipo"]] = dict(row)
         return resumen
 
+    async def get_ultimas_descargas_completadas_por_modulo(
+        self, conn: asyncpg.Connection, modulos: list[str] | None
+    ) -> list[dict]:
+        """
+        Para cada servicio registrado en MiEspacio dentro de los modulos dados,
+        devuelve las filas XML + PDF completadas de su periodo mas reciente (el
+        ultimo recibo). Una sola query (sin N+1) para el ZIP global.
+        modulos=None -> sin filtro de modulo.
+        """
+        rows = await conn.fetch(
+            """
+            WITH ultimas AS (
+                SELECT d.servicio_id, MAX(d.periodo) AS periodo
+                FROM tb_cfe_descargas d
+                JOIN tb_cfe_servicios s ON s.id = d.servicio_id
+                WHERE d.estatus = 'completado'
+                  AND d.tipo = 'xml'
+                  AND d.periodo <> 'pendiente'
+                  AND d.ruta_sharepoint IS NOT NULL
+                  AND s.miespacio_estatus = 'registrado'
+                  AND ($1::text[] IS NULL OR s.modulos && $1::text[])
+                GROUP BY d.servicio_id
+            )
+            SELECT s.numero_servicio, s.nombre AS servicio_nombre,
+                   d.id, d.servicio_id, d.periodo, d.tipo, d.estatus,
+                   d.nombre_archivo, d.ruta_sharepoint, d.tipo_recibo
+            FROM ultimas u
+            JOIN tb_cfe_descargas d
+              ON d.servicio_id = u.servicio_id AND d.periodo = u.periodo
+            JOIN tb_cfe_servicios s ON s.id = d.servicio_id
+            WHERE d.estatus = 'completado'
+              AND d.tipo IN ('xml', 'pdf')
+              AND d.ruta_sharepoint IS NOT NULL
+            ORDER BY s.numero_servicio, d.tipo
+            """,
+            modulos,
+        )
+        return [dict(r) for r in rows]
+
     async def tiene_busqueda_en_progreso(
         self, conn: asyncpg.Connection, servicio_id: UUID
     ) -> bool:

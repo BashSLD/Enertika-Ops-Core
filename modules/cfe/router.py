@@ -616,6 +616,55 @@ async def iniciar_descarga(
     )
 
 
+@router.post("/servicios/descargar-todos", response_class=HTMLResponse)
+async def descargar_todos(
+    request: Request,
+    modulo: str | None = Query(default=None),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_viewer,
+):
+    svc = get_cfe_service()
+    modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
+    modulos = [modulo_activo] if modulo_activo else modulos_accesibles
+    toast_type = "success"
+    toast_msg = ""
+    status_code = 200
+    try:
+        encolados, omitidos = await svc.iniciar_descarga_masiva(
+            conn, modulos=modulos, usuario_id=user["user_db_id"]
+        )
+        if encolados:
+            toast_msg = f"{encolados} servicio(s) encolado(s) para descarga del último recibo."
+            if omitidos:
+                toast_msg += f" {omitidos} ya tenían una descarga en curso."
+        elif omitidos:
+            toast_msg = f"Los {omitidos} servicio(s) registrado(s) ya tienen una descarga en curso."
+            toast_type = "info"
+        else:
+            toast_msg = "No hay servicios registrados en MiEspacio para descargar."
+            toast_type = "error"
+    except asyncpg.PostgresError as exc:
+        logger.error("Error de BD encolando descarga masiva CFE: %s", exc)
+        toast_msg = "Error interno al encolar las descargas."
+        toast_type = "error"
+        status_code = 500
+    servicios = await svc.listar_servicios(conn, modulos=modulos)
+    estado_sesion = await svc.get_estado_sesion(conn)
+    return templates.TemplateResponse(
+        request, "cfe/partials/lista_servicios.html",
+        {
+            "servicios": servicios,
+            "estado_sesion": estado_sesion,
+            "modulo": modulo_activo,
+            "modulos_accesibles": modulos_accesibles,
+            "user": user,
+            "_toast": {"message": toast_msg, "type": toast_type},
+        },
+        status_code=status_code,
+    )
+
+
 @router.post("/servicios/{servicio_id}/buscar-periodos", response_class=HTMLResponse)
 async def iniciar_busqueda_periodos(
     request: Request,
@@ -905,6 +954,34 @@ async def generar_excel(
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
+
+
+@router.get("/servicios/zip-global")
+async def descargar_zip_global(
+    modulo: str | None = Query(default=None),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_viewer,
+):
+    svc = get_cfe_service()
+    modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
+    modulos = [modulo_activo] if modulo_activo else modulos_accesibles
+    try:
+        zip_bytes, nombre = await svc.generar_zip_global(conn, modulos=modulos)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        logger.error("Error de SharePoint generando ZIP global CFE: %s", exc)
+        raise HTTPException(status_code=503, detail="No se pudo obtener los archivos. Intenta de nuevo.") from exc
+    except asyncpg.PostgresError as exc:
+        logger.error("Error de BD generando ZIP global CFE: %s", exc)
+        raise HTTPException(status_code=500, detail="Error interno al generar el ZIP.") from exc
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
     )
 
