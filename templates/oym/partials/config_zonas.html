@@ -1,0 +1,92 @@
+{# templates/oym/partials/config_zonas.html #}
+{% if _toast is defined %}
+{% with message=_toast.message, type=_toast.type, title=_toast.title|default('O&M') %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+
+<div id="config-zonas-container" class="glass-panel p-4 rounded-xl">
+  <h3 class="text-sm font-semibold text-gray-700 mb-1">Asignación de Zonas CFE</h3>
+  <p class="text-xs text-gray-500 mb-4">
+    Los usuarios con zona asignada solo ven en CFE (módulo O&amp;M) los servicios registrados
+    por miembros de su misma zona. Sin zona: ven todos.
+  </p>
+
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-xs text-gray-500 border-b border-gray-200">
+          <th class="text-left pb-2 font-medium pr-4">Usuario</th>
+          <th class="text-left pb-2 font-medium pr-4">Departamento</th>
+          <th class="text-left pb-2 font-medium pr-4">Zona actual</th>
+          <th class="text-left pb-2 font-medium">Asignar</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for u in asignaciones %}
+        <tr class="hover:bg-gray-50/50">
+          <td class="py-2 pr-4">
+            <p class="font-medium text-gray-800">{{ u.nombre }}</p>
+            <p class="text-xs text-gray-400">{{ u.email }}</p>
+          </td>
+          <td class="py-2 pr-4 text-gray-500 text-xs">{{ u.department or '—' }}</td>
+          <td class="py-2 pr-4">
+            {% if u.zona %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+                {% if u.zona == 'Zona 1' %}bg-blue-100 text-blue-700{% else %}bg-purple-100 text-purple-700{% endif %}">
+                {{ u.zona }}
+              </span>
+            {% else %}
+              <span class="text-gray-400 text-xs">Sin asignar</span>
+            {% endif %}
+          </td>
+          <td class="py-2">
+            <div class="flex items-center gap-1.5">
+              <button
+                hx-post="/oym/config/zonas/{{ u.id_usuario }}"
+                hx-vals='{"zona": "Zona 1"}'
+                hx-target="#config-zonas-container"
+                hx-swap="outerHTML"
+                hx-disabled-elt="this"
+                class="px-2 py-1 text-xs rounded-lg border transition-colors cursor-pointer
+                  {% if u.zona == 'Zona 1' %}bg-blue-100 border-blue-300 text-blue-700 font-semibold
+                  {% else %}border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-300{% endif %}">
+                Zona 1
+              </button>
+              <button
+                hx-post="/oym/config/zonas/{{ u.id_usuario }}"
+                hx-vals='{"zona": "Zona 2"}'
+                hx-target="#config-zonas-container"
+                hx-swap="outerHTML"
+                hx-disabled-elt="this"
+                class="px-2 py-1 text-xs rounded-lg border transition-colors cursor-pointer
+                  {% if u.zona == 'Zona 2' %}bg-purple-100 border-purple-300 text-purple-700 font-semibold
+                  {% else %}border-gray-300 text-gray-600 hover:bg-purple-50 hover:border-purple-300{% endif %}">
+                Zona 2
+              </button>
+              {% if u.zona %}
+              <button
+                hx-post="/oym/config/zonas/{{ u.id_usuario }}/quitar"
+                hx-target="#config-zonas-container"
+                hx-swap="outerHTML"
+                hx-confirm="¿Quitar la zona de {{ u.nombre }}?"
+                class="px-2 py-1 text-xs rounded-lg border border-red-200 text-red-500
+                       hover:bg-red-50 transition-colors cursor-pointer">
+                Quitar
+              </button>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if not asignaciones %}
+        <tr>
+          <td colspan="4" class="py-6 text-center text-sm text-gray-400">
+            No hay usuarios activos.
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
