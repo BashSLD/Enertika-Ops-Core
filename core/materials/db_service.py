@@ -322,14 +322,16 @@ class MaterialsDBService:
                     c.id, c.descripcion_canonica, c.id_unidad_medida, c.id_categoria,
                     c.clave_prod_serv, c.precio_referencia, c.notas, c.activo,
                     c.material, c.tipo, c.acabado, c.marca, c.adicional, c.medida, c.moneda,
-                    c.created_at, c.updated_at,
+                    c.created_at, c.updated_at, c.creado_por,
                     u.codigo AS unidad_codigo, u.nombre AS unidad_nombre,
                     cat.nombre AS categoria_nombre,
+                    cr.nombre AS creado_por_nombre,
                     (SELECT COUNT(*) FROM tb_materiales_interno_xml v
                      WHERE v.id_material_interno = c.id) AS vinculos_xml
                 FROM tb_cat_materiales c
                 LEFT JOIN tb_cat_unidades_medida u    ON u.id  = c.id_unidad_medida
                 LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
+                LEFT JOIN tb_usuarios cr               ON cr.id_usuario = c.creado_por
                 WHERE c.activo = TRUE
             """
         params = []
@@ -362,12 +364,14 @@ class MaterialsDBService:
                 c.id, c.descripcion_canonica, c.id_unidad_medida, c.id_categoria,
                 c.clave_prod_serv, c.precio_referencia, c.notas, c.activo,
                 c.material, c.tipo, c.acabado, c.marca, c.adicional, c.medida, c.moneda,
-                c.created_at, c.updated_at,
+                c.created_at, c.updated_at, c.creado_por,
                 u.codigo AS unidad_codigo, u.nombre AS unidad_nombre,
-                cat.nombre AS categoria_nombre
+                cat.nombre AS categoria_nombre,
+                cr.nombre AS creado_por_nombre
             FROM tb_cat_materiales c
             LEFT JOIN tb_cat_unidades_medida u    ON u.id  = c.id_unidad_medida
             LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
+            LEFT JOIN tb_usuarios cr               ON cr.id_usuario = c.creado_por
             WHERE c.id = $1
         """, id)
         return dict(row) if row else None
@@ -377,8 +381,9 @@ class MaterialsDBService:
             INSERT INTO tb_cat_materiales
                 (descripcion_canonica, descripcion_norm, id_unidad_medida, id_categoria,
                  clave_prod_serv, precio_referencia, notas,
-                 material, tipo, acabado, marca, adicional, medida, moneda)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                 material, tipo, acabado, marca, adicional, medida, moneda,
+                 creado_por, actualizado_por)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
     """
 
     @staticmethod
@@ -395,6 +400,7 @@ class MaterialsDBService:
             data.get('acabado') or None, data.get('marca') or None,
             data.get('adicional') or None, data.get('medida') or None,
             data.get('moneda') or 'MXN',
+            data.get('creado_por'), data.get('actualizado_por'),
         )
 
     async def crear_interno(self, conn, data: dict) -> dict:
@@ -434,7 +440,8 @@ class MaterialsDBService:
     async def actualizar_interno(self, conn, id: UUID, data: dict) -> bool:
         allowed = ['descripcion_canonica', 'id_unidad_medida', 'id_categoria',
                    'clave_prod_serv', 'precio_referencia', 'notas',
-                   'material', 'tipo', 'acabado', 'marca', 'adicional', 'medida', 'moneda']
+                   'material', 'tipo', 'acabado', 'marca', 'adicional', 'medida', 'moneda',
+                   'actualizado_por']
         sets, params, idx = [], [], 1
         for field in allowed:
             if field not in data:

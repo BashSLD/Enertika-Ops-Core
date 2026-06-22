@@ -45,11 +45,14 @@
         </span>
     </td>
 
+    <!-- Creado por -->
+    <td class="px-3 py-2 text-gray-600 text-sm truncate max-w-[140px]" title="{{ m.creado_por_nombre or '' }}">
+        {{ m.creado_por_nombre or '—' }}
+    </td>
+
     <!-- Acciones -->
     <td class="px-3 py-2">
         <div class="flex items-center justify-center gap-2">
-            {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
-
             {% if can_edit %}
             <button
                 data-interno='{{ {"id": m.id|string, "descripcion": m.descripcion_canonica, "id_unidad": m.id_unidad_medida, "id_categoria": m.id_categoria, "clave": m.clave_prod_serv, "precio": m.precio_referencia|string if m.precio_referencia else "", "notas": m.notas, "material": m.material, "tipo": m.tipo, "acabado": m.acabado, "marca": m.marca, "adicional": m.adicional, "medida": m.medida, "moneda": m.moneda} | tojson }}'

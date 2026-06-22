@@ -346,11 +346,15 @@ class MaterialsService:
             'detalles': parsed['detalles'],
         }
 
-    async def cargar_internos_excel(self, conn, archivo_bytes: bytes) -> dict:
-        """Fase 2: re-valida e inserta solo las filas validas en una transaccion."""
+    async def cargar_internos_excel(self, conn, archivo_bytes: bytes, creado_por=None) -> dict:
+        """Fase 2: re-valida e inserta solo las filas validas en una transaccion.
+        Cada fila queda estampada con el usuario que ejecuta la carga."""
         unidad_map, cat_map = await self._build_resolucion(conn)
         norms_existentes = await self.db.get_norms_existentes(conn)
         parsed = self._parse_y_validar(archivo_bytes, unidad_map, cat_map, norms_existentes)
+        for fila in parsed['validas']:
+            fila['creado_por'] = creado_por
+            fila['actualizado_por'] = creado_por
         async with conn.transaction():
             creados = await self.db.crear_internos_bulk(conn, parsed['validas'])
         return {

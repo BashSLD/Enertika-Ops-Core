@@ -13,7 +13,12 @@ import logging
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
-from core.permissions import require_module_access, ROLE_HIERARCHY
+from core.permissions import (
+    require_module_access,
+    require_any_module_access,
+    user_has_module_access,
+    ROLE_HIERARCHY,
+)
 from core.config import settings
 from core.timezone import now_mx
 from .service import MaterialsService, get_materials_service
@@ -67,8 +72,21 @@ async def require_materials_view_access(
             status_code=403,
             detail=f"Requiere acceso a uno de: {', '.join(ALLOWED_MODULES)}"
         )
-    
+
     return True
+
+
+# Edicion del catalogo interno: compartida por compras e ingenieria (mas ADMIN global).
+MATERIALS_EDIT_MODULES = ["compras", "ingenieria"]
+require_materials_edit_access = require_any_module_access(MATERIALS_EDIT_MODULES, "editor")
+
+
+def _can_edit_internos(context) -> bool:
+    """True si el usuario puede crear/editar el catalogo interno:
+    ADMIN global o editor+ en compras o ingenieria."""
+    if context.get("role") == "ADMIN":
+        return True
+    return any(user_has_module_access(m, context, "editor") for m in MATERIALS_EDIT_MODULES)
 
 # ========================================
 # UI PRINCIPAL
@@ -320,7 +338,7 @@ async def get_internos_ui(
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
-        "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
+        "can_edit": _can_edit_internos(context),
         "internos": internos,
         "total": total,
         "page": 1,
@@ -368,8 +386,7 @@ async def get_internos_list(
                 "id_unidad_medida": filtros.id_unidad_medida or "",
                 "id_categoria": filtros.id_categoria or "",
             },
-            "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
-            "role": context.get("role"),
+            "can_edit": _can_edit_internos(context),
         }
     )
 
@@ -380,7 +397,7 @@ async def crear_interno(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     service: MaterialsService = Depends(get_materials_service),
-    _=require_module_access("compras", "editor"),
+    _=require_materials_edit_access,
 ):
     form = await request.form()
     try:
@@ -402,7 +419,11 @@ async def crear_interno(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    interno = await service.crear_interno(conn, data.model_dump())
+    payload = data.model_dump()
+    uid = context.get("user_db_id")
+    payload["creado_por"] = uid
+    payload["actualizado_por"] = uid
+    interno = await service.crear_interno(conn, payload)
     catalogos = await service.get_catalogos(conn)
     return templates.TemplateResponse(
         request, "materials/partials/row_interno.html",
@@ -410,8 +431,7 @@ async def crear_interno(
             "m": interno,
             "categorias": catalogos.get("categorias", []),
             "unidades": await service.get_cat_unidades(conn),
-            "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
-            "role": context.get("role"),
+            "can_edit": _can_edit_internos(context),
         },
         headers={"HX-Trigger": "interno-creado"},
     )
@@ -424,7 +444,7 @@ async def actualizar_interno(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     service: MaterialsService = Depends(get_materials_service),
-    _=require_module_access("compras", "editor"),
+    _=require_materials_edit_access,
 ):
     form = await request.form()
     data = {}
@@ -439,6 +459,7 @@ async def actualizar_interno(
         val = form['precio_referencia']
         data['precio_referencia'] = float(val) if val else None
 
+    data['actualizado_por'] = context.get("user_db_id")
     interno = await service.actualizar_interno(conn, interno_id, data)
     if not interno:
         raise HTTPException(status_code=404, detail="Material no encontrado")
@@ -449,8 +470,7 @@ async def actualizar_interno(
             "m": interno,
             "categorias": catalogos.get("categorias", []),
             "unidades": await service.get_cat_unidades(conn),
-            "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
-            "role": context.get("role"),
+            "can_edit": _can_edit_internos(context),
         }
     )
 
@@ -461,7 +481,7 @@ async def desactivar_interno(
     interno_id: UUID,
     conn=Depends(get_db_connection),
     service: MaterialsService = Depends(get_materials_service),
-    _=require_module_access("compras", "editor"),
+    _=require_materials_edit_access,
 ):
     ok = await service.desactivar_interno(conn, interno_id)
     if not ok:
@@ -473,7 +493,7 @@ async def desactivar_interno(
 async def descargar_plantilla_internos(
     conn=Depends(get_db_connection),
     service: MaterialsService = Depends(get_materials_service),
-    _=require_module_access("compras", "editor"),
+    _=require_materials_edit_access,
 ):
     """Descarga la plantilla .xlsx de carga masiva del catalogo interno."""
     excel_bytes = await service.generar_plantilla_internos(conn)
@@ -488,8 +508,9 @@ async def descargar_plantilla_internos(
 async def importar_internos(
     request: Request,
     conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
     service: MaterialsService = Depends(get_materials_service),
-    _=require_module_access("compras", "editor"),
+    _=require_materials_edit_access,
 ):
     """Carga masiva en 2 fases. Sin 'confirmar': valida y previsualiza (no escribe).
     Con confirmar=true: inserta solo las filas validas."""
@@ -501,7 +522,9 @@ async def importar_internos(
     contenido = await archivo.read()
     try:
         if confirmar:
-            resultado = await service.cargar_internos_excel(conn, contenido)
+            resultado = await service.cargar_internos_excel(
+                conn, contenido, creado_por=context.get("user_db_id")
+            )
         else:
             resultado = await service.validar_internos_excel(conn, contenido)
     except ValueError as e:
@@ -539,7 +562,7 @@ async def crear_vinculo_xml(
     interno_id: UUID,
     conn=Depends(get_db_connection),
     service: MaterialsService = Depends(get_materials_service),
-    _=require_module_access("compras", "editor"),
+    _=require_materials_edit_access,
 ):
     form = await request.form()
     try:
@@ -561,7 +584,7 @@ async def eliminar_vinculo_xml(
     id_xml: UUID,
     conn=Depends(get_db_connection),
     service: MaterialsService = Depends(get_materials_service),
-    _=require_module_access("compras", "editor"),
+    _=require_materials_edit_access,
 ):
     await service.eliminar_vinculo_xml(conn, interno_id, id_xml)
     vinculos = await service.get_vinculos_xml(conn, interno_id)
