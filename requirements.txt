@@ -25,6 +25,7 @@ kaleido==0.2.1
 numpy>=1.26,<3.0
 
 # PDF Generation (WeasyPrint stack)
+pypdf>=4.0,<6.0
 weasyprint>=60.0,<62.0
 pydyf>=0.6.0,<0.10.0
 Pillow>=10.0,<12.0

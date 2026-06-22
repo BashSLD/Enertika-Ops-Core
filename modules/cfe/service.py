@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import secrets
+import struct
 import time
 import zipfile
 from datetime import datetime, timezone
@@ -18,6 +19,8 @@ from uuid import UUID
 import asyncpg
 import httpx
 from fastapi import UploadFile
+import pypdf
+from pypdf import PdfWriter
 
 from core.database import get_db_pool
 from core.config_service import ConfigService
@@ -1538,11 +1541,11 @@ class CfeService:
 
         zip_buffer = BytesIO()
         usados: set[str] = set()
-        with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        with PdfWriter() as pdf_merger, zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for numero_servicio in sorted(por_servicio):
                 primera_fila, _ = por_servicio[numero_servicio][0]
                 label = primera_fila.get("servicio_nombre") or numero_servicio
-                nombre_carpeta = _sanitize_zip_component(label, numero_servicio)
+                nombre_carpeta = _sanitize_zip_component(f"{label} ({numero_servicio})", numero_servicio)
                 xml_inputs: list[CfeXmlInput] = []
                 for row, content in sorted(
                     por_servicio[numero_servicio],
@@ -1563,10 +1566,21 @@ class CfeService:
                             filename=row.get("nombre_archivo") or f"{numero_servicio}_{periodo}.xml",
                             content=content,
                         ))
+                    elif tipo == "pdf":
+                        try:
+                            pdf_merger.append(BytesIO(content))
+                        except (pypdf.errors.PyPdfError, struct.error, ValueError) as exc:
+                            logger.warning("No se pudo agregar PDF al merge global: %s %s", numero_servicio, periodo, exc_info=exc)
                 if xml_inputs:
                     excel_bytes = generar_excel_cfe(xml_inputs, perfil_slug).getvalue()
                     nombre_excel = _sanitize_zip_component(f"{label}.xlsx", "recibos_cfe.xlsx")
                     zf.writestr(_dedupe_zip_path(usados, f"{nombre_carpeta}/{nombre_excel}"), excel_bytes)
+
+            if pdf_merger.pages:
+                merged_pdf = BytesIO()
+                pdf_merger.write(merged_pdf)
+                nombre_pdf_global = f"CFE_todos_los_recibos_{now_mx().strftime('%Y%m%d')}.pdf"
+                zf.writestr(nombre_pdf_global, merged_pdf.getvalue())
 
         nombre_zip = f"CFE_ultimos_recibos_{now_mx().strftime('%Y%m%d')}.zip"
         return zip_buffer.getvalue(), nombre_zip
