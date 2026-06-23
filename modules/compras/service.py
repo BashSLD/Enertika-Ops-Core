@@ -4,7 +4,7 @@ Service Layer del Módulo Compras.
 Maneja la lógica de negocio para comprobantes de pago y facturas XML.
 """
 
-from uuid import UUID, uuid4
+from uuid import UUID
 from datetime import datetime, date
 from core.timezone import today_mx, now_mx
 from typing import List, Dict, Optional, Tuple, Any
@@ -12,13 +12,12 @@ from fastapi import HTTPException
 from decimal import Decimal, InvalidOperation
 import logging
 import time
-import json
 
 import asyncpg
 import base64
 import httpx
-from .pdf_extractor import process_uploaded_pdf, process_pdf_bytes, ComprobantePDFData
-from .xml_extractor import parse_cfdi_xml, validate_xml_content, process_uploaded_xml
+from .pdf_extractor import process_pdf_bytes
+from .xml_extractor import parse_cfdi_xml, validate_xml_content
 from .schemas import (
     CfdiData, TipoFactura, XmlMatchResult, XmlUploadResult, XmlUploadError,
 )
@@ -65,6 +64,25 @@ def _es_concepto_producto(clave: str | None) -> bool:
     except ValueError:
         return False
     return 10 <= segmento <= 49
+
+
+def _separar_matches_bom(match_result: dict) -> tuple[dict, dict, dict]:
+    """Separa ligas reales de sugerencias para no facturar matches de baja confianza."""
+    bom_item_map = {}
+    match_meta_map = {}
+    suggestion_map = {}
+
+    for idx, match in match_result.items():
+        if not match:
+            continue
+        meta = {'confianza': match['confianza'], 'origen': match['origen']}
+        if match['confianza'] == 'ALTA':
+            bom_item_map[idx] = match['id_item']
+            match_meta_map[idx] = meta
+        else:
+            suggestion_map[idx] = {'id_item': match['id_item'], **meta}
+
+    return bom_item_map, match_meta_map, suggestion_map
 
 
 class ComprasService:
@@ -1081,6 +1099,7 @@ class ComprasService:
 
         bom_item_map = {}
         match_meta_map = {}
+        suggestion_map = {}
         bom_svc = None
         conceptos = cfdi_data.get('conceptos', [])
         # Lista filtrada a conceptos-producto. El match y el historial comparten ESTA
@@ -1134,21 +1153,17 @@ class ComprasService:
                         match_result = bom_svc.match_conceptos_a_items(
                             conceptos_dicts, bom_items, memoria_map=memoria_map
                         )
-                        bom_item_map = {
-                            idx: v['id_item']
-                            for idx, v in match_result.items() if v
-                        }
-                        match_meta_map = {
-                            idx: {'confianza': v['confianza'], 'origen': v['origen']}
-                            for idx, v in match_result.items() if v
-                        }
+                        bom_item_map, match_meta_map, suggestion_map = _separar_matches_bom(
+                            match_result
+                        )
                         matches_alta = sum(
                             1 for v in match_result.values() if v and v['confianza'] == 'ALTA'
                         )
                         logger.info(
-                            "BOM link: autorizacion=%s conceptos=%d items_bom=%d matches=%d (alta=%d)",
+                            "BOM link: autorizacion=%s conceptos=%d items_bom=%d matches=%d (alta=%d sugeridos=%d)",
                             autorizacion['id'], len(conceptos_dicts), len(bom_items),
-                            len(bom_item_map), matches_alta
+                            len(bom_item_map) + len(suggestion_map), matches_alta,
+                            len(suggestion_map)
                         )
             except Exception:
                 logger.exception("BOM auto-link: error no critico, continuando sin vincular")
@@ -1168,7 +1183,8 @@ class ComprasService:
                 conceptos_dicts, fecha_factura, user_id,
                 tipo_cambio_xml=tc_xml,
                 bom_item_map=bom_item_map,
-                match_meta_map=match_meta_map
+                match_meta_map=match_meta_map,
+                suggestion_map=suggestion_map
             )
 
             if bom_item_map and bom_svc:

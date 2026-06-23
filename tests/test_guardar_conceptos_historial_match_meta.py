@@ -6,6 +6,7 @@ filtrar y persistia id_bom_item/confianza/origen en el renglon equivocado.
 
 Posiciones en la tupla de INSERT (ver db_service.guardar_conceptos_historial):
   [15] id_bom_item  [16] match_confianza  [17] match_origen
+  [18] id_bom_item_sugerido  [19] sugerencia_confianza  [20] sugerencia_origen
 """
 
 from uuid import uuid4
@@ -46,7 +47,7 @@ async def test_match_meta_se_mapea_por_indice():
     bom_item_map = {0: id_a, 2: id_c}
     match_meta_map = {
         0: {'confianza': 'ALTA', 'origen': 'CLAVE_SAT'},
-        2: {'confianza': 'BAJA', 'origen': 'TEXTO'},
+        2: {'confianza': 'ALTA', 'origen': 'COTIZACION'},
     }
 
     await ComprasDBService().guardar_conceptos_historial(
@@ -64,10 +65,13 @@ async def test_match_meta_se_mapea_por_indice():
     assert conn.rows[1][15] is None
     assert conn.rows[1][16] is None
     assert conn.rows[1][17] is None
-    # Fila 2: matcheada BAJA/TEXTO
+    # Fila 2: matcheada ALTA/COTIZACION
     assert conn.rows[2][15] == id_c
-    assert conn.rows[2][16] == 'BAJA'
-    assert conn.rows[2][17] == 'TEXTO'
+    assert conn.rows[2][16] == 'ALTA'
+    assert conn.rows[2][17] == 'COTIZACION'
+    assert conn.rows[2][18] is None
+    assert conn.rows[2][19] is None
+    assert conn.rows[2][20] is None
 
 
 @pytest.mark.asyncio
@@ -83,3 +87,28 @@ async def test_sin_match_meta_columnas_quedan_none():
     assert conn.rows[0][15] is None
     assert conn.rows[0][16] is None
     assert conn.rows[0][17] is None
+    assert conn.rows[0][18] is None
+    assert conn.rows[0][19] is None
+    assert conn.rows[0][20] is None
+
+
+@pytest.mark.asyncio
+async def test_sugerencia_baja_no_puebla_id_bom_item():
+    conn = FakeConn()
+    id_sugerido = uuid4()
+    conceptos = [_concepto('PANEL')]
+
+    await ComprasDBService().guardar_conceptos_historial(
+        conn, 'UUID-FAC', uuid4(), uuid4(), conceptos,
+        __import__('datetime').date(2026, 6, 23), uuid4(),
+        suggestion_map={
+            0: {'id_item': id_sugerido, 'confianza': 'BAJA', 'origen': 'TEXTO'}
+        },
+    )
+
+    assert conn.rows[0][15] is None
+    assert conn.rows[0][16] is None
+    assert conn.rows[0][17] is None
+    assert conn.rows[0][18] == id_sugerido
+    assert conn.rows[0][19] == 'BAJA'
+    assert conn.rows[0][20] == 'TEXTO'

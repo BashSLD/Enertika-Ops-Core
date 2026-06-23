@@ -6,7 +6,6 @@ Queries SQL puras con asyncpg. Recibe conn como parametro.
 import logging
 from uuid import UUID
 from typing import Optional, List
-from datetime import datetime
 
 from core.bom.schemas import EstatusBOM
 
@@ -1274,13 +1273,15 @@ class BomDBService:
                    mh.descripcion_proveedor, mh.clave_prod_serv, mh.cantidad,
                    mh.precio_unitario, mh.importe, mh.tipo_cambio_xml,
                    mh.id_bom_item, mh.match_confianza, mh.match_origen,
+                   mh.id_bom_item_sugerido, mh.sugerencia_confianza, mh.sugerencia_origen,
                    cp.uuid_factura
             FROM tb_materiales_historial mh
             JOIN tb_comprobantes_pago cp ON cp.id_comprobante = mh.id_comprobante
             JOIN tb_bom_pagos bp ON bp.id = cp.id_bom_pago
             WHERE bp.autorizacion_id = $1
             ORDER BY
-                CASE WHEN mh.id_bom_item IS NULL THEN 0
+                CASE WHEN mh.id_bom_item IS NULL AND mh.id_bom_item_sugerido IS NULL THEN 0
+                     WHEN mh.id_bom_item IS NULL AND mh.id_bom_item_sugerido IS NOT NULL THEN 1
                      WHEN mh.match_confianza = 'BAJA' THEN 1
                      ELSE 2 END,
                 mh.descripcion_proveedor
@@ -1300,7 +1301,10 @@ class BomDBService:
             UPDATE tb_materiales_historial
             SET id_bom_item = $2,
                 match_confianza = CASE WHEN $2::uuid IS NULL THEN NULL ELSE 'ALTA' END,
-                match_origen    = CASE WHEN $2::uuid IS NULL THEN NULL ELSE 'HUMANO' END
+                match_origen    = CASE WHEN $2::uuid IS NULL THEN NULL ELSE 'HUMANO' END,
+                id_bom_item_sugerido = NULL,
+                sugerencia_confianza = NULL,
+                sugerencia_origen = NULL
             WHERE id = $1
             RETURNING id AS historial_id, id_bom_item
         """, historial_id, id_bom_item)

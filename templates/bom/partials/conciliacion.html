@@ -40,7 +40,9 @@
             </thead>
             <tbody class="divide-y divide-gray-100">
                 {% for c in conceptos %}
-                <tr class="{{ 'bg-red-50/40' if c.id_bom_item is none else '' }}">
+                {% set item_seleccionado = c.id_bom_item or c.id_bom_item_sugerido %}
+                {% set row_class = 'bg-amber-50/40' if c.id_bom_item is none and c.id_bom_item_sugerido else ('bg-red-50/40' if c.id_bom_item is none else '') %}
+                <tr class="{{ row_class }}">
                     <td class="px-3 py-2">
                         <p class="text-gray-800">{{ c.descripcion_proveedor }}</p>
                         {% if c.clave_prod_serv %}
@@ -49,7 +51,9 @@
                     </td>
                     <td class="px-3 py-2 text-right text-gray-700 whitespace-nowrap">{{ money(c.importe) }}</td>
                     <td class="px-3 py-2">
-                        {% if c.id_bom_item is none %}
+                        {% if c.id_bom_item is none and c.id_bom_item_sugerido %}
+                        <span class="inline-flex items-center rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[11px] font-medium">Sugerido (baja)</span>
+                        {% elif c.id_bom_item is none %}
                         <span class="inline-flex items-center rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-[11px] font-medium">Sin asignar</span>
                         {% elif c.match_origen == 'HUMANO' %}
                         <span class="inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-[11px] font-medium">Confirmado</span>
@@ -68,7 +72,7 @@
                                     class="flex-1 min-w-0 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-[#00BABB] focus:ring-1 focus:ring-[#00BABB]">
                                 <option value="">— Sin asignar —</option>
                                 {% for it in items %}
-                                <option value="{{ it.id_item }}" {{ 'selected' if it.id_item == c.id_bom_item else '' }}>
+                                <option value="{{ it.id_item }}" {{ 'selected' if it.id_item == item_seleccionado else '' }}>
                                     {{ it.descripcion }} ({{ money(it.importe) }})
                                 </option>
                                 {% endfor %}

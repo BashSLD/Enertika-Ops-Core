@@ -2,9 +2,8 @@
 # modules/compras/db_service.py
 from uuid import UUID, uuid4
 from datetime import date
-from typing import List, Tuple, Optional
+from typing import List, Optional
 from decimal import Decimal
-from fastapi import HTTPException
 import asyncpg
 import logging
 import json
@@ -804,7 +803,8 @@ class ComprasDBService:
         fecha_factura: date, user_id: UUID,
         tipo_cambio_xml: Optional[Decimal] = None,
         bom_item_map: dict = None,
-        match_meta_map: dict = None
+        match_meta_map: dict = None,
+        suggestion_map: dict = None
     ):
         """Guarda los conceptos/items del XML en tb_materiales_historial.
 
@@ -814,9 +814,12 @@ class ComprasDBService:
         bom_item_map: dict opcional {indice_concepto: UUID(id_bom_item)} para trazabilidad.
         match_meta_map: dict opcional {indice_concepto: {confianza, origen}} del matcher.
             Comparte indice con `conceptos` y `bom_item_map` (lista ya filtrada en el caller).
+        suggestion_map: dict opcional {indice_concepto: {id_item, confianza, origen}}.
+            Guarda sugerencias de baja confianza sin poblar id_bom_item.
         """
         bom_item_map = bom_item_map or {}
         match_meta_map = match_meta_map or {}
+        suggestion_map = suggestion_map or {}
 
         # Batch: obtener categorias conocidas por clave SAT
         claves_sat = list(set(
@@ -833,13 +836,15 @@ class ComprasDBService:
                 auto_cat_count += 1
             id_bom_item = bom_item_map.get(idx)
             meta = match_meta_map.get(idx) or {}
+            suggestion = suggestion_map.get(idx) or {}
             rows.append((
                 uuid_factura, id_comprobante, id_proveedor,
                 c['descripcion'], c['cantidad'], c['valor_unitario'],
                 c['importe'], c.get('unidad'), clave_sat,
                 c.get('clave_unidad'), id_categoria, 'XML', fecha_factura,
                 tipo_cambio_xml, user_id, id_bom_item,
-                meta.get('confianza'), meta.get('origen')
+                meta.get('confianza'), meta.get('origen'),
+                suggestion.get('id_item'), suggestion.get('confianza'), suggestion.get('origen')
             ))
 
         if rows:
@@ -850,8 +855,9 @@ class ComprasDBService:
                     importe, unidad, clave_prod_serv, clave_unidad,
                     id_categoria, origen, fecha_factura,
                     tipo_cambio_xml, created_by_id, id_bom_item,
-                    match_confianza, match_origen
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                    match_confianza, match_origen,
+                    id_bom_item_sugerido, sugerencia_confianza, sugerencia_origen
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
                 ON CONFLICT (uuid_factura, descripcion_proveedor, cantidad, precio_unitario)
                 DO NOTHING
             """, rows)
