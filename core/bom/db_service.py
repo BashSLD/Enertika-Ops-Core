@@ -1202,19 +1202,109 @@ class BomDBService:
     # ─── TRAZABILIDAD BOM ↔ COMPRAS ─────────────────────────
 
     async def get_items_by_autorizacion(self, conn, autorizacion_id: UUID) -> List[dict]:
-        """Obtiene los items BOM asociados a una autorizacion via cotizacion."""
+        """Obtiene los items BOM asociados a una autorizacion via cotizacion.
+
+        Incluye la clave SAT del material interno (para match exacto por clave) y los
+        montos de la linea de cotizacion (ancla declarada por Compras al cotizar), que
+        alimentan el matcher por niveles de `match_conceptos_a_items`.
+        """
         rows = await conn.fetch("""
             SELECT bi.*,
                    c.nombre AS categoria_nombre,
-                   (bi.cantidad * COALESCE(bi.precio_unitario, 0)) AS importe
+                   (bi.cantidad * COALESCE(bi.precio_unitario, 0)) AS importe,
+                   m.clave_prod_serv AS material_clave,
+                   ci.precio_unitario AS coti_precio,
+                   ci.cantidad AS coti_cantidad,
+                   ci.subtotal_linea AS coti_subtotal
             FROM tb_bom_items bi
             JOIN tb_bom_cotizacion_items ci ON ci.bom_item_id = bi.id_item
             JOIN tb_bom_autorizaciones a ON a.cotizacion_id = ci.cotizacion_id
             LEFT JOIN tb_cat_categorias_compra c ON c.id = bi.id_categoria
+            LEFT JOIN tb_cat_materiales m ON m.id = bi.id_material_ref
             WHERE a.id = $1 AND bi.activo = TRUE
             ORDER BY bi.orden ASC
         """, autorizacion_id)
         return [dict(r) for r in rows]
+
+    async def get_memoria_match_proveedor(
+        self, conn, id_proveedor: UUID, claves: List[str]
+    ) -> dict:
+        """Memoria proveedor-producto derivada del historial (sin tabla dedicada).
+
+        Para cada `clave_prod_serv` de la lista, devuelve el `id_material_ref` al que ese
+        proveedor ya se ha ligado con mas frecuencia. Alimenta el nivel MEMORIA de
+        `match_conceptos_a_items`.
+
+        Gating (B3c): la memoria SOLO aprende de matches confiables -> confirmados por una
+        persona (`match_origen = 'HUMANO'`) o de alta confianza (`match_confianza = 'ALTA'`,
+        es decir clave SAT exacta / memoria previa / ancla de cotizacion). Las auto-asignaciones
+        debiles (`BAJA`, fallback de texto) NO se aprenden, para no propagar un match erroneo.
+        Ante empate de frecuencia, el `id_material_ref` respaldado por una confirmacion humana
+        gana sobre el meramente sugerido.
+
+        Returns: {clave_prod_serv: UUID(id_material_ref)}
+        """
+        if not claves:
+            return {}
+        rows = await conn.fetch("""
+            SELECT DISTINCT ON (mh.clave_prod_serv)
+                   mh.clave_prod_serv, bi.id_material_ref
+            FROM tb_materiales_historial mh
+            JOIN tb_bom_items bi ON bi.id_item = mh.id_bom_item
+            WHERE mh.id_proveedor = $1 AND mh.clave_prod_serv = ANY($2)
+              AND bi.id_material_ref IS NOT NULL
+              AND (mh.match_origen = 'HUMANO' OR mh.match_confianza = 'ALTA')
+            GROUP BY mh.clave_prod_serv, bi.id_material_ref
+            ORDER BY mh.clave_prod_serv,
+                     max(CASE WHEN mh.match_origen = 'HUMANO' THEN 1 ELSE 0 END) DESC,
+                     count(*) DESC
+        """, id_proveedor, claves)
+        return {r['clave_prod_serv']: r['id_material_ref'] for r in rows}
+
+    async def get_conceptos_conciliacion(self, conn, autorizacion_id: UUID) -> List[dict]:
+        """Conceptos CFDI de las facturas de una autorizacion, con su match actual.
+
+        Columna izquierda de la UI de conciliacion. Puente:
+        tb_materiales_historial.id_comprobante -> tb_comprobantes_pago -> tb_bom_pagos
+        -> autorizacion. Orden: sin asignar primero, luego BAJA, luego ALTA/HUMANO,
+        para que lo que requiere atencion quede arriba.
+        """
+        rows = await conn.fetch("""
+            SELECT mh.id AS historial_id,
+                   mh.descripcion_proveedor, mh.clave_prod_serv, mh.cantidad,
+                   mh.precio_unitario, mh.importe, mh.tipo_cambio_xml,
+                   mh.id_bom_item, mh.match_confianza, mh.match_origen,
+                   cp.uuid_factura
+            FROM tb_materiales_historial mh
+            JOIN tb_comprobantes_pago cp ON cp.id_comprobante = mh.id_comprobante
+            JOIN tb_bom_pagos bp ON bp.id = cp.id_bom_pago
+            WHERE bp.autorizacion_id = $1
+            ORDER BY
+                CASE WHEN mh.id_bom_item IS NULL THEN 0
+                     WHEN mh.match_confianza = 'BAJA' THEN 1
+                     ELSE 2 END,
+                mh.descripcion_proveedor
+        """, autorizacion_id)
+        return [dict(r) for r in rows]
+
+    async def confirmar_match_concepto(
+        self, conn, historial_id: UUID, id_bom_item: Optional[UUID]
+    ) -> Optional[dict]:
+        """Persiste (o limpia) el match concepto->item confirmado por un humano.
+
+        id_bom_item set   -> match_confianza='ALTA', match_origen='HUMANO'.
+        id_bom_item None  -> desasigna: id_bom_item, match_confianza, match_origen = NULL.
+        Devuelve {historial_id, id_bom_item} o None si el concepto no existe.
+        """
+        row = await conn.fetchrow("""
+            UPDATE tb_materiales_historial
+            SET id_bom_item = $2,
+                match_confianza = CASE WHEN $2::uuid IS NULL THEN NULL ELSE 'ALTA' END,
+                match_origen    = CASE WHEN $2::uuid IS NULL THEN NULL ELSE 'HUMANO' END
+            WHERE id = $1
+            RETURNING id AS historial_id, id_bom_item
+        """, historial_id, id_bom_item)
+        return dict(row) if row else None
 
     async def get_autorizacion_by_bom_pago(self, conn, id_bom_pago: UUID) -> Optional[dict]:
         """Obtiene la autorizacion a partir del id_bom_pago."""

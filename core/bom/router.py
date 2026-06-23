@@ -1746,6 +1746,7 @@ def _autorizacion_ctx(request, autorizaciones, bom, context) -> dict:
     es_director = rol_org == "director"
     es_coordinador_obra = bom.get("coordinador_obra") == user_id if bom else False
     es_finanzas = finanzas_role in ("editor", "admin")
+    es_compras_editor = es_admin or module_roles.get("compras") in ("editor", "admin")
 
     return {
         "autorizaciones": autorizaciones,
@@ -1755,6 +1756,7 @@ def _autorizacion_ctx(request, autorizaciones, bom, context) -> dict:
         "es_director": es_director,
         "es_coordinador_obra": es_coordinador_obra,
         "es_finanzas": es_finanzas,
+        "es_compras_editor": es_compras_editor,
     }
 
 
@@ -1774,6 +1776,73 @@ async def get_autorizaciones_tab(
     return templates.TemplateResponse(
         request, "bom/partials/autorizaciones.html",
         _autorizacion_ctx(request, autorizaciones, bom, context),
+    )
+
+
+def _conciliacion_ctx(request, autorizacion_id, data):
+    return {
+        "request": request,
+        "autorizacion_id": autorizacion_id,
+        "conceptos": data["conceptos"],
+        "items": data["items"],
+    }
+
+
+@router.get("/autorizaciones/{autorizacion_id}/conciliacion", include_in_schema=False)
+async def get_conciliacion_factura(
+    request: Request,
+    autorizacion_id: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Vista de conciliación factura↔ítem BOM de una autorización (2 columnas)."""
+    data = await service.get_conciliacion(conn, autorizacion_id)
+    return templates.TemplateResponse(
+        request, "bom/partials/conciliacion.html",
+        _conciliacion_ctx(request, autorizacion_id, data),
+    )
+
+
+@router.post(
+    "/autorizaciones/{autorizacion_id}/conciliacion/{historial_id}/asignar",
+    include_in_schema=False,
+)
+async def asignar_match_concepto(
+    request: Request,
+    autorizacion_id: UUID,
+    historial_id: UUID,
+    id_bom_item: Optional[str] = Form(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Confirma o desasigna el match de un concepto. id_bom_item vacío = desasignar."""
+    data = await service.get_conciliacion(conn, autorizacion_id)
+
+    item_uuid = None
+    valor = (id_bom_item or "").strip()
+    if valor:
+        try:
+            item_uuid = UUID(valor)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Ítem inválido.")
+        if not any(it["id_item"] == item_uuid for it in data["items"]):
+            raise HTTPException(status_code=400, detail="El ítem no pertenece a esta autorización.")
+    if not any(c["historial_id"] == historial_id for c in data["conceptos"]):
+        raise HTTPException(status_code=404, detail="Concepto no encontrado en esta autorización.")
+
+    try:
+        await service.confirmar_match_concepto(conn, historial_id, item_uuid)
+    except asyncpg.PostgresError:
+        raise HTTPException(status_code=500, detail="Error al guardar la conciliación.")
+
+    data = await service.get_conciliacion(conn, autorizacion_id)
+    return templates.TemplateResponse(
+        request, "bom/partials/conciliacion.html",
+        _conciliacion_ctx(request, autorizacion_id, data),
     )
 
 

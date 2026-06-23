@@ -1,0 +1,93 @@
+{# Conciliación factura <-> ítem BOM de una autorización. Compras confirma/corrige el match. #}
+{% macro money(v) %}${{ "{:,.2f}".format(v | float) }}{% endmacro %}
+
+<div id="conciliacion-{{ autorizacion_id }}">
+    {% set sin_asignar = conceptos | selectattr('id_bom_item', 'none') | list | length %}
+
+    {% if not conceptos %}
+    <div class="text-center py-10 px-4">
+        <svg class="mx-auto h-10 w-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        <p class="mt-3 text-sm text-gray-500">Aún no hay conceptos de factura para esta autorización.</p>
+        <p class="text-xs text-gray-400">Aparecerán al registrar el XML de la factura de compra.</p>
+    </div>
+    {% else %}
+
+    {# Resumen de estado #}
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 text-[11px]">
+        <span class="text-gray-500">{{ conceptos | length }} concepto(s)</span>
+        {% if sin_asignar %}
+        <span class="inline-flex items-center gap-1 text-red-600 font-medium">
+            <span class="inline-block w-2 h-2 rounded-full bg-red-500"></span>{{ sin_asignar }} sin asignar
+        </span>
+        {% else %}
+        <span class="inline-flex items-center gap-1 text-emerald-600 font-medium">
+            <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>Todos asignados
+        </span>
+        {% endif %}
+    </div>
+
+    <div class="overflow-x-auto rounded-lg border border-gray-200">
+        <table class="min-w-full text-sm">
+            <thead>
+                <tr class="bg-gray-50 text-gray-500 text-[11px] uppercase tracking-wide">
+                    <th class="text-left font-medium px-3 py-2">Concepto de factura</th>
+                    <th class="text-right font-medium px-3 py-2">Importe</th>
+                    <th class="text-left font-medium px-3 py-2">Estado</th>
+                    <th class="text-left font-medium px-3 py-2 w-80">Asignar a ítem del BOM</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for c in conceptos %}
+                <tr class="{{ 'bg-red-50/40' if c.id_bom_item is none else '' }}">
+                    <td class="px-3 py-2">
+                        <p class="text-gray-800">{{ c.descripcion_proveedor }}</p>
+                        {% if c.clave_prod_serv %}
+                        <p class="text-[11px] text-gray-400">Clave SAT {{ c.clave_prod_serv }}</p>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-right text-gray-700 whitespace-nowrap">{{ money(c.importe) }}</td>
+                    <td class="px-3 py-2">
+                        {% if c.id_bom_item is none %}
+                        <span class="inline-flex items-center rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-[11px] font-medium">Sin asignar</span>
+                        {% elif c.match_origen == 'HUMANO' %}
+                        <span class="inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-[11px] font-medium">Confirmado</span>
+                        {% elif c.match_confianza == 'ALTA' %}
+                        <span class="inline-flex items-center rounded-full bg-teal-100 text-teal-700 px-2 py-0.5 text-[11px] font-medium">Sugerido (alta)</span>
+                        {% else %}
+                        <span class="inline-flex items-center rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[11px] font-medium">Sugerido (baja)</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-2">
+                        <form hx-post="/bom/autorizaciones/{{ autorizacion_id }}/conciliacion/{{ c.historial_id }}/asignar"
+                              hx-target="#conciliacion-{{ autorizacion_id }}"
+                              hx-swap="outerHTML"
+                              class="flex items-center gap-2">
+                            <select name="id_bom_item"
+                                    class="flex-1 min-w-0 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-[#00BABB] focus:ring-1 focus:ring-[#00BABB]">
+                                <option value="">— Sin asignar —</option>
+                                {% for it in items %}
+                                <option value="{{ it.id_item }}" {{ 'selected' if it.id_item == c.id_bom_item else '' }}>
+                                    {{ it.descripcion }} ({{ money(it.importe) }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <button type="submit"
+                                    class="shrink-0 rounded-md bg-[#00BABB] px-3 py-1 text-sm font-medium text-white hover:bg-[#009a9b]">
+                                Confirmar
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <p class="mt-2 text-[11px] text-gray-400">
+        Confirmar fija el match como verificado por una persona (alta confianza). Elige “Sin asignar”
+        para quitar la liga. El facturado del Resumen de compra solo cuenta conceptos ligados a un ítem.
+    </p>
+    {% endif %}
+</div>

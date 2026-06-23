@@ -1745,68 +1745,175 @@ class BomService:
         """Obtiene los items BOM vinculados a una autorizacion de compra."""
         return await self.db.get_items_by_autorizacion(conn, autorizacion_id)
 
+    async def get_conciliacion(self, conn, autorizacion_id: UUID) -> dict:
+        """Datos para la UI de conciliacion factura<->item BOM de una autorizacion.
+
+        Devuelve las dos columnas: `conceptos` (CFDI con su match actual) e `items`
+        (items del BOM de la cotizacion, candidatos a asignar).
+        """
+        conceptos = await self.db.get_conceptos_conciliacion(conn, autorizacion_id)
+        items = await self.db.get_items_by_autorizacion(conn, autorizacion_id)
+        return {"conceptos": conceptos, "items": items}
+
+    async def confirmar_match_concepto(
+        self, conn, historial_id: UUID, id_bom_item: Optional[UUID]
+    ) -> Optional[dict]:
+        """Confirma (o desasigna) el match concepto->item declarado por un humano.
+
+        Al asignar, marca el item como FACTURADO (coherente con el auto-link del flujo XML).
+        Desasignar no revierte el estatus del item (decision conservadora de B3b).
+        Ambas escrituras van en una transaccion: si falla la marca de estatus no queda
+        el concepto ligado sin el item en FACTURADO.
+        """
+        async with conn.transaction():
+            result = await self.db.confirmar_match_concepto(conn, historial_id, id_bom_item)
+            if result and id_bom_item is not None:
+                await self.db.update_items_estatus_compra(conn, [id_bom_item], 'FACTURADO')
+        return result
+
     async def get_autorizacion_por_bom_pago(self, conn, id_bom_pago: UUID) -> Optional[dict]:
         """Obtiene la autorizacion a partir del id_bom_pago de finanzas."""
         return await self.db.get_autorizacion_by_bom_pago(conn, id_bom_pago)
 
+    async def get_memoria_match_proveedor(
+        self, conn, id_proveedor: UUID, claves: list
+    ) -> dict:
+        """Memoria proveedor-producto (clave SAT -> id_material_ref) del historial confirmado."""
+        return await self.db.get_memoria_match_proveedor(conn, id_proveedor, claves)
+
     def match_conceptos_a_items(
-        self, conceptos: list, bom_items: list
+        self, conceptos: list, bom_items: list, memoria_map: dict = None
     ) -> dict:
         """
-        Empareja conceptos de CFDI con items del BOM usando similitud de texto.
+        Empareja conceptos de CFDI con items del BOM por niveles de confianza.
 
-        Estrategia:
-        1. Match exacto por clave_prod_serv contra id_material_ref→clave_prod_serv
-        2. Mejor similitud de descripcion (normalizada, case-insensitive)
-        3. Se asigna cada concepto al item con mayor similitud > umbral 0.4
+        Estrategia (en orden de prioridad):
+        1. ALTA - clave SAT exacta: concepto.clave_prod_serv == item.material_clave
+           (clave del material interno via id_material_ref). Si varios items comparten
+           clave, desempata por cercania de monto contra la linea de cotizacion.
+        2. ALTA - memoria proveedor-producto: memoria_map[clave] (id_material_ref aprendido
+           del historial) coincide con item.id_material_ref. Mas especifico que el monto.
+        3. ALTA - ancla de cotizacion: importe ~= coti_subtotal (la linea que Compras
+           declaro al cotizar). Si es match unico, alta confianza.
+        4. BAJA - texto: solapamiento de descripcion normalizada, umbral 0.4 (fallback).
+        5. Sin match -> None.
+
+        Args:
+            memoria_map: dict opcional {clave_prod_serv: id_material_ref} de
+                get_memoria_match_proveedor. Si None, se omite el nivel MEMORIA.
 
         Returns:
-            dict {indice_concepto: UUID(id_bom_item) | None}
+            dict {indice_concepto: {'id_item': UUID, 'confianza': str, 'origen': str} | None}
+            confianza: 'ALTA' | 'BAJA' ; origen: 'CLAVE_SAT' | 'MEMORIA' | 'COTIZACION' | 'TEXTO'.
         """
         import re
-        match_map = {}
+        memoria_map = memoria_map or {}
 
         def normalizar(texto):
             if not texto:
                 return ""
             return re.sub(r'\s+', ' ', str(texto).strip().upper())
 
+        def to_float(valor):
+            try:
+                return float(valor) if valor is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        def monto_cercano(a, b, rel=0.01, abs_tol=1.0):
+            if a is None or b is None:
+                return False
+            return abs(a - b) <= max(abs_tol, abs(b) * rel)
+
+        def score_texto(desc_concepto, desc_item):
+            if not desc_concepto or not desc_item:
+                return 0.0
+            palabras_concepto = set(desc_concepto.split())
+            palabras_item = set(desc_item.split())
+            comunes = palabras_concepto & palabras_item
+            token_score = len(comunes) / max(len(palabras_concepto), 1)
+            len_ratio = min(len(desc_concepto), len(desc_item)) / max(
+                len(desc_concepto), len(desc_item), 1
+            )
+            return (token_score * 0.7) + (len_ratio * 0.3)
+
+        match_map = {}
+
         for idx, concepto in enumerate(conceptos):
             desc_concepto = normalizar(concepto.get('descripcion', ''))
-            clave_concepto = concepto.get('clave_prod_serv', '').strip()
+            clave_concepto = (concepto.get('clave_prod_serv') or '').strip()
+            importe_concepto = to_float(concepto.get('importe'))
 
-            best_item = None
-            best_score = 0.0
+            # 1. ALTA - clave SAT exacta (con desempate por monto si hay empate)
+            candidatos_clave = [
+                item for item in bom_items
+                if clave_concepto and len(clave_concepto) >= 6
+                and (item.get('material_clave') or '').strip() == clave_concepto
+            ]
+            if candidatos_clave:
+                mejor = min(
+                    candidatos_clave,
+                    key=lambda it: abs(
+                        (importe_concepto or 0) - (to_float(it.get('coti_subtotal')) or 0)
+                    ),
+                )
+                match_map[idx] = {
+                    'id_item': mejor['id_item'], 'confianza': 'ALTA', 'origen': 'CLAVE_SAT',
+                }
+                continue
 
+            # 2. ALTA - memoria proveedor-producto: material aprendido para esta clave
+            material_recordado = memoria_map.get(clave_concepto) if clave_concepto else None
+            if material_recordado:
+                candidatos_mem = [
+                    item for item in bom_items
+                    if item.get('id_material_ref') == material_recordado
+                ]
+                if candidatos_mem:
+                    mejor = min(
+                        candidatos_mem,
+                        key=lambda it: abs(
+                            (importe_concepto or 0) - (to_float(it.get('coti_subtotal')) or 0)
+                        ),
+                    )
+                    match_map[idx] = {
+                        'id_item': mejor['id_item'], 'confianza': 'ALTA', 'origen': 'MEMORIA',
+                    }
+                    continue
+
+            # 3. ALTA - ancla de cotizacion: monto ~= subtotal de la linea declarada
+            candidatos_monto = [
+                item for item in bom_items
+                if monto_cercano(importe_concepto, to_float(item.get('coti_subtotal')))
+            ]
+            if len(candidatos_monto) == 1:
+                match_map[idx] = {
+                    'id_item': candidatos_monto[0]['id_item'],
+                    'confianza': 'ALTA', 'origen': 'COTIZACION',
+                }
+                continue
+            if len(candidatos_monto) > 1:
+                # Empate de montos: desempata por texto entre los candidatos
+                mejor = max(
+                    candidatos_monto,
+                    key=lambda it: score_texto(desc_concepto, normalizar(it.get('descripcion', ''))),
+                )
+                match_map[idx] = {
+                    'id_item': mejor['id_item'], 'confianza': 'ALTA', 'origen': 'COTIZACION',
+                }
+                continue
+
+            # 4. BAJA - similitud de texto (fallback)
+            best_item, best_score = None, 0.0
             for item in bom_items:
-                desc_item = normalizar(item.get('descripcion', ''))
-
-                if clave_concepto and len(clave_concepto) >= 6:
-                    if desc_concepto and desc_item:
-                        palabras_concepto = set(desc_concepto.split())
-                        palabras_item = set(desc_item.split())
-                        comunes = palabras_concepto & palabras_item
-                        score = len(comunes) / max(len(palabras_concepto), 1)
-                    else:
-                        score = 0.0
-                else:
-                    if desc_concepto and desc_item:
-                        palabras_concepto = set(desc_concepto.split())
-                        palabras_item = set(desc_item.split())
-                        comunes = palabras_concepto & palabras_item
-                        token_score = len(comunes) / max(len(palabras_concepto), 1) if palabras_concepto else 0
-
-                        len_ratio = min(len(desc_concepto), len(desc_item)) / max(len(desc_concepto), len(desc_item), 1)
-                        score = (token_score * 0.7) + (len_ratio * 0.3)
-                    else:
-                        score = 0.0
-
+                score = score_texto(desc_concepto, normalizar(item.get('descripcion', '')))
                 if score > best_score:
-                    best_score = score
-                    best_item = item
+                    best_score, best_item = score, item
 
-            if best_score >= 0.4 and best_item:
-                match_map[idx] = best_item['id_item']
+            if best_item and best_score >= 0.4:
+                match_map[idx] = {
+                    'id_item': best_item['id_item'], 'confianza': 'BAJA', 'origen': 'TEXTO',
+                }
             else:
                 match_map[idx] = None
 

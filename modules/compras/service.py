@@ -1080,8 +1080,34 @@ class ComprasService:
                 )
 
         bom_item_map = {}
+        match_meta_map = {}
         bom_svc = None
         conceptos = cfdi_data.get('conceptos', [])
+        # Lista filtrada a conceptos-producto. El match y el historial comparten ESTA
+        # misma lista (mismos indices): correr el match sobre la lista sin filtrar
+        # desalineaba id_bom_item/confianza/origen cuando se descartaba algun concepto.
+        conceptos_dicts = [
+            {
+                'descripcion': c.get('descripcion', c) if isinstance(c, dict) else c.descripcion,
+                'cantidad': c.get('cantidad', 0) if isinstance(c, dict) else c.cantidad,
+                'valor_unitario': c.get('valor_unitario', 0) if isinstance(c, dict) else c.valor_unitario,
+                'importe': c.get('importe', 0) if isinstance(c, dict) else c.importe,
+                'unidad': c.get('unidad') if isinstance(c, dict) else c.unidad,
+                'clave_prod_serv': c.get('clave_prod_serv') if isinstance(c, dict) else c.clave_prod_serv,
+                'clave_unidad': c.get('clave_unidad') if isinstance(c, dict) else c.clave_unidad,
+            }
+            for c in conceptos
+            if _es_concepto_producto(
+                c.get('clave_prod_serv') if isinstance(c, dict) else c.clave_prod_serv
+            )
+        ]
+        descartados = len(conceptos) - len(conceptos_dicts)
+        if descartados:
+            logger.debug(
+                "Historial materiales: %d concepto(s) descartado(s) por clave SAT no-producto (UUID=%s)",
+                descartados, uuid_factura[:8]
+            )
+
         if comprobante.get('origen') == 'BOM' and comprobante.get('id_bom_pago'):
             try:
                 from core.bom.service import get_bom_service
@@ -1094,53 +1120,55 @@ class ComprasService:
                     bom_items = await bom_svc.get_items_por_autorizacion(
                         conn, autorizacion['id']
                     )
-                    if bom_items and conceptos:
-                        bom_item_map = bom_svc.match_conceptos_a_items(conceptos, bom_items)
+                    if bom_items and conceptos_dicts:
+                        # Memoria proveedor-producto (clave SAT -> material) del historial confirmado.
+                        claves = sorted({
+                            (c.get('clave_prod_serv') or '').strip()
+                            for c in conceptos_dicts
+                            if (c.get('clave_prod_serv') or '').strip()
+                        })
+                        memoria_map = await bom_svc.get_memoria_match_proveedor(
+                            conn, id_proveedor, claves
+                        ) if claves else {}
+                        # {idx: {id_item, confianza, origen}|None} sobre la lista FILTRADA.
+                        match_result = bom_svc.match_conceptos_a_items(
+                            conceptos_dicts, bom_items, memoria_map=memoria_map
+                        )
+                        bom_item_map = {
+                            idx: v['id_item']
+                            for idx, v in match_result.items() if v
+                        }
+                        match_meta_map = {
+                            idx: {'confianza': v['confianza'], 'origen': v['origen']}
+                            for idx, v in match_result.items() if v
+                        }
+                        matches_alta = sum(
+                            1 for v in match_result.values() if v and v['confianza'] == 'ALTA'
+                        )
                         logger.info(
-                            "BOM link: autorizacion=%s conceptos=%d items_bom=%d matches=%d",
-                            autorizacion['id'], len(conceptos), len(bom_items),
-                            sum(1 for v in bom_item_map.values() if v is not None)
+                            "BOM link: autorizacion=%s conceptos=%d items_bom=%d matches=%d (alta=%d)",
+                            autorizacion['id'], len(conceptos_dicts), len(bom_items),
+                            len(bom_item_map), matches_alta
                         )
             except Exception:
                 logger.exception("BOM auto-link: error no critico, continuando sin vincular")
 
         # 3. Guardar conceptos en historial de materiales
         # Anticipos y cierres no contienen productos reales — omitir por completo
-        if tipo_factura not in ('ANTICIPO', 'CIERRE_ANTICIPO') and conceptos:
+        if tipo_factura not in ('ANTICIPO', 'CIERRE_ANTICIPO') and conceptos_dicts:
             fecha_str = cfdi_data.get('fecha', '')
             try:
                 fecha_factura = datetime.fromisoformat(fecha_str).date()
             except (ValueError, TypeError):
                 fecha_factura = today_mx()
 
-            conceptos_dicts = [
-                {
-                    'descripcion': c.get('descripcion', c) if isinstance(c, dict) else c.descripcion,
-                    'cantidad': c.get('cantidad', 0) if isinstance(c, dict) else c.cantidad,
-                    'valor_unitario': c.get('valor_unitario', 0) if isinstance(c, dict) else c.valor_unitario,
-                    'importe': c.get('importe', 0) if isinstance(c, dict) else c.importe,
-                    'unidad': c.get('unidad') if isinstance(c, dict) else c.unidad,
-                    'clave_prod_serv': c.get('clave_prod_serv') if isinstance(c, dict) else c.clave_prod_serv,
-                    'clave_unidad': c.get('clave_unidad') if isinstance(c, dict) else c.clave_unidad,
-                }
-                for c in conceptos
-                if _es_concepto_producto(
-                    c.get('clave_prod_serv') if isinstance(c, dict) else c.clave_prod_serv
-                )
-            ]
-            descartados = len(conceptos) - len(conceptos_dicts)
-            if descartados:
-                logger.debug(
-                    "Historial materiales: %d concepto(s) descartado(s) por clave SAT no-producto (UUID=%s)",
-                    descartados, uuid_factura[:8]
-                )
-
             tc_xml = cfdi_data.get('tipo_cambio_xml')
             await db_svc.guardar_conceptos_historial(
                 conn, uuid_factura, id_comprobante, id_proveedor,
                 conceptos_dicts, fecha_factura, user_id,
                 tipo_cambio_xml=tc_xml,
-                bom_item_map=bom_item_map
+                bom_item_map=bom_item_map,
+                match_meta_map=match_meta_map
             )
 
             if bom_item_map and bom_svc:
