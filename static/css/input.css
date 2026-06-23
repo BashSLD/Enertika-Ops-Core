@@ -38,6 +38,19 @@
         transition: opacity 0.16s ease;
     }
 }
+/* Variante navegación: estilo "ghost" (borde neutro) para botones que llevan a
+   otra sección o módulo, distinguiéndolos de las acciones (relleno de color). */
+.action-btn-ghost {
+    background-color: rgba(255, 255, 255, 0.7);
+    color: #374151;
+    border: 1px solid #d1d5db;
+}
+.action-btn-ghost:hover,
+.action-btn-ghost:focus-visible {
+    background-color: #ffffff;
+    border-color: #9ca3af;
+    color: #111827;
+}
 .action-wrapper {
     position: relative;
 }

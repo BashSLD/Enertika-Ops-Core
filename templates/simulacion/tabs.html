@@ -102,7 +102,7 @@
             <!-- Botón: Métricas Operativas (Admin y Manager) -->
             <button hx-get="/simulacion/metricas-operativas" hx-target="#main-content" hx-swap="innerHTML"
                 hx-push-url="true"
-                class="action-btn bg-indigo-600 hover:bg-indigo-700 text-white"
+                class="action-btn action-btn-ghost"
                 aria-label="Métricas Operativas">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
@@ -119,7 +119,7 @@
                 hx-swap="innerHTML"
                 hx-disabled-elt="this" hx-sync="this:drop"
                 hx-on::before-request="document.getElementById('modal-calculadora-ventas')?.remove()"
-                class="action-btn bg-gray-700 hover:bg-gray-800 text-white"
+                class="action-btn bg-slate-700 hover:bg-slate-800 text-white"
                 aria-label="Calculadora de ventas">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -132,7 +132,7 @@
                 hx-target="#main-content"
                 hx-swap="innerHTML"
                 hx-push-url="true"
-                class="action-btn bg-indigo-700 hover:bg-indigo-800 text-white"
+                class="action-btn action-btn-ghost"
                 aria-label="Recibos CFE">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">

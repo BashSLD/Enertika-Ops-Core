@@ -87,7 +87,7 @@
 
                 <!-- Botón Upload XMLs -->
                 <button onclick="document.getElementById('upload-xml-modal').classList.remove('hidden')"
-                    class="action-btn bg-orange-500 hover:bg-orange-600 text-white"
+                    class="action-btn bg-slate-700 hover:bg-slate-800 text-white"
                     aria-label="Cargar XMLs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
@@ -100,7 +100,7 @@
 
                 <!-- Botón Proyectos BOM -->
                 <button hx-get="/compras/proyectos-bom" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="/compras/proyectos-bom"
-                    class="action-btn bg-[#123456] hover:bg-[#0d263d] text-white"
+                    class="action-btn action-btn-ghost"
                     aria-label="Proyectos BOM">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -112,7 +112,7 @@
                 <!-- Botón Almacén (solo editores) -->
                 {% if can_edit %}
                 <button hx-get="/compras/inventario" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
-                    class="action-btn bg-amber-600 hover:bg-amber-700 text-white"
+                    class="action-btn action-btn-ghost"
                     aria-label="Mini Almacén">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -124,7 +124,7 @@
 
                 <!-- Botón Materiales -->
                 <a href="/materials/ui" hx-get="/materials/ui" hx-target="#main-content" hx-push-url="true"
-                    class="action-btn bg-indigo-600 hover:bg-indigo-700 text-white"
+                    class="action-btn action-btn-ghost"
                     aria-label="Materiales">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
@@ -136,7 +136,7 @@
 
                 <!-- Botón Proveedores -->
                 <button hx-get="/compras/proveedores/ui" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="/compras/proveedores/ui"
-                    class="action-btn bg-violet-600 hover:bg-violet-700 text-white"
+                    class="action-btn action-btn-ghost"
                     aria-label="Proveedores">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -147,7 +147,7 @@
 
                 <!-- Botón Relaciones -->
                 <button hx-get="/compras/relaciones" hx-target="#relaciones-container" hx-swap="innerHTML"
-                    class="action-btn bg-teal-600 hover:bg-teal-700 text-white"
+                    class="action-btn action-btn-ghost"
                     aria-label="Relaciones">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">

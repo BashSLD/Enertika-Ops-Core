@@ -174,7 +174,7 @@
             <!-- Botón 2: Registro Extraordinario (Solo ADMIN/MANAGER) con Popup Advertencia -->
             <div x-data="{ showWarning: false }" class="relative">
                 <button id="btn-comercial-extraordinario" @click="showWarning = true"
-                    class="action-btn bg-orange-600 hover:bg-orange-700 text-white"
+                    class="action-btn bg-slate-700 hover:bg-slate-800 text-white"
                     aria-label="Registro Extraordinario">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
@@ -310,7 +310,7 @@
                 </div>
 
                 <button id="btn-comercial-especial" @click="showPopup = true; searchTerm = ''; errorMsg = ''"
-                    class="action-btn bg-purple-600 hover:bg-purple-700 text-white"
+                    class="action-btn bg-slate-700 hover:bg-slate-800 text-white"
                     aria-label="Solicitud Especial">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
@@ -436,7 +436,7 @@
                 hx-swap="innerHTML"
                 hx-disabled-elt="this" hx-sync="this:drop"
                 hx-on::before-request="document.getElementById('modal-calculadora-ventas')?.remove()"
-                class="action-btn bg-gray-700 hover:bg-gray-800 text-white"
+                class="action-btn bg-slate-700 hover:bg-slate-800 text-white"
                 aria-label="Calculadora de ventas">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
