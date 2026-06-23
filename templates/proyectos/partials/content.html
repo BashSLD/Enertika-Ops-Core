@@ -51,28 +51,31 @@
         <div class="flex flex-wrap gap-2 items-center">
             {% if puede_crear_proyecto %}
             <button onclick="abrirModalCrearProyecto()"
-                class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors flex items-center gap-1.5 shadow-sm">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                class="action-btn bg-[#00BABB] hover:bg-[#009999] text-white"
+                aria-label="Crear Proyecto">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                 </svg>
-                Crear Proyecto
+                <span class="action-label">Crear Proyecto</span>
             </button>
             {% endif %}
             <a href="/materials/ui" hx-get="/materials/ui" hx-target="#main-content" hx-push-url="true"
-                class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-1.5 px-3 text-sm rounded-lg shadow-sm flex items-center gap-1.5 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                class="action-btn action-btn-ghost"
+                aria-label="Materiales">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                 </svg>
-                Materiales
+                <span class="action-label">Materiales</span>
             </a>
             <button hx-get="/proyectos/partials/visita-obra-modal"
                 hx-target="#modal-action-container" hx-swap="innerHTML"
                 hx-disabled-elt="this" hx-sync="this:drop"
-                class="bg-[#00BABB] hover:bg-[#009a9b] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors flex items-center gap-1.5 shadow-sm">
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                class="action-btn bg-slate-700 hover:bg-slate-800 text-white"
+                aria-label="Visita a Obra">
+                <svg class="h-4 w-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                 </svg>
-                Visita a Obra
+                <span class="action-label">Visita a Obra</span>
             </button>
         </div>
     </div>
