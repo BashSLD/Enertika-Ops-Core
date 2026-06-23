@@ -25,7 +25,7 @@ class OyMDBService:
         return [r["usuario_id"] for r in rows]
 
     async def get_asignaciones_zona(self, conn: asyncpg.Connection) -> list[dict]:
-        """Todos los usuarios activos con su zona actual (NULL si sin asignar)."""
+        """Usuarios activos del departamento de O&M con su zona actual (NULL si sin asignar)."""
         rows = await conn.fetch(
             """
             SELECT u.id_usuario, u.nombre, u.email, u.department,
@@ -33,6 +33,7 @@ class OyMDBService:
             FROM tb_usuarios u
             LEFT JOIN tb_oym_zonas_usuarios z ON z.usuario_id = u.id_usuario
             WHERE u.is_active = true
+              AND u.department = (SELECT nombre FROM tb_cat_departamentos WHERE slug = 'oym')
             ORDER BY u.nombre
             """
         )
