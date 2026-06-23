@@ -245,32 +245,50 @@ class CfeService:
 
     # ── Servicios ─────────────────────────────────────────────────────────
 
-    async def resolver_filtro_zona(
+    async def resolver_filtro_visibilidad(
         self, conn: asyncpg.Connection, user: dict, modulo_activo: str | None
-    ) -> list[UUID] | None:
+    ) -> tuple[list[UUID] | None, list[UUID] | None]:
         """
-        Devuelve lista de UUIDs de creado_por a filtrar, o None para sin filtro.
-        Solo activa cuando modulo_activo == 'oym'.
-        ADMIN de sistema y module-admin de oym bypass (ven todo).
-        Usuarios sin zona asignada tambien ven todo.
+        Devuelve (creado_por_ids, servicio_ids) para filtrar el listado.
+        Solo una dimension se activa segun el modulo; la otra es None.
+
+        - oym: filtra por zona del usuario (creado_por_ids). admin de oym /
+          ADMIN sistema / sin zona -> (None, None) = ve todo.
+        - simulacion: filtra por servicios que el usuario registro (servicio_ids).
+          admin de simulacion / ADMIN sistema -> (None, None). Un usuario sin
+          registros -> ([] en servicio_ids) = no ve nada. NUNCA colapsar [] a None.
+        - sin modulo activo (tiene ambos) -> (None, None) = ve todo.
         """
-        if modulo_activo != "oym":
-            return None
-        if get_user_module_role("oym", user) == "admin":
-            return None
-        usuario_id = user.get("user_db_id")
-        if not usuario_id:
-            return None
-        oym_db = get_oym_db_service()
-        ids = await oym_db.get_usuario_ids_en_misma_zona(conn, usuario_id)
-        return ids or None
+        if modulo_activo == "oym":
+            if get_user_module_role("oym", user) == "admin":
+                return None, None
+            usuario_id = user.get("user_db_id")
+            if not usuario_id:
+                return None, None
+            oym_db = get_oym_db_service()
+            ids = await oym_db.get_usuario_ids_en_misma_zona(conn, usuario_id)
+            return (ids or None), None
+
+        if modulo_activo == "simulacion":
+            if get_user_module_role("simulacion", user) == "admin":
+                return None, None
+            usuario_id = user.get("user_db_id")
+            if not usuario_id:
+                return None, None
+            visibles = await self.db.get_servicio_ids_visibles(conn, usuario_id, "simulacion")
+            return None, visibles  # lista (posiblemente vacia) = filtro estricto
+
+        return None, None
 
     async def listar_servicios(
         self, conn: asyncpg.Connection,
         modulos: list[str] | None = None,
         creado_por_ids: list[UUID] | None = None,
+        servicio_ids: list[UUID] | None = None,
     ) -> list[dict]:
-        return await self.db.get_all_servicios(conn, modulos=modulos, creado_por_ids=creado_por_ids)
+        return await self.db.get_all_servicios(
+            conn, modulos=modulos, creado_por_ids=creado_por_ids, servicio_ids=servicio_ids
+        )
 
     async def limpiar_errores_invalidos(
         self, conn: asyncpg.Connection, servicio_id: Optional[UUID] = None
@@ -289,30 +307,44 @@ class CfeService:
         self, conn: asyncpg.Connection, *, numero_servicio: str, nombre: str,
         alias: Optional[str], lada: str, telefono: str, email: str, usuario_id: UUID,
         modulo: str = "oym",
-    ) -> tuple[dict, bool]:
-        """Returns (servicio, fue_creado_nuevo). fue_creado_nuevo=False cuando solo se agrego el modulo a uno existente."""
+    ) -> tuple[dict, str]:
+        """Returns (servicio, estado). estado en:
+        'creado'              -> servicio nuevo
+        'modulo_agregado'     -> el modulo se sumo a un servicio existente
+        'visibilidad_otorgada'-> simulacion: ya existia en el modulo, se otorgo visibilidad
+        'ya_visible'          -> simulacion: ya existia y el usuario ya era registrador
+        Para oym, un servicio ya existente en el modulo sigue lanzando ValueError."""
         nombre = self._normalizar_nombre_servicio(nombre)
 
         existing = await self.db.get_servicio_by_numero(conn, numero_servicio)
         if existing:
             if modulo in (existing.get("modulos") or []):
+                if modulo == "simulacion":
+                    otorgado = await self.db.agregar_registrador(
+                        conn, existing["id"], usuario_id, "simulacion"
+                    )
+                    return existing, ("visibilidad_otorgada" if otorgado else "ya_visible")
                 raise ValueError(
                     f"El número de servicio {numero_servicio} ya está registrado "
                     f"como '{existing['nombre']}'."
                 )
             # El servicio existe en otro módulo: agregar este módulo al array
             await self.db.agregar_modulo_a_servicio(conn, existing["id"], modulo)
+            if modulo == "simulacion":
+                await self.db.agregar_registrador(conn, existing["id"], usuario_id, "simulacion")
             # Verifica/registra en MiEspacio si aun no esta (idempotente).
             await self.db.marcar_alta_miespacio_pendiente(conn, existing["id"])
-            return existing, False
+            return existing, "modulo_agregado"
         nuevo = await self.db.crear_servicio(
             conn, numero_servicio=numero_servicio, nombre=nombre, alias=alias,
             lada=lada, telefono=telefono, email=email, creado_por=usuario_id,
             modulos=[modulo],
         )
+        if modulo == "simulacion":
+            await self.db.agregar_registrador(conn, nuevo["id"], usuario_id, "simulacion")
         # Encola el alta en MiEspacio (job del worker, independiente de la descarga).
         await self.db.marcar_alta_miespacio_pendiente(conn, nuevo["id"])
-        return nuevo, True
+        return nuevo, "creado"
 
     async def editar_servicio(
         self, conn: asyncpg.Connection, servicio_id: UUID, *,
@@ -419,6 +451,7 @@ class CfeService:
         modulos: list[str] | None,
         usuario_id: UUID,
         creado_por_ids: list[UUID] | None = None,
+        servicio_ids: list[UUID] | None = None,
     ) -> tuple[int, int]:
         """
         Encola la descarga del ultimo recibo de TODOS los servicios registrados en
@@ -426,7 +459,9 @@ class CfeService:
         ya tienen una descarga en curso. El worker procesa la cola de a uno.
         Retorna (encolados, omitidos).
         """
-        servicios = await self.db.get_all_servicios(conn, modulos=modulos, creado_por_ids=creado_por_ids)
+        servicios = await self.db.get_all_servicios(
+            conn, modulos=modulos, creado_por_ids=creado_por_ids, servicio_ids=servicio_ids
+        )
         registrados = [s for s in servicios if s.get("miespacio_estatus") == "registrado"]
 
         encolados = 0
@@ -1544,6 +1579,7 @@ class CfeService:
         modulos: list[str] | None,
         perfil_slug: str = "oym",
         creado_por_ids: list[UUID] | None = None,
+        servicio_ids: list[UUID] | None = None,
     ) -> tuple[bytes, str]:
         """
         ZIP unico con el ultimo recibo (XML + PDF + Excel) de cada servicio
@@ -1551,7 +1587,7 @@ class CfeService:
         servicio. Corresponde al resultado de la descarga masiva.
         """
         rows = await self.db.get_ultimas_descargas_completadas_por_modulo(
-            conn, modulos, creado_por_ids=creado_por_ids
+            conn, modulos, creado_por_ids=creado_por_ids, servicio_ids=servicio_ids
         )
         if not rows:
             raise ValueError("No hay recibos descargados para incluir en el ZIP.")

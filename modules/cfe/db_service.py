@@ -34,6 +34,7 @@ class CfeDBService:
         self, conn: asyncpg.Connection,
         modulos: list[str] | None = None,
         creado_por_ids: list[UUID] | None = None,
+        servicio_ids: list[UUID] | None = None,
     ) -> list[dict]:
         rows = await conn.fetch(
             f"""
@@ -65,11 +66,13 @@ class CfeDBService:
             WHERE s.activo = true
               AND ($1::text[] IS NULL OR s.modulos && $1::text[])
               AND ($2::uuid[] IS NULL OR s.creado_por = ANY($2::uuid[]))
+              AND ($3::uuid[] IS NULL OR s.id = ANY($3::uuid[]))
             GROUP BY s.id, ba.id, ba.estatus, ba.max_periodos
             ORDER BY (s.miespacio_estatus = 'error'), s.nombre
             """,
             modulos or None,
             creado_por_ids or None,
+            servicio_ids,
         )
         return [dict(r) for r in rows]
 
@@ -133,6 +136,48 @@ class CfeDBService:
             servicio_id, modulo,
         )
         return dict(row) if row else {}
+
+    # ── Registradores (visibilidad por usuario en simulacion) ─────────────────
+
+    async def agregar_registrador(
+        self, conn: asyncpg.Connection, servicio_id: UUID, usuario_id: UUID, modulo: str
+    ) -> bool:
+        """Registra a un usuario como visible para un servicio en un modulo.
+        Idempotente. Devuelve True si la fila fue insertada (no existia)."""
+        row = await conn.fetchrow(
+            """
+            INSERT INTO tb_cfe_servicio_registradores (servicio_id, usuario_id, modulo)
+            VALUES ($1, $2, $3)
+            ON CONFLICT DO NOTHING
+            RETURNING servicio_id
+            """,
+            servicio_id, usuario_id, modulo,
+        )
+        return row is not None
+
+    async def es_registrador(
+        self, conn: asyncpg.Connection, servicio_id: UUID, usuario_id: UUID, modulo: str
+    ) -> bool:
+        row = await conn.fetchrow(
+            """
+            SELECT 1 FROM tb_cfe_servicio_registradores
+            WHERE servicio_id = $1 AND usuario_id = $2 AND modulo = $3
+            """,
+            servicio_id, usuario_id, modulo,
+        )
+        return row is not None
+
+    async def get_servicio_ids_visibles(
+        self, conn: asyncpg.Connection, usuario_id: UUID, modulo: str
+    ) -> list[UUID]:
+        rows = await conn.fetch(
+            """
+            SELECT servicio_id FROM tb_cfe_servicio_registradores
+            WHERE usuario_id = $1 AND modulo = $2
+            """,
+            usuario_id, modulo,
+        )
+        return [r["servicio_id"] for r in rows]
 
     # ── Alta en MiEspacio (job del worker, independiente de la descarga) ──────
 
@@ -267,6 +312,7 @@ class CfeDBService:
         self, conn: asyncpg.Connection,
         modulos: list[str] | None,
         creado_por_ids: list[UUID] | None = None,
+        servicio_ids: list[UUID] | None = None,
     ) -> list[dict]:
         """
         Para cada servicio registrado en MiEspacio dentro de los modulos dados,
@@ -288,6 +334,7 @@ class CfeDBService:
                   AND s.miespacio_estatus = 'registrado'
                   AND ($1::text[] IS NULL OR s.modulos && $1::text[])
                   AND ($2::uuid[] IS NULL OR s.creado_por = ANY($2::uuid[]))
+                  AND ($3::uuid[] IS NULL OR s.id = ANY($3::uuid[]))
                 GROUP BY d.servicio_id
             )
             SELECT s.numero_servicio, s.nombre AS servicio_nombre,
@@ -304,6 +351,7 @@ class CfeDBService:
             """,
             modulos,
             creado_por_ids or None,
+            servicio_ids,
         )
         return [dict(r) for r in rows]
 

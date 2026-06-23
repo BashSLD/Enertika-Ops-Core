@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 from core.database import get_db_connection
 from core.jinja_filters import register_timezone_filters
-from core.permissions import require_any_module_access, user_has_module_access
+from core.permissions import get_user_module_role, require_any_module_access, user_has_module_access
 from core.security import get_current_user_context
 from modules.shared.services.cfe import generar_excel_cfe_desde_uploads
 
@@ -55,12 +55,25 @@ def _resolver_modulos(user: dict, modulo_param: str | None) -> tuple[str | None,
 
 
 async def _get_servicio_accesible(svc, conn, servicio_id: UUID, user: dict) -> dict:
-    """Raises 404 if service not found or not in any module the user can access."""
+    """Raises 404 if service not found or not visible to the user.
+    oym: basta con compartir el modulo (paridad con el comportamiento previo).
+    simulacion (sin oym en la interseccion): requiere ser registrador o admin de simulacion."""
     _, modulos_accesibles = _resolver_modulos(user, None)
     servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
-    if not servicio or not (set(servicio.get("modulos") or []) & set(modulos_accesibles)):
+    if not servicio:
         raise HTTPException(status_code=404, detail="Servicio no encontrado")
-    return servicio
+    interseccion = set(servicio.get("modulos") or []) & set(modulos_accesibles)
+    if not interseccion:
+        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    if "oym" in interseccion:
+        return servicio
+    # Solo queda simulacion: visibilidad estricta por registrador.
+    if get_user_module_role("simulacion", user) == "admin":
+        return servicio
+    usuario_id = user.get("user_db_id")
+    if usuario_id and await svc.db.es_registrador(conn, servicio_id, usuario_id, "simulacion"):
+        return servicio
+    raise HTTPException(status_code=404, detail="Servicio no encontrado")
 
 
 # ── UI principal ──────────────────────────────────────────────────────────────
@@ -75,12 +88,13 @@ async def cfe_ui(
 ):
     svc = get_cfe_service()
     modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
-    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
+    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
     await svc.limpiar_errores_invalidos(conn)
     servicios = await svc.listar_servicios(
         conn,
         modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
-        creado_por_ids=zona_filter,
+        creado_por_ids=creado_por_ids,
+        servicio_ids=servicio_ids,
     )
     estado_sesion = await svc.get_estado_sesion(conn)
     is_htmx = request.headers.get("hx-request")
@@ -256,16 +270,17 @@ async def crear_servicio(
     toast_msg = ""
     status_code = 200
     try:
-        _, fue_nuevo = await svc.crear_servicio(
+        _, estado = await svc.crear_servicio(
             conn, numero_servicio=numero_servicio.strip(), nombre=nombre.strip(),
             alias=alias.strip() or None, lada=lada.strip(), telefono=telefono.strip(),
             email=email.strip(), usuario_id=user["user_db_id"], modulo=modulo_guardado,
         )
-        toast_msg = (
-            f"Servicio {numero_servicio} registrado."
-            if fue_nuevo
-            else f"Módulo añadido al servicio {numero_servicio} existente."
-        )
+        toast_msg = {
+            "creado": f"Servicio {numero_servicio} registrado.",
+            "modulo_agregado": f"Módulo añadido al servicio {numero_servicio} existente.",
+            "visibilidad_otorgada": f"El servicio {numero_servicio} ya existía; ahora también lo verás en tu lista.",
+            "ya_visible": f"El servicio {numero_servicio} ya estaba en tu lista.",
+        }[estado]
     except ValueError as exc:
         toast_msg = str(exc)
         toast_type = "error"
@@ -275,10 +290,10 @@ async def crear_servicio(
         toast_msg = "Error interno al registrar el servicio."
         toast_type = "error"
         status_code = 500
-    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
+    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
     servicios = await svc.listar_servicios(
         conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
-        creado_por_ids=zona_filter,
+        creado_por_ids=creado_por_ids, servicio_ids=servicio_ids,
     )
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
@@ -326,7 +341,7 @@ async def crear_servicios_bulk(
             resultados.append({"numero": numero, "nombre": nombre, "ok": False, "error": "Número y nombre son requeridos."})
             continue
         try:
-            _, fue_nuevo = await svc.crear_servicio(
+            _, estado = await svc.crear_servicio(
                 conn,
                 numero_servicio=numero,
                 nombre=nombre,
@@ -337,7 +352,12 @@ async def crear_servicios_bulk(
                 usuario_id=user["user_db_id"],
                 modulo=modulo_guardado,
             )
-            msg = "Registrado." if fue_nuevo else "Módulo añadido (ya existía)."
+            msg = {
+                "creado": "Registrado.",
+                "modulo_agregado": "Módulo añadido (ya existía).",
+                "visibilidad_otorgada": "Ya existía; ahora lo ves.",
+                "ya_visible": "Ya estaba en tu lista.",
+            }[estado]
             resultados.append({"numero": numero, "nombre": nombre, "ok": True, "msg": msg})
         except ValueError as exc:
             resultados.append({"numero": numero, "nombre": nombre, "ok": False, "error": str(exc)})
@@ -346,10 +366,10 @@ async def crear_servicios_bulk(
             resultados.append({"numero": numero, "nombre": nombre, "ok": False, "error": "Error interno al registrar."})
 
     total_ok = sum(1 for r in resultados if r["ok"])
-    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
+    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
     servicios = await svc.listar_servicios(
         conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
-        creado_por_ids=zona_filter,
+        creado_por_ids=creado_por_ids, servicio_ids=servicio_ids,
     )
     estado_sesion = await svc.get_estado_sesion(conn)
     return templates.TemplateResponse(
@@ -422,10 +442,10 @@ async def editar_servicio(
         toast_msg = "Error interno al editar el servicio."
         toast_type = "error"
         status_code = 500
-    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
+    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
     servicios = await svc.listar_servicios(
         conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
-        creado_por_ids=zona_filter,
+        creado_por_ids=creado_por_ids, servicio_ids=servicio_ids,
     )
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
@@ -486,10 +506,10 @@ async def registrar_manual(
         toast_msg = "Error interno al encolar el registro."
         toast_type = "error"
         status_code = 500
-    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
+    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
     servicios = await svc.listar_servicios(
         conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
-        creado_por_ids=zona_filter,
+        creado_por_ids=creado_por_ids, servicio_ids=servicio_ids,
     )
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
@@ -530,10 +550,10 @@ async def reintentar_alta_miespacio(
         toast_msg = "Error interno al reencolar el registro."
         toast_type = "error"
         status_code = 500
-    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
+    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
     servicios = await svc.listar_servicios(
         conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
-        creado_por_ids=zona_filter,
+        creado_por_ids=creado_por_ids, servicio_ids=servicio_ids,
     )
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
@@ -582,11 +602,13 @@ async def generar_excel_desde_xml(
 async def historial_descargas(
     request: Request,
     servicio_id: UUID,
+    modulo: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
 ):
     svc = get_cfe_service()
+    modulo_activo, _ = _resolver_modulos(user, modulo)
     servicio = await _get_servicio_accesible(svc, conn, servicio_id, user)
     await svc.limpiar_errores_invalidos(conn, servicio_id)
     descargas = await svc.db.get_descargas_por_servicio(conn, servicio_id)
@@ -594,7 +616,7 @@ async def historial_descargas(
     return templates.TemplateResponse(
         request, "cfe/partials/historial_descargas.html",
         {"servicio": servicio, "descargas": descargas,
-         "tiene_activo": tiene_activo, "user": user},
+         "tiene_activo": tiene_activo, "modulo": modulo_activo, "user": user},
     )
 
 
@@ -602,11 +624,13 @@ async def historial_descargas(
 async def iniciar_descarga(
     request: Request,
     servicio_id: UUID,
+    modulo: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
 ):
     svc = get_cfe_service()
+    modulo_activo, _ = _resolver_modulos(user, modulo)
     servicio = await _get_servicio_accesible(svc, conn, servicio_id, user)
     tiene_activo = False
     toast_type = "info"
@@ -628,7 +652,7 @@ async def iniciar_descarga(
     return templates.TemplateResponse(
         request, "cfe/partials/historial_descargas.html",
         {"servicio": servicio, "descargas": descargas, "tiene_activo": tiene_activo,
-         "user": user, "_toast": {"message": toast_msg, "type": toast_type}},
+         "modulo": modulo_activo, "user": user, "_toast": {"message": toast_msg, "type": toast_type}},
         status_code=status_code,
     )
 
@@ -644,14 +668,14 @@ async def descargar_todos(
     svc = get_cfe_service()
     modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
     modulos = [modulo_activo] if modulo_activo else modulos_accesibles
-    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
+    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
     toast_type = "success"
     toast_msg = ""
     status_code = 200
     try:
         encolados, omitidos = await svc.iniciar_descarga_masiva(
             conn, modulos=modulos, usuario_id=user["user_db_id"],
-            creado_por_ids=zona_filter,
+            creado_por_ids=creado_por_ids, servicio_ids=servicio_ids,
         )
         if encolados:
             toast_msg = f"{encolados} servicio(s) encolado(s) para descarga del último recibo."
@@ -668,7 +692,9 @@ async def descargar_todos(
         toast_msg = "Error interno al encolar las descargas."
         toast_type = "error"
         status_code = 500
-    servicios = await svc.listar_servicios(conn, modulos=modulos, creado_por_ids=zona_filter)
+    servicios = await svc.listar_servicios(
+        conn, modulos=modulos, creado_por_ids=creado_por_ids, servicio_ids=servicio_ids
+    )
     estado_sesion = await svc.get_estado_sesion(conn)
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
@@ -818,11 +844,13 @@ async def reintentar_pdf(
     request: Request,
     servicio_id: UUID,
     periodo: str,
+    modulo: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
 ):
     svc = get_cfe_service()
+    modulo_activo, _ = _resolver_modulos(user, modulo)
     servicio = await _get_servicio_accesible(svc, conn, servicio_id, user)
     tiene_activo = False
     toast_type = "info"
@@ -846,7 +874,7 @@ async def reintentar_pdf(
     return templates.TemplateResponse(
         request, "cfe/partials/historial_descargas.html",
         {"servicio": servicio, "descargas": descargas, "tiene_activo": tiene_activo,
-         "user": user, "_toast": {"message": toast_msg, "type": toast_type}},
+         "modulo": modulo_activo, "user": user, "_toast": {"message": toast_msg, "type": toast_type}},
         status_code=status_code,
     )
 
@@ -934,11 +962,13 @@ async def preview_descarga(
 async def modal_excel(
     request: Request,
     servicio_id: UUID,
+    modulo: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
 ):
     svc = get_cfe_service()
+    modulo_activo, _ = _resolver_modulos(user, modulo)
     servicio = await _get_servicio_accesible(svc, conn, servicio_id, user)
     descargas_xml = [
         d for d in await svc.db.get_descargas_por_servicio(conn, servicio_id)
@@ -947,7 +977,7 @@ async def modal_excel(
     periodos = sorted({d["periodo"] for d in descargas_xml}, reverse=True)
     return templates.TemplateResponse(
         request, "cfe/partials/modal_excel.html",
-        {"servicio": servicio, "periodos": periodos},
+        {"servicio": servicio, "periodos": periodos, "perfil": modulo_activo or "oym"},
     )
 
 
@@ -987,10 +1017,11 @@ async def descargar_zip_global(
     svc = get_cfe_service()
     modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
     modulos = [modulo_activo] if modulo_activo else modulos_accesibles
-    zona_filter = await svc.resolver_filtro_zona(conn, user, modulo_activo)
+    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
     try:
         zip_bytes, nombre = await svc.generar_zip_global(
-            conn, modulos=modulos, creado_por_ids=zona_filter
+            conn, modulos=modulos, creado_por_ids=creado_por_ids,
+            servicio_ids=servicio_ids, perfil_slug=modulo_activo or "oym",
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1011,14 +1042,18 @@ async def descargar_zip_global(
 @router.get("/servicios/{servicio_id}/zip")
 async def descargar_zip_servicio(
     servicio_id: UUID,
+    modulo: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
 ):
     svc = get_cfe_service()
+    modulo_activo, _ = _resolver_modulos(user, modulo)
     await _get_servicio_accesible(svc, conn, servicio_id, user)
     try:
-        zip_bytes, nombre = await svc.generar_zip_servicio(conn, servicio_id)
+        zip_bytes, nombre = await svc.generar_zip_servicio(
+            conn, servicio_id, perfil_slug=modulo_activo or "oym"
+        )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

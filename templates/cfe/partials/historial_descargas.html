@@ -21,7 +21,7 @@
 {% endmacro %}
 
 {% if tiene_activo %}
-<div hx-get="/cfe/servicios/{{ servicio.id }}/descargas"
+<div hx-get="/cfe/servicios/{{ servicio.id }}/descargas{% if modulo %}?modulo={{ modulo }}{% endif %}"
      hx-trigger="every 4s"
      hx-swap="outerHTML">
 {% else %}
@@ -39,7 +39,7 @@
         {% set completados = descargas | selectattr('estatus', 'equalto', 'completado') | selectattr('tipo', 'equalto', 'xml') | list %}
         {% if completados %}
         <button type="button"
-            hx-get="/cfe/servicios/{{ servicio.id }}/modal-excel"
+            hx-get="/cfe/servicios/{{ servicio.id }}/modal-excel{% if modulo %}?modulo={{ modulo }}{% endif %}"
             hx-target="#cfe-modal-container"
             hx-swap="innerHTML"
             class="text-xs bg-green-600 hover:bg-green-700 text-white font-medium px-3 py-1 rounded-lg transition-colors">
@@ -102,7 +102,7 @@
                 <td class="py-2 text-right">
                     {% if xml_row and xml_row.estatus == 'error' %}
                     <button type="button"
-                        hx-post="/cfe/servicios/{{ servicio.id }}/descargar"
+                        hx-post="/cfe/servicios/{{ servicio.id }}/descargar{% if modulo %}?modulo={{ modulo }}{% endif %}"
                         hx-target="closest div[id^='historial']"
                         hx-swap="innerHTML"
                         class="text-xs text-teal-600 hover:text-teal-800 font-medium">
@@ -110,7 +110,7 @@
                     </button>
                     {% elif puede_reintentar_pdf %}
                     <button type="button"
-                        hx-post="/cfe/servicios/{{ servicio.id }}/descargas/{{ periodo }}/reintentar-pdf"
+                        hx-post="/cfe/servicios/{{ servicio.id }}/descargas/{{ periodo }}/reintentar-pdf{% if modulo %}?modulo={{ modulo }}{% endif %}"
                         hx-target="closest div[id^='historial']"
                         hx-swap="innerHTML"
                         class="text-xs text-teal-600 hover:text-teal-800 font-medium">
