@@ -318,6 +318,11 @@
                     class="py-2 px-3 border-b-2 font-medium text-sm transition">
                     Historial de Cambios
                 </button>
+                <button @click="tab = 'resumen-compra'"
+                    :class="{'border-indigo-500 text-indigo-600': tab === 'resumen-compra', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'resumen-compra'}"
+                    class="py-2 px-3 border-b-2 font-medium text-sm transition">
+                    Resumen de compra
+                </button>
                 {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] and es_compras_editor %}
                 <button x-ref="tabCotizaciones" @click="tab = 'cotizaciones'"
                     :class="{'border-emerald-500 text-emerald-600': tab === 'cotizaciones', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'cotizaciones'}"
@@ -350,6 +355,12 @@
         <div x-show="tab === 'historial'" id="tab-historial" hx-get="/bom/{{ bom.id_bom }}/historial"
             hx-trigger="intersect once" hx-swap="innerHTML">
             <div class="text-center py-4 text-gray-400 text-sm">Cargando historial...</div>
+        </div>
+
+        <div x-show="tab === 'resumen-compra'" id="tab-resumen-compra"
+            hx-get="/bom/{{ bom.id_bom }}/resumen-compra"
+            hx-trigger="intersect once" hx-swap="innerHTML">
+            <div class="text-center py-4 text-gray-400 text-sm">Cargando resumen de compra...</div>
         </div>
 
         {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] and es_compras_editor %}

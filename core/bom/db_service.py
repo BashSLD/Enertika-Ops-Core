@@ -1413,6 +1413,109 @@ class BomDBService:
         """, item_ids)
         return {str(r['current_id']): float(r['total_gastado']) for r in rows}
 
+    # ─── RESUMEN DE COMPRA (Presupuesto vs Facturado vs Pagado) ───
+
+    async def get_resumen_compra(self, conn, id_bom: UUID) -> List[dict]:
+        """Comparativo por categoría: presupuesto, facturado y pagado (todo en MXN).
+
+        Una sola query con CTEs (sin N+1). Devuelve una fila por categoría con datos
+        en cualquiera de las tres columnas, incluyendo la sección de BOM de la categoría.
+
+        - Presupuesto: cantidad x precio_unitario de los items activos del BOM.
+        - Facturado: importe de los conceptos CFDI ligados al item (o a su versión anterior
+          vía id_item_origen, mismo criterio que get_gasto_real_por_item), normalizado a MXN.
+        - Pagado: monto desembolsado a nivel autorización, prorrateado entre los items de la
+          cotización según subtotal_linea, normalizado a MXN.
+        """
+        rows = await conn.fetch("""
+            WITH presupuesto AS (
+                SELECT i.id_categoria,
+                       SUM(i.cantidad * COALESCE(i.precio_unitario, 0)) AS presupuesto_mxn
+                FROM tb_bom_items i
+                WHERE i.id_bom = $1 AND i.activo = TRUE
+                GROUP BY i.id_categoria
+            ),
+            facturado AS (
+                SELECT it.id_categoria,
+                       SUM(m.importe * COALESCE(m.tipo_cambio_xml, 1)) AS facturado_mxn
+                FROM tb_bom_items it
+                JOIN tb_materiales_historial m
+                  ON m.id_bom_item = it.id_item
+                  OR m.id_bom_item = it.id_item_origen
+                WHERE it.id_bom = $1
+                GROUP BY it.id_categoria
+            ),
+            coti_items AS (
+                SELECT a.id AS autorizacion_id,
+                       ci.subtotal_linea,
+                       it.id_categoria
+                FROM tb_bom_autorizaciones a
+                JOIN tb_bom_cotizacion_items ci ON ci.cotizacion_id = a.cotizacion_id
+                JOIN tb_bom_items it ON it.id_item = ci.bom_item_id
+                WHERE a.bom_id = $1
+            ),
+            pago_por_auth AS (
+                SELECT p.autorizacion_id,
+                       SUM(p.monto_pagado * COALESCE(p.tipo_cambio_usado, 1)) AS pagado_mxn
+                FROM tb_bom_pagos p
+                JOIN tb_bom_autorizaciones a ON a.id = p.autorizacion_id
+                WHERE a.bom_id = $1
+                GROUP BY p.autorizacion_id
+            ),
+            auth_totales AS (
+                SELECT autorizacion_id,
+                       NULLIF(SUM(subtotal_linea), 0) AS total_subtotal
+                FROM coti_items
+                GROUP BY autorizacion_id
+            ),
+            pagado AS (
+                SELECT ci.id_categoria,
+                       SUM(pa.pagado_mxn * (ci.subtotal_linea / at.total_subtotal)) AS pagado_mxn
+                FROM coti_items ci
+                JOIN pago_por_auth pa ON pa.autorizacion_id = ci.autorizacion_id
+                JOIN auth_totales at ON at.autorizacion_id = ci.autorizacion_id
+                WHERE at.total_subtotal IS NOT NULL
+                GROUP BY ci.id_categoria
+            )
+            SELECT c.id AS categoria_id,
+                   c.nombre AS categoria_nombre,
+                   COALESCE(c.seccion_bom, 'Otros') AS seccion_bom,
+                   COALESCE(pr.presupuesto_mxn, 0) AS presupuesto_mxn,
+                   COALESCE(f.facturado_mxn, 0) AS facturado_mxn,
+                   COALESCE(pg.pagado_mxn, 0) AS pagado_mxn
+            FROM tb_cat_categorias_compra c
+            LEFT JOIN presupuesto pr ON pr.id_categoria = c.id
+            LEFT JOIN facturado f ON f.id_categoria = c.id
+            LEFT JOIN pagado pg ON pg.id_categoria = c.id
+            WHERE COALESCE(pr.presupuesto_mxn, 0) <> 0
+               OR COALESCE(f.facturado_mxn, 0) <> 0
+               OR COALESCE(pg.pagado_mxn, 0) <> 0
+            ORDER BY c.id
+        """, id_bom)
+        return [dict(r) for r in rows]
+
+    async def get_divisores_bom(self, conn, id_bom: UUID) -> dict:
+        """Divisores para métricas normalizadas: kWp de cierre FV y módulos FV del BOM.
+
+        - kwp: potencia de cierre FV de la oportunidad ligada al proyecto del BOM.
+        - modulos_fv: suma de cantidades de items activos en la categoría Panel (id 11).
+        """
+        row = await conn.fetchrow("""
+            SELECT
+                (SELECT o.potencia_cierre_fv_kwp
+                   FROM tb_bom b
+                   JOIN tb_proyectos_gate g ON g.id_proyecto = b.id_proyecto
+                   JOIN tb_oportunidades o ON o.id_oportunidad = g.id_oportunidad
+                   WHERE b.id_bom = $1) AS kwp,
+                (SELECT SUM(i.cantidad)
+                   FROM tb_bom_items i
+                   WHERE i.id_bom = $1 AND i.activo = TRUE AND i.id_categoria = 11) AS modulos_fv
+        """, id_bom)
+        return {
+            "kwp": float(row["kwp"]) if row and row["kwp"] is not None else None,
+            "modulos_fv": float(row["modulos_fv"]) if row and row["modulos_fv"] is not None else None,
+        }
+
     # ─── COMPARATIVA RFQ (Gap 7d) ───────────────────────────
 
     async def get_rfqs_by_bom(self, conn, id_bom: UUID) -> list:

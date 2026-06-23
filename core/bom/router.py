@@ -3,18 +3,17 @@ Router compartido de BOM (Lista de Materiales).
 Endpoints HTMX para CRUD de items, workflow de aprobaciones y exportacion Excel.
 """
 
-from fastapi import APIRouter, Depends, Request, HTTPException, Form, UploadFile, File
+from fastapi import APIRouter, Depends, Request, HTTPException, Form
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import Response, HTMLResponse
 from uuid import UUID
-from typing import List, Optional
+from typing import Optional
 import asyncpg
 import logging
-import json
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
-from core.permissions import require_module_access, require_manager_access, get_user_module_role, require_role, require_any_module_access
+from core.permissions import require_module_access, require_manager_access, require_role, require_any_module_access
 from core.config import settings
 from core.timezone import now_mx
 from core.materials.normalizer import normalizar_descripcion
@@ -1776,6 +1775,26 @@ async def get_autorizaciones_tab(
     return templates.TemplateResponse(
         request, "bom/partials/autorizaciones.html",
         _autorizacion_ctx(request, autorizaciones, bom, context),
+    )
+
+
+@router.get("/{id_bom}/resumen-compra", include_in_schema=False)
+async def get_resumen_compra_tab(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    """Tab Resumen de compra — comparativo Presupuesto vs Facturado vs Pagado, lazy HTMX."""
+    bom = await service.db.get_bom_by_id(conn, id_bom)
+    if not bom:
+        raise HTTPException(status_code=404, detail="BOM no encontrado")
+    resumen = await service.get_resumen_compra(conn, id_bom)
+    return templates.TemplateResponse(
+        request, "bom/partials/resumen_compra.html",
+        {"bom": bom, "resumen": resumen},
     )
 
 

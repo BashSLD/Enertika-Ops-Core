@@ -488,6 +488,98 @@ class BomService:
             item['gasto_real'] = round(gasto, 2)
         return item
 
+    # ─── RESUMEN DE COMPRA ───────────────────────────────────
+
+    # Orden y etiqueta de las secciones del BOM para el reporte.
+    _SECCIONES_RESUMEN = [
+        ("DC", "Corriente Directa (DC)"),
+        ("AC", "Corriente Alterna (AC)"),
+        ("CM", "Comunicación"),
+        ("Otros", "Otros"),
+    ]
+
+    async def get_resumen_compra(self, conn, id_bom: UUID) -> dict:
+        """Arma el comparativo Presupuesto vs Facturado vs Pagado del BOM.
+
+        Agrupa las categorías por sección (rollup en memoria), calcula totales,
+        desviaciones (presupuesto - facturado / - pagado) y métricas normalizadas
+        (MXN por módulo FV y por kWp). Solo agregación; no escribe nada.
+        """
+        filas = await self.db.get_resumen_compra(conn, id_bom)
+        divisores = await self.db.get_divisores_bom(conn, id_bom)
+
+        # Agrupar categorías por código de sección.
+        por_seccion: dict[str, list] = {}
+        for f in filas:
+            cat = {
+                "categoria_id": f["categoria_id"],
+                "categoria_nombre": f["categoria_nombre"],
+                "presupuesto": float(f["presupuesto_mxn"]),
+                "facturado": float(f["facturado_mxn"]),
+                "pagado": float(f["pagado_mxn"]),
+            }
+            cat["dif_facturado"] = cat["presupuesto"] - cat["facturado"]
+            cat["dif_pagado"] = cat["presupuesto"] - cat["pagado"]
+            por_seccion.setdefault(f["seccion_bom"] or "Otros", []).append(cat)
+
+        secciones = []
+        tot_presup = tot_fact = tot_pag = 0.0
+        # Secciones conocidas en orden fijo + cualquier código inesperado al final.
+        codigos = [c for c, _ in self._SECCIONES_RESUMEN]
+        codigos += [c for c in por_seccion if c not in codigos]
+        etiquetas = dict(self._SECCIONES_RESUMEN)
+
+        for codigo in codigos:
+            cats = por_seccion.get(codigo)
+            if not cats:
+                continue
+            s_presup = sum(c["presupuesto"] for c in cats)
+            s_fact = sum(c["facturado"] for c in cats)
+            s_pag = sum(c["pagado"] for c in cats)
+            secciones.append({
+                "codigo": codigo,
+                "nombre": etiquetas.get(codigo, codigo),
+                "presupuesto": s_presup,
+                "facturado": s_fact,
+                "pagado": s_pag,
+                "dif_facturado": s_presup - s_fact,
+                "dif_pagado": s_presup - s_pag,
+                "categorias": cats,
+            })
+            tot_presup += s_presup
+            tot_fact += s_fact
+            tot_pag += s_pag
+
+        totales = {
+            "presupuesto": tot_presup,
+            "facturado": tot_fact,
+            "pagado": tot_pag,
+            "dif_facturado": tot_presup - tot_fact,
+            "dif_pagado": tot_presup - tot_pag,
+        }
+
+        modulos = divisores["modulos_fv"]
+        kwp = divisores["kwp"]
+
+        def _por(divisor, valor):
+            return round(valor / divisor, 2) if divisor else None
+
+        metricas = {
+            "modulos_fv": modulos,
+            "kwp": kwp,
+            "presup_por_modulo": _por(modulos, tot_presup),
+            "facturado_por_modulo": _por(modulos, tot_fact),
+            "presup_por_kwp": _por(kwp, tot_presup),
+            "facturado_por_kwp": _por(kwp, tot_fact),
+        }
+
+        return {
+            "secciones": secciones,
+            "totales": totales,
+            "metricas": metricas,
+            "sin_datos": not secciones,
+        }
+
     # ─── WORKFLOW DE APROBACION ──────────────────────────────
 
     async def enviar_revision_ing(

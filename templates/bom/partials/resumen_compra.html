@@ -1,0 +1,116 @@
+{# Resumen de compra: comparativo Presupuesto vs Facturado vs Pagado (sección -> categoría). #}
+{% macro money(v) %}${{ "{:,.2f}".format(v | float) }}{% endmacro %}
+
+{% if resumen.sin_datos %}
+<div class="text-center py-10 px-4">
+    <svg class="mx-auto h-10 w-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+    </svg>
+    <p class="mt-3 text-sm text-gray-500">Aún no hay datos de compra para este BOM.</p>
+    <p class="text-xs text-gray-400">El presupuesto aparecerá al cargar los items; el facturado y el pagado, conforme se compre.</p>
+</div>
+{% else %}
+
+{% set t = resumen.totales %}
+{% set m = resumen.metricas %}
+{% set escala = [t.presupuesto, t.facturado, t.pagado] | max %}
+{% if not escala %}{% set escala = 1 %}{% endif %}
+
+{# Tarjetas de métricas normalizadas #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+    <div class="rounded-lg border border-gray-200 bg-white p-3">
+        <p class="text-[11px] uppercase tracking-wide text-gray-400">Presupuesto / Módulo FV</p>
+        <p class="text-base font-bold text-gray-800">{% if m.presup_por_modulo is not none %}{{ money(m.presup_por_modulo) }}{% else %}—{% endif %}</p>
+        <p class="text-[11px] text-gray-400">{% if m.modulos_fv %}{{ "{:,.0f}".format(m.modulos_fv) }} módulos{% else %}sin módulos{% endif %}</p>
+    </div>
+    <div class="rounded-lg border border-gray-200 bg-white p-3">
+        <p class="text-[11px] uppercase tracking-wide text-gray-400">Facturado / Módulo FV</p>
+        <p class="text-base font-bold text-gray-800">{% if m.facturado_por_modulo is not none %}{{ money(m.facturado_por_modulo) }}{% else %}—{% endif %}</p>
+    </div>
+    <div class="rounded-lg border border-gray-200 bg-white p-3">
+        <p class="text-[11px] uppercase tracking-wide text-gray-400">Presupuesto / kWp</p>
+        <p class="text-base font-bold text-gray-800">{% if m.presup_por_kwp is not none %}{{ money(m.presup_por_kwp) }}{% else %}—{% endif %}</p>
+        <p class="text-[11px] text-gray-400">{% if m.kwp %}{{ "{:,.2f}".format(m.kwp) }} kWp{% else %}sin kWp{% endif %}</p>
+    </div>
+    <div class="rounded-lg border border-gray-200 bg-white p-3">
+        <p class="text-[11px] uppercase tracking-wide text-gray-400">Facturado / kWp</p>
+        <p class="text-base font-bold text-gray-800">{% if m.facturado_por_kwp is not none %}{{ money(m.facturado_por_kwp) }}{% else %}—{% endif %}</p>
+    </div>
+</div>
+
+{# Leyenda de colores #}
+<div class="flex flex-wrap items-center gap-x-4 gap-y-1 mb-2 text-[11px] text-gray-500">
+    <span class="flex items-center gap-1"><span class="inline-block w-3 h-2 rounded-sm bg-blue-500"></span> Presupuesto</span>
+    <span class="flex items-center gap-1"><span class="inline-block w-3 h-2 rounded-sm bg-amber-500"></span> Facturado</span>
+    <span class="flex items-center gap-1"><span class="inline-block w-3 h-2 rounded-sm bg-emerald-500"></span> Pagado</span>
+</div>
+
+{# Tabla sección -> categoría #}
+<div class="overflow-x-auto rounded-lg border border-gray-200" x-data="{ abiertas: {} }">
+    <table class="min-w-full text-sm">
+        <thead>
+            <tr class="bg-gray-50 text-gray-500 text-[11px] uppercase tracking-wide">
+                <th class="text-left font-medium px-3 py-2">Sección / Categoría</th>
+                <th class="text-right font-medium px-3 py-2">Presupuesto</th>
+                <th class="text-right font-medium px-3 py-2">Facturado</th>
+                <th class="text-right font-medium px-3 py-2">Pagado</th>
+                <th class="text-right font-medium px-3 py-2">Dif. Fact.</th>
+                <th class="px-3 py-2 w-40">Comparativo</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+            {% for s in resumen.secciones %}
+            <tr class="bg-gray-50/60 cursor-pointer hover:bg-gray-100"
+                @click="abiertas['{{ s.codigo }}'] = !abiertas['{{ s.codigo }}']">
+                <td class="px-3 py-2 font-semibold text-gray-800">
+                    <span class="inline-flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5 text-gray-400 transition-transform"
+                             :class="{'rotate-90': abiertas['{{ s.codigo }}']}"
+                             fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                        {{ s.nombre }}
+                    </span>
+                </td>
+                <td class="px-3 py-2 text-right font-semibold text-gray-800">{{ money(s.presupuesto) }}</td>
+                <td class="px-3 py-2 text-right text-gray-700">{{ money(s.facturado) }}</td>
+                <td class="px-3 py-2 text-right text-gray-700">{{ money(s.pagado) }}</td>
+                <td class="px-3 py-2 text-right font-medium {{ 'text-emerald-600' if s.dif_facturado >= 0 else 'text-red-600' }}">{{ money(s.dif_facturado) }}</td>
+                <td class="px-3 py-2">
+                    <div class="space-y-0.5">
+                        <div class="h-1.5 rounded-sm bg-blue-500" style="width: {{ "%.1f"|format(s.presupuesto / escala * 100) }}%"></div>
+                        <div class="h-1.5 rounded-sm bg-amber-500" style="width: {{ "%.1f"|format(s.facturado / escala * 100) }}%"></div>
+                        <div class="h-1.5 rounded-sm bg-emerald-500" style="width: {{ "%.1f"|format(s.pagado / escala * 100) }}%"></div>
+                    </div>
+                </td>
+            </tr>
+            {% for c in s.categorias %}
+            <tr x-show="abiertas['{{ s.codigo }}']" x-cloak class="text-gray-600">
+                <td class="px-3 py-1.5 pl-9">{{ c.categoria_nombre }}</td>
+                <td class="px-3 py-1.5 text-right">{{ money(c.presupuesto) }}</td>
+                <td class="px-3 py-1.5 text-right">{{ money(c.facturado) }}</td>
+                <td class="px-3 py-1.5 text-right">{{ money(c.pagado) }}</td>
+                <td class="px-3 py-1.5 text-right {{ 'text-emerald-600' if c.dif_facturado >= 0 else 'text-red-600' }}">{{ money(c.dif_facturado) }}</td>
+                <td class="px-3 py-1.5"></td>
+            </tr>
+            {% endfor %}
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr class="bg-gray-100 font-bold text-gray-800 border-t-2 border-gray-200">
+                <td class="px-3 py-2">Total</td>
+                <td class="px-3 py-2 text-right">{{ money(t.presupuesto) }}</td>
+                <td class="px-3 py-2 text-right">{{ money(t.facturado) }}</td>
+                <td class="px-3 py-2 text-right">{{ money(t.pagado) }}</td>
+                <td class="px-3 py-2 text-right {{ 'text-emerald-700' if t.dif_facturado >= 0 else 'text-red-700' }}">{{ money(t.dif_facturado) }}</td>
+                <td class="px-3 py-2"></td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+
+<p class="mt-2 text-[11px] text-gray-400">
+    Montos sin IVA y en MXN (tipo de cambio real por documento). El Facturado solo incluye compras
+    ligadas a un material del BOM; el Pagado se prorratea entre los materiales de cada autorización.
+</p>
+{% endif %}
