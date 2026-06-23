@@ -87,25 +87,6 @@
         height: 4px;
     }
 
-    .comercial-action-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    .comercial-action-label {
-        max-width: 0;
-        opacity: 0;
-        overflow: hidden;
-        white-space: nowrap;
-        transition: max-width 0.2s ease, opacity 0.16s ease;
-    }
-
-    .comercial-action-btn:hover .comercial-action-label,
-    .comercial-action-btn:focus-visible .comercial-action-label {
-        max-width: 170px;
-        opacity: 1;
-    }
 </style>
 <div class="flex flex-col h-full">
     {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
@@ -180,27 +161,27 @@
             {% if can_edit %}
             <!-- Botón 1: Nuevo Registro (Todos los editores) -->
             <button onclick="handleNewRecordClick()"
-                class="comercial-action-btn ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white text-sm font-bold py-2 px-2.5 rounded-lg shadow-lg shadow-[#00BABB]/30 transition-all duration-200 ease-in-out transform hover:scale-105"
+                class="action-btn bg-[#00BABB] hover:bg-[#009999] text-white"
                 aria-label="Nuevo Registro">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                 </svg>
-                <span class="comercial-action-label">Nuevo Registro</span>
+                <span class="action-label">Nuevo Registro</span>
             </button>
 
             {% if is_admin_or_manager %}
             <!-- Botón 2: Registro Extraordinario (Solo ADMIN/MANAGER) con Popup Advertencia -->
             <div x-data="{ showWarning: false }" class="relative">
                 <button id="btn-comercial-extraordinario" @click="showWarning = true"
-                    class="comercial-action-btn ripple-effect bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold py-2 px-2.5 rounded-lg shadow-lg shadow-orange-600/30 transition-all duration-200 ease-in-out transform hover:scale-105"
+                    class="action-btn bg-orange-600 hover:bg-orange-700 text-white"
                     aria-label="Registro Extraordinario">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    <span class="comercial-action-label">Registro Extraordinario</span>
+                    <span class="action-label">Registro Extraordinario</span>
                 </button>
 
                 <!-- Popup de Advertencia -->
@@ -329,14 +310,14 @@
                 </div>
 
                 <button id="btn-comercial-especial" @click="showPopup = true; searchTerm = ''; errorMsg = ''"
-                    class="comercial-action-btn ripple-effect bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold py-2 px-2.5 rounded-lg shadow-lg shadow-purple-600/30 transition-all duration-200 ease-in-out transform hover:scale-105"
+                    class="action-btn bg-purple-600 hover:bg-purple-700 text-white"
                     aria-label="Solicitud Especial">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                     </svg>
-                    <span class="comercial-action-label">Solicitud Especial</span>
+                    <span class="action-label">Solicitud Especial</span>
                 </button>
 
                 <!-- Popup de Validación de Hilo -->
@@ -455,13 +436,13 @@
                 hx-swap="innerHTML"
                 hx-disabled-elt="this" hx-sync="this:drop"
                 hx-on::before-request="document.getElementById('modal-calculadora-ventas')?.remove()"
-                class="comercial-action-btn ripple-effect bg-gray-700 hover:bg-gray-800 text-white text-sm font-bold py-2 px-2.5 rounded-lg shadow-lg transition-all duration-200 ease-in-out transform hover:scale-105"
+                class="action-btn bg-gray-700 hover:bg-gray-800 text-white"
                 aria-label="Calculadora de ventas">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M9 7H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M9 7h6M9 12h.01M12 12h.01M15 12h.01M9 15h.01M12 15h.01M15 15h.01M9 18h.01M12 18h.01M15 18h.01"/>
                     </svg>
-                <span class="comercial-action-label">Calculadora</span>
+                <span class="action-label">Calculadora</span>
             </button>
         </div>
     </div>

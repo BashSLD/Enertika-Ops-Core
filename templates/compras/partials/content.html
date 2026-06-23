@@ -1,24 +1,3 @@
-<style>
-    .compras-action-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    .compras-action-label {
-        max-width: 0;
-        opacity: 0;
-        overflow: hidden;
-        white-space: nowrap;
-        transition: max-width 0.2s ease, opacity 0.16s ease;
-    }
-
-    .compras-action-btn:hover .compras-action-label,
-    .compras-action-btn:focus-visible .compras-action-label {
-        max-width: 170px;
-        opacity: 1;
-    }
-</style>
 <div class="animate-fade-in-down px-4">
     {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
     {% set filtros_excel = filtros if filtros is defined else {} %}
@@ -96,86 +75,86 @@
                 {% if can_edit %}
                 <!-- Botón Upload PDFs -->
                 <button onclick="document.getElementById('upload-modal').classList.remove('hidden')"
-                    class="compras-action-btn ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white font-bold py-2 px-2.5 text-sm rounded-lg shadow-lg shadow-[#00BABB]/30 transition-all duration-200 ease-in-out transform hover:scale-105"
+                    class="action-btn bg-[#00BABB] hover:bg-[#009999] text-white"
                     aria-label="Cargar PDFs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                     </svg>
-                    <span class="compras-action-label">Cargar PDFs</span>
+                    <span class="action-label">Cargar PDFs</span>
                 </button>
 
                 <!-- Botón Upload XMLs -->
                 <button onclick="document.getElementById('upload-xml-modal').classList.remove('hidden')"
-                    class="compras-action-btn ripple-effect bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-2.5 text-sm rounded-lg shadow-lg shadow-orange-500/30 transition-all duration-200 ease-in-out transform hover:scale-105"
+                    class="action-btn bg-orange-500 hover:bg-orange-600 text-white"
                     aria-label="Cargar XMLs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                     </svg>
-                    <span class="compras-action-label">Cargar XMLs</span>
+                    <span class="action-label">Cargar XMLs</span>
                 </button>
                 {% endif %}
 
                 <!-- Botón Proyectos BOM -->
                 <button hx-get="/compras/proyectos-bom" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="/compras/proyectos-bom"
-                    class="compras-action-btn ripple-effect bg-[#123456] hover:bg-[#0d263d] text-white font-bold py-2 px-2.5 text-sm rounded-lg shadow transition-transform hover:scale-105"
+                    class="action-btn bg-[#123456] hover:bg-[#0d263d] text-white"
                     aria-label="Proyectos BOM">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
                     </svg>
-                    <span class="compras-action-label">Proyectos BOM</span>
+                    <span class="action-label">Proyectos BOM</span>
                 </button>
 
                 <!-- Botón Almacén (solo editores) -->
                 {% if can_edit %}
                 <button hx-get="/compras/inventario" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
-                    class="compras-action-btn ripple-effect bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-2.5 text-sm rounded-lg shadow transition-transform hover:scale-105"
+                    class="action-btn bg-amber-600 hover:bg-amber-700 text-white"
                     aria-label="Mini Almacén">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
                     </svg>
-                    <span class="compras-action-label">Almacén</span>
+                    <span class="action-label">Almacén</span>
                 </button>
                 {% endif %}
 
                 <!-- Botón Materiales -->
                 <a href="/materials/ui" hx-get="/materials/ui" hx-target="#main-content" hx-push-url="true"
-                    class="compras-action-btn ripple-effect bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-2.5 text-sm rounded-lg shadow transition-transform hover:scale-105"
+                    class="action-btn bg-indigo-600 hover:bg-indigo-700 text-white"
                     aria-label="Materiales">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                     </svg>
-                    <span class="compras-action-label">Materiales</span>
+                    <span class="action-label">Materiales</span>
                 </a>
 
                 <!-- Botón Proveedores -->
                 <button hx-get="/compras/proveedores/ui" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="/compras/proveedores/ui"
-                    class="compras-action-btn ripple-effect bg-violet-600 hover:bg-violet-700 text-white font-bold py-2 px-2.5 text-sm rounded-lg shadow transition-transform hover:scale-105"
+                    class="action-btn bg-violet-600 hover:bg-violet-700 text-white"
                     aria-label="Proveedores">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
                     </svg>
-                    <span class="compras-action-label">Proveedores</span>
+                    <span class="action-label">Proveedores</span>
                 </button>
 
                 <!-- Botón Relaciones -->
                 <button hx-get="/compras/relaciones" hx-target="#relaciones-container" hx-swap="innerHTML"
-                    class="compras-action-btn ripple-effect bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-2.5 text-sm rounded-lg shadow transition-transform hover:scale-105"
+                    class="action-btn bg-teal-600 hover:bg-teal-700 text-white"
                     aria-label="Relaciones">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                     </svg>
-                    <span class="compras-action-label">Relaciones</span>
+                    <span class="action-label">Relaciones</span>
                 </button>
 
             </div>

@@ -48,80 +48,80 @@
         <div class="flex items-center gap-2">
             {% if estado_sesion is defined and estado_sesion.sesion_estado != 'activa' %}
             {% set _expira_pronto = estado_sesion.sesion_estado == 'expira_pronto' %}
-            <div class="cfe-action-wrapper">
+            <div class="action-wrapper">
                 <button type="button"
                     hx-get="/cfe/ui/modal-renovar-sesion{% if modulo %}?modulo={{ modulo }}{% endif %}"
                     hx-target="#cfe-modal-container"
                     hx-swap="innerHTML"
-                    class="cfe-action-btn {% if _expira_pronto %}bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200{% else %}bg-red-50 hover:bg-red-100 text-red-700 border-red-200{% endif %} border"
+                    class="action-btn {% if _expira_pronto %}bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200{% else %}bg-red-50 hover:bg-red-100 text-red-700 border-red-200{% endif %} border"
                     aria-label="Renovar sesión">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                     </svg>
-                    <span class="cfe-action-label">Renovar sesión</span>
+                    <span class="action-label">Renovar sesión</span>
                 </button>
-                <div class="cfe-tooltip">Reconectar con MiEspacio para habilitar descargas</div>
+                <div class="action-tooltip">Reconectar con MiEspacio para habilitar descargas</div>
             </div>
             {% endif %}
-            <div class="cfe-action-wrapper">
+            <div class="action-wrapper">
                 <button type="button"
                     hx-post="/cfe/servicios/descargar-todos{% if modulo %}?modulo={{ modulo }}{% endif %}"
                     hx-target="#cfe-lista"
                     hx-swap="outerHTML"
                     hx-confirm="¿Descargar el último recibo de todos los servicios registrados en MiEspacio? Las descargas se procesan en segundo plano y pueden tardar varios minutos."
-                    class="cfe-action-btn bg-teal-600 hover:bg-teal-700 text-white"
+                    class="action-btn bg-teal-600 hover:bg-teal-700 text-white"
                     aria-label="Actualizar recibos">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
                     </svg>
-                    <span class="cfe-action-label">Actualizar recibos</span>
+                    <span class="action-label">Actualizar recibos</span>
                 </button>
-                <div class="cfe-tooltip">Descarga el recibo del periodo más reciente de cada servicio en segundo plano</div>
+                <div class="action-tooltip">Descarga el recibo del periodo más reciente de cada servicio en segundo plano</div>
             </div>
             {% if servicios | selectattr('total_descargas') | list %}
-            <div class="cfe-action-wrapper">
+            <div class="action-wrapper">
                 <a href="/cfe/servicios/zip-global{% if modulo %}?modulo={{ modulo }}{% endif %}"
-                    class="cfe-action-btn bg-green-700 hover:bg-green-800 text-white"
+                    class="action-btn bg-green-700 hover:bg-green-800 text-white"
                     aria-label="Exportar ZIP">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
                     </svg>
-                    <span class="cfe-action-label">Exportar ZIP</span>
+                    <span class="action-label">Exportar ZIP</span>
                 </a>
-                <div class="cfe-tooltip">ZIP con XML, PDF y Excel del último periodo descargado por servicio</div>
+                <div class="action-tooltip">ZIP con XML, PDF y Excel del último periodo descargado por servicio</div>
             </div>
             {% endif %}
-            <div class="cfe-action-wrapper">
+            <div class="action-wrapper">
                 <button type="button"
                     hx-get="/cfe/ui/modal-xml-excel"
                     hx-target="#cfe-modal-container"
                     hx-swap="innerHTML"
-                    class="cfe-action-btn bg-blue-600 hover:bg-blue-700 text-white"
+                    class="action-btn bg-blue-600 hover:bg-blue-700 text-white"
                     aria-label="XML a Excel">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
                     </svg>
-                    <span class="cfe-action-label">XML a Excel</span>
+                    <span class="action-label">XML a Excel</span>
                 </button>
-                <div class="cfe-tooltip">Convierte archivos XML de CFE a formato Excel</div>
+                <div class="action-tooltip">Convierte archivos XML de CFE a formato Excel</div>
             </div>
-            <div class="cfe-action-wrapper">
+            <div class="action-wrapper">
                 <button type="button"
                     hx-get="/cfe/ui/modal-agregar{% if modulo %}?modulo={{ modulo }}{% endif %}"
                     hx-target="#cfe-modal-container"
                     hx-swap="innerHTML"
-                    class="cfe-action-btn bg-teal-600 hover:bg-teal-700 text-white"
+                    class="action-btn bg-teal-600 hover:bg-teal-700 text-white"
                     aria-label="Agregar Servicio">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                     </svg>
-                    <span class="cfe-action-label">Agregar Servicio</span>
+                    <span class="action-label">Agregar Servicio</span>
                 </button>
-                <div class="cfe-tooltip">Registra un nuevo servicio CFE</div>
+                <div class="action-tooltip">Registra un nuevo servicio CFE</div>
             </div>
         </div>
     </div>
@@ -157,7 +157,8 @@
        un modal abierto (la busqueda activa ya se ve dentro del modal). #}
     {% set busquedas_activas = servicios | selectattr('busqueda_activa_estatus', 'in', ['pendiente', 'descargando']) | list %}
     {% set altas_en_proceso = servicios | selectattr('miespacio_estatus', 'in', ['pendiente', 'registrando']) | list %}
-    {% if busquedas_activas or altas_en_proceso %}
+    {% set descargas_activas = servicios | selectattr('descarga_activa') | list %}
+    {% if busquedas_activas or altas_en_proceso or descargas_activas %}
     <div hx-get="/cfe/ui{% if modulo %}?modulo={{ modulo }}{% endif %}"
          hx-target="#main-content"
          hx-swap="innerHTML"
@@ -261,7 +262,7 @@
                     </button>
                     {% endif %}
                     {% if s.total_descargas %}
-                    <a href="/cfe/servicios/{{ s.id }}/zip"
+                    <a href="/cfe/servicios/{{ s.id }}/zip{% if modulo %}?modulo={{ modulo }}{% endif %}"
                        class="text-xs bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
                         Descargar ZIP
                     </a>
@@ -304,7 +305,7 @@
                     </button>
                     <button type="button"
                         @click="expanded = !expanded"
-                        hx-get="/cfe/servicios/{{ s.id }}/descargas"
+                        hx-get="/cfe/servicios/{{ s.id }}/descargas{% if modulo %}?modulo={{ modulo }}{% endif %}"
                         hx-target="#historial-{{ s.id }}"
                         hx-swap="innerHTML"
                         hx-trigger="click once"
@@ -323,7 +324,7 @@
                  x-show="expanded"
                  x-cloak
                  {% if s.descarga_activa %}
-                 hx-get="/cfe/servicios/{{ s.id }}/descargas"
+                 hx-get="/cfe/servicios/{{ s.id }}/descargas{% if modulo %}?modulo={{ modulo }}{% endif %}"
                  hx-trigger="load, every 4s"
                  hx-swap="innerHTML"
                  {% endif %}
