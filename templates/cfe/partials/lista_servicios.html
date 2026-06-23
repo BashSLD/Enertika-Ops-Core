@@ -10,8 +10,10 @@
         <div>
             <h1 class="text-xl font-bold text-gray-900">Recibos CFE</h1>
             <p class="text-sm text-gray-500 mt-0.5">Descarga y gestión de recibos de luz por servicio</p>
-            {% if estado_sesion is defined %}
+            {% set servicios_error = servicios | selectattr('miespacio_estatus', 'equalto', 'error') | list %}
+            {% if estado_sesion is defined or servicios_error %}
             <div class="mt-1.5 flex items-center gap-2 text-xs">
+                {% if estado_sesion is defined %}
                 {% if estado_sesion.sesion_estado == 'activa' %}
                 <span class="inline-flex items-center gap-1 text-green-600 font-medium">
                     <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>Sesión MiEspacio activa
@@ -28,6 +30,17 @@
                 <span class="inline-flex items-center gap-1 text-red-500 font-medium">
                     <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>Sesión MiEspacio expirada — renueva para descargar PDFs
                 </span>
+                {% endif %}
+                {% endif %}
+                {% if servicios_error %}
+                {% if estado_sesion is defined %}<span class="text-gray-300">·</span>{% endif %}
+                <a href="#cfe-error-section"
+                   class="inline-flex items-center gap-1 text-red-600 font-medium hover:text-red-800 hover:underline">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z"/>
+                    </svg>
+                    {{ servicios_error | length }} con error de registro
+                </a>
                 {% endif %}
             </div>
             {% endif %}
@@ -161,7 +174,7 @@
     <div class="grid gap-4">
         {% for s in servicios %}
         {% if s.miespacio_estatus == 'error' and (loop.first or loop.previtem.miespacio_estatus != 'error') %}
-        <div class="flex items-center gap-3 pt-2">
+        <div id="cfe-error-section" class="flex items-center gap-3 pt-2 scroll-mt-24">
             <div class="h-px flex-1 bg-red-200"></div>
             <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-red-600 uppercase tracking-wide">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
