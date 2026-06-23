@@ -5,12 +5,13 @@ Maneja HTTP/SSE requests, delega lógica al Service Layer.
 
 Patrón recomendado por GUIA_MAESTRA: Router delgado, Service robusto.
 """
-from typing import Optional
+from typing import AsyncIterator, Optional
 from fastapi import APIRouter, Depends, Request
-from sse_starlette.sse import EventSourceResponse
+from sse_starlette.sse import AppStatus, EventSourceResponse
 from uuid import UUID
 import asyncio
 import asyncpg
+import anyio
 import json
 import logging
 
@@ -25,6 +26,30 @@ router = APIRouter(
     tags=["Notificaciones en Tiempo Real"]
 )
 
+
+class GracefulEventSourceResponse(EventSourceResponse):
+    """
+    Variante de EventSourceResponse que avisa al generador antes de cerrar por
+    shutdown. Evita que la tarea de streaming se cancele sin enviar el cierre
+    ASGI final, que Uvicorn reporta como respuesta incompleta.
+    """
+
+    def __init__(self, content: AsyncIterator, shutdown_event: asyncio.Event, **kwargs):
+        super().__init__(content, **kwargs)
+        self._shutdown_event = shutdown_event
+
+    async def _listen_for_exit_signal(self) -> None:
+        if not AppStatus.should_exit:
+            if AppStatus.should_exit_event is None:
+                AppStatus.should_exit_event = anyio.Event()
+
+            if not AppStatus.should_exit:
+                await AppStatus.should_exit_event.wait()
+
+        self._shutdown_event.set()
+
+        while self.active:
+            await anyio.sleep(0.1)
 
 
 @router.get("/stream")
@@ -68,6 +93,7 @@ async def stream_notifications(
         return EventSourceResponse(_no_user())
 
     # --- Conexion DB ya liberada. A partir de aqui, 0 conexiones retenidas ---
+    shutdown_event = asyncio.Event()
 
     async def event_generator():
         """
@@ -89,9 +115,12 @@ async def stream_notifications(
                     "retry": 15000
                 }
                 try:
-                    await asyncio.sleep(15)
-                except asyncio.CancelledError:
+                    await asyncio.wait_for(shutdown_event.wait(), timeout=15)
                     return
+                except asyncio.TimeoutError:
+                    continue
+                except asyncio.CancelledError:
+                    raise
             else:
                 # Timeout de modo degradado: cerrar stream para que el cliente reconecte
                 yield {
@@ -110,7 +139,7 @@ async def stream_notifications(
             # 2. Loop de eventos (Queue -> SSE)
             # Nota: pendientes se cargan via HTTP (GET /notifications/list) en initNotifications().
             # No duplicamos con pool.acquire() aqui para evitar consume innecesario del pool.
-            while True:
+            while not shutdown_event.is_set():
                 try:
                     # Esperar notificación del Queue
                     notification_data = await asyncio.wait_for(queue.get(), timeout=15.0)
@@ -130,14 +159,16 @@ async def stream_notifications(
         
         except asyncio.CancelledError:
             logger.info(f"[SSE] Stream {conn_id[:8]} cancelado para {usuario_id}")
+            raise
         except (RuntimeError, TypeError, ValueError) as e:
             logger.error(f"[SSE] Error en stream {conn_id[:8]}: {e}", exc_info=True)
         finally:
             # 4. Desregistrar por conn_id (solo borra ESTE stream, no otros del mismo usuario)
             await service.unregister_connection(usuario_id, conn_id)
 
-    return EventSourceResponse(
+    return GracefulEventSourceResponse(
         event_generator(),
+        shutdown_event=shutdown_event,
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
