@@ -66,7 +66,7 @@ class CfeDBService:
               AND ($1::text[] IS NULL OR s.modulos && $1::text[])
               AND ($2::uuid[] IS NULL OR s.creado_por = ANY($2::uuid[]))
             GROUP BY s.id, ba.id, ba.estatus, ba.max_periodos
-            ORDER BY s.nombre
+            ORDER BY (s.miespacio_estatus = 'error'), s.nombre
             """,
             modulos or None,
             creado_por_ids or None,
