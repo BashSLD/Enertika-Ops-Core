@@ -101,6 +101,7 @@ def _build_bom_context(request, context, bom, **extra) -> dict:
         "user_name": context.get("user_name"),
         "es_aprobador_final": extra.get("es_aprobador_final", False),
         "es_rol_bom": extra.get("es_rol_bom", False),
+        "puede_aprobar": extra.get("puede_aprobar", False),
     }
     ctx.update(extra)
     return ctx
@@ -238,6 +239,7 @@ async def bom_ui(
 
     es_aprobador_final = False
     es_rol_bom = False
+    puede_aprobar = False
 
     if bom:
         items = await service.get_items(conn, bom['id_bom'])
@@ -248,7 +250,26 @@ async def bom_ui(
         aprobador_final_id = await service.get_aprobador_final_id(conn)
         if aprobador_final_id and str(user_id_ctx) == str(aprobador_final_id):
             es_aprobador_final = True
-        es_rol_bom = await service.es_bom_role(conn, bom, user_id_ctx)
+        # Suplencias del usuario: se calcula una vez y se reusa en ambas validaciones.
+        representados = await service.get_titulares_que_representa(conn, user_id_ctx)
+        es_rol_bom = await service.es_bom_role(conn, bom, user_id_ctx, representados=representados)
+
+        # Flag para mostrar los botones de accion del responsable del rol solo a quien
+        # el service aceptaria (propietario del rol, su suplente, ADMIN o Direccion con
+        # bypass). Incluye APROBADO_CONST: enviar a final lo hace el jefe de construccion.
+        aprob_map = {
+            'EN_REVISION_ING': (bom.get('responsable_ing'), 'jefe_ingenieria'),
+            'EN_REVISION_OBRA': (bom.get('coordinador_obra'), 'jefe_construccion'),
+            'EN_REVISION_CONST': (bom.get('jefe_construccion'), 'jefe_construccion'),
+            'APROBADO_CONST': (bom.get('jefe_construccion'), 'jefe_construccion'),
+        }
+        if bom['estatus'] in aprob_map:
+            responsable_id, fallback_rol_org = aprob_map[bom['estatus']]
+            puede_aprobar = await service.puede_aprobar_bom(
+                conn, user_id_ctx, context.get("role"),
+                context.get("rol_organizacional"), responsable_id, fallback_rol_org,
+                representados=representados
+            )
 
     ctx = _build_bom_context(
         request, context, bom,
@@ -261,6 +282,7 @@ async def bom_ui(
         ultimo_rechazo=ultimo_rechazo,
         es_aprobador_final=es_aprobador_final,
         es_rol_bom=es_rol_bom,
+        puede_aprobar=puede_aprobar,
         puede_gestionar_bom_ingenieria=puede_gestionar_bom_ingenieria,
     )
 
@@ -694,7 +716,7 @@ async def aprobar_ing(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_manager_access("ingenieria"),
+    _=require_any_module_access(["ingenieria"], "editor", allow_org_roles={"director"}),
 ):
     form = await request.form()
     user_id = context.get("user_db_id")
@@ -723,7 +745,7 @@ async def rechazar_ing(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_manager_access("ingenieria"),
+    _=require_any_module_access(["ingenieria"], "editor", allow_org_roles={"director"}),
 ):
     form = await request.form()
     user_id = context.get("user_db_id")
@@ -785,7 +807,7 @@ async def aprobar_const(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_manager_access("construccion"),
+    _=require_any_module_access(["construccion"], "editor", allow_org_roles={"director"}),
 ):
     form = await request.form()
     user_id = context.get("user_db_id")
@@ -814,7 +836,7 @@ async def rechazar_const(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_manager_access("construccion"),
+    _=require_any_module_access(["construccion"], "editor", allow_org_roles={"director"}),
 ):
     form = await request.form()
     user_id = context.get("user_db_id")
@@ -989,7 +1011,7 @@ async def get_modal_aprobar(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria"),
+    _=require_any_module_access(["ingenieria", "construccion"], "viewer", allow_org_roles={"director"}),
 ):
     """Modal de aprobacion/rechazo con campo de comentarios."""
     bom = await service.get_bom(conn, id_bom)
@@ -1150,7 +1172,7 @@ async def aprobar_obra(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_manager_access("construccion"),
+    _=require_any_module_access(["construccion"], "editor", allow_org_roles={"director"}),
 ):
     form = await request.form()
     user_id = context.get("user_db_id")
@@ -1178,7 +1200,7 @@ async def rechazar_obra(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_manager_access("construccion"),
+    _=require_any_module_access(["construccion"], "editor", allow_org_roles={"director"}),
 ):
     form = await request.form()
     user_id = context.get("user_db_id")
@@ -1210,12 +1232,14 @@ async def enviar_revision_final(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_manager_access("construccion"),
+    _=require_any_module_access(["construccion"], "editor", allow_org_roles={"director"}),
 ):
     """Envia BOM aprobado por construccion al aprobador final."""
     user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
     try:
-        bom = await service.enviar_revision_final(conn, id_bom, user_id)
+        bom = await service.enviar_revision_final(conn, id_bom, user_id, user_role, rol_org)
         return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM enviado al aprobador final",
             "type": "success",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
@@ -1236,7 +1260,7 @@ async def aprobar_final(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria"),
+    _=require_any_module_access(["ingenieria", "construccion"], "viewer", allow_org_roles={"director"}),
 ):
     """Aprobacion final del BOM."""
     form = await request.form()
@@ -1264,7 +1288,7 @@ async def rechazar_final(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria"),
+    _=require_any_module_access(["ingenieria", "construccion"], "viewer", allow_org_roles={"director"}),
 ):
     """Rechazo por aprobador final. Vuelve a APROBADO_CONST."""
     form = await request.form()

@@ -96,7 +96,8 @@ class BomService:
 
     async def _validar_aprobador_bom(
         self, conn, user_id: UUID, user_role: str, rol_org: Optional[str],
-        responsable_id: Optional[UUID], label: str, fallback_rol_org: str
+        responsable_id: Optional[UUID], label: str, fallback_rol_org: str,
+        representados: Optional[Set[UUID]] = None
     ) -> None:
         if not fallback_rol_org:
             raise ValueError(
@@ -115,7 +116,8 @@ class BomService:
         )
         if solo_responsable and responsable_id:
             # El titular del rol o su suplente activo pueden ejecutar la accion
-            representados = await self.get_titulares_que_representa(conn, user_id)
+            if representados is None:
+                representados = await self.get_titulares_que_representa(conn, user_id)
             if responsable_id not in representados:
                 raise ValueError(
                     f"Solo el {label} del proyecto (o su suplente) puede ejecutar esta accion"
@@ -123,6 +125,27 @@ class BomService:
             return  # responsable_id=None cae al fallback de rol global
         if not await self.db.usuario_tiene_rol_org(conn, user_id, fallback_rol_org):
             raise ValueError(f"Solo el {label} puede ejecutar esta accion")
+
+    async def puede_aprobar_bom(
+        self, conn, user_id: UUID, user_role: str, rol_org: Optional[str],
+        responsable_id: Optional[UUID], fallback_rol_org: str,
+        representados: Optional[Set[UUID]] = None
+    ) -> bool:
+        """Version booleana de _validar_aprobador_bom para la UI (no lanza).
+
+        Permite que el template oculte botones que el service rechazaria, usando
+        exactamente la misma logica (ADMIN, director-bypass, propiedad, suplencia
+        y fallback de rol global). Acepta `representados` precalculado para no
+        repetir la consulta de suplencias dentro del mismo render.
+        """
+        try:
+            await self._validar_aprobador_bom(
+                conn, user_id, user_role, rol_org, responsable_id, "",
+                fallback_rol_org, representados=representados
+            )
+            return True
+        except ValueError:
+            return False
 
     # ─── CREAR BOM ──────────────────────────────────────────
 
@@ -1011,11 +1034,15 @@ class BomService:
         result.add(user_id)
         return result
 
-    async def es_bom_role(self, conn, bom: dict, user_id: UUID) -> bool:
+    async def es_bom_role(
+        self, conn, bom: dict, user_id: UUID,
+        representados: Optional[Set[UUID]] = None
+    ) -> bool:
         """True si el usuario es (o representa via suplencia) alguno de los 3 roles del BOM."""
         if not bom:
             return False
-        representados = await self.get_titulares_que_representa(conn, user_id)
+        if representados is None:
+            representados = await self.get_titulares_que_representa(conn, user_id)
         bom_roles = {
             bom.get('elaborado_por'),
             bom.get('responsable_ing'),
@@ -1071,10 +1098,16 @@ class BomService:
     # ─── APROBADOR FINAL ────────────────────────────────────
 
     async def enviar_revision_final(
-        self, conn, id_bom: UUID, user_id: UUID
+        self, conn, id_bom: UUID, user_id: UUID, user_role: str,
+        rol_org: Optional[str] = None
     ) -> dict:
         """Envia BOM APROBADO_CONST a revision del aprobador final."""
         bom = await self.get_bom(conn, id_bom)
+        await self._validar_aprobador_bom(
+            conn, user_id, user_role, rol_org,
+            bom.get('jefe_construccion'), "Jefe de Construccion", "jefe_construccion"
+        )
+
         if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_CONST:
             raise ValueError("El BOM debe estar APROBADO_CONST para enviar al aprobador final")
 

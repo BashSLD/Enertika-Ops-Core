@@ -66,6 +66,21 @@
         'btn_class': 'bg-red-600 hover:bg-red-700',
         'require_comentario': true,
     },
+    'aprobar-final': {
+        'titulo': 'Aprobacion Final del BOM',
+        'descripcion': 'Al aprobar, el BOM quedara en estado APROBADO_FINAL de forma definitiva.',
+        'url': '/bom/' ~ bom.id_bom ~ '/aprobar-final',
+        'btn_text': 'Aprobar Definitivamente',
+        'btn_class': 'bg-emerald-600 hover:bg-emerald-700',
+    },
+    'rechazar-final': {
+        'titulo': 'Rechazar BOM (Aprobador Final)',
+        'descripcion': 'El BOM volvera a estado APROBADO_CONST para que Construccion lo revise.',
+        'url': '/bom/' ~ bom.id_bom ~ '/rechazar-final',
+        'btn_text': 'Rechazar',
+        'btn_class': 'bg-red-600 hover:bg-red-700',
+        'require_comentario': true,
+    },
     'solicitar-modificacion': {
         'titulo': 'Solicitar Modificacion',
         'descripcion': 'Se creara una nueva version del BOM copiando los items actuales. La nueva version iniciara en BORRADOR.',
