@@ -178,7 +178,7 @@ async def bom_ui(
     )
 
     if not bom:
-        if es_director and not tiene_ingenieria:
+        if es_director and not is_admin:
             return _toast_response(
                 request,
                 "El BOM no ha sido iniciado para este proyecto.",
@@ -1925,7 +1925,7 @@ async def aprobar_autorizacion_direccion(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
 ):
     user_id = context.get("user_db_id")
     user_role = context.get("role")
@@ -1983,7 +1983,7 @@ async def rechazar_autorizacion(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
 ):
     user_id = context.get("user_db_id")
     user_role = context.get("role")
@@ -2046,11 +2046,11 @@ async def set_aprobador_final(
     """Configura el usuario aprobador final del BOM. Solo ADMIN."""
     form = await request.form()
     user_id_raw = form.get("user_id", "").strip()
-    if not user_id_raw:
-        raise HTTPException(status_code=400, detail="Se requiere el ID del usuario")
     try:
-        await service.db.set_aprobador_final_id(conn, UUID(user_id_raw))
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Aprobador final configurado", "type": "success"
+        user_id = UUID(user_id_raw) if user_id_raw else None
+        await service.db.set_aprobador_final_id(conn, user_id)
+        message = "Aprobador final configurado" if user_id else "Aprobador final sin configurar"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": message, "type": "success"
         })
     except ValueError:
         raise HTTPException(status_code=400, detail="UUID invalido")

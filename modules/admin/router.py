@@ -1465,10 +1465,11 @@ async def set_aprobador_final(
     try:
         from uuid import UUID as _UUID
         bom_db = BomDBService()
-        user_id = _UUID(user_id_raw)
+        user_id = _UUID(user_id_raw) if user_id_raw else None
         await bom_db.set_aprobador_final_id(conn, user_id)
         ConfigService.invalidar_cache()
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Aprobador final del BOM actualizado",
+        message = "Aprobador final del BOM actualizado" if user_id else "Aprobador final del BOM sin configurar"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": message,
             "type": "success",
         })
     except (ValueError, AttributeError) as e:

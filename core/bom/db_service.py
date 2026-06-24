@@ -918,13 +918,13 @@ class BomDBService:
             """)
         return email
 
-    async def set_aprobador_final_id(self, conn, user_id: UUID) -> None:
+    async def set_aprobador_final_id(self, conn, user_id: Optional[UUID]) -> None:
         """Actualiza el UUID del aprobador final en tb_configuracion_global."""
         await conn.execute("""
             UPDATE tb_configuracion_global
             SET valor = $1
             WHERE clave = 'bom_aprobador_final_id'
-        """, str(user_id))
+        """, str(user_id) if user_id else "")
 
     # ─── COTIZACIONES ────────────────────────────────────────
 
