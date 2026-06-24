@@ -214,6 +214,63 @@ class AdminDBService:
             rule_id
         )
 
+    async def fetch_email_rules_for_event(
+        self, conn, modulo: str, trigger_value: str, trigger_field: str = "EVENTO"
+    ) -> List[dict]:
+        """Obtiene reglas de correo de un trigger/valor especifico."""
+        rows = await conn.fetch(
+            """
+            SELECT id, modulo, trigger_field, trigger_value, email_to_add, type
+            FROM tb_config_emails
+            WHERE modulo = $1
+              AND trigger_field = $2
+              AND trigger_value = $3
+            ORDER BY type, email_to_add
+            """,
+            modulo,
+            trigger_field,
+            trigger_value,
+        )
+        return [dict(r) for r in rows]
+
+    async def replace_email_rules(
+        self,
+        conn,
+        modulo: str,
+        trigger_field: str,
+        trigger_value: str,
+        recipients_by_type: Dict[str, List[str]],
+        descripcion: Optional[str] = None,
+    ) -> None:
+        """Reemplaza reglas TO/CC/CCO para un trigger/valor en una transaccion."""
+        async with conn.transaction():
+            await conn.execute(
+                """
+                DELETE FROM tb_config_emails
+                WHERE modulo = $1
+                  AND trigger_field = $2
+                  AND trigger_value = $3
+                """,
+                modulo,
+                trigger_field,
+                trigger_value,
+            )
+            rows = [
+                (modulo, trigger_field, trigger_value, email, type_, descripcion)
+                for type_, emails in recipients_by_type.items()
+                if type_ in {"TO", "CC", "CCO"}
+                for email in emails
+            ]
+            if rows:
+                await conn.executemany(
+                    """
+                    INSERT INTO tb_config_emails
+                        (modulo, trigger_field, trigger_value, email_to_add, type, descripcion)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    """,
+                    rows,
+                )
+
     # ========================================
     # EMAIL DEFAULTS
     # ========================================

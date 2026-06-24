@@ -19,8 +19,18 @@ import httpx
 
 logger = logging.getLogger("AdminRouter")
 
+BOM_COSTOS_EVENTO = "BOM_ITEMS_SIN_COSTO"
+BOM_COSTOS_ASUNTO_KEY = "bom.costos_notificacion_asunto"
+BOM_COSTOS_TEMPLATE_KEY = "bom.costos_notificacion_template"
+BOM_COSTOS_SSE_KEY = "bom.costos_notificacion_sse_activa"
+BOM_COSTOS_DEFAULT_ASUNTO = "BOM {proyecto_id} - Items sin costo asignado"
+BOM_COSTOS_DEFAULT_TEMPLATE = (
+    "El ingeniero ingreso {total_items} item(s) para el BOM del proyecto "
+    "{proyecto_id} sin costo asignado. Ingresa para actualizar el/los item(s)."
+)
+
 from . import endpoints_correos_notif
-from .schemas import ConfiguracionGlobalUpdate, TecnologiaCreate
+from .schemas import ConfiguracionGlobalUpdate
 from core.config_service import ConfigService
 from core.bom.db_service import BomDBService
 from modules.asistencia import service as asistencia_service
@@ -266,8 +276,6 @@ async def get_trigger_options(
     else:
         # Renderizar como Input Text libre
         return templates.TemplateResponse(request, "admin/partials/dynamic_trigger_input.html", {})
-
-from .schemas import OrigenAdjuntoCreate
 
 @router.post("/config/global")
 async def update_global_config_endpoint(
@@ -900,7 +908,6 @@ async def toggle_reporte_ceo_activo(
 # --- USER MANAGEMENT ENDPOINTS ---
 
 from uuid import UUID
-from typing import List
 
 
 @router.post("/users/{user_id}/department")
@@ -1738,15 +1745,30 @@ async def config_bom_aprobaciones(
         'bom.director_bypass_aprobaciones': (False, bool),
         'equipo.gestion_solo_responsable': (True, bool),
         'equipo.autoasignacion_rc_por_jefes': (True, bool),
+        BOM_COSTOS_ASUNTO_KEY: (BOM_COSTOS_DEFAULT_ASUNTO, str),
+        BOM_COSTOS_TEMPLATE_KEY: (BOM_COSTOS_DEFAULT_TEMPLATE, str),
+        BOM_COSTOS_SSE_KEY: (False, bool),
     })
     aprobador_final_id = await bom_db.get_aprobador_final_id(conn)
     usuarios = await service.db.fetch_usuarios_activos_select(conn)
+    reglas_costos = await service.db.fetch_email_rules_for_event(conn, "BOM", BOM_COSTOS_EVENTO)
+    costos_recipients = {"TO": [], "CC": [], "CCO": []}
+    for regla in reglas_costos:
+        type_ = regla.get("type") or "TO"
+        if type_ in costos_recipients:
+            costos_recipients[type_].append(regla["email_to_add"])
 
     return templates.TemplateResponse(request, "admin/config_bom_aprobaciones.html", {
         "bom_gestion": configs['bom.gestion_solo_responsable'],
         "bom_director": configs['bom.director_bypass_aprobaciones'],
         "equipo_gestion": configs['equipo.gestion_solo_responsable'],
         "equipo_autoasign": configs['equipo.autoasignacion_rc_por_jefes'],
+        "costos_asunto": configs[BOM_COSTOS_ASUNTO_KEY],
+        "costos_template": configs[BOM_COSTOS_TEMPLATE_KEY],
+        "costos_sse": configs[BOM_COSTOS_SSE_KEY],
+        "costos_to": ", ".join(costos_recipients["TO"]),
+        "costos_cc": ", ".join(costos_recipients["CC"]),
+        "costos_cco": ", ".join(costos_recipients["CCO"]),
         "aprobador_final_id": str(aprobador_final_id) if aprobador_final_id else None,
         "usuarios": usuarios,
     })
@@ -1765,10 +1787,26 @@ async def guardar_config_bom_aprobaciones(
         'bom.director_bypass_aprobaciones': 'true' if form.get('bom_director') else 'false',
         'equipo.gestion_solo_responsable': 'true' if form.get('equipo_gestion') else 'false',
         'equipo.autoasignacion_rc_por_jefes': 'true' if form.get('equipo_autoasign') else 'false',
+        BOM_COSTOS_ASUNTO_KEY: (form.get('costos_asunto') or '').strip() or BOM_COSTOS_DEFAULT_ASUNTO,
+        BOM_COSTOS_TEMPLATE_KEY: (form.get('costos_template') or '').strip() or BOM_COSTOS_DEFAULT_TEMPLATE,
+        BOM_COSTOS_SSE_KEY: 'true' if form.get('costos_sse') else 'false',
     }
     try:
-        for clave, valor in flags.items():
-            await service.db.upsert_global_config(conn, clave, valor)
+        async with conn.transaction():
+            for clave, valor in flags.items():
+                await service.db.upsert_global_config(conn, clave, valor)
+            await service.db.replace_email_rules(
+                conn,
+                "BOM",
+                "EVENTO",
+                BOM_COSTOS_EVENTO,
+                {
+                    "TO": _parse_email_targets([form.get("costos_to", "")]),
+                    "CC": _parse_email_targets([form.get("costos_cc", "")]),
+                    "CCO": _parse_email_targets([form.get("costos_cco", "")]),
+                },
+                descripcion="BOM - items sin costo asignado",
+            )
         ConfigService.invalidar_cache()
         return templates.TemplateResponse(request, "shared/toast.html", {
             "message": "Configuración de aprobaciones guardada",
