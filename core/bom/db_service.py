@@ -45,6 +45,7 @@ class BomDBService:
                    u3.nombre AS jefe_construccion_nombre,
                    u4.nombre AS coordinador_obra_nombre,
                    o.nombre_proyecto AS proyecto_nombre,
+                   p.id_oportunidad,
                    p.proyecto_id_estandar,
                    COALESCE(items.total, 0) AS total_items,
                    COALESCE(items.entregados, 0) AS items_entregados
@@ -75,6 +76,7 @@ class BomDBService:
                    u3.nombre AS jefe_construccion_nombre,
                    u4.nombre AS coordinador_obra_nombre,
                    o.nombre_proyecto AS proyecto_nombre,
+                   p.id_oportunidad,
                    p.proyecto_id_estandar,
                    COALESCE(items.total, 0) AS total_items,
                    COALESCE(items.entregados, 0) AS items_entregados
@@ -205,6 +207,34 @@ class BomDBService:
             LEFT JOIN tb_proveedores p ON p.id_proveedor = i.id_proveedor
             WHERE i.id_bom = $1 {filtro_activo}
             ORDER BY i.orden ASC, i.created_at ASC
+        """, id_bom)
+        return [dict(r) for r in rows]
+
+    async def get_items_sin_costo_bom(self, conn, id_bom: UUID) -> List[dict]:
+        """Lista items activos sin costo asignado (NULL o menor/igual a cero)."""
+        rows = await conn.fetch("""
+            SELECT i.id_item,
+                   i.descripcion,
+                   i.cantidad,
+                   i.unidad_medida,
+                   i.precio_unitario,
+                   i.moneda,
+                   i.tipo_partida,
+                   i.orden,
+                   c.nombre AS categoria_nombre,
+                   COALESCE(
+                       string_agg(DISTINCT g.codigo, ', ' ORDER BY g.codigo),
+                       ''
+                   ) AS grupos
+            FROM tb_bom_items i
+            LEFT JOIN tb_cat_categorias_compra c ON c.id = i.id_categoria
+            LEFT JOIN tb_bom_item_grupos ig ON ig.id_item = i.id_item
+            LEFT JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo AND g.activo = TRUE
+            WHERE i.id_bom = $1
+              AND i.activo = TRUE
+              AND (i.precio_unitario IS NULL OR i.precio_unitario <= 0)
+            GROUP BY i.id_item, c.nombre
+            ORDER BY i.orden, i.created_at
         """, id_bom)
         return [dict(r) for r in rows]
 
@@ -424,7 +454,8 @@ class BomDBService:
                                  AND fecha_requerida < CURRENT_DATE AND NOT entregado) AS atrasados,
                 COALESCE(SUM(cantidad * COALESCE(precio_unitario, 0))
                     FILTER (WHERE activo), 0) AS costo_total_estimado,
-                COUNT(*) FILTER (WHERE activo AND precio_unitario IS NOT NULL) AS items_con_precio,
+                COUNT(*) FILTER (WHERE activo AND precio_unitario > 0) AS items_con_precio,
+                COUNT(*) FILTER (WHERE activo AND (precio_unitario IS NULL OR precio_unitario <= 0)) AS items_sin_costo,
                 COUNT(*) FILTER (WHERE activo AND COALESCE(cantidad_recibida, 0) > 0
                                  AND COALESCE(cantidad_recibida, 0) < cantidad) AS items_parcialmente_recibidos,
                 COUNT(*) FILTER (WHERE activo AND COALESCE(cantidad_recibida, 0) >= cantidad

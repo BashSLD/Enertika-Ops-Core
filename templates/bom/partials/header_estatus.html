@@ -120,8 +120,8 @@
             {% endif %}
 
             {% if bom.estatus == 'APROBADO_CONST' and puede_aprobar %}
-            <button hx-post="/bom/{{ bom.id_bom }}/enviar-final"
-                hx-target="#main-content" hx-swap="innerHTML"
+            <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/enviar-final"
+                hx-target="#bom-modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-violet-600 hover:bg-violet-700 transition">
                 Enviar a Aprobador Final
             </button>

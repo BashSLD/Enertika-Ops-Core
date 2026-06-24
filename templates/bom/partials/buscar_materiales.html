@@ -34,7 +34,7 @@
     data-descripcion="{{ mat.descripcion }}"
     data-descripcion-interna="{{ mat.descripcion_interna or '' }}"
     data-id-material-interno="{{ mat.id_material_interno or '' }}"
-    data-precio="{{ mat.precio_unitario or 0 }}"
+    data-precio="{{ mat.precio_unitario if mat.precio_unitario else '' }}"
     data-unidad="{{ mat.unidad or '' }}"
     data-proveedor="{{ mat.proveedor_nombre or '' }}"
     data-categoria="{{ mat.categoria_nombre or '' }}"
@@ -79,6 +79,9 @@
             {% set badge_cls = 'bg-indigo-100 text-indigo-700' if mat.descripcion_interna else ('bg-blue-100 text-blue-700' if mat.fuente == 'XML' else 'bg-green-100 text-green-700') %}
             {% set badge_lbl = 'Vinculado' if mat.descripcion_interna else ('Proveedor' if mat.fuente == 'XML' else 'Interno') %}
             <span class="inline-block rounded px-1.5 py-0.5 text-xs font-medium {{ badge_cls }}">{{ badge_lbl }}</span>
+            {% if not mat.precio_unitario or mat.precio_unitario|float <= 0 %}
+            <span class="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700">Sin costo</span>
+            {% endif %}
             {% if es_busqueda %}
             <p class="text-xs text-gray-400">{{ "%.0f"|format((mat.similitud or 0) * 100) }}% sim.</p>
             {% endif %}

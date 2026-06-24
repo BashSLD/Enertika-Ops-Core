@@ -1,4 +1,9 @@
 {# Fila individual de un item del BOM #}
+{% if warning_message %}
+{% with message=warning_message, type='warning', title='Costo pendiente' %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
 <tr id="item-{{ item.id_item }}"
     data-grupos="{{ item.grupos | join(',') if item.grupos else '' }}"
     data-tipo-partida="{{ item.tipo_partida or 'MATERIAL' }}"
@@ -65,7 +70,7 @@
     <td class="px-3 py-2 text-sm text-gray-800 text-right font-mono">{{ item.cantidad }}</td>
     <td class="px-3 py-2 text-xs text-gray-600">{{ item.unidad_medida or '--' }}</td>
     <td class="px-3 py-2 text-sm text-gray-800 text-right font-mono">
-        {% if item.precio_unitario %}
+        {% if item.precio_unitario and item.precio_unitario|float > 0 %}
         ${{ "{:,.2f}".format(item.precio_unitario|float) }}
         {% if item.moneda == 'USD' %}
         <span class="text-[10px] text-blue-500 font-medium ml-0.5">USD</span>
@@ -74,11 +79,12 @@
         <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 ml-0.5" title="Desde catalogo"></span>
         {% endif %}
         {% else %}
-        <span class="text-gray-400">--</span>
+        <span class="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+            title="Costo pendiente">Sin costo</span>
         {% endif %}
     </td>
     <td class="px-3 py-2 text-sm text-right font-mono">
-        {% if item.importe and item.precio_unitario %}
+        {% if item.importe and item.precio_unitario and item.precio_unitario|float > 0 %}
         ${{ "{:,.2f}".format(item.importe|float) }}
         {% if item.costo_mxn and item.moneda == 'USD' %}
         <div class="text-[10px] text-gray-400 font-normal">≈ ${{ "{:,.2f}".format(item.costo_mxn|float) }} MXN</div>

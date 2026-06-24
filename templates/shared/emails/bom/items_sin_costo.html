@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BOM - Items sin costo</title>
+</head>
+
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4; color: #333333;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table width="680" cellpadding="0" cellspacing="0"
+                    style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #D97706 0%, #F59E0B 100%); padding: 30px 40px; text-align: center;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 22px; font-weight: 600;">
+                                Items sin costo asignado
+                            </h1>
+                            <p style="margin: 8px 0 0 0; color: rgba(255,255,255,0.85); font-size: 13px;">
+                                Lista de Materiales (BOM)
+                            </p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="padding: 36px 40px;">
+                            <p style="margin: 0 0 20px 0; color: #333333; font-size: 15px; line-height: 1.6;">
+                                {{ mensaje }}
+                            </p>
+
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 24px;">
+                                <tr>
+                                    <td style="padding: 16px 20px;">
+                                        <table width="100%" cellpadding="4" cellspacing="0">
+                                            <tr>
+                                                <td style="font-size: 12px; color: #64748b; font-weight: 600; width: 150px;">PROYECTO</td>
+                                                <td style="font-size: 13px; color: #1e293b; font-weight: 600;">
+                                                    {{ proyecto_id }}{% if proyecto_nombre %} - {{ proyecto_nombre }}{% endif %}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="font-size: 12px; color: #64748b; font-weight: 600;">VERSION BOM</td>
+                                                <td style="font-size: 13px; color: #1e293b;">v{{ version }}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="font-size: 12px; color: #64748b; font-weight: 600;">ITEMS PENDIENTES</td>
+                                                <td style="font-size: 13px; color: #1e293b;">{{ total_items }}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="font-size: 12px; color: #64748b; font-weight: 600;">SOLICITADO POR</td>
+                                                <td style="font-size: 13px; color: #1e293b;">{{ por_nombre }}</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="border-collapse: collapse; border: 1px solid #e2e8f0; margin-bottom: 24px;">
+                                <thead>
+                                    <tr style="background-color: #f8fafc;">
+                                        <th align="left" style="padding: 10px; font-size: 11px; color: #475569; border-bottom: 1px solid #e2e8f0;">#</th>
+                                        <th align="left" style="padding: 10px; font-size: 11px; color: #475569; border-bottom: 1px solid #e2e8f0;">Descripcion</th>
+                                        <th align="right" style="padding: 10px; font-size: 11px; color: #475569; border-bottom: 1px solid #e2e8f0;">Cantidad</th>
+                                        <th align="left" style="padding: 10px; font-size: 11px; color: #475569; border-bottom: 1px solid #e2e8f0;">Unidad</th>
+                                        <th align="left" style="padding: 10px; font-size: 11px; color: #475569; border-bottom: 1px solid #e2e8f0;">Grupo</th>
+                                        <th align="left" style="padding: 10px; font-size: 11px; color: #475569; border-bottom: 1px solid #e2e8f0;">Categoria</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in items %}
+                                    <tr>
+                                        <td style="padding: 10px; font-size: 12px; color: #64748b; border-bottom: 1px solid #f1f5f9;">{{ loop.index }}</td>
+                                        <td style="padding: 10px; font-size: 12px; color: #1e293b; border-bottom: 1px solid #f1f5f9;">{{ item.descripcion }}</td>
+                                        <td align="right" style="padding: 10px; font-size: 12px; color: #1e293b; border-bottom: 1px solid #f1f5f9;">{{ item.cantidad }}</td>
+                                        <td style="padding: 10px; font-size: 12px; color: #1e293b; border-bottom: 1px solid #f1f5f9;">{{ item.unidad_medida or '--' }}</td>
+                                        <td style="padding: 10px; font-size: 12px; color: #1e293b; border-bottom: 1px solid #f1f5f9;">{{ item.grupos or '--' }}</td>
+                                        <td style="padding: 10px; font-size: 12px; color: #1e293b; border-bottom: 1px solid #f1f5f9;">{{ item.categoria_nombre or '--' }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+
+                            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{{ app_url }}"
+                                            style="display: inline-block; padding: 12px 28px; background-color: #D97706; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600;">
+                                            Abrir BOM
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="background-color: #f8fafc; padding: 16px 40px; border-top: 1px solid #e2e8f0; text-align: center;">
+                            <p style="margin: 0; font-size: 11px; color: #94a3b8;">
+                                ECO - Notificacion automatica. No responder a este correo.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

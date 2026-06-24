@@ -58,6 +58,13 @@
         'btn_text': 'Aprobar',
         'btn_class': 'bg-green-600 hover:bg-green-700',
     },
+    'enviar-final': {
+        'titulo': 'Enviar a Aprobador Final',
+        'descripcion': 'El BOM sera enviado al aprobador final configurado en Admin.',
+        'url': '/bom/' ~ bom.id_bom ~ '/enviar-final',
+        'btn_text': 'Enviar a Aprobador Final',
+        'btn_class': 'bg-violet-600 hover:bg-violet-700',
+    },
     'rechazar-const': {
         'titulo': 'Rechazar BOM (Construccion)',
         'descripcion': 'El BOM volvera a estado APROBADO_ING. Se puede reenviar tras correccion.',
@@ -104,6 +111,7 @@
     },
 } %}
 {% set cfg = accion_config.get(accion, {}) %}
+{% set bloqueado_por_costos = items_sin_costo is defined and items_sin_costo|length > 0 %}
 
 <div id="modal-aprobar-bom" class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
     <div class="flex min-h-screen items-center justify-center px-4">
@@ -111,6 +119,40 @@
         <div class="relative bg-white rounded-xl shadow-xl max-w-md w-full p-6 z-10 animate-fade-in-down">
             <h3 class="text-lg font-bold text-gray-800 mb-2">{{ cfg.titulo }}</h3>
             <p class="text-sm text-gray-500 mb-4">{{ cfg.descripcion }}</p>
+
+            {% if bloqueado_por_costos %}
+            <div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <div class="flex items-start gap-2">
+                    <svg class="mt-0.5 h-4 w-4 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                    </svg>
+                    <div class="min-w-0 flex-1">
+                        <p class="text-sm font-semibold text-amber-900">
+                            No se puede avanzar: {{ items_sin_costo|length }} item(s) sin costo.
+                        </p>
+                        <p class="mt-1 text-xs text-amber-800">
+                            El ingeniero o Compras debe capturar el costo antes de continuar.
+                        </p>
+                        <ul class="mt-2 max-h-28 space-y-1 overflow-y-auto text-xs text-amber-900">
+                            {% for item in items_sin_costo[:6] %}
+                            <li class="truncate">#{{ item.orden }} - {{ item.descripcion }}</li>
+                            {% endfor %}
+                            {% if items_sin_costo|length > 6 %}
+                            <li class="text-amber-700">Y {{ items_sin_costo|length - 6 }} mas.</li>
+                            {% endif %}
+                        </ul>
+                        <button type="button"
+                            hx-post="/bom/{{ bom.id_bom }}/notificar-costos-pendientes"
+                            hx-target="#global-toast-container"
+                            hx-swap="afterbegin"
+                            class="mt-3 inline-flex items-center rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 transition hover:bg-amber-100">
+                            Notificar a Compras
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
 
             <form hx-post="{{ cfg.url }}" hx-target="#main-content" hx-swap="innerHTML">
                 <div class="space-y-3">
@@ -131,7 +173,8 @@
                         Cancelar
                     </button>
                     <button type="submit"
-                        class="px-4 py-2 text-sm rounded-lg text-white {{ cfg.btn_class }} transition font-medium">
+                        {% if bloqueado_por_costos %}disabled{% endif %}
+                        class="px-4 py-2 text-sm rounded-lg text-white {{ cfg.btn_class }} transition font-medium disabled:cursor-not-allowed disabled:opacity-50">
                         {{ cfg.btn_text }}
                     </button>
                 </div>

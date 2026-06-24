@@ -45,6 +45,14 @@ class FakeBulkDB:
         return self.es_asignado
 
 
+class FakeCostDB:
+    def __init__(self, items_sin_costo):
+        self.items_sin_costo = items_sin_costo
+
+    async def get_items_sin_costo_bom(self, conn, id_bom):
+        return list(self.items_sin_costo)
+
+
 def _item(item_id, bom_id, proyecto_id, *, estatus="BORRADOR", activo=True, bloqueado=False):
     return {
         "id_item": item_id,
@@ -135,3 +143,44 @@ async def test_bulk_grupos_ingenieria_exige_jefe_o_ingeniero_asignado():
     ]
     assert svc.db.grupo_calls == []
 
+
+@pytest.mark.asyncio
+async def test_editar_item_compras_rechaza_precio_negativo():
+    bom_id = uuid4()
+    proyecto_id = uuid4()
+    item_id = uuid4()
+    svc = _service([
+        _item(item_id, bom_id, proyecto_id, estatus="APROBADO_ING"),
+    ])
+
+    with pytest.raises(ValueError) as exc:
+        await svc.editar_item(
+            FakeConn(), item_id, uuid4(), "compras", precio_unitario="-1"
+        )
+
+    assert str(exc.value) == "El precio unitario no puede ser negativo"
+
+
+@pytest.mark.asyncio
+async def test_validar_sin_costos_pendientes_bloquea_null_y_cero():
+    svc = BomService()
+    svc.db = FakeCostDB([
+        {"descripcion": "Modulo FV", "precio_unitario": None, "activo": True},
+        {"descripcion": "Inversor", "precio_unitario": 0, "activo": True},
+    ])
+
+    with pytest.raises(ValueError) as exc:
+        await svc.validar_sin_costos_pendientes(FakeConn(), uuid4())
+
+    message = str(exc.value)
+    assert "hay 2 item(s) sin costo asignado" in message
+    assert "Modulo FV" in message
+    assert "Inversor" in message
+
+
+@pytest.mark.asyncio
+async def test_validar_sin_costos_pendientes_permite_bom_con_costos():
+    svc = BomService()
+    svc.db = FakeCostDB([])
+
+    await svc.validar_sin_costos_pendientes(FakeConn(), uuid4())

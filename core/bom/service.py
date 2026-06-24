@@ -4,10 +4,12 @@ Logica de negocio, workflow de aprobaciones, versionado y exportacion Excel.
 """
 
 import logging
+from collections import defaultdict
 from uuid import UUID
 from typing import Optional, List, Set
 
 import asyncpg
+import httpx
 from jinja2 import TemplateError
 
 from core.bom.db_service import BomDBService
@@ -24,7 +26,8 @@ CAMPOS_INGENIERIA = {'id_categoria', 'descripcion', 'cantidad', 'unidad_medida',
 CAMPOS_CONSTRUCCION = {'fecha_requerida', 'entregado', 'comentarios', 'cantidad_recibida'}
 CAMPOS_COMPRAS = {
     'id_proveedor', 'tipo_entrega', 'fecha_estimada_entrega',
-    'fecha_llegada_real', 'comentarios'
+    'fecha_llegada_real', 'comentarios', 'precio_unitario',
+    'origen_precio', 'moneda'
 }
 
 # Campos editables en lote: los de edicion individual menos los que varian por
@@ -63,6 +66,17 @@ CAMPO_LABELS = {
     'origen_precio': 'Origen precio',
     'cantidad_recibida': 'Cantidad recibida',
 }
+
+BOM_COSTOS_EVENTO = "BOM_ITEMS_SIN_COSTO"
+BOM_COSTOS_REGLAS_MODULOS = {"BOM"}
+BOM_COSTOS_ASUNTO_KEY = "bom.costos_notificacion_asunto"
+BOM_COSTOS_TEMPLATE_KEY = "bom.costos_notificacion_template"
+BOM_COSTOS_SSE_KEY = "bom.costos_notificacion_sse_activa"
+BOM_COSTOS_DEFAULT_ASUNTO = "BOM {proyecto_id} - Items sin costo asignado"
+BOM_COSTOS_DEFAULT_TEMPLATE = (
+    "El ingeniero ingreso {total_items} item(s) para el BOM del proyecto "
+    "{proyecto_id} sin costo asignado. Ingresa para actualizar el/los item(s)."
+)
 
 
 class BomService:
@@ -257,6 +271,57 @@ class BomService:
             raise ValueError("BOM no encontrado")
         return bom
 
+    @staticmethod
+    def item_sin_costo(item: dict) -> bool:
+        """True si el item activo no tiene costo util para presupuesto."""
+        if not item.get("activo", True):
+            return False
+        precio = item.get("precio_unitario")
+        if precio is None:
+            return True
+        try:
+            return float(precio) <= 0
+        except (TypeError, ValueError):
+            return True
+
+    @staticmethod
+    def mensaje_item_sin_costo() -> str:
+        return (
+            "Item guardado sin costo. El ingeniero o Compras debe capturar el costo "
+            "antes de avanzar el BOM."
+        )
+
+    @staticmethod
+    def _format_template(template: str, context: dict) -> str:
+        return template.format_map(defaultdict(str, context))
+
+    @staticmethod
+    def _resumen_costos_pendientes(items: list[dict], limit: int = 5) -> str:
+        previews = [
+            str(item.get("descripcion") or "Item sin descripcion")
+            for item in items[:limit]
+        ]
+        suffix = f" y {len(items) - limit} mas" if len(items) > limit else ""
+        return "; ".join(previews) + suffix
+
+    def _build_costos_pendientes_error(self, items: list[dict]) -> str:
+        detalle = self._resumen_costos_pendientes(items)
+        return (
+            f"No se puede avanzar el BOM: hay {len(items)} item(s) sin costo asignado. "
+            "Captura el costo o notifica a Compras para actualizarlo. "
+            f"Pendientes: {detalle}."
+        )
+
+    async def get_items_sin_costo(self, conn, id_bom: UUID) -> list[dict]:
+        """Lista items activos sin costo asignado."""
+        return await self.db.get_items_sin_costo_bom(conn, id_bom)
+
+    async def validar_sin_costos_pendientes(self, conn, id_bom: UUID) -> None:
+        """Bloquea avances del workflow si quedan items activos sin costo."""
+        items_sin_costo = await self.get_items_sin_costo(conn, id_bom)
+        if items_sin_costo:
+            raise ValueError(self._build_costos_pendientes_error(items_sin_costo))
+
     # ─── ITEMS CRUD ─────────────────────────────────────────
 
 
@@ -341,11 +406,10 @@ class BomService:
         if area_editor == 'ingenieria':
             await self._validar_retomar_bom_ingenieria(conn, item['id_proyecto'], user_id)
 
-        # Campos protegidos: items de catalogo no permiten cambiar descripcion,
-        # precio, unidad ni origen para preservar integridad del analisis de costos
+        # Campos protegidos: items de catalogo no permiten cambiar identidad tecnica.
+        # El costo si queda editable para resolver items sin presupuesto.
         campos_protegidos_catalogo = {
-            'descripcion', 'precio_unitario', 'origen_precio',
-            'id_material_ref', 'unidad_medida'
+            'descripcion', 'id_material_ref', 'unidad_medida'
         }
 
         # Validar que campos correspondan al area del editor
@@ -392,6 +456,10 @@ class BomService:
             if bom_estatus not in ESTATUS_EDITABLE_CONST_COMPRAS:
                 raise ValueError("El BOM no esta en estado editable para compras")
             campos_filtrados = {k: v for k, v in campos.items() if k in CAMPOS_COMPRAS}
+            if 'precio_unitario' in campos_filtrados and campos_filtrados['precio_unitario'] is not None:
+                from decimal import Decimal as _D
+                if _D(str(campos_filtrados['precio_unitario'])) < 0:
+                    raise ValueError("El precio unitario no puede ser negativo")
 
         if not campos_filtrados:
             raise ValueError("No hay campos validos para actualizar")
@@ -731,6 +799,7 @@ class BomService:
         items = await self.db.get_items_by_bom(conn, id_bom)
         if not items:
             raise ValueError("El BOM debe tener al menos un item")
+        await self.validar_sin_costos_pendientes(conn, id_bom)
 
         update_kwargs = {
             'fecha_envio_ing': now_mx()
@@ -784,6 +853,7 @@ class BomService:
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_ING:
             raise ValueError("El BOM debe estar EN_REVISION_ING para aprobar")
+        await self.validar_sin_costos_pendientes(conn, id_bom)
 
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.APROBADO_ING,
@@ -840,6 +910,7 @@ class BomService:
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_ING:
             raise ValueError("El BOM debe estar APROBADO_ING para enviar a construccion")
+        await self.validar_sin_costos_pendientes(conn, id_bom)
 
         update_kwargs = {
             'fecha_envio_const': now_mx()
@@ -870,6 +941,7 @@ class BomService:
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_CONST:
             raise ValueError("El BOM debe estar EN_REVISION_CONST para aprobar")
+        await self.validar_sin_costos_pendientes(conn, id_bom)
 
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.APROBADO_CONST,
@@ -926,6 +998,7 @@ class BomService:
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_ING:
             raise ValueError("El BOM debe estar APROBADO_ING para enviar a obra")
+        await self.validar_sin_costos_pendientes(conn, id_bom)
 
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.EN_REVISION_OBRA,
@@ -954,6 +1027,7 @@ class BomService:
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_OBRA:
             raise ValueError("El BOM debe estar EN_REVISION_OBRA para aprobar")
+        await self.validar_sin_costos_pendientes(conn, id_bom)
 
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.EN_REVISION_CONST,
@@ -1210,6 +1284,7 @@ class BomService:
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_CONST:
             raise ValueError("El BOM debe estar APROBADO_CONST para enviar al aprobador final")
+        await self.validar_sin_costos_pendientes(conn, id_bom)
 
         aprobador_id = await self.db.get_aprobador_final_id(conn)
         await self.db.update_bom_estatus(
@@ -1234,6 +1309,7 @@ class BomService:
         bom = await self.get_bom(conn, id_bom)
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_FINAL:
             raise ValueError("El BOM debe estar EN_REVISION_FINAL para aprobar")
+        await self.validar_sin_costos_pendientes(conn, id_bom)
 
         aprobador_id = await self.db.get_aprobador_final_id(conn)
         if not aprobador_id or str(user_id) != str(aprobador_id):
@@ -1285,12 +1361,140 @@ class BomService:
 
     # ─── NOTIFICACIONES ──────────────────────────────────────
 
+    async def notificar_items_sin_costo_compras(
+        self, conn, id_bom: UUID, user_id: UUID
+    ) -> dict:
+        """Envia a Compras la lista consolidada de items del BOM sin costo."""
+        bom = await self.get_bom(conn, id_bom)
+        items = await self.get_items_sin_costo(conn, id_bom)
+        if not items:
+            raise ValueError("No hay items sin costo para notificar.")
+
+        try:
+            from core.workflow.notification_service import NotificationService
+            notif = NotificationService()
+
+            to_emails = await notif._get_emails_for_event(
+                conn, BOM_COSTOS_EVENTO, "TO", BOM_COSTOS_REGLAS_MODULOS
+            )
+            cc_emails = await notif._get_emails_for_event(
+                conn, BOM_COSTOS_EVENTO, "CC", BOM_COSTOS_REGLAS_MODULOS
+            )
+            bcc_emails = await notif._get_emails_for_event(
+                conn, BOM_COSTOS_EVENTO, "CCO", BOM_COSTOS_REGLAS_MODULOS
+            )
+            if not to_emails:
+                raise ValueError(
+                    "Faltan correos para notificar a Compras. Configura al menos "
+                    "un destinatario principal en Admin > Configuracion BOM > "
+                    "Costos pendientes."
+                )
+
+            sender = await notif._get_notification_sender(conn, "BOM")
+            por_nombre = await self.db.get_usuario_nombre(conn, user_id)
+            proyecto_id = bom.get("proyecto_id_estandar") or str(bom.get("id_proyecto"))
+            format_ctx = {
+                "bom": bom,
+                "items": items,
+                "total_items": len(items),
+                "proyecto_id": proyecto_id,
+                "proyecto_nombre": bom.get("proyecto_nombre") or "",
+                "version": bom.get("version", ""),
+                "por_nombre": por_nombre or "Sistema",
+                "app_url": f"{settings.APP_BASE_URL}/bom/{bom.get('id_proyecto')}/ui",
+            }
+
+            subject_template = await ConfigService.get_global_config(
+                conn, BOM_COSTOS_ASUNTO_KEY, BOM_COSTOS_DEFAULT_ASUNTO, str
+            )
+            body_template = await ConfigService.get_global_config(
+                conn, BOM_COSTOS_TEMPLATE_KEY, BOM_COSTOS_DEFAULT_TEMPLATE, str
+            )
+            subject = self._format_template(subject_template, format_ctx).strip()
+            mensaje = self._format_template(body_template, format_ctx).strip()
+            if not subject:
+                subject = self._format_template(BOM_COSTOS_DEFAULT_ASUNTO, format_ctx)
+            if not mensaje:
+                mensaje = self._format_template(BOM_COSTOS_DEFAULT_TEMPLATE, format_ctx)
+
+            html = notif._render_template("shared/emails/bom/items_sin_costo.html", {
+                **format_ctx,
+                "mensaje": mensaje,
+            })
+            sent = await notif._send_email(
+                to_emails,
+                cc_emails,
+                subject,
+                html,
+                sender["email"],
+                bcc_emails=bcc_emails,
+            )
+            if not sent:
+                raise ValueError("No se pudo enviar la notificacion a Compras.")
+
+            sse_notificados = 0
+            sse_activa = await ConfigService.get_global_config(
+                conn, BOM_COSTOS_SSE_KEY, False, bool
+            )
+            if sse_activa:
+                sse_notificados = await self._broadcast_costos_pendientes(conn, bom, items)
+
+            logger.info(
+                "BOM costos pendientes notificados: bom=%s items=%d to=%d cc=%d cco=%d sse=%d por=%s",
+                id_bom, len(items), len(to_emails), len(cc_emails), len(bcc_emails),
+                sse_notificados, user_id,
+            )
+            return {
+                "items_sin_costo": len(items),
+                "destinatarios": len(to_emails),
+                "cc": len(cc_emails),
+                "cco": len(bcc_emails),
+                "sse": sse_notificados,
+            }
+        except ValueError:
+            raise
+        except (TemplateError, httpx.HTTPError, RuntimeError, TypeError, KeyError) as exc:
+            logger.warning("BOM costos pendientes: error notificando compras: %s", exc)
+            raise ValueError("No se pudo enviar la notificacion a Compras.") from exc
+
+    async def _broadcast_costos_pendientes(self, conn, bom: dict, items: list[dict]) -> int:
+        """Crea aviso SSE para usuarios activos de Compras usando un tipo permitido."""
+        usuarios_compras = await self.db.get_usuarios_por_area(conn, "compras", solo_jefes=False)
+        if not usuarios_compras:
+            return 0
+
+        notif_svc = get_notifications_service()
+        titulo = f"BOM {bom.get('proyecto_id_estandar', '')} - Items sin costo"
+        mensaje = f"{len(items)} item(s) sin costo pendiente(s) de actualizar."
+        count = 0
+        for usuario in usuarios_compras:
+            usuario_id = usuario.get("id_usuario")
+            if not usuario_id:
+                continue
+            notification_data = await notif_svc.create_notification(
+                conn=conn,
+                usuario_id=usuario_id,
+                tipo="CAMBIO_ESTATUS",
+                titulo=titulo,
+                mensaje=mensaje,
+                id_oportunidad=bom.get("id_oportunidad"),
+                modulo_origen="bom",
+            )
+            await notif_svc.broadcast_to_user(conn, usuario_id, notification_data)
+            count += 1
+        return count
+
     async def _broadcast_bom(self, conn, to_user_id, tipo: str, titulo: str, proyecto_nombre: str) -> None:
         notif_svc = get_notifications_service()
+        tipo_notificacion = (
+            tipo
+            if tipo in {"ASIGNACION", "CAMBIO_ESTATUS", "NUEVO_COMENTARIO"}
+            else "CAMBIO_ESTATUS"
+        )
         notification_data = await notif_svc.create_notification(
             conn=conn,
             usuario_id=to_user_id,
-            tipo=tipo,
+            tipo=tipo_notificacion,
             titulo=titulo,
             mensaje=f"Proyecto: {proyecto_nombre}",
             modulo_origen="bom",

@@ -446,6 +446,11 @@ async def agregar_item(
         ctx = _build_bom_context(
             request, context, bom,
             items=items, estadisticas=estadisticas,
+            bulk_toast={
+                "message": service.mensaje_item_sin_costo(),
+                "type": "warning",
+                "title": "Costo pendiente",
+            } if service.item_sin_costo(item) else None,
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
             ),
@@ -527,6 +532,7 @@ async def editar_item(
         ctx = _build_bom_context(
             request, context, bom,
             item=item,
+            warning_message=service.mensaje_item_sin_costo() if service.item_sin_costo(item) else None,
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
             ),
@@ -589,7 +595,15 @@ async def bulk_editar_items(
 
         n = resultado["actualizados"]
         m = len(resultado["omitidos"])
-        if n and m:
+        pendientes_sin_costo = await service.get_items_sin_costo(conn, id_bom)
+        aviso_costo = (
+            f"Hay {len(pendientes_sin_costo)} item(s) sin costo. Captura el costo antes de avanzar el BOM."
+            if pendientes_sin_costo else None
+        )
+
+        if aviso_costo:
+            toast = {"message": aviso_costo, "type": "warning", "title": "Costo pendiente"}
+        elif n and m:
             toast = {"message": f"{n} items actualizados, {m} omitidos", "type": "warning", "title": "Edicion masiva"}
         elif n:
             toast = {"message": f"{n} items actualizados", "type": "success", "title": "Edicion masiva"}
@@ -706,7 +720,7 @@ async def get_modal_editar_item(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria"),
+    _=require_any_module_access(["ingenieria", "construccion", "compras"], "viewer"),
 ):
     """Modal para editar un item."""
     item = await service.get_item(conn, id_item)
@@ -1110,11 +1124,49 @@ async def get_modal_aprobar(
     """Modal de aprobacion/rechazo con campo de comentarios."""
     bom = await service.get_bom(conn, id_bom)
     catalogos = await service.get_catalogos(conn)
+    acciones_con_stop_costos = {
+        "enviar-revision", "aprobar-ing", "enviar-obra", "enviar-const",
+        "aprobar-obra", "aprobar-const", "enviar-final", "aprobar-final",
+    }
+    items_sin_costo = (
+        await service.get_items_sin_costo(conn, id_bom)
+        if accion in acciones_con_stop_costos else []
+    )
 
     return templates.TemplateResponse(request, "bom/partials/modal_aprobar.html", {"bom": bom,
         "accion": accion,
         "catalogos": catalogos,
+        "items_sin_costo": items_sin_costo,
     })
+
+
+@router.post("/{id_bom}/notificar-costos-pendientes", include_in_schema=False)
+async def notificar_costos_pendientes(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "construccion"], "viewer", allow_org_roles={"director"}),
+):
+    """Notifica a Compras los items del BOM que siguen sin costo asignado."""
+    user_id = context.get("user_db_id")
+    try:
+        resultado = await service.notificar_items_sin_costo_compras(conn, id_bom, user_id)
+        return _toast_response(
+            request,
+            (
+                f"Notificacion enviada a Compras con {resultado['items_sin_costo']} "
+                f"item(s) sin costo."
+            ),
+            "success",
+            "Compras notificado",
+        )
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", "Error")
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al notificar items BOM sin costo")
+        return _toast_response(request, "Error interno al notificar a Compras", "error", "Error")
 
 
 # ========================================

@@ -209,6 +209,9 @@
                 Costo Estimado
                 <span class="text-gray-400">({{ estadisticas.items_con_precio or 0 }}/{{ estadisticas.total_items or 0
                     }})</span>
+                {% if estadisticas.items_sin_costo %}
+                <span class="ml-1 text-amber-600">{{ estadisticas.items_sin_costo }} sin costo</span>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -574,7 +577,7 @@
         x-data="{
             modo: 'catalogo',
             descripcion: '',
-            precio: 0,
+            precio: '',
             cantidad: '',
             unidad: '',
             origen: 'CATALOGO',
@@ -712,7 +715,7 @@
             },
             seleccionarMaterial(material) {
                 this.descripcion      = material.descripcionInterna || material.descripcion || '';
-                this.precio           = material.precio || 0;
+                this.precio           = material.precio || '';
                 this.unidad           = material.unidad || '';
                 this.unidadCatalogoFija = !!String(this.unidad || '').trim();
                 this.asignarCantidadDefaultPorUnidad({ forzar: true });
@@ -748,7 +751,7 @@
             reset() {
                 if (this.$refs.formAgregarItem) this.$refs.formAgregarItem.reset();
                 this.descripcion = '';
-                this.precio = 0;
+                this.precio = '';
                 this.cantidad = '';
                 this.unidad = '';
                 this.unidadCatalogoFija = false;
@@ -768,7 +771,7 @@
             },
             limpiarSeleccion() {
                 this.descripcion = '';
-                this.precio = 0;
+                this.precio = '';
                 this.unidad = '';
                 this.cantidad = '';
                 this.unidadCatalogoFija = false;
@@ -1004,9 +1007,8 @@
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Precio Unit. *</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Precio Unit. (opcional)</label>
                                     <input type="number" name="precio_unitario" step="0.01" min="0" x-model="precio"
-                                        required
                                         :disabled="modo !== 'manual'"
                                         class="w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none"
                                         placeholder="0.00">
