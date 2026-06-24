@@ -27,6 +27,16 @@ CAMPOS_COMPRAS = {
     'fecha_llegada_real', 'comentarios'
 }
 
+# Campos editables en lote: los de edicion individual menos los que varian por
+# item. Derivado de los sets por area para que el bulk sea siempre un subconjunto
+# del individual (evita drift al agregar/quitar campos).
+_CAMPOS_BULK_EXCLUIDOS = {'descripcion', 'cantidad', 'cantidad_recibida'}
+CAMPOS_BULK = {
+    'ingenieria': CAMPOS_INGENIERIA - _CAMPOS_BULK_EXCLUIDOS,
+    'construccion': CAMPOS_CONSTRUCCION - _CAMPOS_BULK_EXCLUIDOS,
+    'compras': CAMPOS_COMPRAS - _CAMPOS_BULK_EXCLUIDOS,
+}
+
 # Estados en los que NO se puede editar de ninguna forma
 ESTATUS_BLOQUEADOS = {EstatusBOM.CANCELADO, EstatusBOM.APROBADO_FINAL}
 
@@ -401,6 +411,51 @@ class BomService:
 
         updated = await self.db.update_item(conn, id_item, **campos_filtrados)
         return updated
+
+    async def editar_items_bulk(
+        self, conn, item_ids: List[UUID], user_id: UUID,
+        area_editor: str, campo: str,
+        valor=None, grupo_ids: Optional[List[int]] = None,
+    ) -> dict:
+        """Aplica un mismo cambio a varios items del BOM.
+
+        Reutiliza editar_item/set_item_grupos por item, heredando validacion,
+        proteccion de catalogo e historial. Captura ValueError por item y
+        continua, devolviendo cuantos se actualizaron y cuales se omitieron
+        (decision: aplicar a los validos, reportar el resto).
+
+        campo == 'grupos' reemplaza la clasificacion tecnica con grupo_ids.
+        """
+        if area_editor not in ('ingenieria', 'construccion', 'compras'):
+            raise ValueError("Sin permisos para editar items del BOM")
+        if not item_ids:
+            raise ValueError("No hay items seleccionados")
+
+        es_grupos = campo == 'grupos'
+        if es_grupos:
+            if area_editor not in ('ingenieria', 'construccion'):
+                raise ValueError("Solo Ingenieria y Construccion pueden cambiar grupos")
+            if not grupo_ids:
+                raise ValueError("Selecciona al menos un grupo BOM")
+        elif campo not in CAMPOS_BULK.get(area_editor, set()):
+            raise ValueError("Campo no editable en lote para tu area")
+
+        actualizados = 0
+        omitidos = []
+        # Transaccion unica: los items omitidos por ValueError no escriben nada
+        # (editar_item valida antes de tocar BD), y un PostgresError a mitad del
+        # lote revierte todo en vez de dejar items a medio aplicar.
+        async with conn.transaction():
+            for id_item in item_ids:
+                try:
+                    if es_grupos:
+                        await self.set_item_grupos(conn, id_item, user_id, grupo_ids)
+                    else:
+                        await self.editar_item(conn, id_item, user_id, area_editor, **{campo: valor})
+                    actualizados += 1
+                except ValueError as e:
+                    omitidos.append({'id_item': id_item, 'motivo': str(e)})
+        return {'actualizados': actualizados, 'omitidos': omitidos}
 
     async def eliminar_item(self, conn, id_item: UUID, user_id: UUID, area_editor: str = 'ingenieria') -> dict:
         """Soft delete de un item. Valida permisos segun area."""

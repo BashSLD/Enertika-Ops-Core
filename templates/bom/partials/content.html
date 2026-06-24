@@ -299,9 +299,167 @@
     </script>
     {% endif %}
 
-    {# Tabla de items #}
-    <div id="tabla-bom-items">
-        {% include "bom/partials/tabla_items.html" %}
+    {# Tabla de items + edicion masiva (scope Alpine compartido) #}
+    <div x-data="{
+            itemSeleccionados: [],
+            campo: '',
+            toggleAll(e) {
+                document.querySelectorAll('#bom-items-body input[name=item_ids]').forEach(cb => { cb.checked = e.target.checked; });
+                this.itemSeleccionados = e.target.checked
+                    ? Array.from(document.querySelectorAll('#bom-items-body input[name=item_ids]')).map(c => c.value)
+                    : [];
+            },
+            reset() { this.itemSeleccionados = []; this.campo = ''; }
+         }"
+         @htmx:after-swap="if ($event.detail.target && $event.detail.target.id === 'tabla-bom-items') reset()">
+
+        {% set puede_bulk = bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and area_editor in ['ingenieria', 'construccion', 'compras'] %}
+        {% if puede_bulk %}
+        {# vctl(c): muestra/habilita el control de valor solo cuando es el campo activo #}
+        {% macro vctl(c) -%}
+        x-show="campo === '{{ c }}'" :disabled="campo !== '{{ c }}'"
+        {%- endmacro %}
+        {# Barra de edicion masiva — aparece al seleccionar items #}
+        <div id="bom-bulk-bar" x-show="itemSeleccionados.length > 0" x-cloak
+             class="mb-3 flex flex-wrap items-end gap-3 bg-blue-50 border border-blue-200 rounded-xl p-3">
+            <div class="text-sm font-medium text-blue-800">
+                <span x-text="itemSeleccionados.length"></span> seleccionados
+            </div>
+
+            <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Campo a editar</label>
+                <select name="campo" x-model="campo" class="rounded-lg border-gray-300 text-sm">
+                    <option value="">-- Selecciona --</option>
+                    {% if area_editor == 'ingenieria' %}
+                    <option value="id_categoria">Categoria</option>
+                    <option value="unidad_medida">Unidad de medida</option>
+                    <option value="precio_unitario">Precio unitario</option>
+                    <option value="moneda">Moneda</option>
+                    <option value="origen_precio">Origen de precio</option>
+                    <option value="tipo_partida">Tipo de partida</option>
+                    <option value="grupos">Grupos BOM</option>
+                    {% elif area_editor == 'construccion' %}
+                    <option value="fecha_requerida">Fecha requerida</option>
+                    <option value="entregado">Entregado</option>
+                    <option value="comentarios">Comentarios</option>
+                    <option value="grupos">Grupos BOM</option>
+                    {% elif area_editor == 'compras' %}
+                    <option value="id_proveedor">Proveedor</option>
+                    <option value="tipo_entrega">Tipo de entrega</option>
+                    <option value="fecha_estimada_entrega">Fecha est. entrega</option>
+                    <option value="fecha_llegada_real">Fecha llegada real</option>
+                    <option value="comentarios">Comentarios</option>
+                    {% endif %}
+                </select>
+            </div>
+
+            {# Controles de valor — solo el activo se envia (los demas van :disabled) #}
+            <div class="flex-1 min-w-[200px]">
+                <label class="block text-xs font-medium text-gray-500 mb-1">Nuevo valor</label>
+
+                {% if area_editor == 'ingenieria' %}
+                <select name="valor" {{ vctl('id_categoria') }}
+                        class="w-full rounded-lg border-gray-300 text-sm">
+                    <option value="">-- Sin categoria --</option>
+                    {% for cat in catalogos.categorias %}
+                    <option value="{{ cat.id }}">{{ cat.nombre }}</option>
+                    {% endfor %}
+                </select>
+                <input type="text" name="valor" {{ vctl('unidad_medida') }}
+                       placeholder="ej. pza, m, kg" class="w-full rounded-lg border-gray-300 text-sm">
+                <input type="number" name="valor" {{ vctl('precio_unitario') }}
+                       step="0.01" min="0" placeholder="0.00" class="w-full rounded-lg border-gray-300 text-sm">
+                <select name="valor" {{ vctl('moneda') }}
+                        class="w-full rounded-lg border-gray-300 text-sm">
+                    <option value="MXN">MXN — Peso mexicano</option>
+                    <option value="USD">USD — Dolar americano</option>
+                </select>
+                <select name="valor" {{ vctl('origen_precio') }}
+                        class="w-full rounded-lg border-gray-300 text-sm">
+                    <option value="MANUAL">Manual</option>
+                    <option value="CATALOGO">Catalogo</option>
+                </select>
+                <select name="valor" {{ vctl('tipo_partida') }}
+                        class="w-full rounded-lg border-gray-300 text-sm">
+                    <option value="MATERIAL">Material</option>
+                    <option value="MANO_OBRA">Mano de Obra</option>
+                    <option value="SERVICIO">Servicio</option>
+                    <option value="LEGALIZACION">Legalizacion</option>
+                    <option value="EQUIPO">Equipo</option>
+                </select>
+                {% endif %}
+
+                {% if area_editor == 'construccion' %}
+                <input type="date" name="valor" {{ vctl('fecha_requerida') }}
+                       class="w-full rounded-lg border-gray-300 text-sm">
+                <select name="valor" {{ vctl('entregado') }}
+                        class="w-full rounded-lg border-gray-300 text-sm">
+                    <option value="true">Si</option>
+                    <option value="false">No</option>
+                </select>
+                {% endif %}
+
+                {% if area_editor == 'compras' %}
+                <select name="valor" {{ vctl('id_proveedor') }}
+                        class="w-full rounded-lg border-gray-300 text-sm">
+                    <option value="">-- Sin proveedor --</option>
+                    {% for p in catalogos.proveedores %}
+                    <option value="{{ p.id_proveedor }}">{{ p.nombre_comercial or p.razon_social }} ({{ p.rfc }})</option>
+                    {% endfor %}
+                </select>
+                <select name="valor" {{ vctl('tipo_entrega') }}
+                        class="w-full rounded-lg border-gray-300 text-sm">
+                    <option value="">-- Seleccionar --</option>
+                    {% for te in catalogos.tipos_entrega %}
+                    <option value="{{ te.nombre }}">{{ te.nombre|replace('_', ' ') }}</option>
+                    {% endfor %}
+                </select>
+                <input type="date" name="valor" {{ vctl('fecha_estimada_entrega') }}
+                       class="w-full rounded-lg border-gray-300 text-sm">
+                <input type="date" name="valor" {{ vctl('fecha_llegada_real') }}
+                       class="w-full rounded-lg border-gray-300 text-sm">
+                {% endif %}
+
+                {% if area_editor in ['construccion', 'compras'] %}
+                <input type="text" name="valor" {{ vctl('comentarios') }}
+                       placeholder="Comentario para los items" class="w-full rounded-lg border-gray-300 text-sm">
+                {% endif %}
+
+                {% if area_editor in ['ingenieria', 'construccion'] %}
+                <div x-show="campo === 'grupos'" class="flex flex-wrap gap-1.5">
+                    {% for grupo in catalogos.grupos_bom %}
+                    <label class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-300 bg-white text-xs cursor-pointer hover:bg-gray-50">
+                        <input type="checkbox" name="grupo_ids" value="{{ grupo.id }}" :disabled="campo !== 'grupos'"
+                               class="rounded border-gray-300 text-blue-600">
+                        <span class="font-bold">{{ grupo.codigo }}</span>
+                    </label>
+                    {% endfor %}
+                    <span class="w-full text-[11px] text-gray-500">Reemplaza los grupos de los items seleccionados.</span>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button type="button"
+                        hx-patch="/bom/{{ bom.id_bom }}/items/bulk-edit"
+                        hx-target="#tabla-bom-items" hx-swap="innerHTML"
+                        hx-include="#bom-bulk-bar, #bom-items-body input[name='item_ids']:checked"
+                        :disabled="campo === ''"
+                        class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                    Aplicar
+                </button>
+                <button type="button" @click="reset(); document.querySelectorAll('#bom-items-body input[name=item_ids]').forEach(cb => cb.checked = false)"
+                        class="px-3 py-2 text-sm rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition">
+                    Cancelar
+                </button>
+            </div>
+        </div>
+        {% endif %}
+
+        {# Tabla de items #}
+        <div id="tabla-bom-items">
+            {% include "bom/partials/tabla_items.html" %}
+        </div>
     </div>
 
     {# Tabs: Historial / Aprobaciones / Cotizaciones #}

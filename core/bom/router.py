@@ -129,6 +129,27 @@ def _parse_grupo_ids(form) -> list[int]:
     return grupo_ids
 
 
+def _parse_bulk_valor(campo: str, raw: Optional[str]):
+    """Convierte el valor crudo del form al tipo correcto segun el campo del bulk."""
+    from decimal import Decimal
+    from datetime import date as date_type
+    raw = (raw or "").strip()
+    if campo == "id_categoria":
+        return int(raw) if raw else None
+    if campo == "id_proveedor":
+        return UUID(raw) if raw else None
+    if campo == "precio_unitario":
+        return Decimal(raw) if raw else None
+    if campo == "entregado":
+        return raw in ("true", "True", "1", "on")
+    if campo in ("fecha_requerida", "fecha_llegada_real", "fecha_estimada_entrega"):
+        return date_type.fromisoformat(raw) if raw else None
+    if campo == "origen_precio":
+        return raw if raw in ("CATALOGO", "MANUAL") else None
+    # Texto: unidad_medida, tipo_entrega, comentarios, tipo_partida, moneda
+    return raw or None
+
+
 async def _jefe_ingenieria_label(conn, service: BomService) -> str:
     jefe = await service.db.get_usuario_activo_por_rol_org(conn, "jefe_ingenieria")
     return jefe["nombre"] if jefe else "el jefe de Ingeniería"
@@ -521,6 +542,77 @@ async def editar_item(
         return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al editar el item",
             "type": "error",
         })
+
+
+@router.patch("/{id_bom}/items/bulk-edit", include_in_schema=False)
+async def bulk_editar_items(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "construccion", "compras"]),
+):
+    """Aplica un mismo cambio a varios items del BOM (edicion masiva)."""
+    form = await request.form()
+    user_id = context.get("user_db_id")
+    area_editor = _get_area_editor(context)
+
+    if area_editor == "viewer":
+        return _toast_response(request, "Sin permisos para editar items del BOM", "error", "Error")
+
+    campo = (form.get("campo") or "").strip()
+
+    try:
+        try:
+            item_ids = [UUID(x) for x in form.getlist("item_ids") if x]
+        except ValueError:
+            raise ValueError("Seleccion de items invalida")
+        if not item_ids:
+            raise ValueError("Selecciona al menos un item")
+        if not campo:
+            raise ValueError("Selecciona un campo a editar")
+
+        if campo == "grupos":
+            resultado = await service.editar_items_bulk(
+                conn, item_ids, user_id, area_editor, campo,
+                grupo_ids=_parse_grupo_ids(form),
+            )
+        else:
+            valor = _parse_bulk_valor(campo, form.get("valor"))
+            resultado = await service.editar_items_bulk(
+                conn, item_ids, user_id, area_editor, campo, valor=valor
+            )
+
+        bom = await service.get_bom(conn, id_bom)
+        items = await service.get_items(conn, id_bom)
+
+        n = resultado["actualizados"]
+        m = len(resultado["omitidos"])
+        if n and m:
+            toast = {"message": f"{n} items actualizados, {m} omitidos", "type": "warning", "title": "Edicion masiva"}
+        elif n:
+            toast = {"message": f"{n} items actualizados", "type": "success", "title": "Edicion masiva"}
+        else:
+            toast = {"message": "Ningun item se pudo actualizar", "type": "error", "title": "Edicion masiva"}
+
+        # La respuesta solo reswapea #tabla-bom-items (tabla_items.html/row_item.html),
+        # que no usa catalogos ni estadisticas; se omiten para evitar I/O desperdiciado.
+        ctx = _build_bom_context(
+            request, context, bom,
+            items=items,
+            bulk_toast=toast,
+            puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
+                conn, bom['id_proyecto'], user_id
+            ),
+        )
+        return templates.TemplateResponse(request, "bom/partials/tabla_items.html", ctx)
+
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", "Error")
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD en bulk edit BOM")
+        return _toast_response(request, "Error interno al editar los items", "error", "Error")
 
 
 @router.delete("/items/{id_item}", include_in_schema=False)

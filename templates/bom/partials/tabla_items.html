@@ -1,7 +1,11 @@
 {# Tabla de items del BOM (partial HTMX) #}
+{% if bulk_toast %}
+{% with message=bulk_toast.message, type=bulk_toast.type, title=bulk_toast.title %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
 {% if items %}
-<div class="bg-white rounded-xl border overflow-hidden"
-     x-data="{ itemSeleccionados: [], toggleAll(e) { document.querySelectorAll('#bom-items-body input[name=item_ids]').forEach(cb => { cb.checked = e.target.checked; }); this.itemSeleccionados = e.target.checked ? Array.from(document.querySelectorAll('#bom-items-body input[name=item_ids]')).map(c => c.value) : []; } }">
+<div class="bg-white rounded-xl border overflow-hidden">
     <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-gray-50">
