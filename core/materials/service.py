@@ -5,14 +5,14 @@ Logica de negocio, conversion de tipos y exportacion Excel.
 """
 
 from uuid import UUID
-from typing import List, Dict, Optional, Tuple
+from typing import List, Optional, Tuple
 from decimal import Decimal
 import logging
 import re
 import unicodedata
 from core.materials.normalizer import normalizar_descripcion, normalizar_unidad
 
-from .db_service import MaterialsDBService, get_materials_db_service
+from .db_service import get_materials_db_service
 
 logger = logging.getLogger("MaterialsService")
 
@@ -21,6 +21,12 @@ PLANTILLA_COLUMNAS = [
     "material", "tipo", "acabado", "marca", "adicional", "medida",
     "concepto", "unidad", "categoria", "precio_referencia", "moneda",
     "clave_sat", "notas",
+]
+
+# Columnas de la plantilla de actualizacion masiva de precios (orden de salida).
+# id, descripcion y unidad van bloqueados; moneda y precio son editables.
+PLANTILLA_PRECIOS_COLUMNAS = [
+    "id", "descripcion", "unidad", "moneda", "precio_referencia",
 ]
 
 # Alias de nombres de categoria del Excel de origen -> nombre real en BD.
@@ -219,9 +225,14 @@ class MaterialsService:
         """Parsea el Excel y valida cada fila SIN escribir en BD.
         Devuelve filas listas para insertar + detalles por fila + resumen de conteos."""
         from openpyxl import load_workbook
+        from openpyxl.utils.exceptions import InvalidFileException
         from io import BytesIO
+        from zipfile import BadZipFile
 
-        wb = load_workbook(BytesIO(archivo_bytes), read_only=True, data_only=True)
+        try:
+            wb = load_workbook(BytesIO(archivo_bytes), read_only=True, data_only=True)
+        except (BadZipFile, InvalidFileException, OSError) as e:
+            raise ValueError("Archivo Excel invalido o corrupto") from e
         ws = wb.active
 
         validas: List[dict] = []
@@ -364,6 +375,161 @@ class MaterialsService:
             'detalles': parsed['detalles'],
         }
 
+    # ====================================================================
+    # ACTUALIZACION MASIVA DE PRECIOS (solo precio_referencia + moneda)
+    # ====================================================================
+
+    def _parse_actualizacion_precios(self, archivo_bytes: bytes, actuales: dict) -> dict:
+        """Parsea el Excel de actualizacion de precios y valida cada fila sin escribir."""
+        from io import BytesIO
+        from uuid import UUID
+        from zipfile import BadZipFile
+
+        from openpyxl import load_workbook
+        from openpyxl.utils.exceptions import InvalidFileException
+
+        try:
+            wb = load_workbook(BytesIO(archivo_bytes), read_only=True, data_only=True)
+        except (BadZipFile, InvalidFileException, OSError) as e:
+            raise ValueError("Archivo Excel invalido o corrupto") from e
+        ws = wb.active
+
+        validas: List[dict] = []
+        detalles: List[dict] = []
+        ids_sesion: set = set()
+        a_actualizar = errores = sin_cambios = 0
+
+        headers: Optional[List[str]] = None
+        fila_num = 0
+        for row in ws.iter_rows(values_only=True):
+            fila_num += 1
+            if headers is None:
+                celdas = [str(c).strip().lower() if c else '' for c in row]
+                if 'id' in celdas and 'precio_referencia' in celdas:
+                    headers = celdas
+                continue
+            if not any(row):
+                continue
+
+            fila = {}
+            for h, val in zip(headers, row):
+                if h:
+                    fila[h] = '' if val is None else str(val).strip()
+
+            id_txt = fila.get('id', '').strip()
+            if not id_txt:
+                continue
+
+            try:
+                mid = UUID(id_txt)
+            except (ValueError, AttributeError):
+                errores += 1
+                detalles.append({
+                    'fila': fila_num,
+                    'id': id_txt,
+                    'estado': 'error',
+                    'mensaje': "id no es un UUID valido",
+                })
+                continue
+            if mid not in actuales:
+                errores += 1
+                detalles.append({
+                    'fila': fila_num,
+                    'id': id_txt,
+                    'estado': 'error',
+                    'mensaje': "id no existe o esta desactivado",
+                })
+                continue
+            if mid in ids_sesion:
+                errores += 1
+                detalles.append({
+                    'fila': fila_num,
+                    'id': id_txt,
+                    'estado': 'error',
+                    'mensaje': "id repetido en el archivo",
+                })
+                continue
+
+            errs: List[str] = []
+
+            precio = None
+            precio_raw = fila.get('precio_referencia', '')
+            if precio_raw not in ('', None):
+                try:
+                    precio = float(str(precio_raw).replace(',', ''))
+                    if precio < 0:
+                        errs.append("precio negativo")
+                except (ValueError, TypeError):
+                    errs.append(f"precio '{precio_raw}' no es numerico")
+
+            moneda = (fila.get('moneda', '') or '').strip().upper() or 'MXN'
+            if moneda not in ('MXN', 'USD'):
+                errs.append(f"moneda '{moneda}' no valida (use MXN o USD)")
+
+            if errs:
+                errores += 1
+                detalles.append({
+                    'fila': fila_num,
+                    'id': id_txt,
+                    'estado': 'error',
+                    'mensaje': '; '.join(errs),
+                })
+                continue
+
+            ids_sesion.add(mid)
+            actual = actuales[mid]
+            precio_actual = actual['precio']
+            moneda_actual = (actual['moneda'] or 'MXN').upper()
+            mismo_precio = (
+                (precio_actual is None and precio is None)
+                or (
+                    precio_actual is not None
+                    and precio is not None
+                    and abs(precio_actual - precio) < 0.005
+                )
+            )
+            if mismo_precio and moneda_actual == moneda:
+                sin_cambios += 1
+                continue
+
+            validas.append({'id': mid, 'precio_referencia': precio, 'moneda': moneda})
+            a_actualizar += 1
+
+        if headers is None:
+            raise ValueError(
+                "No se encontro la fila de encabezados (se requieren 'id' y 'precio_referencia')"
+            )
+
+        resumen = {'a_actualizar': a_actualizar, 'errores': errores, 'sin_cambios': sin_cambios}
+        return {'validas': validas, 'detalles': detalles, 'resumen': resumen}
+
+    async def validar_actualizacion_precios(self, conn, archivo_bytes: bytes) -> dict:
+        """Fase 1: parsea y valida sin escribir. Devuelve preview."""
+        actuales = await self.db.get_precios_actuales(conn)
+        parsed = self._parse_actualizacion_precios(archivo_bytes, actuales)
+        return {
+            'fase': 'validacion',
+            'modo': 'precios',
+            'resumen': parsed['resumen'],
+            'detalles': parsed['detalles'],
+        }
+
+    async def actualizar_precios_excel(self, conn, archivo_bytes: bytes, actualizado_por=None) -> dict:
+        """Fase 2: re-valida y actualiza solo las filas con cambio real."""
+        actuales = await self.db.get_precios_actuales(conn)
+        parsed = self._parse_actualizacion_precios(archivo_bytes, actuales)
+        for fila in parsed['validas']:
+            fila['actualizado_por'] = actualizado_por
+        async with conn.transaction():
+            actualizados = await self.db.actualizar_precios_bulk(conn, parsed['validas'])
+        return {
+            'fase': 'carga',
+            'modo': 'precios',
+            'actualizados': actualizados,
+            'resumen': parsed['resumen'],
+            'detalles': parsed['detalles'],
+        }
+
     async def generar_plantilla_internos(self, conn) -> bytes:
         """Genera la plantilla .xlsx de carga masiva con hoja de catalogos y validaciones."""
         from openpyxl import Workbook
@@ -426,6 +592,67 @@ class MaterialsService:
         dv_cat.add(f"{col_cat}2:{col_cat}1000")
         dv_moneda.add(f"{col_mon}2:{col_mon}1000")
 
+        ws.freeze_panes = "A2"
+
+        buffer = BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    async def generar_plantilla_precios(self, conn) -> bytes:
+        """Genera la plantilla .xlsx para actualizar precio_referencia y moneda."""
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill, Protection
+        from openpyxl.utils import get_column_letter
+        from openpyxl.worksheet.datavalidation import DataValidation
+        from io import BytesIO
+
+        internos, _ = await self.get_internos(conn, {}, page=1, per_page=100000)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Precios"
+
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+        header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        locked_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+        anchos = {
+            "id": 38,
+            "descripcion": 50,
+            "unidad": 12,
+            "moneda": 10,
+            "precio_referencia": 16,
+        }
+
+        for col, name in enumerate(PLANTILLA_PRECIOS_COLUMNAS, 1):
+            cell = ws.cell(row=1, column=col, value=name)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            ws.column_dimensions[get_column_letter(col)].width = anchos[name]
+
+        dv_moneda = DataValidation(type="list", formula1='"MXN,USD"', allow_blank=True)
+        ws.add_data_validation(dv_moneda)
+        max_row = max(len(internos) + 1, 1000)
+        dv_moneda.add(f"D2:D{max_row}")
+
+        for i, material in enumerate(internos, 2):
+            c_id = ws.cell(row=i, column=1, value=str(material['id']))
+            c_desc = ws.cell(row=i, column=2, value=material.get('descripcion_canonica') or '')
+            c_uni = ws.cell(row=i, column=3, value=material.get('unidad_codigo') or '')
+            c_mon = ws.cell(row=i, column=4, value=material.get('moneda') or 'MXN')
+            precio = material.get('precio_referencia')
+            c_pre = ws.cell(row=i, column=5, value=float(precio) if precio is not None else None)
+            c_pre.number_format = '#,##0.00'
+
+            for cell in (c_id, c_desc, c_uni):
+                cell.protection = Protection(locked=True)
+                cell.fill = locked_fill
+            c_mon.protection = Protection(locked=False)
+            c_pre.protection = Protection(locked=False)
+
+        ws.protection.sheet = True
         ws.freeze_panes = "A2"
 
         buffer = BytesIO()

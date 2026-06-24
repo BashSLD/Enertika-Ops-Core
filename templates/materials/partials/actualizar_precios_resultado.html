@@ -1,0 +1,71 @@
+{% set r = resultado.resumen %}
+{% if resultado.fase == 'carga' %}
+<div class="mt-3 p-3 rounded-lg bg-green-50 border border-green-200">
+    <div class="text-sm font-semibold text-green-800 mb-1">Actualización completada</div>
+    <ul class="text-xs text-gray-700 space-y-0.5">
+        <li>Precios actualizados: <span class="font-semibold text-green-700">{{ resultado.actualizados }}</span></li>
+        {% if r.sin_cambios %}
+        <li>Sin cambios: <span class="font-semibold text-gray-600">{{ r.sin_cambios }}</span></li>
+        {% endif %}
+        {% if r.errores %}
+        <li>Omitidos por error: <span class="font-semibold text-red-600">{{ r.errores }}</span></li>
+        {% endif %}
+    </ul>
+</div>
+{% else %}
+<div class="mt-3 space-y-3">
+    <div class="grid grid-cols-3 gap-2 text-center">
+        <div class="p-2 rounded bg-green-50 border border-green-200">
+            <p class="text-lg font-bold text-green-700">{{ r.a_actualizar }}</p>
+            <p class="text-[10px] text-gray-500">A actualizar</p>
+        </div>
+        <div class="p-2 rounded bg-gray-50 border border-gray-200">
+            <p class="text-lg font-bold text-gray-600">{{ r.sin_cambios }}</p>
+            <p class="text-[10px] text-gray-500">Sin cambios</p>
+        </div>
+        <div class="p-2 rounded bg-red-50 border border-red-200">
+            <p class="text-lg font-bold text-red-600">{{ r.errores }}</p>
+            <p class="text-[10px] text-gray-500">Errores</p>
+        </div>
+    </div>
+
+    {% if resultado.detalles %}
+    <div class="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
+        <table class="w-full text-xs">
+            <thead class="bg-gray-50 sticky top-0">
+                <tr class="text-left text-gray-500">
+                    <th class="px-2 py-1 w-12">Fila</th>
+                    <th class="px-2 py-1">ID</th>
+                    <th class="px-2 py-1">Detalle</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in resultado.detalles[:50] %}
+                <tr class="border-t border-gray-100">
+                    <td class="px-2 py-1 text-gray-500">{{ d.fila }}</td>
+                    <td class="px-2 py-1 text-gray-700 truncate max-w-[140px]" title="{{ d.id }}">{{ d.id }}</td>
+                    <td class="px-2 py-1">
+                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-700">
+                            {{ d.mensaje }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if resultado.detalles|length > 50 %}
+    <p class="text-[10px] text-gray-400">... y {{ resultado.detalles|length - 50 }} fila(s) más con observaciones.</p>
+    {% endif %}
+    {% endif %}
+
+    {% if r.a_actualizar > 0 %}
+    <button type="submit" name="confirmar" value="true"
+        class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-semibold">
+        Confirmar actualización de {{ r.a_actualizar }} precio(s)
+    </button>
+    {% else %}
+    <p class="text-sm text-center text-gray-500">No hay precios con cambios para aplicar. Edita el archivo y vuelve a validar.</p>
+    {% endif %}
+</div>
+{% endif %}

@@ -5,8 +5,7 @@ Queries puras con asyncpg, recibe conn.
 """
 
 from uuid import UUID
-from typing import List, Optional, Tuple
-from decimal import Decimal
+from typing import List, Optional
 import logging
 
 from core.materials.normalizer import normalizar_descripcion
@@ -436,6 +435,67 @@ class MaterialsDBService:
             "SELECT descripcion_norm FROM tb_cat_materiales WHERE descripcion_norm IS NOT NULL"
         )
         return {r['descripcion_norm'] for r in rows}
+
+    async def get_precios_actuales(self, conn) -> dict:
+        """Mapa de precios y moneda actuales para internos activos."""
+        rows = await conn.fetch(
+            "SELECT id, precio_referencia, moneda FROM tb_cat_materiales WHERE activo = TRUE"
+        )
+        return {
+            r['id']: {
+                'precio': (
+                    float(r['precio_referencia'])
+                    if r['precio_referencia'] is not None
+                    else None
+                ),
+                'moneda': r['moneda'] or 'MXN',
+            }
+            for r in rows
+        }
+
+    async def actualizar_precios_bulk(self, conn, registros: List[dict]) -> int:
+        """Actualiza precio_referencia y moneda; devuelve filas realmente actualizadas."""
+        if not registros:
+            return 0
+
+        import json
+
+        payload = [
+            {
+                "id": str(r["id"]),
+                "precio_referencia": r["precio_referencia"],
+                "moneda": r["moneda"],
+                "actualizado_por": (
+                    str(r["actualizado_por"]) if r.get("actualizado_por") else None
+                ),
+            }
+            for r in registros
+        ]
+        rows = await conn.fetch(
+            """
+            WITH payload AS (
+                SELECT *
+                FROM jsonb_to_recordset($1::jsonb) AS x(
+                    id uuid,
+                    precio_referencia numeric,
+                    moneda varchar,
+                    actualizado_por uuid
+                )
+            )
+            UPDATE tb_cat_materiales m
+            SET precio_referencia = p.precio_referencia,
+                moneda = p.moneda,
+                actualizado_por = p.actualizado_por,
+                updated_at = $2
+            FROM payload p
+            WHERE m.id = p.id
+              AND m.activo = TRUE
+            RETURNING m.id
+            """,
+            json.dumps(payload),
+            now_mx(),
+        )
+        return len(rows)
 
     async def actualizar_interno(self, conn, id: UUID, data: dict) -> bool:
         allowed = ['descripcion_canonica', 'id_unidad_medida', 'id_categoria',

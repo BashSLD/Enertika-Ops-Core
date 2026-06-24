@@ -7,8 +7,9 @@ Consulta, edicion de clasificacion, analisis de precios y exportacion Excel.
 from fastapi import APIRouter, Depends, Request, Query, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, Response
-from typing import Optional, Annotated
+from typing import Annotated
 from uuid import UUID
+import asyncpg
 import logging
 
 from core.database import get_db_connection
@@ -22,7 +23,7 @@ from core.permissions import (
 from core.config import settings
 from core.timezone import now_mx
 from .service import MaterialsService, get_materials_service
-from .schemas import MaterialFilter, MaterialUpdate, MaterialInternoCreate, MaterialInternoFilter
+from .schemas import MaterialFilter, MaterialInternoCreate, MaterialInternoFilter
 
 logger = logging.getLogger("MaterialsRouter")
 
@@ -529,11 +530,73 @@ async def importar_internos(
             resultado = await service.validar_internos_excel(conn, contenido)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error al leer archivo: {e}")
+    except asyncpg.PostgresError as e:
+        logger.exception("Error de BD al importar materiales internos")
+        raise HTTPException(
+            status_code=500,
+            detail="Error de base de datos al importar materiales",
+        ) from e
     headers = {"HX-Trigger": "internos-importados"} if confirmar else {}
     return templates.TemplateResponse(
         request, "materials/partials/importar_resultado.html",
+        {"resultado": resultado},
+        headers=headers,
+    )
+
+
+@router.get("/internos/plantilla-precios")
+async def descargar_plantilla_precios(
+    conn=Depends(get_db_connection),
+    service: MaterialsService = Depends(get_materials_service),
+    _=require_materials_edit_access,
+):
+    """Descarga el .xlsx de actualizacion masiva de precios."""
+    excel_bytes = await service.generar_plantilla_precios(conn)
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="actualizar_precios_catalogo.xlsx"'},
+    )
+
+
+@router.post("/internos/actualizar-precios", response_class=HTMLResponse)
+async def actualizar_precios_internos(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: MaterialsService = Depends(get_materials_service),
+    _=require_materials_edit_access,
+):
+    """Actualizacion masiva de precios en 2 fases."""
+    form = await request.form()
+    archivo = form.get("archivo")
+    if not archivo or not getattr(archivo, 'filename', None):
+        raise HTTPException(status_code=400, detail="Archivo requerido")
+
+    confirmar = str(form.get("confirmar", "")).lower() == "true"
+    contenido = await archivo.read()
+    try:
+        if confirmar:
+            resultado = await service.actualizar_precios_excel(
+                conn,
+                contenido,
+                actualizado_por=context.get("user_db_id"),
+            )
+        else:
+            resultado = await service.validar_actualizacion_precios(conn, contenido)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError as e:
+        logger.exception("Error de BD al actualizar precios internos")
+        raise HTTPException(
+            status_code=500,
+            detail="Error de base de datos al actualizar precios",
+        ) from e
+
+    headers = {"HX-Trigger": "internos-importados"} if confirmar else {}
+    return templates.TemplateResponse(
+        request,
+        "materials/partials/actualizar_precios_resultado.html",
         {"resultado": resultado},
         headers=headers,
     )
