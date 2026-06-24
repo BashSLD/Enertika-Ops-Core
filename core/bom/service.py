@@ -412,8 +412,45 @@ class BomService:
         updated = await self.db.update_item(conn, id_item, **campos_filtrados)
         return updated
 
+    async def _validar_item_bulk(
+        self, conn, item: Optional[dict], id_bom: UUID, user_id: UUID,
+        area_editor: str, permisos_ing_cache: dict
+    ) -> None:
+        """Valida que un item pueda editarse dentro de una operacion bulk."""
+        if not item:
+            raise ValueError("Item no encontrado")
+        if str(item.get('id_bom')) != str(id_bom):
+            raise ValueError("El item no pertenece a este BOM")
+        if not item.get('activo', True):
+            raise ValueError("No se puede editar un item eliminado")
+        if item.get('bloqueado'):
+            raise ValueError("Este item fue completado en una version anterior del BOM y no se puede modificar")
+
+        bom_estatus = EstatusBOM(item['bom_estatus'])
+        if area_editor == 'ingenieria':
+            id_proyecto = item['id_proyecto']
+            cache_key = str(id_proyecto)
+            if cache_key not in permisos_ing_cache:
+                try:
+                    await self._validar_retomar_bom_ingenieria(conn, id_proyecto, user_id)
+                    permisos_ing_cache[cache_key] = None
+                except ValueError as exc:
+                    permisos_ing_cache[cache_key] = str(exc)
+            if permisos_ing_cache[cache_key]:
+                raise ValueError(permisos_ing_cache[cache_key])
+            if bom_estatus not in ESTATUS_EDITABLE_ING:
+                raise ValueError("El BOM no esta en estado editable para ingenieria")
+        elif area_editor == 'construccion':
+            if bom_estatus not in ESTATUS_EDITABLE_CONST_COMPRAS:
+                raise ValueError("El BOM no esta en estado editable para construccion")
+        elif area_editor == 'compras':
+            if bom_estatus not in ESTATUS_EDITABLE_CONST_COMPRAS:
+                raise ValueError("El BOM no esta en estado editable para compras")
+        else:
+            raise ValueError("Sin permisos para editar items del BOM")
+
     async def editar_items_bulk(
-        self, conn, item_ids: List[UUID], user_id: UUID,
+        self, conn, id_bom: UUID, item_ids: List[UUID], user_id: UUID,
         area_editor: str, campo: str,
         valor=None, grupo_ids: Optional[List[int]] = None,
     ) -> dict:
@@ -430,6 +467,7 @@ class BomService:
             raise ValueError("Sin permisos para editar items del BOM")
         if not item_ids:
             raise ValueError("No hay items seleccionados")
+        item_ids = list(dict.fromkeys(item_ids))
 
         es_grupos = campo == 'grupos'
         if es_grupos:
@@ -440,14 +478,21 @@ class BomService:
         elif campo not in CAMPOS_BULK.get(area_editor, set()):
             raise ValueError("Campo no editable en lote para tu area")
 
+        items_context = await self.db.get_items_context_by_ids(conn, item_ids)
+        items_por_id = {str(item['id_item']): item for item in items_context}
+        permisos_ing_cache = {}
         actualizados = 0
         omitidos = []
         # Transaccion unica: los items omitidos por ValueError no escriben nada
-        # (editar_item valida antes de tocar BD), y un PostgresError a mitad del
-        # lote revierte todo en vez de dejar items a medio aplicar.
+        # (se validan antes de tocar BD), y un PostgresError a mitad del lote
+        # revierte todo en vez de dejar items a medio aplicar.
         async with conn.transaction():
             for id_item in item_ids:
                 try:
+                    item = items_por_id.get(str(id_item))
+                    await self._validar_item_bulk(
+                        conn, item, id_bom, user_id, area_editor, permisos_ing_cache
+                    )
                     if es_grupos:
                         await self.set_item_grupos(conn, id_item, user_id, grupo_ids)
                     else:

@@ -313,7 +313,7 @@
          }"
          @htmx:after-swap="if ($event.detail.target && $event.detail.target.id === 'tabla-bom-items') reset()">
 
-        {% set puede_bulk = bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and area_editor in ['ingenieria', 'construccion', 'compras'] %}
+        {% set puede_bulk = bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and ((area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria) or area_editor in ['construccion', 'compras']) %}
         {% if puede_bulk %}
         {# vctl(c): muestra/habilita el control de valor solo cuando es el campo activo #}
         {% macro vctl(c) -%}

@@ -573,18 +573,18 @@ async def bulk_editar_items(
         if not campo:
             raise ValueError("Selecciona un campo a editar")
 
+        bom = await service.get_bom(conn, id_bom)
         if campo == "grupos":
             resultado = await service.editar_items_bulk(
-                conn, item_ids, user_id, area_editor, campo,
+                conn, id_bom, item_ids, user_id, area_editor, campo,
                 grupo_ids=_parse_grupo_ids(form),
             )
         else:
             valor = _parse_bulk_valor(campo, form.get("valor"))
             resultado = await service.editar_items_bulk(
-                conn, item_ids, user_id, area_editor, campo, valor=valor
+                conn, id_bom, item_ids, user_id, area_editor, campo, valor=valor
             )
 
-        bom = await service.get_bom(conn, id_bom)
         items = await service.get_items(conn, id_bom)
 
         n = resultado["actualizados"]
@@ -593,6 +593,8 @@ async def bulk_editar_items(
             toast = {"message": f"{n} items actualizados, {m} omitidos", "type": "warning", "title": "Edicion masiva"}
         elif n:
             toast = {"message": f"{n} items actualizados", "type": "success", "title": "Edicion masiva"}
+        elif m:
+            toast = {"message": f"0 items actualizados, {m} omitidos", "type": "error", "title": "Edicion masiva"}
         else:
             toast = {"message": "Ningun item se pudo actualizar", "type": "error", "title": "Edicion masiva"}
 

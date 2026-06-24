@@ -236,6 +236,19 @@ class BomDBService:
         """, item_ids)
         return [dict(r) for r in rows]
 
+    async def get_items_context_by_ids(self, conn, item_ids: List[UUID]) -> List[dict]:
+        """Obtiene items con contexto del BOM para validaciones de lote."""
+        rows = await conn.fetch("""
+            SELECT i.*,
+                   b.estatus AS bom_estatus,
+                   b.id_proyecto,
+                   b.version AS bom_version
+            FROM tb_bom_items i
+            JOIN tb_bom b ON b.id_bom = i.id_bom
+            WHERE i.id_item = ANY($1::uuid[])
+        """, item_ids)
+        return [dict(r) for r in rows]
+
     async def update_item(self, conn, id_item: UUID, **campos) -> dict:
         """Actualiza campos de un item. Solo actualiza los campos proporcionados."""
         sets = ["updated_at = NOW()"]
