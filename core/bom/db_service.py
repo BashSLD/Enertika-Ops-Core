@@ -1416,42 +1416,97 @@ class BomDBService:
     # ─── RESUMEN DE COMPRA (Presupuesto vs Facturado vs Pagado) ───
 
     async def get_resumen_compra(self, conn, id_bom: UUID) -> List[dict]:
-        """Comparativo por categoría: presupuesto, facturado y pagado (todo en MXN).
+        """Comparativo por grupo BOM y categoria: presupuesto, facturado y pagado.
 
-        Una sola query con CTEs (sin N+1). Devuelve una fila por categoría con datos
-        en cualquiera de las tres columnas, incluyendo la sección de BOM de la categoría.
-
-        - Presupuesto: cantidad x precio_unitario de los items activos del BOM.
-        - Facturado: importe de los conceptos CFDI ligados al item (o a su versión anterior
-          vía id_item_origen, mismo criterio que get_gasto_real_por_item), normalizado a MXN.
-        - Pagado: monto desembolsado a nivel autorización, prorrateado entre los items de la
-          cotización según subtotal_linea, normalizado a MXN.
+        La seccion sale de tb_bom_item_grupos (AC/DC/CM/OC/TE). Si un item tiene
+        multiples grupos, reparte su importe de forma equitativa. La columna
+        seccion_bom de categorias solo queda como respaldo para historicos sin grupo.
         """
         rows = await conn.fetch("""
-            WITH presupuesto AS (
-                SELECT i.id_categoria,
-                       SUM(i.cantidad * COALESCE(i.precio_unitario, 0)) AS presupuesto_mxn
+            WITH items_base AS (
+                SELECT i.id_item, i.id_item_origen, i.id_categoria,
+                       c.nombre AS categoria_nombre,
+                       c.seccion_bom,
+                       i.cantidad,
+                       COALESCE(i.precio_unitario, 0) AS precio_unitario
                 FROM tb_bom_items i
+                LEFT JOIN tb_cat_categorias_compra c ON c.id = i.id_categoria
                 WHERE i.id_bom = $1 AND i.activo = TRUE
-                GROUP BY i.id_categoria
             ),
-            facturado AS (
-                SELECT it.id_categoria,
-                       SUM(m.importe * COALESCE(m.tipo_cambio_xml, 1)) AS facturado_mxn
-                FROM tb_bom_items it
-                JOIN tb_materiales_historial m
-                  ON m.id_bom_item = it.id_item
-                  OR m.id_bom_item = it.id_item_origen
-                WHERE it.id_bom = $1
-                GROUP BY it.id_categoria
+            item_grupos AS (
+                SELECT ib.id_item,
+                       ib.id_item_origen,
+                       ib.id_categoria AS categoria_id,
+                       COALESCE(ib.categoria_nombre, 'Sin categoria') AS categoria_nombre,
+                       COALESCE(g.codigo, ib.seccion_bom, 'SIN_CLASIFICAR') AS grupo_codigo,
+                       COALESCE(g.nombre, ib.seccion_bom, 'Sin clasificar') AS grupo_nombre,
+                       COALESCE(g.orden, 999) AS grupo_orden,
+                       CASE
+                         WHEN COUNT(g.id) OVER (PARTITION BY ib.id_item) > 0
+                         THEN 1.0 / COUNT(g.id) OVER (PARTITION BY ib.id_item)
+                         ELSE 1.0
+                       END AS peso_grupo,
+                       ib.cantidad,
+                       ib.precio_unitario
+                FROM items_base ib
+                LEFT JOIN (
+                    SELECT ig.id_item, g.id, g.codigo, g.nombre, g.orden
+                    FROM tb_bom_item_grupos ig
+                    JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo
+                    WHERE g.activo = TRUE
+                ) g ON g.id_item = ib.id_item
+            ),
+            item_targets AS (
+                SELECT id_item AS current_id, id_item AS target_id
+                FROM items_base
+                UNION ALL
+                SELECT id_item AS current_id, id_item_origen AS target_id
+                FROM items_base
+                WHERE id_item_origen IS NOT NULL
+            ),
+            presupuesto AS (
+                SELECT grupo_codigo, grupo_nombre, grupo_orden,
+                       categoria_id, categoria_nombre,
+                       SUM(cantidad * precio_unitario * peso_grupo) AS presupuesto_mxn
+                FROM item_grupos
+                GROUP BY grupo_codigo, grupo_nombre, grupo_orden, categoria_id, categoria_nombre
+            ),
+            facturado_confirmado AS (
+                SELECT ig.grupo_codigo, ig.grupo_nombre, ig.grupo_orden,
+                       ig.categoria_id, ig.categoria_nombre,
+                       SUM(m.importe * COALESCE(m.tipo_cambio_xml, 1) * ig.peso_grupo) AS facturado_confirmado_mxn
+                FROM item_grupos ig
+                JOIN item_targets it ON it.current_id = ig.id_item
+                JOIN tb_materiales_historial m ON m.id_bom_item = it.target_id
+                GROUP BY ig.grupo_codigo, ig.grupo_nombre, ig.grupo_orden, ig.categoria_id, ig.categoria_nombre
+            ),
+            facturado_sugerido AS (
+                SELECT ig.grupo_codigo, ig.grupo_nombre, ig.grupo_orden,
+                       ig.categoria_id, ig.categoria_nombre,
+                       SUM(m.importe * COALESCE(m.tipo_cambio_xml, 1) * ig.peso_grupo) AS facturado_sugerido_mxn
+                FROM item_grupos ig
+                JOIN item_targets it ON it.current_id = ig.id_item
+                JOIN tb_materiales_historial m ON m.id_bom_item_sugerido = it.target_id
+                WHERE m.id_bom_item IS NULL
+                GROUP BY ig.grupo_codigo, ig.grupo_nombre, ig.grupo_orden, ig.categoria_id, ig.categoria_nombre
+            ),
+            coti_lineas AS (
+                -- Una fila por linea de cotizacion (sin explotar por grupo): base del
+                -- denominador de prorrateo para que items multi-grupo no lo inflen.
+                SELECT a.id AS autorizacion_id, ci.subtotal_linea
+                FROM tb_bom_autorizaciones a
+                JOIN tb_bom_cotizacion_items ci ON ci.cotizacion_id = a.cotizacion_id
+                JOIN items_base ib ON ib.id_item = ci.bom_item_id
+                WHERE a.bom_id = $1
             ),
             coti_items AS (
                 SELECT a.id AS autorizacion_id,
                        ci.subtotal_linea,
-                       it.id_categoria
+                       ig.grupo_codigo, ig.grupo_nombre, ig.grupo_orden,
+                       ig.categoria_id, ig.categoria_nombre, ig.peso_grupo
                 FROM tb_bom_autorizaciones a
                 JOIN tb_bom_cotizacion_items ci ON ci.cotizacion_id = a.cotizacion_id
-                JOIN tb_bom_items it ON it.id_item = ci.bom_item_id
+                JOIN item_grupos ig ON ig.id_item = ci.bom_item_id
                 WHERE a.bom_id = $1
             ),
             pago_por_auth AS (
@@ -1465,32 +1520,57 @@ class BomDBService:
             auth_totales AS (
                 SELECT autorizacion_id,
                        NULLIF(SUM(subtotal_linea), 0) AS total_subtotal
-                FROM coti_items
+                FROM coti_lineas
                 GROUP BY autorizacion_id
             ),
             pagado AS (
-                SELECT ci.id_categoria,
-                       SUM(pa.pagado_mxn * (ci.subtotal_linea / at.total_subtotal)) AS pagado_mxn
+                SELECT ci.grupo_codigo, ci.grupo_nombre, ci.grupo_orden,
+                       ci.categoria_id, ci.categoria_nombre,
+                       SUM(pa.pagado_mxn * (ci.subtotal_linea / at.total_subtotal) * ci.peso_grupo) AS pagado_mxn
                 FROM coti_items ci
                 JOIN pago_por_auth pa ON pa.autorizacion_id = ci.autorizacion_id
                 JOIN auth_totales at ON at.autorizacion_id = ci.autorizacion_id
                 WHERE at.total_subtotal IS NOT NULL
-                GROUP BY ci.id_categoria
+                GROUP BY ci.grupo_codigo, ci.grupo_nombre, ci.grupo_orden, ci.categoria_id, ci.categoria_nombre
+            ),
+            metricas AS (
+                SELECT grupo_codigo, grupo_nombre, grupo_orden,
+                       categoria_id, categoria_nombre,
+                       presupuesto_mxn, 0::numeric AS facturado_confirmado_mxn,
+                       0::numeric AS facturado_sugerido_mxn, 0::numeric AS pagado_mxn
+                FROM presupuesto
+                UNION ALL
+                SELECT grupo_codigo, grupo_nombre, grupo_orden,
+                       categoria_id, categoria_nombre,
+                       0::numeric, facturado_confirmado_mxn, 0::numeric, 0::numeric
+                FROM facturado_confirmado
+                UNION ALL
+                SELECT grupo_codigo, grupo_nombre, grupo_orden,
+                       categoria_id, categoria_nombre,
+                       0::numeric, 0::numeric, facturado_sugerido_mxn, 0::numeric
+                FROM facturado_sugerido
+                UNION ALL
+                SELECT grupo_codigo, grupo_nombre, grupo_orden,
+                       categoria_id, categoria_nombre,
+                       0::numeric, 0::numeric, 0::numeric, pagado_mxn
+                FROM pagado
             )
-            SELECT c.id AS categoria_id,
-                   c.nombre AS categoria_nombre,
-                   COALESCE(c.seccion_bom, 'Otros') AS seccion_bom,
-                   COALESCE(pr.presupuesto_mxn, 0) AS presupuesto_mxn,
-                   COALESCE(f.facturado_mxn, 0) AS facturado_mxn,
-                   COALESCE(pg.pagado_mxn, 0) AS pagado_mxn
-            FROM tb_cat_categorias_compra c
-            LEFT JOIN presupuesto pr ON pr.id_categoria = c.id
-            LEFT JOIN facturado f ON f.id_categoria = c.id
-            LEFT JOIN pagado pg ON pg.id_categoria = c.id
-            WHERE COALESCE(pr.presupuesto_mxn, 0) <> 0
-               OR COALESCE(f.facturado_mxn, 0) <> 0
-               OR COALESCE(pg.pagado_mxn, 0) <> 0
-            ORDER BY c.id
+            SELECT grupo_codigo,
+                   grupo_nombre,
+                   grupo_orden,
+                   categoria_id,
+                   categoria_nombre,
+                   SUM(presupuesto_mxn) AS presupuesto_mxn,
+                   SUM(facturado_confirmado_mxn) AS facturado_confirmado_mxn,
+                   SUM(facturado_sugerido_mxn) AS facturado_sugerido_mxn,
+                   SUM(pagado_mxn) AS pagado_mxn
+            FROM metricas
+            GROUP BY grupo_codigo, grupo_nombre, grupo_orden, categoria_id, categoria_nombre
+            HAVING SUM(presupuesto_mxn) <> 0
+                OR SUM(facturado_confirmado_mxn) <> 0
+                OR SUM(facturado_sugerido_mxn) <> 0
+                OR SUM(pagado_mxn) <> 0
+            ORDER BY grupo_orden, grupo_codigo, categoria_nombre
         """, id_bom)
         return [dict(r) for r in rows]
 
@@ -1498,7 +1578,7 @@ class BomDBService:
         """Divisores para métricas normalizadas: kWp de cierre FV y módulos FV del BOM.
 
         - kwp: potencia de cierre FV de la oportunidad ligada al proyecto del BOM.
-        - modulos_fv: suma de cantidades de items activos en la categoría Panel (id 11).
+        - modulos_fv: suma de cantidades de items activos en la categoria Panel.
         """
         row = await conn.fetchrow("""
             SELECT
@@ -1509,7 +1589,10 @@ class BomDBService:
                    WHERE b.id_bom = $1) AS kwp,
                 (SELECT SUM(i.cantidad)
                    FROM tb_bom_items i
-                   WHERE i.id_bom = $1 AND i.activo = TRUE AND i.id_categoria = 11) AS modulos_fv
+                   JOIN tb_cat_categorias_compra c ON c.id = i.id_categoria
+                   WHERE i.id_bom = $1
+                     AND i.activo = TRUE
+                     AND lower(c.nombre) = 'panel') AS modulos_fv
         """, id_bom)
         return {
             "kwp": float(row["kwp"]) if row and row["kwp"] is not None else None,

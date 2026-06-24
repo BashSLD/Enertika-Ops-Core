@@ -121,6 +121,13 @@ def _toast_response(
     )
 
 
+def _parse_grupo_ids(form) -> list[int]:
+    grupo_ids = [int(g) for g in form.getlist("grupo_ids") if g]
+    if not grupo_ids:
+        raise ValueError("Selecciona al menos un grupo BOM")
+    return grupo_ids
+
+
 async def _jefe_ingenieria_label(conn, service: BomService) -> str:
     jefe = await service.db.get_usuario_activo_por_rol_org(conn, "jefe_ingenieria")
     return jefe["nombre"] if jefe else "el jefe de Ingeniería"
@@ -365,6 +372,7 @@ async def agregar_item(
 
     try:
         from decimal import Decimal
+        grupo_ids = _parse_grupo_ids(form)
         precio_unitario = Decimal(precio_unitario_raw) if precio_unitario_raw else None
         id_material_ref = UUID(id_material_ref_raw) if id_material_ref_raw else None
         id_material_interno = UUID(id_material_interno_raw) if id_material_interno_raw else None
@@ -385,9 +393,7 @@ async def agregar_item(
             area_editor=area_editor,
         )
 
-        grupo_ids = [int(g) for g in form.getlist("grupo_ids") if g]
-        if grupo_ids:
-            await service.set_item_grupos(conn, item['id_item'], user_id, grupo_ids)
+        await service.set_item_grupos(conn, item['id_item'], user_id, grupo_ids)
 
         # Retornar tabla actualizada
         items = await service.get_items(conn, bom['id_bom'])
@@ -461,17 +467,13 @@ async def editar_item(
         elif key in ("descripcion", "unidad_medida", "tipo_entrega", "comentarios", "tipo_partida", "moneda"):
             campos[key] = val.strip() if val else None
 
-    # Extract grupo_ids before passing campos to editar_item (not a regular item field)
-    grupo_ids_raw = form.getlist("grupo_ids")
-
     try:
+        grupo_ids = _parse_grupo_ids(form)
         if campos:
             await service.editar_item(
                 conn, id_item, user_id, area_editor, **campos
             )
 
-        # Update grupos (empty list = remove all groups)
-        grupo_ids = [int(g) for g in grupo_ids_raw if g]
         await service.set_item_grupos(conn, id_item, user_id, grupo_ids)
 
         # Retornar fila actualizada
@@ -1015,10 +1017,9 @@ async def set_item_grupos(
     """Asigna grupos BOM (AC/DC/CM/OC/TE) a un item."""
     form = await request.form()
     user_id = context.get("user_db_id")
-    grupo_ids_raw = form.getlist("grupo_ids")
 
     try:
-        grupo_ids = [int(g) for g in grupo_ids_raw if g]
+        grupo_ids = _parse_grupo_ids(form)
         await service.set_item_grupos(conn, id_item, user_id, grupo_ids)
 
         item = await service.get_item(conn, id_item)

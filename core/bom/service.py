@@ -490,57 +490,57 @@ class BomService:
 
     # ─── RESUMEN DE COMPRA ───────────────────────────────────
 
-    # Orden y etiqueta de las secciones del BOM para el reporte.
-    _SECCIONES_RESUMEN = [
-        ("DC", "Corriente Directa (DC)"),
-        ("AC", "Corriente Alterna (AC)"),
-        ("CM", "Comunicación"),
-        ("Otros", "Otros"),
-    ]
-
     async def get_resumen_compra(self, conn, id_bom: UUID) -> dict:
         """Arma el comparativo Presupuesto vs Facturado vs Pagado del BOM.
 
-        Agrupa las categorías por sección (rollup en memoria), calcula totales,
+        Agrupa las categorias por grupo BOM (rollup en memoria), calcula totales,
         desviaciones (presupuesto - facturado / - pagado) y métricas normalizadas
-        (MXN por módulo FV y por kWp). Solo agregación; no escribe nada.
+        (MXN por modulo FV y por kWp). Solo agregacion; no escribe nada.
         """
         filas = await self.db.get_resumen_compra(conn, id_bom)
         divisores = await self.db.get_divisores_bom(conn, id_bom)
 
-        # Agrupar categorías por código de sección.
-        por_seccion: dict[str, list] = {}
+        por_grupo: dict[str, dict] = {}
         for f in filas:
+            grupo_codigo = f["grupo_codigo"] or "SIN_CLASIFICAR"
+            grupo = por_grupo.setdefault(grupo_codigo, {
+                "codigo": grupo_codigo,
+                "nombre": f["grupo_nombre"] or "Sin clasificar",
+                "orden": int(f["grupo_orden"] or 999),
+                "categorias": [],
+            })
+            facturado = float(f["facturado_confirmado_mxn"])
+            facturado_sugerido = float(f["facturado_sugerido_mxn"])
             cat = {
                 "categoria_id": f["categoria_id"],
                 "categoria_nombre": f["categoria_nombre"],
                 "presupuesto": float(f["presupuesto_mxn"]),
-                "facturado": float(f["facturado_mxn"]),
+                "facturado": facturado,
+                "facturado_sugerido": facturado_sugerido,
+                "facturado_total_potencial": facturado + facturado_sugerido,
                 "pagado": float(f["pagado_mxn"]),
             }
             cat["dif_facturado"] = cat["presupuesto"] - cat["facturado"]
             cat["dif_pagado"] = cat["presupuesto"] - cat["pagado"]
-            por_seccion.setdefault(f["seccion_bom"] or "Otros", []).append(cat)
+            grupo["categorias"].append(cat)
 
         secciones = []
         tot_presup = tot_fact = tot_pag = 0.0
-        # Secciones conocidas en orden fijo + cualquier código inesperado al final.
-        codigos = [c for c, _ in self._SECCIONES_RESUMEN]
-        codigos += [c for c in por_seccion if c not in codigos]
-        etiquetas = dict(self._SECCIONES_RESUMEN)
+        tot_sugerido = 0.0
 
-        for codigo in codigos:
-            cats = por_seccion.get(codigo)
-            if not cats:
-                continue
+        for grupo in sorted(por_grupo.values(), key=lambda g: (g["orden"], g["codigo"])):
+            cats = grupo["categorias"]
             s_presup = sum(c["presupuesto"] for c in cats)
             s_fact = sum(c["facturado"] for c in cats)
+            s_sug = sum(c["facturado_sugerido"] for c in cats)
             s_pag = sum(c["pagado"] for c in cats)
             secciones.append({
-                "codigo": codigo,
-                "nombre": etiquetas.get(codigo, codigo),
+                "codigo": grupo["codigo"],
+                "nombre": grupo["nombre"],
                 "presupuesto": s_presup,
                 "facturado": s_fact,
+                "facturado_sugerido": s_sug,
+                "facturado_total_potencial": s_fact + s_sug,
                 "pagado": s_pag,
                 "dif_facturado": s_presup - s_fact,
                 "dif_pagado": s_presup - s_pag,
@@ -548,11 +548,14 @@ class BomService:
             })
             tot_presup += s_presup
             tot_fact += s_fact
+            tot_sugerido += s_sug
             tot_pag += s_pag
 
         totales = {
             "presupuesto": tot_presup,
             "facturado": tot_fact,
+            "facturado_sugerido": tot_sugerido,
+            "facturado_total_potencial": tot_fact + tot_sugerido,
             "pagado": tot_pag,
             "dif_facturado": tot_presup - tot_fact,
             "dif_pagado": tot_presup - tot_pag,
@@ -569,8 +572,10 @@ class BomService:
             "kwp": kwp,
             "presup_por_modulo": _por(modulos, tot_presup),
             "facturado_por_modulo": _por(modulos, tot_fact),
+            "sugerido_por_modulo": _por(modulos, tot_sugerido),
             "presup_por_kwp": _por(kwp, tot_presup),
             "facturado_por_kwp": _por(kwp, tot_fact),
+            "sugerido_por_kwp": _por(kwp, tot_sugerido),
         }
 
         return {
@@ -1021,6 +1026,8 @@ class BomService:
         self, conn, id_item: UUID, user_id: UUID, grupo_ids: List[int]
     ) -> None:
         """Asigna grupos BOM a un item. Registra en historial."""
+        if not grupo_ids:
+            raise ValueError("Selecciona al menos un grupo BOM")
         item = await self.db.get_item_by_id(conn, id_item)
         if not item:
             raise ValueError("Item no encontrado")
