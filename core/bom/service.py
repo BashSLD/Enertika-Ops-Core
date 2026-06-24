@@ -106,16 +106,20 @@ class BomService:
         if user_role == 'ADMIN':
             return
         director_bypass = await ConfigService.get_global_config(
-            conn, 'bom.director_bypass_aprobaciones', True, bool
+            conn, 'bom.director_bypass_aprobaciones', False, bool
         )
         if rol_org == 'director' and director_bypass:
             return
         solo_responsable = await ConfigService.get_global_config(
             conn, 'bom.gestion_solo_responsable', True, bool
         )
-        if solo_responsable and responsable_id and responsable_id != user_id:
-            raise ValueError(f"Solo el {label} del proyecto puede ejecutar esta accion")
         if solo_responsable and responsable_id:
+            # El titular del rol o su suplente activo pueden ejecutar la accion
+            representados = await self.get_titulares_que_representa(conn, user_id)
+            if responsable_id not in representados:
+                raise ValueError(
+                    f"Solo el {label} del proyecto (o su suplente) puede ejecutar esta accion"
+                )
             return  # responsable_id=None cae al fallback de rol global
         if not await self.db.usuario_tiene_rol_org(conn, user_id, fallback_rol_org):
             raise ValueError(f"Solo el {label} puede ejecutar esta accion")

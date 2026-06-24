@@ -1734,7 +1734,7 @@ async def config_bom_aprobaciones(
     bom_db = BomDBService()
     configs = await ConfigService.get_global_configs_bulk(conn, {
         'bom.gestion_solo_responsable': (True, bool),
-        'bom.director_bypass_aprobaciones': (True, bool),
+        'bom.director_bypass_aprobaciones': (False, bool),
         'equipo.gestion_solo_responsable': (True, bool),
         'equipo.autoasignacion_rc_por_jefes': (True, bool),
     })
