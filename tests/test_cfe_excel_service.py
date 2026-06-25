@@ -6,6 +6,8 @@ import types
 from uuid import uuid4
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from jinja2 import Environment, FileSystemLoader
 from openpyxl import load_workbook
 
@@ -258,10 +260,27 @@ def _valor_en_fila(ws, header: str, row: int = 2):
     return ws.cell(row=row, column=headers.index(header) + 1).value
 
 
+def _pdf_bytes():
+    return (
+        b"%PDF-1.4\n"
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 72] >>\nendobj\n"
+        b"xref\n0 4\n"
+        b"0000000000 65535 f \n"
+        b"0000000009 00000 n \n"
+        b"0000000058 00000 n \n"
+        b"0000000115 00000 n \n"
+        b"trailer\n<< /Size 4 /Root 1 0 R >>\n"
+        b"startxref\n186\n%%EOF\n"
+    )
+
+
 class _FakeCfeZipDB:
-    def __init__(self, servicio: dict, descargas: list[dict]):
+    def __init__(self, servicio: dict, descargas: list[dict], global_rows: list[dict] | None = None):
         self.servicio = servicio
         self.descargas = descargas
+        self.global_rows = global_rows or []
 
     async def get_servicio_by_id(self, conn, servicio_id):
         return self.servicio if self.servicio["id"] == servicio_id else None
@@ -269,11 +288,17 @@ class _FakeCfeZipDB:
     async def get_descargas_por_servicio(self, conn, servicio_id):
         return self.descargas if self.servicio["id"] == servicio_id else []
 
+    async def get_ultimas_descargas_completadas_por_modulo(
+        self, conn, modulos, creado_por_ids=None, servicio_ids=None
+    ):
+        return self.global_rows
+
 
 def _install_fake_redis(monkeypatch):
     redis_module = types.ModuleType("redis")
     redis_asyncio_module = types.ModuleType("redis.asyncio")
     redis_exceptions_module = types.ModuleType("redis.exceptions")
+    pypdf_module = types.ModuleType("pypdf")
 
     class FakeRedis:
         pass
@@ -287,9 +312,32 @@ def _install_fake_redis(monkeypatch):
     redis_module.asyncio = redis_asyncio_module
     redis_module.exceptions = redis_exceptions_module
 
+    class FakePyPdfError(Exception):
+        pass
+
+    class FakePdfWriter:
+        def __init__(self):
+            self.pages = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def append(self, _content):
+            self.pages.append(object())
+
+        def write(self, buffer):
+            buffer.write(b"%PDF-1.4\n% merged\n")
+
+    pypdf_module.PdfWriter = FakePdfWriter
+    pypdf_module.errors = types.SimpleNamespace(PyPdfError=FakePyPdfError)
+
     monkeypatch.setitem(sys.modules, "redis", redis_module)
     monkeypatch.setitem(sys.modules, "redis.asyncio", redis_asyncio_module)
     monkeypatch.setitem(sys.modules, "redis.exceptions", redis_exceptions_module)
+    monkeypatch.setitem(sys.modules, "pypdf", pypdf_module)
 
 
 @pytest.mark.asyncio
@@ -325,9 +373,9 @@ async def test_generar_zip_servicio_incluye_xml_pdf_y_excel(monkeypatch):
 
     async def fake_descargar_archivos(rows):
         contenidos = {"xml": CFE_XML, "pdf": b"%PDF-1.4\n"}
-        return [(row, contenidos[row["tipo"]]) for row in rows]
+        return [(row, contenidos[row["tipo"]]) for row in rows], []
 
-    monkeypatch.setattr(service, "_descargar_archivos_sharepoint", fake_descargar_archivos)
+    monkeypatch.setattr(service, "_descargar_archivos_sharepoint_con_reintentos", fake_descargar_archivos)
 
     zip_bytes, filename = await service.generar_zip_servicio(None, servicio_id)
 
@@ -341,6 +389,253 @@ async def test_generar_zip_servicio_incluye_xml_pdf_y_excel(monkeypatch):
         assert zf.read("CFE_123456789012/PDF/2026-05_recibo.pdf") == b"%PDF-1.4\n"
 
         workbook = load_workbook(BytesIO(zf.read("CFE_123456789012/CFE_123456789012.xlsx")))
+        assert workbook.active.max_row == 2
+
+
+@pytest.mark.asyncio
+async def test_descarga_zip_reintenta_hasta_descargar(monkeypatch):
+    _install_fake_redis(monkeypatch)
+    import modules.cfe.service as cfe_service_module
+    from modules.cfe.service import CfeService
+
+    class FakeAuth:
+        async def get_application_token(self):
+            return "token"
+
+    service = CfeService(_FakeCfeZipDB({"id": uuid4(), "numero_servicio": "1"}, []))
+    intentos = {"total": 0}
+
+    async def fake_http(_client, _token, _row):
+        intentos["total"] += 1
+        if intentos["total"] < 3:
+            return None, "fallo temporal"
+        return CFE_XML, None
+
+    monkeypatch.setattr(cfe_service_module, "get_ms_auth", lambda: FakeAuth())
+    monkeypatch.setattr(service, "_descargar_archivo_sharepoint_http", fake_http)
+
+    rows = [{
+        "id": uuid4(),
+        "periodo": "2026-06",
+        "tipo": "xml",
+        "nombre_archivo": "recibo.xml",
+        "ruta_sharepoint": "https://sharepoint.test/recibo.xml",
+        "numero_servicio": "123456789012",
+        "servicio_nombre": "SERVICIO",
+    }]
+
+    archivos, faltantes = await service._descargar_archivos_sharepoint_con_reintentos(rows)
+
+    assert intentos["total"] == 3
+    assert len(archivos) == 1
+    assert archivos[0][1] == CFE_XML
+    assert faltantes == []
+
+
+@pytest.mark.asyncio
+async def test_descarga_zip_reporta_faltante_tras_tres_intentos(monkeypatch):
+    _install_fake_redis(monkeypatch)
+    import modules.cfe.service as cfe_service_module
+    from modules.cfe.service import CfeService
+
+    class FakeAuth:
+        async def get_application_token(self):
+            return "token"
+
+    service = CfeService(_FakeCfeZipDB({"id": uuid4(), "numero_servicio": "1"}, []))
+    intentos = {"total": 0}
+
+    async def fake_http(_client, _token, _row):
+        intentos["total"] += 1
+        return None, "fallo permanente"
+
+    monkeypatch.setattr(cfe_service_module, "get_ms_auth", lambda: FakeAuth())
+    monkeypatch.setattr(service, "_descargar_archivo_sharepoint_http", fake_http)
+
+    rows = [{
+        "id": uuid4(),
+        "periodo": "2026-06",
+        "tipo": "pdf",
+        "nombre_archivo": "recibo.pdf",
+        "ruta_sharepoint": "https://sharepoint.test/recibo.pdf",
+        "numero_servicio": "123456789012",
+        "servicio_nombre": "SERVICIO",
+    }]
+
+    archivos, faltantes = await service._descargar_archivos_sharepoint_con_reintentos(rows)
+
+    assert intentos["total"] == 3
+    assert archivos == []
+    assert faltantes[0]["periodo"] == "2026-06"
+    assert faltantes[0]["tipo"] == "PDF"
+    assert faltantes[0]["motivo"] == "fallo permanente"
+
+
+@pytest.mark.asyncio
+async def test_generar_zip_servicio_bloquea_y_luego_permite_faltantes(monkeypatch):
+    _install_fake_redis(monkeypatch)
+    from modules.cfe.service import CfeService, CfeZipFaltantesError
+
+    servicio_id = uuid4()
+    servicio = {
+        "id": servicio_id,
+        "numero_servicio": "123456789012",
+        "nombre": "SERVICIO PRUEBA",
+    }
+    descargas = [
+        {
+            "id": uuid4(),
+            "periodo": "2026-06",
+            "tipo": "xml",
+            "estatus": "completado",
+            "nombre_archivo": "recibo.xml",
+            "ruta_sharepoint": "https://sharepoint.test/recibo.xml",
+        },
+        {
+            "id": uuid4(),
+            "periodo": "2026-06",
+            "tipo": "pdf",
+            "estatus": "completado",
+            "nombre_archivo": "recibo.pdf",
+            "ruta_sharepoint": "https://sharepoint.test/recibo.pdf",
+        },
+    ]
+    service = CfeService(_FakeCfeZipDB(servicio, descargas))
+
+    async def fake_descargar_archivos(rows):
+        xml_row = next(row for row in rows if row["tipo"] == "xml")
+        pdf_row = next(row for row in rows if row["tipo"] == "pdf")
+        return [(xml_row, CFE_XML)], [{
+            "servicio": "SERVICIO PRUEBA",
+            "numero_servicio": "123456789012",
+            "periodo": "2026-06",
+            "tipo": "PDF",
+            "nombre_archivo": pdf_row["nombre_archivo"],
+            "motivo": "fallo permanente",
+        }]
+
+    monkeypatch.setattr(service, "_descargar_archivos_sharepoint_con_reintentos", fake_descargar_archivos)
+
+    with pytest.raises(CfeZipFaltantesError):
+        await service.generar_zip_servicio(None, servicio_id)
+
+    zip_bytes, _filename = await service.generar_zip_servicio(
+        None, servicio_id, permitir_incompleto=True
+    )
+
+    with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
+        names = set(zf.namelist())
+        assert "CFE_123456789012/XML/2026-06_recibo.xml" in names
+        assert "CFE_123456789012/PDF/2026-06_recibo.pdf" not in names
+        assert "_FALTANTES.txt" in names
+        assert "recibo.pdf" in zf.read("_FALTANTES.txt").decode("utf-8")
+
+
+@pytest.mark.asyncio
+async def test_generar_zip_servicio_simulacion_renombra_xml_pdf(monkeypatch):
+    _install_fake_redis(monkeypatch)
+    from modules.cfe.service import CfeService
+
+    servicio_id = uuid4()
+    servicio = {
+        "id": servicio_id,
+        "numero_servicio": "237110414099",
+        "nombre": "SERVICIO PRUEBA",
+        "alias": "UNIVERSIDAD TECNOLOGICA DE TEHUACAN",
+    }
+    descargas = [
+        {
+            "id": uuid4(),
+            "periodo": "2026-06",
+            "tipo": "xml",
+            "estatus": "completado",
+            "nombre_archivo": "origen.xml",
+            "ruta_sharepoint": "https://sharepoint.test/origen.xml",
+        },
+        {
+            "id": uuid4(),
+            "periodo": "2026-06",
+            "tipo": "pdf",
+            "estatus": "completado",
+            "nombre_archivo": "origen.pdf",
+            "ruta_sharepoint": "https://sharepoint.test/origen.pdf",
+        },
+    ]
+    service = CfeService(_FakeCfeZipDB(servicio, descargas))
+
+    async def fake_descargar_archivos(rows):
+        contenidos = {"xml": CFE_XML, "pdf": b"%PDF-1.4\n"}
+        return [(row, contenidos[row["tipo"]]) for row in rows], []
+
+    monkeypatch.setattr(service, "_descargar_archivos_sharepoint_con_reintentos", fake_descargar_archivos)
+
+    zip_bytes, _filename = await service.generar_zip_servicio(
+        None, servicio_id, perfil_slug="simulacion"
+    )
+
+    with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
+        names = set(zf.namelist())
+        base = "JUN 26_237110414099_UNIVERSIDAD TECNOLOGICA DE TEHUACAN"
+        assert f"CFE_237110414099/XML/{base}.xml" in names
+        assert f"CFE_237110414099/PDF/{base}.pdf" in names
+
+
+@pytest.mark.asyncio
+async def test_generar_zip_global_incluye_excel_global(monkeypatch):
+    _install_fake_redis(monkeypatch)
+    from modules.cfe.service import CfeService
+
+    servicio_id = uuid4()
+    global_rows = [
+        {
+            "id": uuid4(),
+            "servicio_id": servicio_id,
+            "numero_servicio": "123456789012",
+            "servicio_nombre": "SERVICIO PRUEBA",
+            "alias": "ALIAS PRUEBA",
+            "periodo": "2026-06",
+            "tipo": "xml",
+            "estatus": "completado",
+            "nombre_archivo": "recibo.xml",
+            "ruta_sharepoint": "https://sharepoint.test/recibo.xml",
+        },
+        {
+            "id": uuid4(),
+            "servicio_id": servicio_id,
+            "numero_servicio": "123456789012",
+            "servicio_nombre": "SERVICIO PRUEBA",
+            "alias": "ALIAS PRUEBA",
+            "periodo": "2026-06",
+            "tipo": "pdf",
+            "estatus": "completado",
+            "nombre_archivo": "recibo.pdf",
+            "ruta_sharepoint": "https://sharepoint.test/recibo.pdf",
+        },
+    ]
+    service = CfeService(
+        _FakeCfeZipDB({"id": servicio_id, "numero_servicio": "123456789012"}, [], global_rows)
+    )
+    pdf_content = _pdf_bytes()
+
+    async def fake_descargar_archivos(rows):
+        contenidos = {"xml": CFE_XML, "pdf": pdf_content}
+        return [(row, contenidos[row["tipo"]]) for row in rows], []
+
+    monkeypatch.setattr(service, "_descargar_archivos_sharepoint_con_reintentos", fake_descargar_archivos)
+
+    zip_bytes, _filename = await service.generar_zip_global(
+        None, modulos=["simulacion"], perfil_slug="simulacion"
+    )
+
+    with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
+        names = set(zf.namelist())
+        assert any(name.startswith("CFE_todos_los_recibos_") and name.endswith(".pdf") for name in names)
+        excel_global = [
+            name for name in names
+            if name.startswith("CFE_todos_los_recibos_") and name.endswith(".xlsx")
+        ]
+        assert len(excel_global) == 1
+        workbook = load_workbook(BytesIO(zf.read(excel_global[0])))
         assert workbook.active.max_row == 2
 
 
@@ -711,3 +1006,84 @@ def test_modal_cfe_compila_con_contexto_de_modulo():
 
     assert "Recibos CFE - Simulación" in html
     assert "/simulacion/cfe/excel" in html
+
+
+def test_lista_cfe_contiene_flujo_zip_con_faltantes():
+    env = Environment(loader=FileSystemLoader("templates"))
+    template = env.get_template("cfe/partials/lista_servicios.html")
+    servicio_id = uuid4()
+
+    html = template.render(
+        servicios=[{
+            "id": servicio_id,
+            "nombre": "SERVICIO PRUEBA",
+            "alias": "ALIAS",
+            "numero_servicio": "123456789012",
+            "miespacio_estatus": "registrado",
+            "miespacio_error": None,
+            "ultima_descarga": None,
+            "total_descargas": 1,
+            "descarga_activa": False,
+            "busqueda_activa_id": None,
+            "busqueda_activa_estatus": None,
+        }],
+        estado_sesion={"sesion_estado": "activa"},
+        modulo="simulacion",
+        modulos_accesibles=["simulacion"],
+        user={},
+    )
+
+    assert "descargarZipCfe(this, '/cfe/servicios/zip-global?modulo=simulacion')" in html
+    assert f"descargarZipCfe(this, '/cfe/servicios/{servicio_id}/zip?modulo=simulacion')" in html
+    assert "Descargar ZIP con faltantes" in html
+
+
+def test_router_zip_servicio_faltantes_devuelve_409(monkeypatch):
+    _install_fake_redis(monkeypatch)
+    from core.database import get_db_connection
+    from core.security import get_current_user_context
+    import modules.cfe.router as cfe_router_module
+    from modules.cfe.router import router as cfe_router
+    from modules.cfe.service import CfeZipFaltantesError
+
+    servicio_id = uuid4()
+
+    class FakeDB:
+        async def get_servicio_by_id(self, _conn, _servicio_id):
+            return {
+                "id": servicio_id,
+                "numero_servicio": "123456789012",
+                "nombre": "SERVICIO PRUEBA",
+                "modulos": ["oym"],
+            }
+
+    class FakeService:
+        db = FakeDB()
+
+        async def generar_zip_servicio(self, *_args, **_kwargs):
+            raise CfeZipFaltantesError([{
+                "servicio": "SERVICIO PRUEBA",
+                "numero_servicio": "123456789012",
+                "periodo": "2026-06",
+                "tipo": "PDF",
+                "nombre_archivo": "recibo.pdf",
+                "motivo": "fallo permanente",
+            }])
+
+    async def fake_conn():
+        yield None
+
+    app = FastAPI()
+    app.include_router(cfe_router)
+    app.dependency_overrides[get_db_connection] = fake_conn
+    app.dependency_overrides[get_current_user_context] = lambda: {
+        "user_db_id": uuid4(),
+        "role": "USER",
+        "module_roles": {"oym": "viewer"},
+    }
+    monkeypatch.setattr(cfe_router_module, "get_cfe_service", lambda: FakeService())
+
+    response = TestClient(app).get(f"/cfe/servicios/{servicio_id}/zip?modulo=oym")
+
+    assert response.status_code == 409
+    assert response.json()["faltantes"][0]["nombre_archivo"] == "recibo.pdf"

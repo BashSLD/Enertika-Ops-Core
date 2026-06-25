@@ -337,7 +337,7 @@ class CfeDBService:
                   AND ($3::uuid[] IS NULL OR s.id = ANY($3::uuid[]))
                 GROUP BY d.servicio_id
             )
-            SELECT s.numero_servicio, s.nombre AS servicio_nombre,
+            SELECT s.numero_servicio, s.nombre AS servicio_nombre, s.alias,
                    d.id, d.servicio_id, d.periodo, d.tipo, d.estatus,
                    d.nombre_archivo, d.ruta_sharepoint, d.tipo_recibo
             FROM ultimas u

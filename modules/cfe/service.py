@@ -55,6 +55,31 @@ from .scraper import (
 logger = logging.getLogger("CfeService")
 
 _scrape_lock = asyncio.Semaphore(1)
+CFE_ZIP_MAX_DOWNLOAD_ATTEMPTS = 3
+
+_MESES_ZIP_SIMULACION = {
+    1: "ENE",
+    2: "FEB",
+    3: "MAR",
+    4: "ABR",
+    5: "MAY",
+    6: "JUN",
+    7: "JUL",
+    8: "AGO",
+    9: "SEP",
+    10: "OCT",
+    11: "NOV",
+    12: "DIC",
+}
+
+
+class CfeZipFaltantesError(ValueError):
+    def __init__(self, faltantes: Sequence[dict]):
+        super().__init__(
+            "No se pudieron descargar todos los archivos del ZIP. "
+            "Puedes descargarlos manualmente desde Historial o continuar con faltantes."
+        )
+        self.faltantes = [dict(item) for item in faltantes]
 
 
 class CfeService:
@@ -1405,60 +1430,83 @@ class CfeService:
         self,
         rows: Sequence[dict],
     ) -> list[tuple[dict, bytes]]:
+        archivos, _ = await self._descargar_archivos_sharepoint_con_reintentos(
+            rows,
+            max_intentos=1,
+        )
+        return archivos
+
+    async def _descargar_archivos_sharepoint_con_reintentos(
+        self,
+        rows: Sequence[dict],
+        *,
+        max_intentos: int = CFE_ZIP_MAX_DOWNLOAD_ATTEMPTS,
+    ) -> tuple[list[tuple[dict, bytes]], list[dict]]:
         if not rows:
-            return []
+            return [], []
 
         ms_auth = get_ms_auth()
         token = await ms_auth.get_application_token()
         if not token:
             raise ValueError("No se pudo obtener token de Microsoft para leer SharePoint.")
 
-        async def _fetch_archivo(
+        async def _fetch_archivo_con_reintentos(
             client: httpx.AsyncClient,
             row: dict,
-        ) -> Optional[tuple[dict, bytes]]:
-            url = row.get("ruta_sharepoint")
-            if not url:
-                return None
-
-            try:
-                download_url = await _resolve_sharepoint_download_url(client, token, url)
-                if not download_url:
-                    logger.warning(
-                        "cfe_sharepoint_download_url_no_resuelta descarga_id=%s periodo=%s tipo=%s",
-                        row.get("id"),
-                        row.get("periodo"),
-                        row.get("tipo"),
-                    )
-                    return None
-
-                resp = await client.get(download_url, headers={"Authorization": f"Bearer {token}"})
-            except httpx.HTTPError as exc:
+        ) -> tuple[Optional[tuple[dict, bytes]], Optional[dict]]:
+            max_reintentos = max(1, max_intentos)
+            ultimo_motivo = "No se pudo descargar el archivo."
+            for intento in range(1, max_reintentos + 1):
+                content, motivo = await self._descargar_archivo_sharepoint_http(client, token, row)
+                if content is not None:
+                    return (row, content), None
+                ultimo_motivo = motivo or ultimo_motivo
                 logger.warning(
-                    "cfe_sharepoint_archivo_error descarga_id=%s periodo=%s tipo=%s error=%s",
+                    "cfe_sharepoint_zip_reintento descarga_id=%s periodo=%s tipo=%s intento=%s/%s motivo=%s",
                     row.get("id"),
                     row.get("periodo"),
                     row.get("tipo"),
-                    exc,
+                    intento,
+                    max_reintentos,
+                    ultimo_motivo,
                 )
-                return None
-
-            if resp.status_code != 200:
-                logger.warning(
-                    "cfe_sharepoint_archivo_status descarga_id=%s periodo=%s tipo=%s status=%s",
-                    row.get("id"),
-                    row.get("periodo"),
-                    row.get("tipo"),
-                    resp.status_code,
-                )
-                return None
-
-            return row, resp.content
+            return None, _detalle_faltante_zip(row, ultimo_motivo)
 
         async with httpx.AsyncClient(timeout=30) as client:
-            results = await asyncio.gather(*[_fetch_archivo(client, row) for row in rows])
+            results = await asyncio.gather(*[_fetch_archivo_con_reintentos(client, row) for row in rows])
 
-        return [result for result in results if result is not None]
+        archivos: list[tuple[dict, bytes]] = []
+        faltantes: list[dict] = []
+        for archivo, faltante in results:
+            if archivo is not None:
+                archivos.append(archivo)
+            if faltante is not None:
+                faltantes.append(faltante)
+        return archivos, faltantes
+
+    async def _descargar_archivo_sharepoint_http(
+        self,
+        client: httpx.AsyncClient,
+        token: str,
+        row: dict,
+    ) -> tuple[Optional[bytes], Optional[str]]:
+        url = row.get("ruta_sharepoint")
+        if not url:
+            return None, "La descarga no tiene ruta de SharePoint."
+
+        try:
+            download_url = await _resolve_sharepoint_download_url(client, token, url)
+            if not download_url:
+                return None, "No se pudo resolver la URL directa de SharePoint."
+
+            resp = await client.get(download_url, headers={"Authorization": f"Bearer {token}"})
+        except httpx.HTTPError as exc:
+            return None, f"Error de SharePoint: {exc}"
+
+        if resp.status_code != 200:
+            return None, f"SharePoint respondio {resp.status_code}."
+
+        return resp.content, None
 
     # ── Excel ─────────────────────────────────────────────────────────────
 
@@ -1494,6 +1542,7 @@ class CfeService:
         conn: asyncpg.Connection,
         servicio_id: UUID,
         perfil_slug: str = "oym",
+        permitir_incompleto: bool = False,
     ) -> tuple[bytes, str]:
         servicio = await self.db.get_servicio_by_id(conn, servicio_id)
         if not servicio:
@@ -1501,21 +1550,27 @@ class CfeService:
 
         servicio_numero = servicio["numero_servicio"]
         descargas = await self.db.get_descargas_por_servicio(conn, servicio_id)
-        rows = [
-            d for d in descargas
-            if d["estatus"] == "completado"
-            and d["tipo"] in ("xml", "pdf")
-            and d.get("ruta_sharepoint")
-        ]
+        rows = []
+        for descarga in descargas:
+            if (
+                descarga["estatus"] == "completado"
+                and descarga["tipo"] in ("xml", "pdf")
+                and descarga.get("ruta_sharepoint")
+            ):
+                row = dict(descarga)
+                row["numero_servicio"] = servicio_numero
+                row["servicio_nombre"] = servicio.get("nombre")
+                row["alias"] = servicio.get("alias")
+                rows.append(row)
         if not any(row["tipo"] == "xml" for row in rows):
             raise ValueError("No hay XMLs descargados para generar el ZIP con Excel.")
 
-        archivos = await self._descargar_archivos_sharepoint(rows)
+        archivos, faltantes = await self._descargar_archivos_sharepoint_con_reintentos(rows)
+        if faltantes and not permitir_incompleto:
+            raise CfeZipFaltantesError(faltantes)
         if not archivos:
             raise ValueError("No se pudieron obtener los archivos desde SharePoint.")
-        # Validar XMLs antes de construir el ZIP: si todos fallaron al bajar (aunque
-        # sobreviva un PDF), abortamos sin escribir un ZIP a medias ni generar Excel.
-        if not any(row["tipo"] == "xml" for row, _ in archivos):
+        if not permitir_incompleto and not any(row["tipo"] == "xml" for row, _ in archivos):
             raise ValueError("No se pudieron obtener XMLs desde SharePoint para generar el Excel.")
 
         zip_buffer = BytesIO()
@@ -1546,13 +1601,20 @@ class CfeService:
             ):
                 tipo = row["tipo"]
                 periodo = _sanitize_zip_component(row.get("periodo") or "sin_periodo", "sin_periodo")
-                nombre_archivo = _sanitize_zip_component(
-                    row.get("nombre_archivo") or f"{servicio_numero}_{periodo}.{tipo}",
-                    f"recibo.{tipo}",
+                nombre_archivo = _nombre_archivo_zip_cfe(
+                    row,
+                    perfil_slug=perfil_slug,
+                    numero_servicio=servicio_numero,
+                    alias_o_nombre=servicio.get("alias") or servicio.get("nombre"),
+                )
+                archivo_path = (
+                    nombre_archivo
+                    if perfil_slug == "simulacion"
+                    else f"{periodo}_{nombre_archivo}"
                 )
                 zip_path = _dedupe_zip_path(
                     usados,
-                    f"{nombre_servicio}/{tipo.upper()}/{periodo}_{nombre_archivo}",
+                    f"{nombre_servicio}/{tipo.upper()}/{archivo_path}",
                 )
                 zf.writestr(zip_path, content)
 
@@ -1564,11 +1626,17 @@ class CfeService:
                         )
                     )
 
-            excel_bytes = generar_excel_cfe(xml_inputs, perfil_slug).getvalue()
-            zf.writestr(
-                _dedupe_zip_path(usados, f"{nombre_servicio}/{nombre_excel}"),
-                excel_bytes,
-            )
+            if xml_inputs:
+                excel_bytes = generar_excel_cfe(xml_inputs, perfil_slug).getvalue()
+                zf.writestr(
+                    _dedupe_zip_path(usados, f"{nombre_servicio}/{nombre_excel}"),
+                    excel_bytes,
+                )
+            if faltantes:
+                zf.writestr(
+                    _dedupe_zip_path(usados, "_FALTANTES.txt"),
+                    _contenido_faltantes_zip(faltantes),
+                )
 
         return zip_buffer.getvalue(), nombre_zip
 
@@ -1580,6 +1648,7 @@ class CfeService:
         perfil_slug: str = "oym",
         creado_por_ids: list[UUID] | None = None,
         servicio_ids: list[UUID] | None = None,
+        permitir_incompleto: bool = False,
     ) -> tuple[bytes, str]:
         """
         ZIP unico con el ultimo recibo (XML + PDF + Excel) de cada servicio
@@ -1592,10 +1661,12 @@ class CfeService:
         if not rows:
             raise ValueError("No hay recibos descargados para incluir en el ZIP.")
 
-        archivos = await self._descargar_archivos_sharepoint(rows)
+        archivos, faltantes = await self._descargar_archivos_sharepoint_con_reintentos(rows)
+        if faltantes and not permitir_incompleto:
+            raise CfeZipFaltantesError(faltantes)
         if not archivos:
             raise ValueError("No se pudieron obtener los archivos desde SharePoint.")
-        if not any(row["tipo"] == "xml" for row, _ in archivos):
+        if not permitir_incompleto and not any(row["tipo"] == "xml" for row, _ in archivos):
             raise ValueError("No se pudieron obtener XMLs desde SharePoint para generar el Excel.")
 
         # Agrupa por servicio para armar un folder + Excel por cada uno.
@@ -1605,6 +1676,7 @@ class CfeService:
 
         zip_buffer = BytesIO()
         usados: set[str] = set()
+        xml_inputs_global: list[CfeXmlInput] = []
         with PdfWriter() as pdf_merger, zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for numero_servicio in sorted(por_servicio):
                 primera_fila, _ = por_servicio[numero_servicio][0]
@@ -1617,19 +1689,28 @@ class CfeService:
                 ):
                     tipo = row["tipo"]
                     periodo = _sanitize_zip_component(row.get("periodo") or "sin_periodo", "sin_periodo")
-                    nombre_archivo = _sanitize_zip_component(
-                        row.get("nombre_archivo") or f"{numero_servicio}_{periodo}.{tipo}",
-                        f"recibo.{tipo}",
+                    nombre_archivo = _nombre_archivo_zip_cfe(
+                        row,
+                        perfil_slug=perfil_slug,
+                        numero_servicio=numero_servicio,
+                        alias_o_nombre=row.get("alias") or label,
+                    )
+                    archivo_path = (
+                        nombre_archivo
+                        if perfil_slug == "simulacion"
+                        else f"{periodo}_{nombre_archivo}"
                     )
                     zip_path = _dedupe_zip_path(
-                        usados, f"{nombre_carpeta}/{periodo}_{nombre_archivo}"
+                        usados, f"{nombre_carpeta}/{archivo_path}"
                     )
                     zf.writestr(zip_path, content)
                     if tipo == "xml":
-                        xml_inputs.append(CfeXmlInput(
+                        xml_input = CfeXmlInput(
                             filename=row.get("nombre_archivo") or f"{numero_servicio}_{periodo}.xml",
                             content=content,
-                        ))
+                        )
+                        xml_inputs.append(xml_input)
+                        xml_inputs_global.append(xml_input)
                     elif tipo == "pdf":
                         try:
                             pdf_merger.append(BytesIO(content))
@@ -1645,6 +1726,15 @@ class CfeService:
                 pdf_merger.write(merged_pdf)
                 nombre_pdf_global = f"CFE_todos_los_recibos_{now_mx().strftime('%Y%m%d')}.pdf"
                 zf.writestr(nombre_pdf_global, merged_pdf.getvalue())
+            if xml_inputs_global:
+                excel_global = generar_excel_cfe(xml_inputs_global, perfil_slug).getvalue()
+                nombre_excel_global = f"CFE_todos_los_recibos_{now_mx().strftime('%Y%m%d')}.xlsx"
+                zf.writestr(_dedupe_zip_path(usados, nombre_excel_global), excel_global)
+            if faltantes:
+                zf.writestr(
+                    _dedupe_zip_path(usados, "_FALTANTES.txt"),
+                    _contenido_faltantes_zip(faltantes),
+                )
 
         nombre_zip = f"CFE_ultimos_recibos_{now_mx().strftime('%Y%m%d')}.zip"
         return zip_buffer.getvalue(), nombre_zip
@@ -1661,8 +1751,83 @@ class CfeService:
         return row["ruta_sharepoint"] if row else None
 
 
+def _detalle_faltante_zip(row: dict, motivo: str) -> dict:
+    numero_servicio = row.get("numero_servicio") or ""
+    servicio = row.get("servicio_nombre") or row.get("nombre") or numero_servicio
+    return {
+        "servicio": str(servicio or ""),
+        "numero_servicio": str(numero_servicio or ""),
+        "periodo": str(row.get("periodo") or ""),
+        "tipo": str(row.get("tipo") or "").upper(),
+        "nombre_archivo": str(row.get("nombre_archivo") or ""),
+        "motivo": motivo,
+    }
+
+
+def _contenido_faltantes_zip(faltantes: Sequence[dict]) -> str:
+    lineas = [
+        "Archivos CFE no incluidos en este ZIP",
+        "",
+        "Los siguientes archivos no pudieron descargarse desde SharePoint despues de 3 intentos.",
+        "Puedes descargarlos manualmente desde la seccion Historial del servicio.",
+        "",
+    ]
+    for faltante in faltantes:
+        servicio = faltante.get("servicio") or "Servicio"
+        numero = faltante.get("numero_servicio") or "Sin numero"
+        periodo = faltante.get("periodo") or "Sin periodo"
+        tipo = faltante.get("tipo") or "ARCHIVO"
+        archivo = faltante.get("nombre_archivo") or "Sin nombre"
+        motivo = faltante.get("motivo") or "No disponible"
+        lineas.append(f"- {servicio} ({numero}) | {periodo} | {tipo} | {archivo} | {motivo}")
+    lineas.append("")
+    return "\n".join(lineas)
+
+
+def _nombre_archivo_zip_cfe(
+    row: dict,
+    *,
+    perfil_slug: str,
+    numero_servicio: str,
+    alias_o_nombre: object,
+) -> str:
+    tipo = str(row.get("tipo") or "").lower()
+    extension = tipo if tipo in {"xml", "pdf"} else "dat"
+    if perfil_slug != "simulacion":
+        return _sanitize_zip_component(
+            row.get("nombre_archivo") or f"{numero_servicio}_{row.get('periodo')}.{extension}",
+            f"recibo.{extension}",
+        )
+
+    periodo = _periodo_zip_simulacion(row.get("periodo"))
+    etiqueta = str(alias_o_nombre or "").strip().upper() or "SIN_ALIAS"
+    return _sanitize_zip_filename(
+        f"{periodo}_{numero_servicio}_{etiqueta}.{extension}",
+        f"{periodo}_{numero_servicio}.{extension}",
+    )
+
+
+def _periodo_zip_simulacion(periodo: object) -> str:
+    match = re.match(r"^(\d{4})-(\d{2})$", str(periodo or ""))
+    if not match:
+        return _sanitize_zip_filename(periodo, "SIN_PERIODO")
+    anio, mes_raw = match.groups()
+    mes = _MESES_ZIP_SIMULACION.get(int(mes_raw), mes_raw)
+    return f"{mes} {anio[-2:]}"
+
+
 def _sanitize_zip_component(value: object, fallback: str) -> str:
     raw = str(value or "").replace("\\", "/").split("/")[-1].strip()
+    invalid_chars = '<>:"/\\|?*'
+    clean = "".join(
+        "_" if char in invalid_chars or ord(char) < 32 else char
+        for char in raw
+    ).strip(" .")
+    return clean or fallback
+
+
+def _sanitize_zip_filename(value: object, fallback: str) -> str:
+    raw = str(value or "").strip()
     invalid_chars = '<>:"/\\|?*'
     clean = "".join(
         "_" if char in invalid_chars or ord(char) < 32 else char

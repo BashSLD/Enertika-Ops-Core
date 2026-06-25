@@ -17,7 +17,7 @@ from core.security import get_current_user_context
 from modules.shared.services.cfe import generar_excel_cfe_desde_uploads
 
 from .constants import CFE_MODULE_SLUGS, CFE_PUBLIC_FORM_DEFAULTS
-from .service import get_cfe_service
+from .service import CfeZipFaltantesError, get_cfe_service
 
 logger = logging.getLogger("CfeRouter")
 
@@ -52,6 +52,13 @@ def _resolver_modulos(user: dict, modulo_param: str | None) -> tuple[str | None,
         activo = None  # tiene ambos → ve todo
 
     return activo, accesibles
+
+
+def _zip_faltantes_response(exc: CfeZipFaltantesError) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"ok": False, "message": str(exc), "faltantes": exc.faltantes},
+    )
 
 
 async def _get_servicio_accesible(svc, conn, servicio_id: UUID, user: dict) -> dict:
@@ -1010,6 +1017,7 @@ async def generar_excel(
 @router.get("/servicios/zip-global")
 async def descargar_zip_global(
     modulo: str | None = Query(default=None),
+    permitir_incompleto: bool = Query(default=False),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -1022,7 +1030,10 @@ async def descargar_zip_global(
         zip_bytes, nombre = await svc.generar_zip_global(
             conn, modulos=modulos, creado_por_ids=creado_por_ids,
             servicio_ids=servicio_ids, perfil_slug=modulo_activo or "oym",
+            permitir_incompleto=permitir_incompleto,
         )
+    except CfeZipFaltantesError as exc:
+        return _zip_faltantes_response(exc)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except httpx.HTTPError as exc:
@@ -1043,6 +1054,7 @@ async def descargar_zip_global(
 async def descargar_zip_servicio(
     servicio_id: UUID,
     modulo: str | None = Query(default=None),
+    permitir_incompleto: bool = Query(default=False),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -1052,10 +1064,13 @@ async def descargar_zip_servicio(
     await _get_servicio_accesible(svc, conn, servicio_id, user)
     try:
         zip_bytes, nombre = await svc.generar_zip_servicio(
-            conn, servicio_id, perfil_slug=modulo_activo or "oym"
+            conn, servicio_id, perfil_slug=modulo_activo or "oym",
+            permitir_incompleto=permitir_incompleto,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CfeZipFaltantesError as exc:
+        return _zip_faltantes_response(exc)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except httpx.HTTPError as exc:
