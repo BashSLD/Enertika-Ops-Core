@@ -249,7 +249,7 @@ async def bom_ui(
     ]:
         return _toast_response(
             request,
-            "El BOM aún no está disponible para Construcción. Ingeniería debe enviarlo a revisión de Obra o Construcción.",
+            "El BOM aún no está disponible para Construcción. Ingeniería debe enviarlo a revisión de Obra.",
         )
 
     catalogos = await service.get_catalogos(conn)
@@ -269,15 +269,19 @@ async def bom_ui(
         if bom['estatus'] == 'BORRADOR':
             ultimo_rechazo = await service.get_ultimo_rechazo(conn, bom['id_bom'])
         aprobador_final_id = await service.get_aprobador_final_id(conn)
-        if aprobador_final_id and str(user_id_ctx) == str(aprobador_final_id):
+        if (
+            aprobador_final_id
+            and str(user_id_ctx) == str(aprobador_final_id)
+            and context.get("rol_organizacional") == "director"
+        ):
             es_aprobador_final = True
         # Suplencias del usuario: se calcula una vez y se reusa en ambas validaciones.
         representados = await service.get_titulares_que_representa(conn, user_id_ctx)
         es_rol_bom = await service.es_bom_role(conn, bom, user_id_ctx, representados=representados)
 
         # Flag para mostrar los botones de accion del responsable del rol solo a quien
-        # el service aceptaria (propietario del rol, su suplente, ADMIN o Direccion con
-        # bypass). Incluye APROBADO_CONST: enviar a final lo hace el jefe de construccion.
+        # el service aceptaria (propietario del rol, su suplente o ADMIN).
+        # Incluye APROBADO_CONST: enviar a final lo hace el jefe de construccion.
         aprob_map = {
             'EN_REVISION_ING': (bom.get('responsable_ing'), 'jefe_ingenieria'),
             'EN_REVISION_OBRA': (bom.get('coordinador_obra'), 'jefe_construccion'),
@@ -824,7 +828,7 @@ async def aprobar_ing(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria"], "editor", allow_org_roles={"director"}),
+    _=require_any_module_access(["ingenieria"], "editor"),
 ):
     form = await request.form()
     user_id = context.get("user_db_id")
@@ -853,7 +857,7 @@ async def rechazar_ing(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria"], "editor", allow_org_roles={"director"}),
+    _=require_any_module_access(["ingenieria"], "editor"),
 ):
     form = await request.form()
     user_id = context.get("user_db_id")
@@ -875,39 +879,6 @@ async def rechazar_ing(
         return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al rechazar", "type": "error"})
 
 
-@router.post("/{id_bom}/enviar-const", include_in_schema=False)
-async def enviar_const(
-    request: Request,
-    id_bom: UUID,
-    context=Depends(get_current_user_context),
-    conn=Depends(get_db_connection),
-    service: BomService = Depends(get_bom_service),
-    _=require_manager_access("ingenieria"),
-):
-    """Envia BOM aprobado por ing a revision de construccion."""
-    user_id = context.get("user_db_id")
-
-    try:
-        bom = await service.enviar_revision_const(
-            conn, id_bom, user_id
-        )
-
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM enviado a revision de construccion",
-            "type": "success",
-            "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
-        })
-
-    except ValueError as e:
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
-            "type": "error",
-        })
-    except asyncpg.PostgresError:
-        logger.exception("Error de BD al enviar BOM a construccion")
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al enviar a construccion",
-            "type": "error",
-        })
-
-
 @router.post("/{id_bom}/aprobar-const", include_in_schema=False)
 async def aprobar_const(
     request: Request,
@@ -915,7 +886,7 @@ async def aprobar_const(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["construccion"], "editor", allow_org_roles={"director"}),
+    _=require_any_module_access(["construccion"], "editor"),
 ):
     form = await request.form()
     user_id = context.get("user_db_id")
@@ -944,7 +915,7 @@ async def rechazar_const(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["construccion"], "editor", allow_org_roles={"director"}),
+    _=require_any_module_access(["construccion"], "editor"),
 ):
     form = await request.form()
     user_id = context.get("user_db_id")
@@ -1122,10 +1093,38 @@ async def get_modal_aprobar(
     _=require_any_module_access(["ingenieria", "construccion"], "viewer", allow_org_roles={"director"}),
 ):
     """Modal de aprobacion/rechazo con campo de comentarios."""
+    acciones_validas = {
+        "enviar-revision", "aprobar-ing", "rechazar-ing", "enviar-obra",
+        "aprobar-obra", "rechazar-obra", "aprobar-const", "rechazar-const",
+        "devolver-borrador", "cancelar", "solicitar-modificacion",
+        "enviar-final", "aprobar-final", "rechazar-final",
+    }
+    if accion not in acciones_validas:
+        return _toast_response(request, "Acción de BOM no disponible", "error", "Acción inválida")
+
     bom = await service.get_bom(conn, id_bom)
+    if (
+        context.get("rol_organizacional") == "director"
+        and context.get("role") != "ADMIN"
+    ):
+        aprobador_final_id = await service.get_aprobador_final_id(conn)
+        puede_modal_final = (
+            accion in {"aprobar-final", "rechazar-final"}
+            and bom["estatus"] == "EN_REVISION_FINAL"
+            and aprobador_final_id
+            and str(context.get("user_db_id")) == str(aprobador_final_id)
+        )
+        if not puede_modal_final:
+            return _toast_response(
+                request,
+                "Dirección solo puede aprobar o rechazar cuando el BOM llegue a revisión final.",
+                "error",
+                "Acción no disponible",
+            )
+
     catalogos = await service.get_catalogos(conn)
     acciones_con_stop_costos = {
-        "enviar-revision", "aprobar-ing", "enviar-obra", "enviar-const",
+        "enviar-revision", "aprobar-ing", "enviar-obra",
         "aprobar-obra", "aprobar-const", "enviar-final", "aprobar-final",
     }
     items_sin_costo = (
@@ -1318,7 +1317,7 @@ async def aprobar_obra(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["construccion"], "editor", allow_org_roles={"director"}),
+    _=require_any_module_access(["construccion"], "editor"),
 ):
     form = await request.form()
     user_id = context.get("user_db_id")
@@ -1346,7 +1345,7 @@ async def rechazar_obra(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["construccion"], "editor", allow_org_roles={"director"}),
+    _=require_any_module_access(["construccion"], "editor"),
 ):
     form = await request.form()
     user_id = context.get("user_db_id")
@@ -1378,7 +1377,7 @@ async def enviar_revision_final(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["construccion"], "editor", allow_org_roles={"director"}),
+    _=require_any_module_access(["construccion"], "editor"),
 ):
     """Envia BOM aprobado por construccion al aprobador final."""
     user_id = context.get("user_db_id")
@@ -2194,11 +2193,14 @@ async def set_aprobador_final(
     user_id_raw = form.get("user_id", "").strip()
     try:
         user_id = UUID(user_id_raw) if user_id_raw else None
-        await service.db.set_aprobador_final_id(conn, user_id)
+        await service.configurar_aprobador_final(conn, user_id)
         message = "Aprobador final configurado" if user_id else "Aprobador final sin configurar"
         return templates.TemplateResponse(request, "shared/toast.html", {"message": message, "type": "success"
         })
-    except ValueError:
-        raise HTTPException(status_code=400, detail="UUID invalido")
+    except ValueError as e:
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "message": str(e),
+            "type": "error",
+        })
     except asyncpg.PostgresError:
         raise HTTPException(status_code=500, detail="Error interno")

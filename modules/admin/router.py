@@ -78,6 +78,10 @@ def _is_comercial_popup_user(user: dict) -> bool:
     )
 
 
+def _is_active_director(user: dict) -> bool:
+    return bool(user.get("is_active") and user.get("rol_organizacional") == "director")
+
+
 @router.api_route("/ui", methods=["GET", "HEAD"], include_in_schema=False)
 async def admin_dashboard(
     request: Request,
@@ -1453,7 +1457,7 @@ async def bom_config_ui(
     bom_service = BomService()
     aprobador_id = await bom_service.get_aprobador_final_id(conn)
     users = await service.db.fetch_all_users(conn)
-    activos = [u for u in users if u.get('is_active')]
+    activos = [u for u in users if _is_active_director(u)]
     return templates.TemplateResponse(request, "admin/partials/bom_aprobador_final.html", {"aprobador_id": str(aprobador_id) if aprobador_id else None,
         "usuarios": activos,
     })
@@ -1471,9 +1475,10 @@ async def set_aprobador_final(
     user_id_raw = form.get("aprobador_final_id", "").strip()
     try:
         from uuid import UUID as _UUID
-        bom_db = BomDBService()
+        from core.bom.service import BomService
+        bom_service = BomService()
         user_id = _UUID(user_id_raw) if user_id_raw else None
-        await bom_db.set_aprobador_final_id(conn, user_id)
+        await bom_service.configurar_aprobador_final(conn, user_id)
         ConfigService.invalidar_cache()
         message = "Aprobador final del BOM actualizado" if user_id else "Aprobador final del BOM sin configurar"
         return templates.TemplateResponse(request, "shared/toast.html", {"message": message,
@@ -1742,7 +1747,6 @@ async def config_bom_aprobaciones(
     bom_db = BomDBService()
     configs = await ConfigService.get_global_configs_bulk(conn, {
         'bom.gestion_solo_responsable': (True, bool),
-        'bom.director_bypass_aprobaciones': (False, bool),
         'equipo.gestion_solo_responsable': (True, bool),
         'equipo.autoasignacion_rc_por_jefes': (True, bool),
         BOM_COSTOS_ASUNTO_KEY: (BOM_COSTOS_DEFAULT_ASUNTO, str),
@@ -1750,7 +1754,7 @@ async def config_bom_aprobaciones(
         BOM_COSTOS_SSE_KEY: (False, bool),
     })
     aprobador_final_id = await bom_db.get_aprobador_final_id(conn)
-    usuarios = await service.db.fetch_usuarios_activos_select(conn)
+    usuarios = [u for u in await service.db.fetch_all_users(conn) if _is_active_director(u)]
     reglas_costos = await service.db.fetch_email_rules_for_event(conn, "BOM", BOM_COSTOS_EVENTO)
     costos_recipients = {"TO": [], "CC": [], "CCO": []}
     for regla in reglas_costos:
@@ -1760,7 +1764,6 @@ async def config_bom_aprobaciones(
 
     return templates.TemplateResponse(request, "admin/config_bom_aprobaciones.html", {
         "bom_gestion": configs['bom.gestion_solo_responsable'],
-        "bom_director": configs['bom.director_bypass_aprobaciones'],
         "equipo_gestion": configs['equipo.gestion_solo_responsable'],
         "equipo_autoasign": configs['equipo.autoasignacion_rc_por_jefes'],
         "costos_asunto": configs[BOM_COSTOS_ASUNTO_KEY],
@@ -1784,7 +1787,6 @@ async def guardar_config_bom_aprobaciones(
     form = await request.form()
     flags = {
         'bom.gestion_solo_responsable': 'true' if form.get('bom_gestion') else 'false',
-        'bom.director_bypass_aprobaciones': 'true' if form.get('bom_director') else 'false',
         'equipo.gestion_solo_responsable': 'true' if form.get('equipo_gestion') else 'false',
         'equipo.autoasignacion_rc_por_jefes': 'true' if form.get('equipo_autoasign') else 'false',
         BOM_COSTOS_ASUNTO_KEY: (form.get('costos_asunto') or '').strip() or BOM_COSTOS_DEFAULT_ASUNTO,

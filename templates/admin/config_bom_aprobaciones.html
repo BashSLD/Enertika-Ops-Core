@@ -33,15 +33,6 @@
                     </span>
                 </label>
 
-                <label class="flex items-start gap-3 cursor-pointer">
-                    <input type="checkbox" name="bom_director" value="true"
-                           {% if bom_director %}checked{% endif %}
-                           class="mt-0.5 h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500">
-                    <span>
-                        <span class="block text-sm font-medium text-gray-900">Permitir que Dirección apruebe como respaldo</span>
-                        <span class="block text-xs text-gray-500">El Director puede aprobar cualquier paso intermedio (Ing / Obra / Const) independientemente del responsable asignado.</span>
-                    </span>
-                </label>
             </div>
 
             <div class="border rounded-lg p-4 space-y-4">
@@ -131,14 +122,14 @@
         <!-- Aprobador final (form separado — endpoint BOM existente) -->
         <div class="border rounded-lg p-4">
             <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1">Aprobador final del BOM</h3>
-            <p class="text-xs text-gray-500 mb-3">Usuario único que aprueba el paso final. Sin bypass, incluso para ADMIN.</p>
+            <p class="text-xs text-gray-500 mb-3">Usuario de Dirección que aprueba el paso final. Sin bypass, incluso para ADMIN.</p>
             <form hx-post="/bom/admin/aprobador-final"
                   hx-target="#toast-container"
                   hx-swap="afterbegin"
                   class="flex gap-2">
                 <select name="user_id"
                         class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
-                    <option value="">— Sin configurar —</option>
+                    <option value="">-- Sin configurar --</option>
                     {% for u in usuarios %}
                     <option value="{{ u.id_usuario }}"
                             {% if aprobador_final_id == u.id_usuario|string %}selected{% endif %}>

@@ -9,7 +9,7 @@
     },
     'aprobar-ing': {
         'titulo': 'Aprobar BOM (Ingenieria)',
-        'descripcion': 'Al aprobar, el BOM podra ser enviado a revision de construccion.',
+        'descripcion': 'Al aprobar, el BOM podra ser enviado a revision de Obra.',
         'url': '/bom/' ~ bom.id_bom ~ '/aprobar-ing',
         'btn_text': 'Aprobar',
         'btn_class': 'bg-green-600 hover:bg-green-700',
@@ -21,13 +21,6 @@
         'btn_text': 'Rechazar',
         'btn_class': 'bg-red-600 hover:bg-red-700',
         'require_comentario': true,
-    },
-    'enviar-const': {
-        'titulo': 'Enviar a Revision de Construccion',
-        'descripcion': 'El BOM sera enviado al coordinador de obra para su revision.',
-        'url': '/bom/' ~ bom.id_bom ~ '/enviar-const',
-        'btn_text': 'Enviar a Construccion',
-        'btn_class': 'bg-blue-600 hover:bg-blue-700',
     },
     'enviar-obra': {
         'titulo': 'Enviar a Revision de Obra',

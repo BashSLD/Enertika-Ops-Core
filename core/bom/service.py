@@ -130,11 +130,6 @@ class BomService:
             )
         if user_role == 'ADMIN':
             return
-        director_bypass = await ConfigService.get_global_config(
-            conn, 'bom.director_bypass_aprobaciones', False, bool
-        )
-        if rol_org == 'director' and director_bypass:
-            return
         solo_responsable = await ConfigService.get_global_config(
             conn, 'bom.gestion_solo_responsable', True, bool
         )
@@ -158,9 +153,9 @@ class BomService:
         """Version booleana de _validar_aprobador_bom para la UI (no lanza).
 
         Permite que el template oculte botones que el service rechazaria, usando
-        exactamente la misma logica (ADMIN, director-bypass, propiedad, suplencia
-        y fallback de rol global). Acepta `representados` precalculado para no
-        repetir la consulta de suplencias dentro del mismo render.
+        exactamente la misma logica (ADMIN, propiedad, suplencia y fallback de rol
+        global). Acepta `representados` precalculado para no repetir la consulta de
+        suplencias dentro del mismo render.
         """
         try:
             await self._validar_aprobador_bom(
@@ -321,6 +316,38 @@ class BomService:
         items_sin_costo = await self.get_items_sin_costo(conn, id_bom)
         if items_sin_costo:
             raise ValueError(self._build_costos_pendientes_error(items_sin_costo))
+
+    async def _get_aprobador_final_direccion_id(self, conn) -> UUID:
+        aprobador_id = await self.db.get_aprobador_final_id(conn)
+        if not aprobador_id:
+            raise ValueError("Configura un aprobador final de Dirección antes de avanzar el BOM")
+        if not await self.db.usuario_tiene_rol_org(conn, aprobador_id, "director"):
+            raise ValueError("El aprobador final del BOM debe ser un usuario activo de Dirección")
+        return aprobador_id
+
+    async def configurar_aprobador_final(self, conn, user_id: Optional[UUID]) -> None:
+        if user_id and not await self.db.usuario_tiene_rol_org(conn, user_id, "director"):
+            raise ValueError("El aprobador final debe ser un usuario activo de Dirección")
+        await self.db.set_aprobador_final_id(conn, user_id)
+
+    async def validar_responsables_workflow_bom(self, conn, bom: dict) -> None:
+        """Bloquea el primer envio si el workflow completo no tiene responsables."""
+        problemas = []
+        if not bom.get("responsable_ing"):
+            problemas.append("falta responsable de Ingenieria")
+        if not bom.get("coordinador_obra"):
+            problemas.append("falta Coordinador de Obra")
+        if not bom.get("jefe_construccion"):
+            problemas.append("falta Jefe de Construccion")
+        try:
+            await self._get_aprobador_final_direccion_id(conn)
+        except ValueError as exc:
+            problemas.append(str(exc))
+
+        if problemas:
+            raise ValueError(
+                "No se puede enviar el BOM a revision: " + "; ".join(problemas)
+            )
 
     # ─── ITEMS CRUD ─────────────────────────────────────────
 
@@ -789,11 +816,9 @@ class BomService:
         bom = await self.get_bom(conn, id_bom)
         await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
 
-        if not bom.get('responsable_ing'):
-            raise ValueError("El BOM no tiene responsable de Ingenieria asignado. Configura el jefe de Ingenieria antes de enviar.")
-
         if EstatusBOM(bom['estatus']) != EstatusBOM.BORRADOR:
             raise ValueError("Solo se puede enviar a revision desde BORRADOR")
+        await self.validar_responsables_workflow_bom(conn, bom)
 
         # Verificar que tenga items
         items = await self.db.get_items_by_bom(conn, id_bom)
@@ -818,25 +843,6 @@ class BomService:
         bom_updated = await self.db.get_bom_by_id(conn, id_bom)
         await self._notify_bom(conn, bom_updated, bom_updated.get('responsable_ing'),
                                'ENVIADO_REVISION_ING', por_user_id=user_id)
-
-        # Recordatorio si falta RC o coordinador de obra: notifica a director y RC/jefe_const
-        asignaciones_const = await self.db.get_asignaciones_proyecto(
-            conn, bom['id_proyecto'],
-            ["responsable_construccion", "coordinador_obra"], "CONSTRUCCION"
-        )
-        if "responsable_construccion" not in asignaciones_const or "coordinador_obra" not in asignaciones_const:
-            director = await self.db.get_director(conn)
-            jefe_const = await self.db.get_responsable_proyecto_o_global(
-                conn, bom['id_proyecto'], "jefe_construccion"
-            )
-            notificados: set[str] = set()
-            if director:
-                notificados.add(str(director['id_usuario']))
-                await self._notify_bom(conn, bom_updated, director['id_usuario'],
-                                       'FALTA_ASIGNACION_CONSTRUCCION', por_user_id=user_id)
-            if jefe_const and str(jefe_const['id_usuario']) not in notificados:
-                await self._notify_bom(conn, bom_updated, jefe_const['id_usuario'],
-                                       'FALTA_ASIGNACION_CONSTRUCCION', por_user_id=user_id)
 
         return bom_updated
 
@@ -900,33 +906,6 @@ class BomService:
         await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
                                'RECHAZADO_ING', por_user_id=user_id, comentarios=comentarios)
         return bom_updated
-
-    async def enviar_revision_const(
-        self, conn, id_bom: UUID, user_id: UUID,
-    ) -> dict:
-        """Envia BOM aprobado por ing a revision de construccion."""
-        bom = await self.get_bom(conn, id_bom)
-        await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
-
-        if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_ING:
-            raise ValueError("El BOM debe estar APROBADO_ING para enviar a construccion")
-        await self.validar_sin_costos_pendientes(conn, id_bom)
-
-        update_kwargs = {
-            'fecha_envio_const': now_mx()
-        }
-
-        await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.EN_REVISION_CONST, **update_kwargs
-        )
-
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.ENVIO_REVISION_CONST,
-            bom['version'], user_id
-        )
-
-        logger.info("BOM %s enviado a revision const por %s", id_bom, user_id)
-        return await self.db.get_bom_by_id(conn, id_bom)
 
     async def aprobar_const(
         self, conn, id_bom: UUID, user_id: UUID, user_role: str,
@@ -1286,7 +1265,7 @@ class BomService:
             raise ValueError("El BOM debe estar APROBADO_CONST para enviar al aprobador final")
         await self.validar_sin_costos_pendientes(conn, id_bom)
 
-        aprobador_id = await self.db.get_aprobador_final_id(conn)
+        aprobador_id = await self._get_aprobador_final_direccion_id(conn)
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.EN_REVISION_FINAL,
             fecha_envio_final=now_mx()
@@ -1311,8 +1290,8 @@ class BomService:
             raise ValueError("El BOM debe estar EN_REVISION_FINAL para aprobar")
         await self.validar_sin_costos_pendientes(conn, id_bom)
 
-        aprobador_id = await self.db.get_aprobador_final_id(conn)
-        if not aprobador_id or str(user_id) != str(aprobador_id):
+        aprobador_id = await self._get_aprobador_final_direccion_id(conn)
+        if str(user_id) != str(aprobador_id):
             raise ValueError("Solo el aprobador final designado puede ejecutar esta accion")
 
         await self.db.update_bom_estatus(
@@ -1341,8 +1320,8 @@ class BomService:
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_FINAL:
             raise ValueError("El BOM debe estar EN_REVISION_FINAL para rechazar")
 
-        aprobador_id = await self.db.get_aprobador_final_id(conn)
-        if not aprobador_id or str(user_id) != str(aprobador_id):
+        aprobador_id = await self._get_aprobador_final_direccion_id(conn)
+        if str(user_id) != str(aprobador_id):
             raise ValueError("Solo el aprobador final designado puede ejecutar esta accion")
 
         await self.db.update_bom_estatus(conn, id_bom, EstatusBOM.APROBADO_CONST)
@@ -1549,7 +1528,6 @@ class BomService:
                 'APROBADO_FINAL':         f"BOM {bom.get('proyecto_id_estandar', '')} - Aprobado definitivamente",
                 'RECHAZADO_FINAL':        f"BOM {bom.get('proyecto_id_estandar', '')} - Devuelto por Aprobador Final",
                 'FALTA_COORDINADOR_OBRA': f"BOM {bom.get('proyecto_id_estandar', '')} - Asignar coordinador de obra",
-                'FALTA_ASIGNACION_CONSTRUCCION': f"BOM {bom.get('proyecto_id_estandar', '')} - Falta equipo de Construccion",
             }
             subject = subject_map.get(evento, f"BOM {bom.get('proyecto_id_estandar', '')} - Actualizacion")
 
