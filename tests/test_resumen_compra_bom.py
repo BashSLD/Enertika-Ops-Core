@@ -13,6 +13,7 @@ class FakeResumenDB:
                 "categoria_id": 11,
                 "categoria_nombre": "Panel",
                 "presupuesto_mxn": 1000,
+                "compra_real_mxn": 900,
                 "facturado_confirmado_mxn": 700,
                 "facturado_sugerido_mxn": 100,
                 "pagado_mxn": 500,
@@ -24,6 +25,7 @@ class FakeResumenDB:
                 "categoria_id": 14,
                 "categoria_nombre": "Transformador",
                 "presupuesto_mxn": 200,
+                "compra_real_mxn": 250,
                 "facturado_confirmado_mxn": 0,
                 "facturado_sugerido_mxn": 50,
                 "pagado_mxn": 0,
@@ -43,6 +45,8 @@ async def test_resumen_compra_rollup_separa_confirmado_y_sugerido():
 
     assert [s["codigo"] for s in resumen["secciones"]] == ["AC", "DC"]
     assert resumen["totales"]["presupuesto"] == 1200
+    assert resumen["totales"]["real"] == 1150
+    assert resumen["totales"]["dif_real"] == 50
     assert resumen["totales"]["facturado"] == 700
     assert resumen["totales"]["facturado_sugerido"] == 150
     assert resumen["totales"]["pagado"] == 500

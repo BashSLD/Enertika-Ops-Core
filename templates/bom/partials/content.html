@@ -149,7 +149,9 @@
     {% if bom.estatus == 'BORRADOR' and ultimo_rechazo %}
     {% set tipo_labels = {
         'RECHAZO_ING': 'Rechazado por Ingenieria',
+        'RECHAZO_OBRA': 'Rechazado por Obra',
         'RECHAZO_CONST': 'Rechazado por Construccion',
+        'RECHAZO_FINAL': 'Rechazado por Direccion',
         'DEVOLUCION_BORRADOR': 'Devuelto a borrador'
     } %}
     <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
@@ -210,7 +212,7 @@
                 <span class="text-gray-400">({{ estadisticas.items_con_precio or 0 }}/{{ estadisticas.total_items or 0
                     }})</span>
                 {% if estadisticas.items_sin_costo %}
-                <span class="ml-1 text-amber-600">{{ estadisticas.items_sin_costo }} sin costo</span>
+                <span class="ml-1 text-amber-600">{{ estadisticas.items_sin_costo }} sin presupuesto</span>
                 {% endif %}
             </div>
         </div>
@@ -316,7 +318,8 @@
          }"
          @htmx:after-swap="if ($event.detail.target && $event.detail.target.id === 'tabla-bom-items') reset()">
 
-        {% set puede_bulk = bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and ((area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria) or area_editor in ['construccion', 'compras']) %}
+        {% set es_aprobado_final = bom and bom.estatus == 'APROBADO_FINAL' %}
+        {% set puede_bulk = bom and bom.estatus != 'CANCELADO' and (((area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria) and not es_aprobado_final) or area_editor in ['construccion', 'compras']) %}
         {% if puede_bulk %}
         {# vctl(c): muestra/habilita el control de valor solo cuando es el campo activo #}
         {% macro vctl(c) -%}
@@ -336,17 +339,23 @@
                     {% if area_editor == 'ingenieria' %}
                     <option value="id_categoria">Categoria</option>
                     <option value="unidad_medida">Unidad de medida</option>
-                    <option value="precio_unitario">Precio unitario</option>
+                    <option value="precio_unitario">Presupuesto unitario</option>
                     <option value="moneda">Moneda</option>
                     <option value="origen_precio">Origen de precio</option>
                     <option value="tipo_partida">Tipo de partida</option>
                     <option value="grupos">Grupos BOM</option>
                     {% elif area_editor == 'construccion' %}
+                    {% if not es_aprobado_final %}
                     <option value="fecha_requerida">Fecha requerida</option>
+                    {% endif %}
                     <option value="entregado">Entregado</option>
                     <option value="comentarios">Comentarios</option>
+                    {% if not es_aprobado_final %}
                     <option value="grupos">Grupos BOM</option>
+                    {% endif %}
                     {% elif area_editor == 'compras' %}
+                    <option value="precio_real">Costo real</option>
+                    <option value="moneda_real">Moneda real</option>
                     <option value="id_proveedor">Proveedor</option>
                     <option value="tipo_entrega">Tipo de entrega</option>
                     <option value="fecha_estimada_entrega">Fecha est. entrega</option>
@@ -403,6 +412,13 @@
                 {% endif %}
 
                 {% if area_editor == 'compras' %}
+                <input type="number" name="valor" {{ vctl('precio_real') }}
+                       step="0.01" min="0" placeholder="0.00" class="w-full rounded-lg border-gray-300 text-sm">
+                <select name="valor" {{ vctl('moneda_real') }}
+                        class="w-full rounded-lg border-gray-300 text-sm">
+                    <option value="MXN">MXN - Peso mexicano</option>
+                    <option value="USD">USD - Dolar americano</option>
+                </select>
                 <select name="valor" {{ vctl('id_proveedor') }}
                         class="w-full rounded-lg border-gray-300 text-sm">
                     <option value="">-- Sin proveedor --</option>
@@ -1007,7 +1023,7 @@
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Precio Unit. (opcional)</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Presupuesto unit. (opcional)</label>
                                     <input type="number" name="precio_unitario" step="0.01" min="0" x-model="precio"
                                         :disabled="modo !== 'manual'"
                                         class="w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none"
@@ -1029,7 +1045,7 @@
                         {# Preview importe #}
                         <div x-show="modo === 'manual' && precio > 0 && cantidad > 0"
                             class="bg-gray-50 rounded-lg px-3 py-2 flex items-center justify-between">
-                            <span class="text-sm text-gray-600">Importe estimado:</span>
+                            <span class="text-sm text-gray-600">Presupuesto estimado:</span>
                             <span class="text-sm font-bold text-gray-800"
                                 x-text="'$' + importe.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>
                         </div>

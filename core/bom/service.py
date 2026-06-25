@@ -23,11 +23,17 @@ logger = logging.getLogger("BOM.Service")
 
 # Campos que puede editar cada area
 CAMPOS_INGENIERIA = {'id_categoria', 'descripcion', 'cantidad', 'unidad_medida', 'precio_unitario', 'origen_precio', 'tipo_partida', 'moneda'}
-CAMPOS_CONSTRUCCION = {'fecha_requerida', 'entregado', 'comentarios', 'cantidad_recibida'}
+CAMPOS_CONSTRUCCION_BASE = {'fecha_requerida'}
+CAMPOS_CONSTRUCCION_EJECUCION = {
+    'entregado', 'comentarios', 'comentarios_operativos', 'cantidad_recibida',
+    'fecha_llegada_real', 'estatus_ejecucion'
+}
+CAMPOS_CONSTRUCCION = CAMPOS_CONSTRUCCION_BASE | CAMPOS_CONSTRUCCION_EJECUCION
 CAMPOS_COMPRAS = {
     'id_proveedor', 'tipo_entrega', 'fecha_estimada_entrega',
-    'fecha_llegada_real', 'comentarios', 'precio_unitario',
-    'origen_precio', 'moneda'
+    'fecha_llegada_real', 'comentarios', 'comentarios_operativos',
+    'precio_unitario', 'precio_real', 'origen_precio', 'moneda',
+    'moneda_real', 'estatus_ejecucion'
 }
 
 # Campos editables en lote: los de edicion individual menos los que varian por
@@ -42,12 +48,25 @@ CAMPOS_BULK = {
 
 # Estados en los que NO se puede editar de ninguna forma
 ESTATUS_BLOQUEADOS = {EstatusBOM.CANCELADO, EstatusBOM.APROBADO_FINAL}
+ESTATUS_BLOQUEADOS_EJECUCION = {EstatusBOM.CANCELADO}
+
+# Fechas de cabecera que representan el recorrido completo de aprobaciones.
+FECHAS_FLUJO_BOM = (
+    "fecha_envio_ing",
+    "fecha_aprobacion_ing",
+    "fecha_envio_obra",
+    "fecha_aprobacion_obra",
+    "fecha_envio_const",
+    "fecha_aprobacion_const",
+    "fecha_envio_final",
+    "fecha_aprobacion_final",
+)
 
 # Estatus editables para agregar/eliminar items estructurales (ingenieria y construccion)
 ESTATUS_EDITABLE_ING = set(EstatusBOM) - ESTATUS_BLOQUEADOS
 
-# Campos especificos editables por construccion/compras en cualquier fase no bloqueada
-ESTATUS_EDITABLE_CONST_COMPRAS = set(EstatusBOM) - ESTATUS_BLOQUEADOS
+# Campos especificos editables por construccion/compras en cualquier fase no cancelada
+ESTATUS_EDITABLE_CONST_COMPRAS = set(EstatusBOM) - ESTATUS_BLOQUEADOS_EJECUCION
 
 # Labels para historial
 CAMPO_LABELS = {
@@ -58,13 +77,18 @@ CAMPO_LABELS = {
     'fecha_requerida': 'Fecha requerida',
     'fecha_llegada_real': 'Fecha llegada real',
     'id_proveedor': 'Proveedor',
+    'id_proveedor_real': 'Proveedor real',
     'tipo_entrega': 'Tipo entrega',
     'fecha_estimada_entrega': 'Fecha estimada entrega',
     'comentarios': 'Comentarios',
     'entregado': 'Entregado',
-    'precio_unitario': 'Precio unitario',
+    'precio_unitario': 'Presupuesto unitario',
+    'precio_real': 'Costo real',
+    'moneda_real': 'Moneda real',
     'origen_precio': 'Origen precio',
     'cantidad_recibida': 'Cantidad recibida',
+    'estatus_ejecucion': 'Estatus ejecucion',
+    'comentarios_operativos': 'Comentarios operativos',
 }
 
 BOM_COSTOS_EVENTO = "BOM_ITEMS_SIN_COSTO"
@@ -72,10 +96,10 @@ BOM_COSTOS_REGLAS_MODULOS = {"BOM"}
 BOM_COSTOS_ASUNTO_KEY = "bom.costos_notificacion_asunto"
 BOM_COSTOS_TEMPLATE_KEY = "bom.costos_notificacion_template"
 BOM_COSTOS_SSE_KEY = "bom.costos_notificacion_sse_activa"
-BOM_COSTOS_DEFAULT_ASUNTO = "BOM {proyecto_id} - Items sin costo asignado"
+BOM_COSTOS_DEFAULT_ASUNTO = "BOM {proyecto_id} - Items sin presupuesto base"
 BOM_COSTOS_DEFAULT_TEMPLATE = (
     "El ingeniero ingreso {total_items} item(s) para el BOM del proyecto "
-    "{proyecto_id} sin costo asignado. Ingresa para actualizar el/los item(s)."
+    "{proyecto_id} sin presupuesto base. Ingresa para actualizar el/los item(s)."
 )
 
 
@@ -84,6 +108,11 @@ class BomService:
 
     def __init__(self):
         self.db = BomDBService()
+
+    @staticmethod
+    def _limpiar_fechas_flujo(*campos: str) -> dict:
+        campos_limpieza = campos or FECHAS_FLUJO_BOM
+        return {campo: None for campo in campos_limpieza}
 
     async def puede_crear_o_retomar_bom(
         self, conn, id_proyecto: UUID, user_id: Optional[UUID],
@@ -282,7 +311,7 @@ class BomService:
     @staticmethod
     def mensaje_item_sin_costo() -> str:
         return (
-            "Item guardado sin costo. El ingeniero o Compras debe capturar el costo "
+            "Item guardado sin presupuesto base. Ingenieria debe capturar el presupuesto "
             "antes de avanzar el BOM."
         )
 
@@ -302,8 +331,8 @@ class BomService:
     def _build_costos_pendientes_error(self, items: list[dict]) -> str:
         detalle = self._resumen_costos_pendientes(items)
         return (
-            f"No se puede avanzar el BOM: hay {len(items)} item(s) sin costo asignado. "
-            "Captura el costo o notifica a Compras para actualizarlo. "
+            f"No se puede avanzar el BOM: hay {len(items)} item(s) sin presupuesto base. "
+            "Captura el presupuesto base antes de continuar. "
             f"Pendientes: {detalle}."
         )
 
@@ -439,73 +468,136 @@ class BomService:
             'descripcion', 'id_material_ref', 'unidad_medida'
         }
 
-        # Validar que campos correspondan al area del editor
-        campos_filtrados = {}
+        # Validar que campos correspondan al area del editor y separar base vs ejecucion.
+        campos_base = {}
+        campos_ejecucion = {}
         if area_editor == 'ingenieria':
             if bom_estatus not in ESTATUS_EDITABLE_ING:
                 raise ValueError("El BOM no esta en estado editable para ingenieria")
-            campos_filtrados = {k: v for k, v in campos.items() if k in CAMPOS_INGENIERIA}
-            if 'precio_unitario' in campos_filtrados and campos_filtrados['precio_unitario'] is not None:
+            campos_base = {k: v for k, v in campos.items() if k in CAMPOS_INGENIERIA}
+            if 'precio_unitario' in campos_base and campos_base['precio_unitario'] is not None:
                 from decimal import Decimal as _D
-                if _D(str(campos_filtrados['precio_unitario'])) < 0:
+                if _D(str(campos_base['precio_unitario'])) < 0:
                     raise ValueError("El precio unitario no puede ser negativo")
             # Items de catalogo: remover campos protegidos
             if es_catalogo:
-                campos_filtrados = {
-                    k: v for k, v in campos_filtrados.items()
+                campos_base = {
+                    k: v for k, v in campos_base.items()
                     if k not in campos_protegidos_catalogo
                 }
         elif area_editor == 'construccion':
             if bom_estatus not in ESTATUS_EDITABLE_CONST_COMPRAS:
                 raise ValueError("El BOM no esta en estado editable para construccion")
-            campos_filtrados = {k: v for k, v in campos.items() if k in CAMPOS_CONSTRUCCION}
+            puede_actualizar_base_construccion = bom_estatus not in ESTATUS_BLOQUEADOS
+            if puede_actualizar_base_construccion:
+                campos_base = {
+                    k: v for k, v in campos.items()
+                    if k in CAMPOS_CONSTRUCCION_BASE
+                }
+            campos_ejecucion = {
+                k: v for k, v in campos.items()
+                if k in CAMPOS_CONSTRUCCION_EJECUCION
+            }
+            if 'comentarios' in campos_ejecucion:
+                campos_ejecucion['comentarios_operativos'] = campos_ejecucion.pop('comentarios')
             # Recepcion parcial: auto-calcular entregado segun cantidad recibida
-            if 'cantidad_recibida' in campos_filtrados:
+            if 'cantidad_recibida' in campos_ejecucion:
                 from decimal import Decimal
-                cant_recibida = Decimal(str(campos_filtrados['cantidad_recibida']))
+                cant_recibida = Decimal(str(campos_ejecucion['cantidad_recibida']))
                 cant_total = Decimal(str(item['cantidad']))
                 if cant_recibida < 0:
                     raise ValueError("La cantidad recibida no puede ser negativa")
                 if cant_recibida > cant_total:
                     raise ValueError("La cantidad recibida no puede exceder la cantidad total del item")
                 if cant_recibida >= cant_total:
-                    campos_filtrados['entregado'] = True
-                    campos_filtrados['fecha_entrega_check'] = now_mx()
+                    campos_ejecucion.setdefault('estatus_ejecucion', 'RECIBIDO_TOTAL')
+                    if puede_actualizar_base_construccion:
+                        campos_base['entregado'] = True
+                        campos_base['fecha_entrega_check'] = now_mx()
+                elif cant_recibida > 0:
+                    campos_ejecucion.setdefault('estatus_ejecucion', 'RECIBIDO_PARCIAL')
+                    if puede_actualizar_base_construccion:
+                        campos_base['entregado'] = False
+                        campos_base['fecha_entrega_check'] = None
                 else:
-                    campos_filtrados['entregado'] = False
-                    campos_filtrados['fecha_entrega_check'] = None
+                    if puede_actualizar_base_construccion:
+                        campos_base['entregado'] = False
+                        campos_base['fecha_entrega_check'] = None
             # Marcar entregado manualmente (si no viene cantidad_recibida)
-            elif 'entregado' in campos_filtrados and campos_filtrados['entregado']:
-                campos_filtrados['fecha_entrega_check'] = now_mx()
-            elif 'entregado' in campos_filtrados and not campos_filtrados['entregado']:
-                campos_filtrados['fecha_entrega_check'] = None
+            elif 'entregado' in campos_ejecucion and campos_ejecucion['entregado']:
+                campos_ejecucion['cantidad_recibida'] = item['cantidad']
+                campos_ejecucion.setdefault('estatus_ejecucion', 'RECIBIDO_TOTAL')
+                if puede_actualizar_base_construccion:
+                    campos_base['entregado'] = True
+                    campos_base['fecha_entrega_check'] = now_mx()
+            elif 'entregado' in campos_ejecucion and not campos_ejecucion['entregado']:
+                campos_ejecucion['cantidad_recibida'] = 0
+                if puede_actualizar_base_construccion:
+                    campos_base['entregado'] = False
+                    campos_base['fecha_entrega_check'] = None
+            campos_ejecucion.pop('entregado', None)
         elif area_editor == 'compras':
             if bom_estatus not in ESTATUS_EDITABLE_CONST_COMPRAS:
                 raise ValueError("El BOM no esta en estado editable para compras")
-            campos_filtrados = {k: v for k, v in campos.items() if k in CAMPOS_COMPRAS}
-            if 'precio_unitario' in campos_filtrados and campos_filtrados['precio_unitario'] is not None:
+            campos_compras = {k: v for k, v in campos.items() if k in CAMPOS_COMPRAS}
+            mapping = {
+                'id_proveedor': 'id_proveedor_real',
+                'precio_unitario': 'precio_real',
+                'moneda': 'moneda_real',
+                'comentarios': 'comentarios_operativos',
+            }
+            campos_ejecucion = {
+                mapping.get(k, k): v for k, v in campos_compras.items()
+                if k not in {'origen_precio'}
+            }
+            if 'precio_real' in campos_ejecucion and campos_ejecucion['precio_real'] is not None:
                 from decimal import Decimal as _D
-                if _D(str(campos_filtrados['precio_unitario'])) < 0:
+                if _D(str(campos_ejecucion['precio_real'])) < 0:
                     raise ValueError("El precio unitario no puede ser negativo")
+                campos_ejecucion.setdefault('estatus_ejecucion', 'COTIZADO')
+        else:
+            raise ValueError("Sin permisos para editar items del BOM")
 
-        if not campos_filtrados:
+        if not campos_base and not campos_ejecucion:
             raise ValueError("No hay campos validos para actualizar")
 
         # Registrar cambios en historial
-        for campo, valor_nuevo in campos_filtrados.items():
-            valor_anterior = item.get(campo)
+        historial_campos = []
+        historial_campos.extend((campo, campo, valor) for campo, valor in campos_base.items())
+        ejecucion_public_keys = {
+            'id_proveedor_real': 'id_proveedor',
+            'precio_real': 'precio_real',
+            'moneda_real': 'moneda_real',
+            'cantidad_recibida': 'cantidad_recibida',
+            'fecha_estimada_entrega': 'fecha_estimada_entrega',
+            'fecha_llegada_real': 'fecha_llegada_real',
+            'tipo_entrega': 'tipo_entrega',
+            'estatus_ejecucion': 'estatus_ejecucion',
+            'comentarios_operativos': 'comentarios_operativos',
+        }
+        historial_campos.extend(
+            (campo, ejecucion_public_keys.get(campo, campo), valor)
+            for campo, valor in campos_ejecucion.items()
+        )
+        for campo_hist, campo_actual, valor_nuevo in historial_campos:
+            valor_anterior = item.get(campo_actual)
             if str(valor_anterior) != str(valor_nuevo):
                 await self.db.registrar_historial(
                     conn, item['id_bom'], AccionHistorial.EDITADO,
                     item['bom_version'], user_id,
                     id_item=id_item,
-                    campo_modificado=CAMPO_LABELS.get(campo, campo),
+                    campo_modificado=CAMPO_LABELS.get(campo_hist, campo_hist),
                     valor_anterior=str(valor_anterior) if valor_anterior is not None else None,
                     valor_nuevo=str(valor_nuevo) if valor_nuevo is not None else None
                 )
 
-        updated = await self.db.update_item(conn, id_item, **campos_filtrados)
-        return updated
+        if campos_base:
+            await self.db.update_item(conn, id_item, **campos_base)
+        if campos_ejecucion:
+            await self.db.upsert_item_ejecucion(
+                conn, id_item, updated_by=user_id, **campos_ejecucion
+            )
+        return await self.db.get_item_by_id(conn, id_item)
 
     async def _validar_item_bulk(
         self, conn, item: Optional[dict], id_bom: UUID, user_id: UUID,
@@ -589,6 +681,8 @@ class BomService:
                         conn, item, id_bom, user_id, area_editor, permisos_ing_cache
                     )
                     if es_grupos:
+                        if EstatusBOM(item['bom_estatus']) == EstatusBOM.APROBADO_FINAL:
+                            raise ValueError("El BOM aprobado final no permite cambiar grupos")
                         await self.set_item_grupos(conn, id_item, user_id, grupo_ids)
                     else:
                         await self.editar_item(conn, id_item, user_id, area_editor, **{campo: valor})
@@ -644,7 +738,10 @@ class BomService:
 
         usd_ids = [
             item['id_item'] for item in items
-            if item.get('moneda') == 'USD' and item.get('precio_unitario')
+            if (
+                (item.get('moneda') == 'USD' and item.get('precio_unitario'))
+                or (item.get('moneda_real') == 'USD' and item.get('precio_real'))
+            )
         ]
 
         tc_from_xml = {}
@@ -667,6 +764,7 @@ class BomService:
         for item in items:
             item['grupos'] = grupos_map.get(str(item['id_item']), [])
             moneda = item.get('moneda', 'MXN')
+            moneda_real = item.get('moneda_real')
             if moneda == 'USD' and item.get('precio_unitario'):
                 iid = str(item['id_item'])
                 if iid in tc_from_xml:
@@ -679,6 +777,18 @@ class BomService:
                     tc = None
                 if tc:
                     item['costo_mxn'] = round(float(item['precio_unitario']) * tc, 2)
+            if moneda_real == 'USD' and item.get('precio_real'):
+                iid = str(item['id_item'])
+                if iid in tc_from_xml:
+                    tc = tc_from_xml[iid]
+                elif tc_banxico:
+                    tc = tc_banxico
+                elif tc_promedio:
+                    tc = tc_promedio
+                else:
+                    tc = None
+                if tc:
+                    item['costo_real_mxn'] = round(float(item['precio_real']) * tc, 2)
 
         # Enriquecer con gasto real desde materiales vinculados
         all_ids = [item['id_item'] for item in items]
@@ -703,6 +813,13 @@ class BomService:
             tc = float(tasa['tasa_mxn']) if tasa else None
             if tc:
                 item['costo_mxn'] = round(float(item['precio_unitario']) * tc, 2)
+        if item.get('moneda_real') == 'USD' and item.get('precio_real'):
+            from core.tipo_cambio.db_service import TipoCambioDBService
+            tc_svc = TipoCambioDBService()
+            tasa = await tc_svc.get_tasa_mas_reciente(conn)
+            tc = float(tasa['tasa_mxn']) if tasa else None
+            if tc:
+                item['costo_real_mxn'] = round(float(item['precio_real']) * tc, 2)
         # Enriquecer gasto_real
         gasto_map = await self.db.get_gasto_real_por_item(conn, [id_item])
         gasto = gasto_map.get(str(id_item))
@@ -737,11 +854,13 @@ class BomService:
                 "categoria_id": f["categoria_id"],
                 "categoria_nombre": f["categoria_nombre"],
                 "presupuesto": float(f["presupuesto_mxn"]),
+                "real": float(f.get("compra_real_mxn") or 0),
                 "facturado": facturado,
                 "facturado_sugerido": facturado_sugerido,
                 "facturado_total_potencial": facturado + facturado_sugerido,
                 "pagado": float(f["pagado_mxn"]),
             }
+            cat["dif_real"] = cat["presupuesto"] - cat["real"]
             cat["dif_facturado"] = cat["presupuesto"] - cat["facturado"]
             cat["dif_pagado"] = cat["presupuesto"] - cat["pagado"]
             grupo["categorias"].append(cat)
@@ -749,10 +868,12 @@ class BomService:
         secciones = []
         tot_presup = tot_fact = tot_pag = 0.0
         tot_sugerido = 0.0
+        tot_real = 0.0
 
         for grupo in sorted(por_grupo.values(), key=lambda g: (g["orden"], g["codigo"])):
             cats = grupo["categorias"]
             s_presup = sum(c["presupuesto"] for c in cats)
+            s_real = sum(c["real"] for c in cats)
             s_fact = sum(c["facturado"] for c in cats)
             s_sug = sum(c["facturado_sugerido"] for c in cats)
             s_pag = sum(c["pagado"] for c in cats)
@@ -760,25 +881,30 @@ class BomService:
                 "codigo": grupo["codigo"],
                 "nombre": grupo["nombre"],
                 "presupuesto": s_presup,
+                "real": s_real,
                 "facturado": s_fact,
                 "facturado_sugerido": s_sug,
                 "facturado_total_potencial": s_fact + s_sug,
                 "pagado": s_pag,
+                "dif_real": s_presup - s_real,
                 "dif_facturado": s_presup - s_fact,
                 "dif_pagado": s_presup - s_pag,
                 "categorias": cats,
             })
             tot_presup += s_presup
+            tot_real += s_real
             tot_fact += s_fact
             tot_sugerido += s_sug
             tot_pag += s_pag
 
         totales = {
             "presupuesto": tot_presup,
+            "real": tot_real,
             "facturado": tot_fact,
             "facturado_sugerido": tot_sugerido,
             "facturado_total_potencial": tot_fact + tot_sugerido,
             "pagado": tot_pag,
+            "dif_real": tot_presup - tot_real,
             "dif_facturado": tot_presup - tot_fact,
             "dif_pagado": tot_presup - tot_pag,
         }
@@ -793,9 +919,11 @@ class BomService:
             "modulos_fv": modulos,
             "kwp": kwp,
             "presup_por_modulo": _por(modulos, tot_presup),
+            "real_por_modulo": _por(modulos, tot_real),
             "facturado_por_modulo": _por(modulos, tot_fact),
             "sugerido_por_modulo": _por(modulos, tot_sugerido),
             "presup_por_kwp": _por(kwp, tot_presup),
+            "real_por_kwp": _por(kwp, tot_real),
             "facturado_por_kwp": _por(kwp, tot_fact),
             "sugerido_por_kwp": _por(kwp, tot_sugerido),
         }
@@ -938,11 +1066,14 @@ class BomService:
 
     async def rechazar_const(
         self, conn, id_bom: UUID, user_id: UUID, user_role: str,
-        rol_org: Optional[str] = None, comentarios: Optional[str] = None
+        rol_org: Optional[str] = None, comentarios: Optional[str] = None,
+        destino_rechazo: Optional[str] = None
     ) -> dict:
-        """Rechaza BOM por construccion. Vuelve a APROBADO_ING."""
+        """Rechaza BOM por construccion. Vuelve a Obra o a Borrador."""
         if not comentarios or not comentarios.strip():
             raise ValueError("El motivo del rechazo es obligatorio")
+        if destino_rechazo not in {"obra", "ingenieria"}:
+            raise ValueError("Destino de rechazo invalido")
 
         bom = await self.get_bom(conn, id_bom)
         await self._validar_aprobador_bom(
@@ -953,18 +1084,32 @@ class BomService:
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_CONST:
             raise ValueError("El BOM debe estar EN_REVISION_CONST para rechazar")
 
-        await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.APROBADO_ING,
-            fecha_envio_const=None,
-            fecha_aprobacion_const=None
-        )
+        if destino_rechazo == "obra":
+            nuevo_estatus = EstatusBOM.EN_REVISION_OBRA
+            campos_limpios = self._limpiar_fechas_flujo(
+                "fecha_aprobacion_obra",
+                "fecha_envio_const",
+                "fecha_aprobacion_const",
+                "fecha_envio_final",
+                "fecha_aprobacion_final",
+            )
+            notify_to = bom.get('coordinador_obra')
+        else:
+            nuevo_estatus = EstatusBOM.BORRADOR
+            campos_limpios = self._limpiar_fechas_flujo()
+            notify_to = bom.get('elaborado_por')
+
+        await self.db.update_bom_estatus(conn, id_bom, nuevo_estatus, **campos_limpios)
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.RECHAZO_CONST,
             bom['version'], user_id, comentarios=comentarios
         )
-        logger.info("BOM %s rechazado por const %s: %s", id_bom, user_id, comentarios)
+        logger.info(
+            "BOM %s rechazado por const %s hacia %s: %s",
+            id_bom, user_id, destino_rechazo, comentarios
+        )
         bom_updated = await self.db.get_bom_by_id(conn, id_bom)
-        await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
+        await self._notify_bom(conn, bom_updated, notify_to,
                                'RECHAZADO_CONST', por_user_id=user_id, comentarios=comentarios)
         return bom_updated
 
@@ -1027,7 +1172,7 @@ class BomService:
         self, conn, id_bom: UUID, user_id: UUID, user_role: str,
         rol_org: Optional[str] = None, comentarios: Optional[str] = None
     ) -> dict:
-        """Rechaza BOM por coordinador de obra. Vuelve a APROBADO_ING."""
+        """Rechaza BOM por coordinador de obra. Vuelve a BORRADOR."""
         if not comentarios or not comentarios.strip():
             raise ValueError("El motivo del rechazo es obligatorio")
 
@@ -1041,9 +1186,8 @@ class BomService:
             raise ValueError("El BOM debe estar EN_REVISION_OBRA para rechazar")
 
         await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.APROBADO_ING,
-            fecha_envio_obra=None,
-            fecha_aprobacion_obra=None
+            conn, id_bom, EstatusBOM.BORRADOR,
+            **self._limpiar_fechas_flujo()
         )
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.RECHAZO_OBRA,
@@ -1312,7 +1456,7 @@ class BomService:
         self, conn, id_bom: UUID, user_id: UUID,
         comentarios: Optional[str] = None
     ) -> dict:
-        """Rechazo por aprobador final. Vuelve a APROBADO_CONST."""
+        """Rechazo por aprobador final. Vuelve a BORRADOR."""
         if not comentarios or not comentarios.strip():
             raise ValueError("El motivo del rechazo es obligatorio")
 
@@ -1324,7 +1468,10 @@ class BomService:
         if str(user_id) != str(aprobador_id):
             raise ValueError("Solo el aprobador final designado puede ejecutar esta accion")
 
-        await self.db.update_bom_estatus(conn, id_bom, EstatusBOM.APROBADO_CONST)
+        await self.db.update_bom_estatus(
+            conn, id_bom, EstatusBOM.BORRADOR,
+            **self._limpiar_fechas_flujo()
+        )
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.RECHAZO_FINAL,
             bom['version'], user_id, comentarios=comentarios
@@ -1347,7 +1494,7 @@ class BomService:
         bom = await self.get_bom(conn, id_bom)
         items = await self.get_items_sin_costo(conn, id_bom)
         if not items:
-            raise ValueError("No hay items sin costo para notificar.")
+            raise ValueError("No hay items sin presupuesto base para notificar.")
 
         try:
             from core.workflow.notification_service import NotificationService
@@ -1443,8 +1590,8 @@ class BomService:
             return 0
 
         notif_svc = get_notifications_service()
-        titulo = f"BOM {bom.get('proyecto_id_estandar', '')} - Items sin costo"
-        mensaje = f"{len(items)} item(s) sin costo pendiente(s) de actualizar."
+        titulo = f"BOM {bom.get('proyecto_id_estandar', '')} - Items sin presupuesto"
+        mensaje = f"{len(items)} item(s) sin presupuesto pendiente(s) de actualizar."
         count = 0
         for usuario in usuarios_compras:
             usuario_id = usuario.get("id_usuario")
@@ -1849,18 +1996,21 @@ class BomService:
             item_ids = [i['bom_item_id'] for i in items]
             await self.db.actualizar_estatus_compra_items(conn, item_ids, 'COTIZADO')
 
-            # Actualizar precio_unitario del BOM con el precio de la cotización
-            # Solo items no protegidos (origen != CATALOGO)
-            bom_ids = [i['bom_item_id'] for i in items]
-            bom_items_sel = await self.db.get_items_by_ids(conn, bom_ids)
-            bom_items_sel_map = {str(bi['id_item']): bi for bi in bom_items_sel}
+            # Registrar costo/proveedor reales sin mutar el presupuesto base.
             for it in items:
-                bom_item = bom_items_sel_map.get(str(it['bom_item_id']))
-                if bom_item and bom_item.get('origen_precio') != 'CATALOGO':
-                    await self.db.update_item(
-                        conn, it['bom_item_id'],
-                        precio_unitario=it['precio_unitario']
-                    )
+                campos_reales = {
+                    'id_proveedor_real': cotizacion.get('proveedor_id'),
+                    'moneda_real': it.get('moneda') or cotizacion.get('moneda'),
+                    'estatus_ejecucion': 'COTIZADO',
+                }
+                if it.get('precio_unitario') is not None:
+                    campos_reales['precio_real'] = it.get('precio_unitario')
+                await self.db.upsert_item_ejecucion(
+                    conn,
+                    it['bom_item_id'],
+                    updated_by=user_id,
+                    **campos_reales,
+                )
 
         # Crear autorización de compra (Fase D) si no existe ya
         existente = await self.db.get_autorizacion_by_cotizacion(conn, cotizacion_id)

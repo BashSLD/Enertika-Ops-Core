@@ -1,6 +1,6 @@
 {# Fila individual de un item del BOM #}
 {% if warning_message %}
-{% with message=warning_message, type='warning', title='Costo pendiente' %}
+{% with message=warning_message, type='warning', title='Presupuesto pendiente' %}
 {% include "shared/toast.html" %}
 {% endwith %}
 {% endif %}
@@ -80,7 +80,7 @@
         {% endif %}
         {% else %}
         <span class="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
-            title="Costo pendiente">Sin costo</span>
+            title="Presupuesto pendiente">Sin presupuesto</span>
         {% endif %}
     </td>
     <td class="px-3 py-2 text-sm text-right font-mono">
@@ -94,10 +94,30 @@
         {% endif %}
     </td>
     <td class="px-3 py-2 text-sm text-right font-mono">
-        {% if item.gasto_real %}
-        <span class="{% if item.gasto_real|float > item.importe|float %}text-red-600{% else %}text-green-600{% endif %}">
-            ${{ "{:,.2f}".format(item.gasto_real|float) }}
+        {% set tiene_precio_real = item.precio_real is defined and item.precio_real is not none %}
+        {% if tiene_precio_real %}
+        {% set real_total = item.importe_real if item.importe_real is defined else (item.precio_real|float * item.cantidad|float) %}
+        {% else %}
+        {% set real_total = item.gasto_real if item.gasto_real is defined else none %}
+        {% endif %}
+        {% if real_total is not none %}
+        <span class="{% if item.importe and real_total|float > item.importe|float %}text-red-600{% else %}text-green-600{% endif %}">
+            ${{ "{:,.2f}".format(real_total|float) }}
         </span>
+        {% if tiene_precio_real %}
+        <div class="text-[10px] text-gray-400 font-normal">
+            {{ item.moneda_real or 'MXN' }}
+            {% if item.costo_real_mxn and item.moneda_real == 'USD' %}
+            - MXN ${{ "{:,.2f}".format((item.costo_real_mxn|float) * (item.cantidad|float)) }}
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if item.importe %}
+        {% set diferencia_real = item.importe|float - real_total|float %}
+        <div class="text-[10px] {{ 'text-emerald-600' if diferencia_real >= 0 else 'text-red-600' }} font-normal">
+            Dif. ${{ "{:,.2f}".format(diferencia_real) }}
+        </div>
+        {% endif %}
         {% else %}
         <span class="text-gray-300">--</span>
         {% endif %}
@@ -167,6 +187,8 @@
     <td class="px-3 py-2 text-center">
         <div class="flex items-center justify-center gap-1">
             {# Boton editar #}
+            {% set puede_editar_item = bom and bom.estatus != 'CANCELADO' and (bom.estatus != 'APROBADO_FINAL' or area_editor in ['compras', 'construccion']) %}
+            {% if puede_editar_item %}
             <button hx-get="/bom/items/{{ item.id_item }}/modal" hx-target="#bom-modal-container" hx-swap="innerHTML"
                 class="p-1 rounded hover:bg-gray-200 transition text-gray-500 hover:text-gray-700" title="Editar">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -174,6 +196,7 @@
                         d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
             </button>
+            {% endif %}
             {# Boton eliminar — permitido en todos los estados menos CANCELADO y APROBADO_FINAL para ing y construccion #}
             {% set puede_eliminar_item = area_editor == 'construccion' or (area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria|default(false)) %}
             {% if bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and puede_eliminar_item %}

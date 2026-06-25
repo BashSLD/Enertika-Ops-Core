@@ -138,7 +138,7 @@ def _parse_bulk_valor(campo: str, raw: Optional[str]):
         return int(raw) if raw else None
     if campo == "id_proveedor":
         return UUID(raw) if raw else None
-    if campo == "precio_unitario":
+    if campo in ("precio_unitario", "precio_real"):
         return Decimal(raw) if raw else None
     if campo == "entregado":
         return raw in ("true", "True", "1", "on")
@@ -146,6 +146,8 @@ def _parse_bulk_valor(campo: str, raw: Optional[str]):
         return date_type.fromisoformat(raw) if raw else None
     if campo == "origen_precio":
         return raw if raw in ("CATALOGO", "MANUAL") else None
+    if campo == "estatus_ejecucion":
+        return raw or None
     # Texto: unidad_medida, tipo_entrega, comentarios, tipo_partida, moneda
     return raw or None
 
@@ -453,7 +455,7 @@ async def agregar_item(
             bulk_toast={
                 "message": service.mensaje_item_sin_costo(),
                 "type": "warning",
-                "title": "Costo pendiente",
+                "title": "Presupuesto pendiente",
             } if service.item_sin_costo(item) else None,
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
@@ -510,23 +512,34 @@ async def editar_item(
         elif key in ("fecha_requerida", "fecha_llegada_real", "fecha_estimada_entrega"):
             from datetime import date as date_type
             campos[key] = date_type.fromisoformat(val) if val else None
-        elif key == "precio_unitario":
+        elif key in ("precio_unitario", "precio_real"):
             from decimal import Decimal as Dec
             campos[key] = Dec(val) if val and val.strip() else None
         elif key == "origen_precio":
             if val and val.strip() in ('CATALOGO', 'MANUAL'):
                 campos[key] = val.strip()
-        elif key in ("descripcion", "unidad_medida", "tipo_entrega", "comentarios", "tipo_partida", "moneda"):
+        elif key in (
+            "descripcion", "unidad_medida", "tipo_entrega", "comentarios",
+            "comentarios_operativos", "tipo_partida", "moneda", "moneda_real",
+            "estatus_ejecucion"
+        ):
             campos[key] = val.strip() if val else None
 
     try:
-        grupo_ids = _parse_grupo_ids(form)
+        item_actual = await service.get_item(conn, id_item)
+        bom_actual = await service.get_bom(conn, item_actual['id_bom'])
+        actualiza_grupos = (
+            area_editor in ("ingenieria", "construccion")
+            and bom_actual["estatus"] != "APROBADO_FINAL"
+        )
+        grupo_ids = _parse_grupo_ids(form) if actualiza_grupos else None
         if campos:
             await service.editar_item(
                 conn, id_item, user_id, area_editor, **campos
             )
 
-        await service.set_item_grupos(conn, id_item, user_id, grupo_ids)
+        if grupo_ids is not None:
+            await service.set_item_grupos(conn, id_item, user_id, grupo_ids)
 
         # Retornar fila actualizada
         item = await service.get_item(conn, id_item)
@@ -601,12 +614,12 @@ async def bulk_editar_items(
         m = len(resultado["omitidos"])
         pendientes_sin_costo = await service.get_items_sin_costo(conn, id_bom)
         aviso_costo = (
-            f"Hay {len(pendientes_sin_costo)} item(s) sin costo. Captura el costo antes de avanzar el BOM."
+            f"Hay {len(pendientes_sin_costo)} item(s) sin presupuesto base. Captura el presupuesto antes de avanzar el BOM."
             if pendientes_sin_costo else None
         )
 
         if aviso_costo:
-            toast = {"message": aviso_costo, "type": "warning", "title": "Costo pendiente"}
+            toast = {"message": aviso_costo, "type": "warning", "title": "Presupuesto pendiente"}
         elif n and m:
             toast = {"message": f"{n} items actualizados, {m} omitidos", "type": "warning", "title": "Edicion masiva"}
         elif n:
@@ -922,11 +935,23 @@ async def rechazar_const(
     user_role = context.get("role")
     rol_org = context.get("rol_organizacional")
     comentarios = form.get("comentarios", "").strip() or None
+    destino_rechazo = form.get("destino_rechazo", "").strip()
 
     try:
-        bom = await service.rechazar_const(conn, id_bom, user_id, user_role, rol_org, comentarios)
+        if destino_rechazo not in {"obra", "ingenieria"}:
+            raise ValueError("Selecciona a donde debe regresar el BOM")
+
+        bom = await service.rechazar_const(
+            conn, id_bom, user_id, user_role, rol_org, comentarios,
+            destino_rechazo=destino_rechazo
+        )
+        message = (
+            "BOM devuelto a revision de Obra."
+            if destino_rechazo == "obra"
+            else "BOM devuelto a borrador para correccion de Disenio."
+        )
         return templates.TemplateResponse(request, "shared/toast.html", {
-            "message": "BOM rechazado por construccion. Devuelto a ingenieria.",
+            "message": message,
             "type": "warning",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
@@ -1148,7 +1173,7 @@ async def notificar_costos_pendientes(
     service: BomService = Depends(get_bom_service),
     _=require_any_module_access(["ingenieria", "construccion"], "viewer", allow_org_roles={"director"}),
 ):
-    """Notifica a Compras los items del BOM que siguen sin costo asignado."""
+    """Notifica a Compras los items del BOM que siguen sin presupuesto base."""
     user_id = context.get("user_db_id")
     try:
         resultado = await service.notificar_items_sin_costo_compras(conn, id_bom, user_id)
@@ -1156,7 +1181,7 @@ async def notificar_costos_pendientes(
             request,
             (
                 f"Notificacion enviada a Compras con {resultado['items_sin_costo']} "
-                f"item(s) sin costo."
+                f"item(s) sin presupuesto base."
             ),
             "success",
             "Compras notificado",
@@ -1355,7 +1380,7 @@ async def rechazar_obra(
     try:
         bom = await service.rechazar_obra(conn, id_bom, user_id, user_role, rol_org, comentarios)
         return templates.TemplateResponse(request, "shared/toast.html", {
-            "message": "BOM devuelto a Ingenieria para revision.",
+            "message": "BOM devuelto a borrador para correccion de Disenio.",
             "type": "warning",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
@@ -1435,13 +1460,13 @@ async def rechazar_final(
     service: BomService = Depends(get_bom_service),
     _=require_any_module_access(["ingenieria", "construccion"], "viewer", allow_org_roles={"director"}),
 ):
-    """Rechazo por aprobador final. Vuelve a APROBADO_CONST."""
+    """Rechazo por aprobador final. Vuelve a BORRADOR."""
     form = await request.form()
     user_id = context.get("user_db_id")
     comentarios = form.get("comentarios", "").strip() or None
     try:
         bom = await service.rechazar_final(conn, id_bom, user_id, comentarios)
-        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM devuelto a construccion para revision.",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM devuelto a borrador por Direccion.",
             "type": "warning",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })

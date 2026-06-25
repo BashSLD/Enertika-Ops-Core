@@ -127,10 +127,13 @@ class BomItemUpdate(BaseModel):
     comentarios: Optional[str] = None
     entregado: Optional[bool] = None
     precio_unitario: Optional[Decimal] = None
+    precio_real: Optional[Decimal] = None
     origen_precio: Optional[str] = None
     cantidad_recibida: Optional[Decimal] = None
     tipo_partida: Optional[str] = None
     moneda: Optional[str] = Field(default=None, pattern="^(MXN|USD)$")
+    moneda_real: Optional[str] = Field(default=None, pattern="^(MXN|USD)$")
+    estatus_ejecucion: Optional[str] = None
 
 
 class BomItemRead(BaseModel):
@@ -153,16 +156,23 @@ class BomItemRead(BaseModel):
     orden: int = 0
     activo: bool = True
     precio_unitario: Optional[Decimal] = None
+    precio_base: Optional[Decimal] = None
+    precio_real: Optional[Decimal] = None
     origen_precio: Optional[str] = "MANUAL"
     id_material_ref: Optional[UUID] = None
     importe: Optional[Decimal] = None
+    importe_real: Optional[Decimal] = None
     cantidad_recibida: Decimal = Decimal("0")
     grupos: List[str] = []
     tipo_partida: str = "MATERIAL"
     estatus_compra: Optional[str] = None
+    estatus_ejecucion: Optional[str] = None
     moneda: Optional[str] = "MXN"
+    moneda_real: Optional[str] = "MXN"
     costo_mxn: Optional[Decimal] = None
+    costo_real_mxn: Optional[Decimal] = None
     gasto_real: Optional[Decimal] = None
+    comentarios_operativos: Optional[str] = None
     id_item_origen: Optional[UUID] = None
     bloqueado: bool = False
     created_at: Optional[datetime] = None

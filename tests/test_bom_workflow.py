@@ -2,9 +2,9 @@ from uuid import uuid4
 
 import pytest
 
-from core.bom.schemas import EstatusBOM
+from core.bom.schemas import EstatusBOM, TipoAprobacion
 from core.bom.service import BomService
-from core.bom.router import router as bom_router
+from core.bom.router import router as bom_router, templates as bom_templates
 
 
 class FakeConn:
@@ -79,6 +79,22 @@ def _base_bom(**overrides):
     }
     bom.update(overrides)
     return bom
+
+
+FLUJO_FECHAS = (
+    "fecha_envio_ing",
+    "fecha_aprobacion_ing",
+    "fecha_envio_obra",
+    "fecha_aprobacion_obra",
+    "fecha_envio_const",
+    "fecha_aprobacion_const",
+    "fecha_envio_final",
+    "fecha_aprobacion_final",
+)
+
+
+def _fechas_seteadas():
+    return {campo: "2026-06-25T12:00:00" for campo in FLUJO_FECHAS}
 
 
 def _service(db):
@@ -189,6 +205,101 @@ async def test_aprobar_final_rechaza_configurado_que_no_es_direccion():
     assert db.updates == []
 
 
+@pytest.mark.asyncio
+async def test_rechazar_obra_vuelve_a_borrador_y_limpia_fechas():
+    user_id = uuid4()
+    bom = _base_bom(estatus=EstatusBOM.EN_REVISION_OBRA.value, **_fechas_seteadas())
+    db = FakeWorkflowDB(bom)
+    service = _service(db)
+
+    updated = await service.rechazar_obra(
+        FakeConn(), bom["id_bom"], user_id, "ADMIN", None, "Corregir alcance"
+    )
+
+    assert updated["estatus"] == EstatusBOM.BORRADOR.value
+    assert all(updated[campo] is None for campo in FLUJO_FECHAS)
+    assert db.aprobaciones[0][0] == TipoAprobacion.RECHAZO_OBRA
+
+
+@pytest.mark.asyncio
+async def test_rechazar_const_a_obra_vuelve_a_revision_obra():
+    user_id = uuid4()
+    bom = _base_bom(estatus=EstatusBOM.EN_REVISION_CONST.value, **_fechas_seteadas())
+    db = FakeWorkflowDB(bom)
+    service = _service(db)
+
+    updated = await service.rechazar_const(
+        FakeConn(), bom["id_bom"], user_id, "ADMIN", None, "Revisar frente",
+        destino_rechazo="obra"
+    )
+
+    assert updated["estatus"] == EstatusBOM.EN_REVISION_OBRA.value
+    assert updated["fecha_envio_ing"] == "2026-06-25T12:00:00"
+    assert updated["fecha_aprobacion_ing"] == "2026-06-25T12:00:00"
+    assert updated["fecha_envio_obra"] == "2026-06-25T12:00:00"
+    assert updated["fecha_aprobacion_obra"] is None
+    assert updated["fecha_envio_const"] is None
+    assert updated["fecha_aprobacion_const"] is None
+    assert updated["fecha_envio_final"] is None
+    assert updated["fecha_aprobacion_final"] is None
+    assert db.aprobaciones[0][0] == TipoAprobacion.RECHAZO_CONST
+
+
+@pytest.mark.asyncio
+async def test_rechazar_const_a_ingenieria_vuelve_a_borrador():
+    user_id = uuid4()
+    bom = _base_bom(estatus=EstatusBOM.EN_REVISION_CONST.value, **_fechas_seteadas())
+    db = FakeWorkflowDB(bom)
+    service = _service(db)
+
+    updated = await service.rechazar_const(
+        FakeConn(), bom["id_bom"], user_id, "ADMIN", None, "Redisenar partida",
+        destino_rechazo="ingenieria"
+    )
+
+    assert updated["estatus"] == EstatusBOM.BORRADOR.value
+    assert all(updated[campo] is None for campo in FLUJO_FECHAS)
+    assert db.aprobaciones[0][0] == TipoAprobacion.RECHAZO_CONST
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("destino_rechazo", [None, "compras"])
+async def test_rechazar_const_rechaza_destino_invalido(destino_rechazo):
+    user_id = uuid4()
+    bom = _base_bom(estatus=EstatusBOM.EN_REVISION_CONST.value)
+    db = FakeWorkflowDB(bom)
+    service = _service(db)
+
+    with pytest.raises(ValueError, match="Destino de rechazo invalido"):
+        await service.rechazar_const(
+            FakeConn(), bom["id_bom"], user_id, "ADMIN", None, "No aplica",
+            destino_rechazo=destino_rechazo
+        )
+
+    assert db.updates == []
+    assert db.aprobaciones == []
+
+
+@pytest.mark.asyncio
+async def test_rechazar_final_vuelve_a_borrador():
+    user_id = uuid4()
+    bom = _base_bom(estatus=EstatusBOM.EN_REVISION_FINAL.value, **_fechas_seteadas())
+    db = FakeWorkflowDB(
+        bom,
+        roles_by_user={user_id: "director"},
+        aprobador_final_id=user_id,
+    )
+    service = _service(db)
+
+    updated = await service.rechazar_final(
+        FakeConn(), bom["id_bom"], user_id, "Corregir presupuesto"
+    )
+
+    assert updated["estatus"] == EstatusBOM.BORRADOR.value
+    assert all(updated[campo] is None for campo in FLUJO_FECHAS)
+    assert db.aprobaciones[0][0] == TipoAprobacion.RECHAZO_FINAL
+
+
 def test_no_existe_camino_service_directo_a_construccion():
     assert not hasattr(BomService, "enviar_revision_const")
 
@@ -198,4 +309,92 @@ def test_router_y_modal_no_exponen_enviar_const():
 
     assert "/bom/{id_bom}/enviar-const" not in route_paths
     with open("templates/bom/partials/modal_aprobar.html", encoding="utf-8") as template:
-        assert "enviar-const" not in template.read()
+        contenido = template.read()
+        assert "enviar-const" not in contenido
+        assert 'name="destino_rechazo"' in contenido
+
+
+def test_row_item_no_muestra_editar_en_aprobado_final():
+    template = bom_templates.env.get_template("bom/partials/row_item.html")
+    item_id = uuid4()
+    item = {
+        "id_item": item_id,
+        "grupos": [],
+        "tipo_partida": "MATERIAL",
+        "entregado": False,
+        "bloqueado": False,
+        "orden": 1,
+        "categoria_nombre": "Material",
+        "id_item_origen": None,
+        "descripcion": "Panel solar",
+        "comentarios": None,
+        "cantidad": 1,
+        "unidad_medida": "pz",
+        "precio_unitario": 100,
+        "moneda": "MXN",
+        "origen_precio": "MANUAL",
+        "importe": 100,
+        "costo_mxn": None,
+        "gasto_real": None,
+        "fecha_requerida": None,
+        "estatus_compra": "SIN_COTIZAR",
+        "proveedor_nombre": None,
+        "tipo_entrega": None,
+        "fecha_estimada_entrega": None,
+        "fecha_llegada_real": None,
+        "cantidad_recibida": 0,
+    }
+
+    html = template.render(
+        item=item,
+        bom={"estatus": EstatusBOM.APROBADO_FINAL.value},
+        area_editor="ingenieria",
+        puede_gestionar_bom_ingenieria=True,
+    )
+
+    assert f"/bom/items/{item_id}/modal" not in html
+
+
+def test_row_item_muestra_editar_operativo_en_aprobado_final_para_compras():
+    template = bom_templates.env.get_template("bom/partials/row_item.html")
+    item_id = uuid4()
+    item = {
+        "id_item": item_id,
+        "grupos": [],
+        "tipo_partida": "MATERIAL",
+        "entregado": False,
+        "bloqueado": False,
+        "orden": 1,
+        "categoria_nombre": "Material",
+        "id_item_origen": None,
+        "descripcion": "Panel solar",
+        "comentarios": None,
+        "cantidad": 1,
+        "unidad_medida": "pz",
+        "precio_unitario": 100,
+        "precio_real": None,
+        "moneda": "MXN",
+        "moneda_real": None,
+        "origen_precio": "MANUAL",
+        "importe": 100,
+        "importe_real": None,
+        "costo_mxn": None,
+        "costo_real_mxn": None,
+        "gasto_real": None,
+        "fecha_requerida": None,
+        "estatus_compra": "SIN_COTIZAR",
+        "proveedor_nombre": None,
+        "tipo_entrega": None,
+        "fecha_estimada_entrega": None,
+        "fecha_llegada_real": None,
+        "cantidad_recibida": 0,
+    }
+
+    html = template.render(
+        item=item,
+        bom={"estatus": EstatusBOM.APROBADO_FINAL.value},
+        area_editor="compras",
+        puede_gestionar_bom_ingenieria=False,
+    )
+
+    assert f"/bom/items/{item_id}/modal" in html

@@ -38,7 +38,7 @@
     },
     'rechazar-obra': {
         'titulo': 'Rechazar BOM (Obra)',
-        'descripcion': 'El BOM volvera a estado APROBADO_ING para que ingenieria lo corrija.',
+        'descripcion': 'El BOM volvera a estado BORRADOR para que ingenieria lo corrija y repita el flujo.',
         'url': '/bom/' ~ bom.id_bom ~ '/rechazar-obra',
         'btn_text': 'Rechazar',
         'btn_class': 'bg-red-600 hover:bg-red-700',
@@ -60,7 +60,7 @@
     },
     'rechazar-const': {
         'titulo': 'Rechazar BOM (Construccion)',
-        'descripcion': 'El BOM volvera a estado APROBADO_ING. Se puede reenviar tras correccion.',
+        'descripcion': 'Selecciona si el BOM debe regresar a Obra o a Ingenieria para correccion.',
         'url': '/bom/' ~ bom.id_bom ~ '/rechazar-const',
         'btn_text': 'Rechazar',
         'btn_class': 'bg-red-600 hover:bg-red-700',
@@ -75,7 +75,7 @@
     },
     'rechazar-final': {
         'titulo': 'Rechazar BOM (Aprobador Final)',
-        'descripcion': 'El BOM volvera a estado APROBADO_CONST para que Construccion lo revise.',
+        'descripcion': 'El BOM volvera a estado BORRADOR para que ingenieria corrija y repita el flujo.',
         'url': '/bom/' ~ bom.id_bom ~ '/rechazar-final',
         'btn_text': 'Rechazar',
         'btn_class': 'bg-red-600 hover:bg-red-700',
@@ -122,7 +122,7 @@
                     </svg>
                     <div class="min-w-0 flex-1">
                         <p class="text-sm font-semibold text-amber-900">
-                            No se puede avanzar: {{ items_sin_costo|length }} item(s) sin costo.
+                            No se puede avanzar: {{ items_sin_costo|length }} item(s) sin presupuesto base.
                         </p>
                         <p class="mt-1 text-xs text-amber-800">
                             El ingeniero o Compras debe capturar el costo antes de continuar.
@@ -158,6 +158,32 @@
                             placeholder="Agrega un comentario..."
                             {{ 'required' if cfg.get('require_comentario') }}></textarea>
                     </div>
+
+                    {% if accion == 'rechazar-const' %}
+                    <fieldset>
+                        <legend class="block text-sm font-medium text-gray-700 mb-2">
+                            Regresar BOM a
+                        </legend>
+                        <div class="space-y-2">
+                            <label class="flex items-start gap-2 rounded-lg border border-gray-300 p-3 text-sm text-gray-700">
+                                <input type="radio" name="destino_rechazo" value="obra" required
+                                    class="mt-0.5 border-gray-300 text-blue-600 focus:ring-blue-500">
+                                <span>
+                                    <span class="block font-medium">Coordinador de Obra</span>
+                                    <span class="block text-xs text-gray-500">Regresa a revision de Obra.</span>
+                                </span>
+                            </label>
+                            <label class="flex items-start gap-2 rounded-lg border border-gray-300 p-3 text-sm text-gray-700">
+                                <input type="radio" name="destino_rechazo" value="ingenieria" required
+                                    class="mt-0.5 border-gray-300 text-blue-600 focus:ring-blue-500">
+                                <span>
+                                    <span class="block font-medium">Ingeniero de Disenio</span>
+                                    <span class="block text-xs text-gray-500">Regresa a borrador y repite todo el flujo.</span>
+                                </span>
+                            </label>
+                        </div>
+                    </fieldset>
+                    {% endif %}
                 </div>
 
                 <div class="flex justify-end gap-2 mt-5">
