@@ -42,7 +42,6 @@ HOMEECO/
 
 # Documentacion
 rules/
-DB_SCHEMA_SNAPSHOT.md
 scripts/
 ._UPDATE
 ._BOOM
