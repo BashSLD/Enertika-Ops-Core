@@ -19,6 +19,7 @@ class BomDBService:
     def _merge_item_ejecucion(row) -> dict:
         """Combina campos base del item con el overlay de ejecucion real."""
         item = dict(row)
+        item["tipo_origen_item"] = item.get("tipo_origen_item") or "BASE"
         item["id_proveedor_base"] = item.get("id_proveedor")
         item["precio_base"] = item.get("precio_unitario")
         item["importe"] = item.get("importe_base")
@@ -208,20 +209,28 @@ class BomDBService:
         id_material_ref: Optional[UUID] = None,
         id_material_interno: Optional[UUID] = None,
         tipo_partida: Optional[str] = 'MATERIAL',
-        moneda: Optional[str] = 'MXN'
+        moneda: Optional[str] = 'MXN',
+        tipo_origen_item: str = 'BASE',
+        id_item_reemplazado: Optional[UUID] = None,
+        motivo_adenda: Optional[str] = None,
+        creado_en_adenda: Optional[UUID] = None,
     ) -> dict:
         """Agrega un item al BOM."""
         row = await conn.fetchrow("""
             INSERT INTO tb_bom_items (id_bom, id_categoria, descripcion,
                                       cantidad, unidad_medida, comentarios, orden,
                                       precio_unitario, origen_precio, id_material_ref,
-                                      id_material_interno, tipo_partida, moneda)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                                      id_material_interno, tipo_partida, moneda,
+                                      tipo_origen_item, id_item_reemplazado,
+                                      motivo_adenda, creado_en_adenda)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                    $14, $15, $16, $17)
             RETURNING *
         """, id_bom, id_categoria, descripcion, cantidad,
             unidad_medida, comentarios, orden,
             precio_unitario, origen_precio, id_material_ref,
-            id_material_interno, tipo_partida, moneda)
+            id_material_interno, tipo_partida, moneda,
+            tipo_origen_item, id_item_reemplazado, motivo_adenda, creado_en_adenda)
         return dict(row)
 
     async def get_items_by_bom(self, conn, id_bom: UUID, solo_activos: bool = True) -> List[dict]:
@@ -275,6 +284,7 @@ class BomDBService:
             LEFT JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo AND g.activo = TRUE
             WHERE i.id_bom = $1
               AND i.activo = TRUE
+              AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
               AND (i.precio_unitario IS NULL OR i.precio_unitario <= 0)
             GROUP BY i.id_item, c.nombre
             ORDER BY i.orden, i.created_at
@@ -316,8 +326,11 @@ class BomDBService:
         """Obtiene varios items por lista de IDs. Solo items activos."""
         rows = await conn.fetch("""
             SELECT i.id_item, i.descripcion, i.cantidad, i.moneda,
-                   i.estatus_compra, i.activo, i.precio_unitario, i.origen_precio
+                   i.estatus_compra, i.activo, i.precio_unitario, i.origen_precio,
+                   COALESCE(i.tipo_origen_item, 'BASE') AS tipo_origen_item,
+                   i.id_item_reemplazado, er.estatus_ejecucion
             FROM tb_bom_items i
+            LEFT JOIN tb_bom_item_ejecucion er ON er.id_item = i.id_item
             WHERE i.id_item = ANY($1::uuid[]) AND i.activo = TRUE
         """, item_ids)
         return [dict(r) for r in rows]
@@ -326,10 +339,12 @@ class BomDBService:
         """Obtiene items con contexto del BOM para validaciones de lote."""
         rows = await conn.fetch("""
             SELECT i.*,
+                   er.estatus_ejecucion,
                    b.estatus AS bom_estatus,
                    b.id_proyecto,
                    b.version AS bom_version
             FROM tb_bom_items i
+            LEFT JOIN tb_bom_item_ejecucion er ON er.id_item = i.id_item
             JOIN tb_bom b ON b.id_bom = i.id_bom
             WHERE i.id_item = ANY($1::uuid[])
         """, item_ids)
@@ -440,7 +455,9 @@ class BomDBService:
                                       fecha_estimada_entrega, comentarios, orden,
                                       precio_unitario, origen_precio, id_material_ref,
                                       id_material_interno, tipo_partida, moneda,
-                                      estatus_compra, id_item_origen, bloqueado)
+                                      estatus_compra, id_item_origen, bloqueado,
+                                      tipo_origen_item, id_item_reemplazado,
+                                      motivo_adenda, creado_en_adenda)
             SELECT $2, id_categoria, descripcion,
                    cantidad, unidad_medida, fecha_requerida,
                    id_proveedor, tipo_entrega,
@@ -448,13 +465,65 @@ class BomDBService:
                    precio_unitario, origen_precio, id_material_ref,
                    id_material_interno, tipo_partida, moneda,
                    estatus_compra, id_item,
-                   (estatus_compra IN ('PAGADO', 'FACTURADO'))
+                   (estatus_compra IN ('PAGADO', 'FACTURADO')),
+                   COALESCE(tipo_origen_item, 'BASE'), id_item_reemplazado,
+                   motivo_adenda, creado_en_adenda
             FROM tb_bom_items
             WHERE id_bom = $1 AND activo = TRUE
             ORDER BY orden ASC
         """, id_bom_origen, id_bom_destino)
         count = int(result.split()[-1]) if result else 0
         return count
+
+    async def crear_adenda(
+        self, conn, id_bom_base: UUID, tipo_adenda: str,
+        motivo: str, creado_por: UUID
+    ) -> dict:
+        """Crea el encabezado de una adenda operativa del BOM."""
+        row = await conn.fetchrow("""
+            INSERT INTO tb_bom_adendas (id_bom_base, tipo_adenda, motivo, creado_por)
+            VALUES ($1, $2, $3, $4)
+            RETURNING *
+        """, id_bom_base, tipo_adenda, motivo, creado_por)
+        return dict(row)
+
+    async def registrar_adenda_item(
+        self, conn, id_adenda: UUID, tipo_linea: str, motivo: str,
+        id_item_origen: Optional[UUID] = None,
+        id_item_bom: Optional[UUID] = None,
+    ) -> dict:
+        """Registra la relacion entre adenda, item origen e item generado."""
+        row = await conn.fetchrow("""
+            INSERT INTO tb_bom_adenda_items
+                (id_adenda, id_item_origen, id_item_bom, tipo_linea, motivo)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING *
+        """, id_adenda, id_item_origen, id_item_bom, tipo_linea, motivo)
+        return dict(row)
+
+    async def get_adendas_by_bom(self, conn, id_bom: UUID) -> List[dict]:
+        """Lista adendas del BOM con resumen de lineas afectadas."""
+        rows = await conn.fetch("""
+            SELECT a.*,
+                   u.nombre AS creado_por_nombre,
+                   COUNT(ai.id_adenda_item) AS total_lineas,
+                   COALESCE(
+                       string_agg(
+                           DISTINCT COALESCE(item.descripcion, origen.descripcion),
+                           ', '
+                       ) FILTER (WHERE COALESCE(item.descripcion, origen.descripcion) IS NOT NULL),
+                       ''
+                   ) AS items_resumen
+            FROM tb_bom_adendas a
+            LEFT JOIN tb_usuarios u ON u.id_usuario = a.creado_por
+            LEFT JOIN tb_bom_adenda_items ai ON ai.id_adenda = a.id_adenda
+            LEFT JOIN tb_bom_items origen ON origen.id_item = ai.id_item_origen
+            LEFT JOIN tb_bom_items item ON item.id_item = ai.id_item_bom
+            WHERE a.id_bom_base = $1
+            GROUP BY a.id_adenda, u.nombre
+            ORDER BY a.created_at DESC
+        """, id_bom)
+        return [dict(r) for r in rows]
 
     # ─── HISTORIAL ──────────────────────────────────────────
 
@@ -565,9 +634,26 @@ class BomDBService:
                                      OR (i.cantidad > 0 AND COALESCE(er.cantidad_recibida, i.cantidad_recibida, 0) >= i.cantidad)
                                  )) AS atrasados,
                 COALESCE(SUM(i.cantidad * COALESCE(i.precio_unitario, 0))
-                    FILTER (WHERE i.activo), 0) AS costo_total_estimado,
-                COUNT(*) FILTER (WHERE i.activo AND i.precio_unitario > 0) AS items_con_precio,
-                COUNT(*) FILTER (WHERE i.activo AND (i.precio_unitario IS NULL OR i.precio_unitario <= 0)) AS items_sin_costo,
+                    FILTER (WHERE i.activo AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'), 0) AS costo_total_estimado,
+                COUNT(*) FILTER (
+                    WHERE i.activo
+                      AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
+                      AND i.precio_unitario > 0
+                ) AS items_con_precio,
+                COUNT(*) FILTER (
+                    WHERE i.activo
+                      AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
+                      AND (i.precio_unitario IS NULL OR i.precio_unitario <= 0)
+                ) AS items_sin_costo,
+                COUNT(*) FILTER (
+                    WHERE i.activo AND COALESCE(i.tipo_origen_item, 'BASE') = 'REEMPLAZO'
+                ) AS items_reemplazo,
+                COUNT(*) FILTER (
+                    WHERE i.activo AND COALESCE(i.tipo_origen_item, 'BASE') = 'FUERA_SCOPE'
+                ) AS items_fuera_scope,
+                COUNT(*) FILTER (
+                    WHERE i.activo AND er.estatus_ejecucion IN ('NO_ADQUIRIDO', 'REEMPLAZADO', 'CERRADO')
+                ) AS items_no_adquiridos,
                 COUNT(*) FILTER (WHERE i.activo AND COALESCE(er.cantidad_recibida, i.cantidad_recibida, 0) > 0
                                  AND COALESCE(er.cantidad_recibida, i.cantidad_recibida, 0) < i.cantidad) AS items_parcialmente_recibidos,
                 COUNT(*) FILTER (WHERE i.activo AND COALESCE(er.cantidad_recibida, i.cantidad_recibida, 0) >= i.cantidad
@@ -1626,7 +1712,9 @@ class BomDBService:
                        c.seccion_bom,
                        i.cantidad,
                        COALESCE(i.precio_unitario, 0) AS precio_unitario,
-                       COALESCE(er.precio_real, 0) AS precio_real
+                       COALESCE(er.precio_real, 0) AS precio_real,
+                       COALESCE(i.tipo_origen_item, 'BASE') AS tipo_origen_item,
+                       COALESCE(er.estatus_ejecucion, 'PENDIENTE') AS estatus_ejecucion
                 FROM tb_bom_items i
                 LEFT JOIN tb_cat_categorias_compra c ON c.id = i.id_categoria
                 LEFT JOIN tb_bom_item_ejecucion er ON er.id_item = i.id_item
@@ -1647,7 +1735,9 @@ class BomDBService:
                        END AS peso_grupo,
                        ib.cantidad,
                        ib.precio_unitario,
-                       ib.precio_real
+                       ib.precio_real,
+                       ib.tipo_origen_item,
+                       ib.estatus_ejecucion
                 FROM items_base ib
                 LEFT JOIN (
                     SELECT ig.id_item, g.id, g.codigo, g.nombre, g.orden
@@ -1667,14 +1757,39 @@ class BomDBService:
             presupuesto AS (
                 SELECT grupo_codigo, grupo_nombre, grupo_orden,
                        categoria_id, categoria_nombre,
-                       SUM(cantidad * precio_unitario * peso_grupo) AS presupuesto_mxn
+                       SUM(
+                           CASE WHEN tipo_origen_item = 'BASE'
+                                THEN cantidad * precio_unitario * peso_grupo
+                                ELSE 0 END
+                       ) AS presupuesto_mxn
                 FROM item_grupos
                 GROUP BY grupo_codigo, grupo_nombre, grupo_orden, categoria_id, categoria_nombre
             ),
             compra_real AS (
                 SELECT grupo_codigo, grupo_nombre, grupo_orden,
                        categoria_id, categoria_nombre,
-                       SUM(cantidad * precio_real * peso_grupo) AS compra_real_mxn
+                       SUM(cantidad * precio_real * peso_grupo) AS compra_real_mxn,
+                       SUM(
+                           CASE WHEN tipo_origen_item = 'BASE'
+                                THEN cantidad * precio_real * peso_grupo
+                                ELSE 0 END
+                       ) AS compra_real_base_mxn,
+                       SUM(
+                           CASE WHEN tipo_origen_item = 'REEMPLAZO'
+                                THEN cantidad * precio_real * peso_grupo
+                                ELSE 0 END
+                       ) AS reemplazos_mxn,
+                       SUM(
+                           CASE WHEN tipo_origen_item = 'FUERA_SCOPE'
+                                THEN cantidad * precio_real * peso_grupo
+                                ELSE 0 END
+                       ) AS fuera_scope_mxn,
+                       SUM(
+                           CASE WHEN tipo_origen_item = 'BASE'
+                                  AND estatus_ejecucion IN ('NO_ADQUIRIDO', 'REEMPLAZADO', 'CERRADO')
+                                THEN cantidad * precio_unitario * peso_grupo
+                                ELSE 0 END
+                       ) AS no_adquirido_mxn
                 FROM item_grupos
                 GROUP BY grupo_codigo, grupo_nombre, grupo_orden, categoria_id, categoria_nombre
             ),
@@ -1745,27 +1860,38 @@ class BomDBService:
                        categoria_id, categoria_nombre,
                        presupuesto_mxn, 0::numeric AS facturado_confirmado_mxn,
                        0::numeric AS facturado_sugerido_mxn, 0::numeric AS pagado_mxn,
-                       0::numeric AS compra_real_mxn
+                       0::numeric AS compra_real_mxn,
+                       0::numeric AS compra_real_base_mxn,
+                       0::numeric AS reemplazos_mxn,
+                       0::numeric AS fuera_scope_mxn,
+                       0::numeric AS no_adquirido_mxn
                 FROM presupuesto
                 UNION ALL
                 SELECT grupo_codigo, grupo_nombre, grupo_orden,
                        categoria_id, categoria_nombre,
-                       0::numeric, 0::numeric, 0::numeric, 0::numeric, compra_real_mxn
+                       0::numeric, 0::numeric, 0::numeric, 0::numeric,
+                       compra_real_mxn, compra_real_base_mxn, reemplazos_mxn,
+                       fuera_scope_mxn, no_adquirido_mxn
                 FROM compra_real
                 UNION ALL
                 SELECT grupo_codigo, grupo_nombre, grupo_orden,
                        categoria_id, categoria_nombre,
-                       0::numeric, facturado_confirmado_mxn, 0::numeric, 0::numeric, 0::numeric
+                       0::numeric, facturado_confirmado_mxn, 0::numeric,
+                       0::numeric, 0::numeric, 0::numeric, 0::numeric,
+                       0::numeric, 0::numeric
                 FROM facturado_confirmado
                 UNION ALL
                 SELECT grupo_codigo, grupo_nombre, grupo_orden,
                        categoria_id, categoria_nombre,
-                       0::numeric, 0::numeric, facturado_sugerido_mxn, 0::numeric, 0::numeric
+                       0::numeric, 0::numeric, facturado_sugerido_mxn,
+                       0::numeric, 0::numeric, 0::numeric, 0::numeric,
+                       0::numeric, 0::numeric
                 FROM facturado_sugerido
                 UNION ALL
                 SELECT grupo_codigo, grupo_nombre, grupo_orden,
                        categoria_id, categoria_nombre,
-                       0::numeric, 0::numeric, 0::numeric, pagado_mxn, 0::numeric
+                       0::numeric, 0::numeric, 0::numeric, pagado_mxn,
+                       0::numeric, 0::numeric, 0::numeric, 0::numeric, 0::numeric
                 FROM pagado
             )
             SELECT grupo_codigo,
@@ -1777,7 +1903,11 @@ class BomDBService:
                    SUM(facturado_confirmado_mxn) AS facturado_confirmado_mxn,
                    SUM(facturado_sugerido_mxn) AS facturado_sugerido_mxn,
                    SUM(pagado_mxn) AS pagado_mxn,
-                   SUM(compra_real_mxn) AS compra_real_mxn
+                   SUM(compra_real_mxn) AS compra_real_mxn,
+                   SUM(compra_real_base_mxn) AS compra_real_base_mxn,
+                   SUM(reemplazos_mxn) AS reemplazos_mxn,
+                   SUM(fuera_scope_mxn) AS fuera_scope_mxn,
+                   SUM(no_adquirido_mxn) AS no_adquirido_mxn
             FROM metricas
             GROUP BY grupo_codigo, grupo_nombre, grupo_orden, categoria_id, categoria_nombre
             HAVING SUM(presupuesto_mxn) <> 0
@@ -1785,6 +1915,9 @@ class BomDBService:
                 OR SUM(facturado_sugerido_mxn) <> 0
                 OR SUM(pagado_mxn) <> 0
                 OR SUM(compra_real_mxn) <> 0
+                OR SUM(reemplazos_mxn) <> 0
+                OR SUM(fuera_scope_mxn) <> 0
+                OR SUM(no_adquirido_mxn) <> 0
             ORDER BY grupo_orden, grupo_codigo, categoria_nombre
         """, id_bom)
         return [dict(r) for r in rows]
@@ -1807,6 +1940,7 @@ class BomDBService:
                    JOIN tb_cat_categorias_compra c ON c.id = i.id_categoria
                    WHERE i.id_bom = $1
                      AND i.activo = TRUE
+                     AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
                      AND lower(c.nombre) = 'panel') AS modulos_fv
         """, id_bom)
         return {

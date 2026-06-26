@@ -95,6 +95,25 @@ class FakeSeleccionCotizacionDB:
     async def get_items_cotizacion(self, conn, cotizacion_id):
         return list(self.items)
 
+    async def get_items_by_ids(self, conn, item_ids):
+        rows = []
+        for item_id in item_ids:
+            match = next(
+                (item for item in self.items if item["bom_item_id"] == item_id),
+                None,
+            )
+            if match:
+                rows.append({
+                    "id_item": item_id,
+                    "descripcion": match.get("descripcion", "Item"),
+                    "cantidad": match.get("cantidad", 1),
+                    "precio_unitario": match.get("precio_unitario"),
+                    "estatus_ejecucion": match.get("estatus_ejecucion"),
+                    "estatus_compra": match.get("estatus_compra", "SIN_COTIZAR"),
+                    "activo": True,
+                })
+        return rows
+
     async def actualizar_estatus_compra_items(self, conn, item_ids, estatus):
         self.estatus_items.append((list(item_ids), estatus))
 

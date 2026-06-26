@@ -174,6 +174,10 @@ class BomItemRead(BaseModel):
     gasto_real: Optional[Decimal] = None
     comentarios_operativos: Optional[str] = None
     id_item_origen: Optional[UUID] = None
+    tipo_origen_item: str = "BASE"
+    id_item_reemplazado: Optional[UUID] = None
+    motivo_adenda: Optional[str] = None
+    creado_en_adenda: Optional[UUID] = None
     bloqueado: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

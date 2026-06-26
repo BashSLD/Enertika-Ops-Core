@@ -4,12 +4,15 @@
 {% include "shared/toast.html" %}
 {% endwith %}
 {% endif %}
+{% set tipo_origen_item = item.tipo_origen_item or 'BASE' %}
+{% set item_cerrado_compra = item.estatus_ejecucion in ['NO_ADQUIRIDO', 'REEMPLAZADO', 'CERRADO'] %}
+{% set item_compra_finalizada = item.estatus_compra in ['AUTORIZADO', 'PAGADO', 'FACTURADO'] %}
 <tr id="item-{{ item.id_item }}"
     data-grupos="{{ item.grupos | join(',') if item.grupos else '' }}"
     data-tipo-partida="{{ item.tipo_partida or 'MATERIAL' }}"
     class="hover:bg-gray-50 transition-colors {{ 'bg-green-50' if item.entregado else '' }} {{ 'bg-gray-100 opacity-70' if item.bloqueado else '' }}">
     <td class="px-2 py-2 text-center">
-        {% if item.bloqueado %}
+        {% if item.bloqueado or item_cerrado_compra %}
         <span class="inline-flex text-gray-300" title="Item bloqueado — completado en versión anterior">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -44,6 +47,26 @@
         {% if item.id_item_origen %}
         <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-600 mt-0.5"
             title="Heredado de versión anterior">v1</span>
+        {% endif %}
+        {% if tipo_origen_item == 'REEMPLAZO' %}
+        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 mt-0.5"
+            title="Item sustituto creado por adenda">Reemplazo</span>
+        {% elif tipo_origen_item == 'FUERA_SCOPE' %}
+        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-cyan-50 text-cyan-700 mt-0.5"
+            title="Item fuera del alcance principal">Fuera alcance</span>
+        {% endif %}
+        {% if item.estatus_ejecucion == 'NO_ADQUIRIDO' %}
+        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 mt-0.5">
+            No adquirido
+        </span>
+        {% elif item.estatus_ejecucion == 'REEMPLAZADO' %}
+        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 mt-0.5">
+            Reemplazado
+        </span>
+        {% elif item.estatus_ejecucion == 'CERRADO' %}
+        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 mt-0.5">
+            Cerrado
+        </span>
         {% endif %}
     </td>
     <td class="px-3 py-2 text-sm text-gray-800 max-w-xs">
@@ -186,6 +209,27 @@
     </td>
     <td class="px-3 py-2 text-center">
         <div class="flex items-center justify-center gap-1">
+            {% set puede_adenda_item = bom and bom.estatus == 'APROBADO_FINAL' and area_editor == 'construccion' and tipo_origen_item == 'BASE' and not item_cerrado_compra and not item_compra_finalizada and not item.bloqueado %}
+            {% if puede_adenda_item %}
+            <button hx-get="/bom/items/{{ item.id_item }}/adenda-modal?accion=reemplazo"
+                hx-target="#bom-modal-container" hx-swap="innerHTML"
+                class="p-1 rounded hover:bg-emerald-100 transition text-gray-400 hover:text-emerald-700"
+                title="Crear reemplazo">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M7 7h10M7 7l3-3M7 7l3 3m7 7H7m10 0l-3-3m3 3l-3 3" />
+                </svg>
+            </button>
+            <button hx-get="/bom/items/{{ item.id_item }}/adenda-modal?accion=cerrar"
+                hx-target="#bom-modal-container" hx-swap="innerHTML"
+                class="p-1 rounded hover:bg-amber-100 transition text-gray-400 hover:text-amber-700"
+                title="Cerrar sin compra">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+            {% endif %}
             {# Boton editar #}
             {% set puede_editar_item = bom and bom.estatus != 'CANCELADO' and (bom.estatus != 'APROBADO_FINAL' or area_editor in ['compras', 'construccion']) %}
             {% if puede_editar_item %}

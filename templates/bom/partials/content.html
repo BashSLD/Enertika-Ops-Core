@@ -222,9 +222,10 @@
     {# Boton agregar item — permitido en todos los estados menos CANCELADO y APROBADO_FINAL #}
     {% set puede_agregar_item = area_editor == 'construccion' or (area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria) %}
     {% set puede_cotizar_seleccionados = es_compras_editor and bom.estatus == 'APROBADO_CONST' %}
-    {% if bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and (puede_agregar_item or puede_cotizar_seleccionados) %}
+    {% set puede_agregar_fuera_scope = area_editor == 'construccion' and bom.estatus == 'APROBADO_FINAL' %}
+    {% if bom and ((bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and (puede_agregar_item or puede_cotizar_seleccionados)) or puede_agregar_fuera_scope) %}
     <div class="mb-4 flex gap-2">
-        {% if puede_agregar_item %}
+        {% if puede_agregar_item and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] %}
         <button type="button"
             onclick="window.dispatchEvent(new CustomEvent('abrir-modal-agregar-item-bom'))"
             class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition shadow-sm">
@@ -232,6 +233,17 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
             </svg>
             Agregar Item
+        </button>
+        {% endif %}
+        {% if puede_agregar_fuera_scope %}
+        <button type="button"
+            hx-get="/bom/{{ bom.id_bom }}/adenda-modal?accion=fuera_scope"
+            hx-target="#bom-modal-container" hx-swap="innerHTML"
+            class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition shadow-sm">
+            <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+            Agregar fuera de alcance
         </button>
         {% endif %}
         {% if puede_cotizar_seleccionados %}
@@ -251,11 +263,11 @@
     {% if bom %}
     <div class="mb-3 flex flex-wrap gap-1.5" x-data="{ grupoActivo: 'TODOS' }">
         <button @click="grupoActivo = 'TODOS'; filtrarGrupo('TODOS')"
-            :class="grupoActivo === 'TODOS' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'"
+            :class="{'bg-gray-800 text-white': grupoActivo === 'TODOS', 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50': grupoActivo !== 'TODOS'}"
             class="px-3 py-1 text-xs font-medium rounded-full transition">Todos</button>
         {% for grupo in catalogos.grupos_bom %}
         <button @click="grupoActivo = '{{ grupo.codigo }}'; filtrarGrupo('{{ grupo.codigo }}')"
-            :class="grupoActivo === '{{ grupo.codigo }}' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'"
+            :class="{'bg-gray-800 text-white': grupoActivo === '{{ grupo.codigo }}', 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50': grupoActivo !== '{{ grupo.codigo }}'}"
             class="px-3 py-1 text-xs font-medium rounded-full transition">
             <span class="font-bold">{{ grupo.codigo }}</span> &mdash; {{ grupo.nombre }}
         </button>
@@ -280,13 +292,13 @@
     {% if bom %}
     <div class="mb-3 flex flex-wrap gap-1.5" x-data="{ tipoActivo: 'TODOS' }">
         <button @click="tipoActivo = 'TODOS'; filtrarTipo('TODOS')"
-            :class="tipoActivo === 'TODOS' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'"
+            :class="{'bg-gray-800 text-white': tipoActivo === 'TODOS', 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50': tipoActivo !== 'TODOS'}"
             class="px-3 py-1 text-xs font-medium rounded-full transition">Todos</button>
         {% set tipos_filtro = ['MATERIAL', 'MANO_OBRA', 'SERVICIO', 'LEGALIZACION', 'EQUIPO'] %}
         {% set tipo_labels_filtro = {'MATERIAL': 'Materiales', 'MANO_OBRA': 'Mano de Obra', 'SERVICIO': 'Servicios', 'LEGALIZACION': 'Legalizaciones', 'EQUIPO': 'Equipos'} %}
         {% for t in tipos_filtro %}
         <button @click="tipoActivo = '{{ t }}'; filtrarTipo('{{ t }}')"
-            :class="tipoActivo === '{{ t }}' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'"
+            :class="{'bg-gray-800 text-white': tipoActivo === '{{ t }}', 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50': tipoActivo !== '{{ t }}'}"
             class="px-3 py-1 text-xs font-medium rounded-full transition">{{ tipo_labels_filtro[t] }}</button>
         {% endfor %}
     </div>
@@ -500,6 +512,13 @@
                     class="py-2 px-3 border-b-2 font-medium text-sm transition">
                     Resumen de compra
                 </button>
+                {% if bom.estatus == 'APROBADO_FINAL' %}
+                <button @click="tab = 'adendas'"
+                    :class="{'border-emerald-500 text-emerald-600': tab === 'adendas', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'adendas'}"
+                    class="py-2 px-3 border-b-2 font-medium text-sm transition">
+                    Adendas
+                </button>
+                {% endif %}
                 {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] and es_compras_editor %}
                 <button x-ref="tabCotizaciones" @click="tab = 'cotizaciones'"
                     :class="{'border-emerald-500 text-emerald-600': tab === 'cotizaciones', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'cotizaciones'}"
@@ -539,6 +558,14 @@
             hx-trigger="intersect once" hx-swap="innerHTML">
             <div class="text-center py-4 text-gray-400 text-sm">Cargando resumen de compra...</div>
         </div>
+
+        {% if bom.estatus == 'APROBADO_FINAL' %}
+        <div x-show="tab === 'adendas'" id="tab-adendas"
+            hx-get="/bom/{{ bom.id_bom }}/adendas"
+            hx-trigger="intersect once" hx-swap="innerHTML">
+            <div class="text-center py-4 text-gray-400 text-sm">Cargando adendas...</div>
+        </div>
+        {% endif %}
 
         {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] and es_compras_editor %}
         <div x-show="tab === 'cotizaciones'" id="tab-cotizaciones"

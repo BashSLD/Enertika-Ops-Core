@@ -17,7 +17,12 @@ from core.permissions import require_module_access, require_manager_access, requ
 from core.config import settings
 from core.timezone import now_mx
 from core.materials.normalizer import normalizar_descripcion
-from .service import BomService, get_bom_service
+from .service import (
+    BomService,
+    get_bom_service,
+    ESTATUS_ITEM_CERRADO_COMPRA,
+    ESTATUS_COMPRA_BLOQUEA_ADENDA,
+)
 
 logger = logging.getLogger("BOM.Router")
 
@@ -123,7 +128,10 @@ def _toast_response(
 
 
 def _parse_grupo_ids(form) -> list[int]:
-    grupo_ids = [int(g) for g in form.getlist("grupo_ids") if g]
+    try:
+        grupo_ids = [int(g) for g in form.getlist("grupo_ids") if g]
+    except (TypeError, ValueError):
+        raise ValueError("Grupo BOM invalido") from None
     if not grupo_ids:
         raise ValueError("Selecciona al menos un grupo BOM")
     return grupo_ids
@@ -150,6 +158,51 @@ def _parse_bulk_valor(campo: str, raw: Optional[str]):
         return raw or None
     # Texto: unidad_medida, tipo_entrega, comentarios, tipo_partida, moneda
     return raw or None
+
+
+def _parse_item_form_data(form) -> tuple[dict, list[int]]:
+    """Parsea campos comunes de alta de item/adenda desde FormData."""
+    from decimal import Decimal, InvalidOperation
+
+    id_categoria = form.get("id_categoria")
+    cantidad_raw = (form.get("cantidad") or "0").strip() or "0"
+    precio_unitario_raw = (form.get("precio_unitario") or "").strip()
+    id_material_ref_raw = form.get("id_material_ref", "").strip()
+    id_material_interno_raw = form.get("id_material_interno", "").strip()
+    origen_precio = form.get("origen_precio", "MANUAL").strip() or "MANUAL"
+
+    try:
+        cantidad = Decimal(cantidad_raw)
+        precio_unitario = Decimal(precio_unitario_raw) if precio_unitario_raw else None
+        id_categoria_value = int(id_categoria) if id_categoria else None
+        id_material_ref = UUID(id_material_ref_raw) if id_material_ref_raw else None
+        id_material_interno = UUID(id_material_interno_raw) if id_material_interno_raw else None
+    except (InvalidOperation, ValueError):
+        raise ValueError("Cantidad, precio o referencia invalida") from None
+
+    data = {
+        "descripcion": form.get("descripcion", "").strip(),
+        "cantidad": cantidad,
+        "id_categoria": id_categoria_value,
+        "unidad_medida": form.get("unidad_medida", "").strip() or None,
+        "comentarios": form.get("comentarios", "").strip() or None,
+        "precio_unitario": precio_unitario,
+        "origen_precio": origen_precio if origen_precio in ("CATALOGO", "MANUAL") else "MANUAL",
+        "id_material_ref": id_material_ref,
+        "id_material_interno": id_material_interno,
+        "tipo_partida": form.get("tipo_partida", "MATERIAL").strip() or "MATERIAL",
+        "moneda": form.get("moneda", "MXN").strip() or "MXN",
+    }
+    return data, _parse_grupo_ids(form)
+
+
+def _item_disponible_cotizacion(item: dict) -> bool:
+    estatus_compra = item.get("estatus_compra", "SIN_COTIZAR")
+    estatus_ejecucion = item.get("estatus_ejecucion")
+    return (
+        estatus_compra not in ESTATUS_COMPRA_BLOQUEA_ADENDA
+        and estatus_ejecucion not in ESTATUS_ITEM_CERRADO_COMPRA
+    )
 
 
 async def _jefe_ingenieria_label(conn, service: BomService) -> str:
@@ -369,7 +422,7 @@ async def get_items(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
+    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"]),
 ):
     """Tabla de items del BOM (partial HTMX)."""
     bom = await service.get_bom_proyecto(conn, id_proyecto)
@@ -749,6 +802,202 @@ async def get_modal_editar_item(
         item=item, catalogos=catalogos
     )
     return templates.TemplateResponse(request, "bom/partials/modal_item.html", ctx)
+
+
+@router.get("/items/{id_item}/adenda-modal", include_in_schema=False)
+async def get_modal_adenda_item(
+    request: Request,
+    id_item: UUID,
+    accion: str = "reemplazo",
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("construccion", "editor"),
+):
+    """Modal para reemplazar o cerrar sin compra un item base."""
+    if accion not in ("reemplazo", "cerrar"):
+        raise HTTPException(status_code=400, detail="Accion invalida")
+    item = await service.get_item(conn, id_item)
+    item["grupos"] = await service.db.get_grupos_por_item(conn, id_item)
+    bom = await service.get_bom(conn, item["id_bom"])
+    catalogos = await service.get_catalogos(conn)
+    ctx = _build_bom_context(
+        request, context, bom,
+        item=item,
+        accion=accion,
+        catalogos=catalogos,
+    )
+    return templates.TemplateResponse(request, "bom/partials/modal_adenda.html", ctx)
+
+
+@router.get("/{id_bom}/adenda-modal", include_in_schema=False)
+async def get_modal_adenda_bom(
+    request: Request,
+    id_bom: UUID,
+    accion: str = "fuera_scope",
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("construccion", "editor"),
+):
+    """Modal para agregar una linea fuera de alcance al BOM aprobado."""
+    if accion != "fuera_scope":
+        raise HTTPException(status_code=400, detail="Accion invalida")
+    bom = await service.get_bom(conn, id_bom)
+    catalogos = await service.get_catalogos(conn)
+    ctx = _build_bom_context(
+        request, context, bom,
+        item=None,
+        accion=accion,
+        catalogos=catalogos,
+    )
+    return templates.TemplateResponse(request, "bom/partials/modal_adenda.html", ctx)
+
+
+async def _tabla_items_bom_ctx(
+    request: Request,
+    context: dict,
+    conn,
+    service: BomService,
+    id_bom: UUID,
+    user_id: UUID,
+    bulk_toast: Optional[dict] = None,
+) -> dict:
+    bom = await service.get_bom(conn, id_bom)
+    items = await service.get_items(conn, id_bom)
+    estadisticas = await service.get_estadisticas(conn, id_bom)
+    return _build_bom_context(
+        request, context, bom,
+        items=items,
+        estadisticas=estadisticas,
+        bulk_toast=bulk_toast,
+        puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
+            conn, bom["id_proyecto"], user_id
+        ),
+    )
+
+
+@router.post("/items/{id_item}/cerrar-sin-compra", include_in_schema=False)
+async def cerrar_item_sin_compra(
+    request: Request,
+    id_item: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("construccion", "editor"),
+):
+    """Cierra un item base sin compra mediante adenda."""
+    form = await request.form()
+    user_id = context.get("user_db_id")
+    try:
+        item = await service.cerrar_item_sin_compra(
+            conn, id_item, user_id, form.get("motivo", "")
+        )
+        ctx = await _tabla_items_bom_ctx(
+            request, context, conn, service, item["id_bom"], user_id,
+            bulk_toast={
+                "message": "Item cerrado sin compra",
+                "type": "success",
+                "title": "Adenda registrada",
+            },
+        )
+        return templates.TemplateResponse(request, "bom/partials/tabla_items.html", ctx)
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", "Error")
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al cerrar item sin compra")
+        return _toast_response(request, "Error interno al registrar la adenda", "error", "Error")
+
+
+@router.post("/items/{id_item}/reemplazo", include_in_schema=False)
+async def crear_reemplazo_item(
+    request: Request,
+    id_item: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("construccion", "editor"),
+):
+    """Crea un reemplazo cotizable para un item base."""
+    form = await request.form()
+    user_id = context.get("user_db_id")
+    try:
+        item_data, grupo_ids = _parse_item_form_data(form)
+        item = await service.crear_reemplazo_item(
+            conn, id_item, user_id,
+            grupo_ids=grupo_ids,
+            motivo=form.get("motivo", ""),
+            **item_data,
+        )
+        ctx = await _tabla_items_bom_ctx(
+            request, context, conn, service, item["id_bom"], user_id,
+            bulk_toast={
+                "message": "Reemplazo registrado y disponible para cotizar",
+                "type": "success",
+                "title": "Adenda registrada",
+            },
+        )
+        return templates.TemplateResponse(request, "bom/partials/tabla_items.html", ctx)
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", "Error")
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al crear reemplazo BOM")
+        return _toast_response(request, "Error interno al registrar el reemplazo", "error", "Error")
+
+
+@router.post("/{id_bom}/fuera-scope", include_in_schema=False)
+async def agregar_fuera_scope(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("construccion", "editor"),
+):
+    """Agrega un item fuera de alcance principal mediante adenda."""
+    form = await request.form()
+    user_id = context.get("user_db_id")
+    try:
+        item_data, grupo_ids = _parse_item_form_data(form)
+        await service.agregar_fuera_scope(
+            conn, id_bom, user_id,
+            grupo_ids=grupo_ids,
+            motivo=form.get("motivo", ""),
+            **item_data,
+        )
+        ctx = await _tabla_items_bom_ctx(
+            request, context, conn, service, id_bom, user_id,
+            bulk_toast={
+                "message": "Item fuera de alcance registrado y disponible para cotizar",
+                "type": "success",
+                "title": "Adenda registrada",
+            },
+        )
+        return templates.TemplateResponse(request, "bom/partials/tabla_items.html", ctx)
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", "Error")
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al agregar fuera de alcance BOM")
+        return _toast_response(request, "Error interno al registrar la adenda", "error", "Error")
+
+
+@router.get("/{id_bom}/adendas", include_in_schema=False)
+async def get_adendas_tab(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    """Tab de adendas registradas en el BOM."""
+    bom = await service.get_bom(conn, id_bom)
+    adendas = await service.get_adendas(conn, id_bom)
+    return templates.TemplateResponse(
+        request,
+        "bom/partials/adendas.html",
+        {"request": request, "bom": bom, "adendas": adendas},
+    )
 
 
 # ========================================
@@ -1551,7 +1800,7 @@ async def get_cotizaciones_tab(
 
     cotizaciones = await service.listar_cotizaciones(conn, id_bom)
     items = await service.get_items(conn, id_bom)
-    items_disponibles = [i for i in items if i.get('estatus_compra', 'SIN_COTIZAR') not in ('AUTORIZADO', 'PAGADO')]
+    items_disponibles = [i for i in items if _item_disponible_cotizacion(i)]
 
     return templates.TemplateResponse(
         request, "bom/partials/cotizaciones.html",
@@ -1614,7 +1863,7 @@ async def crear_cotizacion(
     bom = await service.db.get_bom_by_id(conn, id_bom)
     cotizaciones = await service.listar_cotizaciones(conn, id_bom)
     items = await service.get_items(conn, id_bom)
-    items_disponibles = [i for i in items if i.get('estatus_compra', 'SIN_COTIZAR') not in ('AUTORIZADO', 'PAGADO')]
+    items_disponibles = [i for i in items if _item_disponible_cotizacion(i)]
 
     role = context.get("role")
     module_roles = context.get("module_roles", {})
@@ -1663,7 +1912,6 @@ async def crear_rfq_rapido(
     except ValueError:
         raise HTTPException(status_code=400, detail="IDs inválidos")
 
-    EXCLUIDOS = {'AUTORIZADO', 'PAGADO', 'FACTURADO'}
     items_bd = await service.db.get_items_by_ids(conn, item_ids)
     items_data = [
         {
@@ -1672,7 +1920,7 @@ async def crear_rfq_rapido(
             "cantidad": float(i["cantidad"]),
         }
         for i in items_bd
-        if i.get("estatus_compra", "SIN_COTIZAR") not in EXCLUIDOS
+        if _item_disponible_cotizacion(i)
     ]
 
     if not items_data:
@@ -1711,7 +1959,7 @@ async def crear_rfq_rapido(
     items = await service.get_items(conn, id_bom)
     items_disponibles = [
         i for i in items
-        if i.get("estatus_compra", "SIN_COTIZAR") not in ("AUTORIZADO", "PAGADO")
+        if _item_disponible_cotizacion(i)
     ]
     role = context.get("role")
     module_roles = context.get("module_roles", {})
@@ -1749,7 +1997,7 @@ async def solicitar_aclaracion(
     bom = await service.db.get_bom_by_id(conn, cotizacion['bom_id'])
     cotizaciones = await service.listar_cotizaciones(conn, cotizacion['bom_id'])
     items = await service.get_items(conn, cotizacion['bom_id'])
-    items_disponibles = [i for i in items if i.get('estatus_compra', 'SIN_COTIZAR') not in ('AUTORIZADO', 'PAGADO')]
+    items_disponibles = [i for i in items if _item_disponible_cotizacion(i)]
 
     role = context.get("role")
     module_roles = context.get("module_roles", {})
@@ -1837,7 +2085,7 @@ async def seleccionar_cotizacion(
     bom = await service.db.get_bom_by_id(conn, cotizacion['bom_id'])
     cotizaciones = await service.listar_cotizaciones(conn, cotizacion['bom_id'])
     items = await service.get_items(conn, cotizacion['bom_id'])
-    items_disponibles = [i for i in items if i.get('estatus_compra', 'SIN_COTIZAR') not in ('AUTORIZADO', 'PAGADO')]
+    items_disponibles = [i for i in items if _item_disponible_cotizacion(i)]
 
     role = context.get("role")
     module_roles = context.get("module_roles", {})
@@ -1870,7 +2118,7 @@ async def rechazar_cotizacion(
     bom = await service.db.get_bom_by_id(conn, cotizacion['bom_id'])
     cotizaciones = await service.listar_cotizaciones(conn, cotizacion['bom_id'])
     items = await service.get_items(conn, cotizacion['bom_id'])
-    items_disponibles = [i for i in items if i.get('estatus_compra', 'SIN_COTIZAR') not in ('AUTORIZADO', 'PAGADO')]
+    items_disponibles = [i for i in items if _item_disponible_cotizacion(i)]
 
     role = context.get("role")
     module_roles = context.get("module_roles", {})
@@ -1910,7 +2158,7 @@ async def subir_pdf_cotizacion(
     bom = await service.db.get_bom_by_id(conn, cotizacion['bom_id'])
     cotizaciones = await service.listar_cotizaciones(conn, cotizacion['bom_id'])
     items = await service.get_items(conn, cotizacion['bom_id'])
-    items_disponibles = [i for i in items if i.get('estatus_compra', 'SIN_COTIZAR') not in ('AUTORIZADO', 'PAGADO')]
+    items_disponibles = [i for i in items if _item_disponible_cotizacion(i)]
 
     role = context.get("role")
     module_roles = context.get("module_roles", {})
@@ -1961,7 +2209,7 @@ async def get_autorizaciones_tab(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
+    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
 ):
     bom = await service.db.get_bom_by_id(conn, id_bom)  # autorizaciones tab
     if not bom:
@@ -1980,7 +2228,7 @@ async def get_resumen_compra_tab(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
+    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
 ):
     """Tab Resumen de compra — comparativo Presupuesto vs Facturado vs Pagado, lazy HTMX."""
     bom = await service.db.get_bom_by_id(conn, id_bom)

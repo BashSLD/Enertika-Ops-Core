@@ -50,6 +50,9 @@ async def test_resumen_compra_rollup_separa_confirmado_y_sugerido():
     assert resumen["totales"]["facturado"] == 700
     assert resumen["totales"]["facturado_sugerido"] == 150
     assert resumen["totales"]["pagado"] == 500
+    assert resumen["totales"]["reemplazos"] == 0
+    assert resumen["totales"]["fuera_scope"] == 0
+    assert resumen["totales"]["no_adquirido"] == 0
     assert resumen["metricas"]["facturado_por_modulo"] == 70
     assert resumen["metricas"]["sugerido_por_kwp"] == 30
 

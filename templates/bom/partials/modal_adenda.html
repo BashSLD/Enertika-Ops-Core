@@ -1,0 +1,141 @@
+{# Modal para adendas operativas del BOM aprobado final #}
+{% set es_reemplazo = accion == 'reemplazo' %}
+{% set es_cierre = accion == 'cerrar' %}
+{% set es_fuera_scope = accion == 'fuera_scope' %}
+{% set modal_title = 'Crear reemplazo' if es_reemplazo else ('Cerrar sin compra' if es_cierre else 'Agregar fuera de alcance') %}
+{% set action_url = ('/bom/items/' ~ item.id_item ~ '/reemplazo') if es_reemplazo else (('/bom/items/' ~ item.id_item ~ '/cerrar-sin-compra') if es_cierre else ('/bom/' ~ bom.id_bom ~ '/fuera-scope')) %}
+
+<div id="modal-adenda-bom" class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+    <div class="flex min-h-screen items-center justify-center px-4">
+        <div class="fixed inset-0 bg-black bg-opacity-30" onclick="document.getElementById('modal-adenda-bom').remove()"></div>
+        <div class="relative bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 z-10 animate-fade-in-down">
+            <div class="flex justify-between items-start gap-4 mb-4">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-800">{{ modal_title }}</h3>
+                    {% if item %}
+                    <p class="text-xs text-gray-500 mt-1 truncate max-w-xl">{{ item.descripcion }}</p>
+                    {% endif %}
+                </div>
+                <button type="button" onclick="document.getElementById('modal-adenda-bom').remove()"
+                    class="text-gray-400 hover:text-gray-600 transition" title="Cerrar">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <form hx-post="{{ action_url }}"
+                hx-target="#tabla-bom-items" hx-swap="innerHTML"
+                hx-disabled-elt="find button[type='submit']"
+                hx-on::after-request="if(event.detail.successful) document.getElementById('modal-adenda-bom').remove()">
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
+                        <textarea name="motivo" rows="3" required
+                            class="w-full rounded-lg border-gray-300 text-sm"
+                            placeholder="Describe la causa y el criterio de obra"></textarea>
+                    </div>
+
+                    {% if not es_cierre %}
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div class="sm:col-span-2">
+                            <div class="text-xs font-bold text-gray-400 uppercase border-b pb-1">
+                                {{ 'Item sustituto' if es_reemplazo else 'Item fuera de alcance' }}
+                            </div>
+                        </div>
+
+                        <div class="sm:col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Descripcion</label>
+                            <textarea name="descripcion" rows="2" required
+                                class="w-full rounded-lg border-gray-300 text-sm">{{ item.descripcion if es_reemplazo and item else '' }}</textarea>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
+                            <input type="number" name="cantidad" step="0.0001" min="0.0001" required
+                                value="{{ item.cantidad if es_reemplazo and item else '' }}"
+                                class="w-full rounded-lg border-gray-300 text-sm">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Unidad</label>
+                            <input type="text" name="unidad_medida"
+                                value="{{ item.unidad_medida if es_reemplazo and item else '' }}"
+                                class="w-full rounded-lg border-gray-300 text-sm">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
+                            <select name="id_categoria" class="w-full rounded-lg border-gray-300 text-sm">
+                                <option value="">-- Sin categoria --</option>
+                                {% for cat in catalogos.categorias %}
+                                <option value="{{ cat.id }}" {{ 'selected' if es_reemplazo and item and item.id_categoria == cat.id }}>{{ cat.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de partida</label>
+                            <select name="tipo_partida" class="w-full rounded-lg border-gray-300 text-sm">
+                                {% set tipos = ['MATERIAL', 'MANO_OBRA', 'SERVICIO', 'LEGALIZACION', 'EQUIPO'] %}
+                                {% set tipo_labels = {'MATERIAL': 'Material', 'MANO_OBRA': 'Mano de Obra', 'SERVICIO': 'Servicio', 'LEGALIZACION': 'Legalizacion', 'EQUIPO': 'Equipo'} %}
+                                {% for t in tipos %}
+                                <option value="{{ t }}" {{ 'selected' if (es_reemplazo and item and item.tipo_partida == t) or (not item and t == 'MATERIAL') }}>{{ tipo_labels[t] }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Presupuesto unitario</label>
+                            <input type="number" name="precio_unitario" step="0.01" min="0"
+                                class="w-full rounded-lg border-gray-300 text-sm" placeholder="0.00">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Moneda</label>
+                            <select name="moneda" class="w-full rounded-lg border-gray-300 text-sm">
+                                <option value="MXN" selected>MXN - Peso mexicano</option>
+                                <option value="USD">USD - Dolar americano</option>
+                            </select>
+                        </div>
+
+                        <div class="sm:col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Grupos BOM</label>
+                            <div class="flex flex-wrap gap-2">
+                                {% for grupo in catalogos.grupos_bom %}
+                                <label class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-600 cursor-pointer hover:bg-gray-50">
+                                    <input type="checkbox" name="grupo_ids" value="{{ grupo.id }}"
+                                        {% if es_reemplazo and item and grupo.codigo in (item.grupos or []) %}checked{% endif %}
+                                        class="rounded border-gray-300 text-blue-600">
+                                    <span class="text-xs font-bold">{{ grupo.codigo }}</span>
+                                    <span class="text-xs">{{ grupo.nombre }}</span>
+                                </label>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <div class="sm:col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Comentarios</label>
+                            <textarea name="comentarios" rows="2"
+                                class="w-full rounded-lg border-gray-300 text-sm"
+                                placeholder="Notas para compras o construccion"></textarea>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="flex justify-end gap-2 mt-5">
+                    <button type="button" onclick="document.getElementById('modal-adenda-bom').remove()"
+                        class="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition">
+                        Cancelar
+                    </button>
+                    <button type="submit"
+                        class="px-4 py-2 text-sm rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition font-medium disabled:opacity-60 disabled:cursor-not-allowed">
+                        Registrar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

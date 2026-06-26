@@ -49,6 +49,11 @@ CAMPOS_BULK = {
 # Estados en los que NO se puede editar de ninguna forma
 ESTATUS_BLOQUEADOS = {EstatusBOM.CANCELADO, EstatusBOM.APROBADO_FINAL}
 ESTATUS_BLOQUEADOS_EJECUCION = {EstatusBOM.CANCELADO}
+TIPO_ITEM_BASE = "BASE"
+TIPO_ITEM_REEMPLAZO = "REEMPLAZO"
+TIPO_ITEM_FUERA_SCOPE = "FUERA_SCOPE"
+ESTATUS_ITEM_CERRADO_COMPRA = {"NO_ADQUIRIDO", "REEMPLAZADO", "CERRADO"}
+ESTATUS_COMPRA_BLOQUEA_ADENDA = {"AUTORIZADO", "PAGADO", "FACTURADO"}
 
 # Fechas de cabecera que representan el recorrido completo de aprobaciones.
 FECHAS_FLUJO_BOM = (
@@ -300,6 +305,8 @@ class BomService:
         """True si el item activo no tiene costo util para presupuesto."""
         if not item.get("activo", True):
             return False
+        if (item.get("tipo_origen_item") or TIPO_ITEM_BASE) != TIPO_ITEM_BASE:
+            return False
         precio = item.get("precio_unitario")
         if precio is None:
             return True
@@ -439,6 +446,211 @@ class BomService:
         )
 
         return item
+
+    @staticmethod
+    def _validar_motivo_adenda(motivo: Optional[str]) -> str:
+        motivo_limpio = (motivo or "").strip()
+        if not motivo_limpio:
+            raise ValueError("El motivo de la adenda es obligatorio")
+        return motivo_limpio
+
+    async def _validar_bom_aprobado_final_para_adenda(
+        self, conn, id_bom: UUID
+    ) -> dict:
+        bom = await self.get_bom(conn, id_bom)
+        if EstatusBOM(bom["estatus"]) != EstatusBOM.APROBADO_FINAL:
+            raise ValueError("Solo se pueden registrar adendas cuando el BOM esta aprobado final")
+        return bom
+
+    async def _validar_item_base_para_adenda(
+        self, conn, id_item: UUID
+    ) -> tuple[dict, dict]:
+        item = await self.db.get_item_by_id(conn, id_item)
+        if not item:
+            raise ValueError("Item no encontrado")
+        if not item.get("activo", True):
+            raise ValueError("No se puede registrar una adenda sobre un item eliminado")
+        if (item.get("tipo_origen_item") or TIPO_ITEM_BASE) != TIPO_ITEM_BASE:
+            raise ValueError("Solo los items base pueden cerrarse o reemplazarse")
+        if item.get("estatus_ejecucion") in ESTATUS_ITEM_CERRADO_COMPRA:
+            raise ValueError("El item ya esta cerrado para compra")
+        if item.get("estatus_compra") in ESTATUS_COMPRA_BLOQUEA_ADENDA:
+            raise ValueError(
+                "No se puede registrar una adenda sobre un item autorizado, pagado o facturado"
+            )
+        bom = await self._validar_bom_aprobado_final_para_adenda(conn, item["id_bom"])
+        return item, bom
+
+    async def cerrar_item_sin_compra(
+        self, conn, id_item: UUID, user_id: UUID, motivo: str
+    ) -> dict:
+        """Cierra un item base aprobado final sin eliminarlo ni mutar presupuesto."""
+        motivo = self._validar_motivo_adenda(motivo)
+        item, bom = await self._validar_item_base_para_adenda(conn, id_item)
+
+        async with conn.transaction():
+            adenda = await self.db.crear_adenda(
+                conn, item["id_bom"], "NO_ADQUIRIDO", motivo, user_id
+            )
+            await self.db.registrar_adenda_item(
+                conn, adenda["id_adenda"], "NO_ADQUIRIDO", motivo,
+                id_item_origen=id_item,
+            )
+            await self.db.upsert_item_ejecucion(
+                conn, id_item, updated_by=user_id,
+                estatus_ejecucion="NO_ADQUIRIDO",
+                comentarios_operativos=motivo,
+            )
+            await self.db.registrar_historial(
+                conn, item["id_bom"], AccionHistorial.EDITADO,
+                bom["version"], user_id,
+                id_item=id_item,
+                campo_modificado="adenda",
+                valor_nuevo="NO_ADQUIRIDO",
+            )
+
+        return await self.db.get_item_by_id(conn, id_item)
+
+    async def crear_reemplazo_item(
+        self, conn, id_item_origen: UUID, user_id: UUID,
+        descripcion: str, cantidad, grupo_ids: List[int], motivo: str,
+        id_categoria: Optional[int] = None,
+        unidad_medida: Optional[str] = None,
+        comentarios: Optional[str] = None,
+        precio_unitario=None,
+        origen_precio: Optional[str] = "MANUAL",
+        id_material_ref: Optional[UUID] = None,
+        id_material_interno: Optional[UUID] = None,
+        tipo_partida: Optional[str] = "MATERIAL",
+        moneda: Optional[str] = "MXN",
+    ) -> dict:
+        """Crea un item sustituto cotizable y marca el item base como reemplazado."""
+        from decimal import Decimal as _D
+
+        motivo = self._validar_motivo_adenda(motivo)
+        descripcion = (descripcion or "").strip()
+        if not descripcion:
+            raise ValueError("La descripcion del reemplazo es obligatoria")
+        if _D(str(cantidad)) <= 0:
+            raise ValueError("La cantidad debe ser mayor a cero")
+        if precio_unitario is not None and _D(str(precio_unitario)) < 0:
+            raise ValueError("El precio unitario no puede ser negativo")
+        if not grupo_ids:
+            raise ValueError("Selecciona al menos un grupo BOM")
+
+        item_origen, bom = await self._validar_item_base_para_adenda(conn, id_item_origen)
+
+        async with conn.transaction():
+            adenda = await self.db.crear_adenda(
+                conn, item_origen["id_bom"], "REEMPLAZO", motivo, user_id
+            )
+            orden = await self.db.get_next_orden(conn, item_origen["id_bom"])
+            item = await self.db.agregar_item(
+                conn, item_origen["id_bom"], descripcion, cantidad,
+                id_categoria=id_categoria,
+                unidad_medida=unidad_medida,
+                comentarios=comentarios,
+                orden=orden,
+                precio_unitario=precio_unitario,
+                origen_precio=origen_precio,
+                id_material_ref=id_material_ref,
+                id_material_interno=id_material_interno,
+                tipo_partida=tipo_partida,
+                moneda=moneda,
+                tipo_origen_item=TIPO_ITEM_REEMPLAZO,
+                id_item_reemplazado=id_item_origen,
+                motivo_adenda=motivo,
+                creado_en_adenda=adenda["id_adenda"],
+            )
+            await self.db.set_item_grupos(conn, item["id_item"], grupo_ids)
+            await self.db.registrar_adenda_item(
+                conn, adenda["id_adenda"], "REEMPLAZO", motivo,
+                id_item_origen=id_item_origen,
+                id_item_bom=item["id_item"],
+            )
+            await self.db.upsert_item_ejecucion(
+                conn, id_item_origen, updated_by=user_id,
+                estatus_ejecucion="REEMPLAZADO",
+                comentarios_operativos=motivo,
+            )
+            await self.db.registrar_historial(
+                conn, item_origen["id_bom"], AccionHistorial.AGREGADO,
+                bom["version"], user_id,
+                id_item=item["id_item"],
+                campo_modificado="adenda_reemplazo",
+                valor_nuevo=descripcion,
+            )
+
+        return item
+
+    async def agregar_fuera_scope(
+        self, conn, id_bom: UUID, user_id: UUID,
+        descripcion: str, cantidad, grupo_ids: List[int], motivo: str,
+        id_categoria: Optional[int] = None,
+        unidad_medida: Optional[str] = None,
+        comentarios: Optional[str] = None,
+        precio_unitario=None,
+        origen_precio: Optional[str] = "MANUAL",
+        id_material_ref: Optional[UUID] = None,
+        id_material_interno: Optional[UUID] = None,
+        tipo_partida: Optional[str] = "MATERIAL",
+        moneda: Optional[str] = "MXN",
+    ) -> dict:
+        """Agrega una linea cotizable fuera del alcance principal aprobado."""
+        from decimal import Decimal as _D
+
+        motivo = self._validar_motivo_adenda(motivo)
+        descripcion = (descripcion or "").strip()
+        if not descripcion:
+            raise ValueError("La descripcion del item fuera de alcance es obligatoria")
+        if _D(str(cantidad)) <= 0:
+            raise ValueError("La cantidad debe ser mayor a cero")
+        if precio_unitario is not None and _D(str(precio_unitario)) < 0:
+            raise ValueError("El precio unitario no puede ser negativo")
+        if not grupo_ids:
+            raise ValueError("Selecciona al menos un grupo BOM")
+
+        bom = await self._validar_bom_aprobado_final_para_adenda(conn, id_bom)
+
+        async with conn.transaction():
+            adenda = await self.db.crear_adenda(
+                conn, id_bom, "FUERA_SCOPE", motivo, user_id
+            )
+            orden = await self.db.get_next_orden(conn, id_bom)
+            item = await self.db.agregar_item(
+                conn, id_bom, descripcion, cantidad,
+                id_categoria=id_categoria,
+                unidad_medida=unidad_medida,
+                comentarios=comentarios,
+                orden=orden,
+                precio_unitario=precio_unitario,
+                origen_precio=origen_precio,
+                id_material_ref=id_material_ref,
+                id_material_interno=id_material_interno,
+                tipo_partida=tipo_partida,
+                moneda=moneda,
+                tipo_origen_item=TIPO_ITEM_FUERA_SCOPE,
+                motivo_adenda=motivo,
+                creado_en_adenda=adenda["id_adenda"],
+            )
+            await self.db.set_item_grupos(conn, item["id_item"], grupo_ids)
+            await self.db.registrar_adenda_item(
+                conn, adenda["id_adenda"], "FUERA_SCOPE", motivo,
+                id_item_bom=item["id_item"],
+            )
+            await self.db.registrar_historial(
+                conn, id_bom, AccionHistorial.AGREGADO,
+                bom["version"], user_id,
+                id_item=item["id_item"],
+                campo_modificado="adenda_fuera_scope",
+                valor_nuevo=descripcion,
+            )
+
+        return item
+
+    async def get_adendas(self, conn, id_bom: UUID) -> list:
+        """Lista adendas registradas para el BOM."""
+        return await self.db.get_adendas_by_bom(conn, id_bom)
 
     async def editar_item(
         self, conn, id_item: UUID, user_id: UUID,
@@ -855,6 +1067,10 @@ class BomService:
                 "categoria_nombre": f["categoria_nombre"],
                 "presupuesto": float(f["presupuesto_mxn"]),
                 "real": float(f.get("compra_real_mxn") or 0),
+                "real_base": float(f.get("compra_real_base_mxn") or 0),
+                "reemplazos": float(f.get("reemplazos_mxn") or 0),
+                "fuera_scope": float(f.get("fuera_scope_mxn") or 0),
+                "no_adquirido": float(f.get("no_adquirido_mxn") or 0),
                 "facturado": facturado,
                 "facturado_sugerido": facturado_sugerido,
                 "facturado_total_potencial": facturado + facturado_sugerido,
@@ -869,11 +1085,19 @@ class BomService:
         tot_presup = tot_fact = tot_pag = 0.0
         tot_sugerido = 0.0
         tot_real = 0.0
+        tot_real_base = 0.0
+        tot_reemplazos = 0.0
+        tot_fuera_scope = 0.0
+        tot_no_adquirido = 0.0
 
         for grupo in sorted(por_grupo.values(), key=lambda g: (g["orden"], g["codigo"])):
             cats = grupo["categorias"]
             s_presup = sum(c["presupuesto"] for c in cats)
             s_real = sum(c["real"] for c in cats)
+            s_real_base = sum(c["real_base"] for c in cats)
+            s_reemplazos = sum(c["reemplazos"] for c in cats)
+            s_fuera_scope = sum(c["fuera_scope"] for c in cats)
+            s_no_adquirido = sum(c["no_adquirido"] for c in cats)
             s_fact = sum(c["facturado"] for c in cats)
             s_sug = sum(c["facturado_sugerido"] for c in cats)
             s_pag = sum(c["pagado"] for c in cats)
@@ -882,6 +1106,10 @@ class BomService:
                 "nombre": grupo["nombre"],
                 "presupuesto": s_presup,
                 "real": s_real,
+                "real_base": s_real_base,
+                "reemplazos": s_reemplazos,
+                "fuera_scope": s_fuera_scope,
+                "no_adquirido": s_no_adquirido,
                 "facturado": s_fact,
                 "facturado_sugerido": s_sug,
                 "facturado_total_potencial": s_fact + s_sug,
@@ -893,6 +1121,10 @@ class BomService:
             })
             tot_presup += s_presup
             tot_real += s_real
+            tot_real_base += s_real_base
+            tot_reemplazos += s_reemplazos
+            tot_fuera_scope += s_fuera_scope
+            tot_no_adquirido += s_no_adquirido
             tot_fact += s_fact
             tot_sugerido += s_sug
             tot_pag += s_pag
@@ -900,6 +1132,10 @@ class BomService:
         totales = {
             "presupuesto": tot_presup,
             "real": tot_real,
+            "real_base": tot_real_base,
+            "reemplazos": tot_reemplazos,
+            "fuera_scope": tot_fuera_scope,
+            "no_adquirido": tot_no_adquirido,
             "facturado": tot_fact,
             "facturado_sugerido": tot_sugerido,
             "facturado_total_potencial": tot_fact + tot_sugerido,
@@ -1880,19 +2116,30 @@ class BomService:
         if not items_data:
             raise ValueError("Debes seleccionar al menos un item para cotizar.")
 
+        item_ids = list(dict.fromkeys(i["bom_item_id"] for i in items_data))
+        bom_items_batch = await self.db.get_items_by_ids(conn, item_ids)
+        bom_items_map_cot = {str(bi["id_item"]): bi for bi in bom_items_batch}
+        if len(bom_items_map_cot) != len(item_ids):
+            raise ValueError("La cotizacion contiene items invalidos o inactivos")
+        items_cerrados = [
+            bi for bi in bom_items_batch
+            if bi.get("estatus_ejecucion") in ESTATUS_ITEM_CERRADO_COMPRA
+        ]
+        if items_cerrados:
+            nombres = ", ".join(
+                (bi.get("descripcion") or "Item sin descripcion")[:60]
+                for bi in items_cerrados[:3]
+            )
+            raise ValueError(
+                f"No se pueden cotizar items cerrados o reemplazados: {nombres}"
+            )
+
         # RFQ: sin validación de precios
         tiene_precios = any(
             float(i.get('precio_unitario') or 0) > 0 for i in items_data
         )
 
         if tiene_precios:
-            bom_ids_con_precio = [
-                i['bom_item_id'] for i in items_data
-                if float(i.get('precio_unitario') or 0) > 0
-            ]
-            bom_items_batch = await self.db.get_items_by_ids(conn, list(set(bom_ids_con_precio)))
-            bom_items_map_cot = {str(bi['id_item']): bi for bi in bom_items_batch}
-
             sobrecostos = []
             for i in items_data:
                 pu = float(i.get('precio_unitario') or 0)
@@ -1988,10 +2235,29 @@ class BomService:
         if cotizacion['estatus'] not in ('BORRADOR', 'RECIBIDA'):
             raise ValueError(f"La cotización está en estatus {cotizacion['estatus']} y no puede seleccionarse.")
 
+        items = await self.db.get_items_cotizacion(conn, cotizacion_id)
+        if items:
+            item_ids = [i["bom_item_id"] for i in items]
+            bom_items = await self.db.get_items_by_ids(conn, list(dict.fromkeys(item_ids)))
+            bom_items_map = {str(i["id_item"]): i for i in bom_items}
+            if len(bom_items_map) != len(set(str(i) for i in item_ids)):
+                raise ValueError("La cotizacion contiene items invalidos o inactivos")
+            items_cerrados = [
+                i for i in bom_items
+                if i.get("estatus_ejecucion") in ESTATUS_ITEM_CERRADO_COMPRA
+            ]
+            if items_cerrados:
+                nombres = ", ".join(
+                    (i.get("descripcion") or "Item sin descripcion")[:60]
+                    for i in items_cerrados[:3]
+                )
+                raise ValueError(
+                    f"No se pueden seleccionar cotizaciones con items cerrados o reemplazados: {nombres}"
+                )
+
         updated = await self.db.actualizar_estatus_cotizacion(conn, cotizacion_id, 'SELECCIONADA')
 
         # Actualizar estatus_compra de los ítems cubiertos
-        items = await self.db.get_items_cotizacion(conn, cotizacion_id)
         if items:
             item_ids = [i['bom_item_id'] for i in items]
             await self.db.actualizar_estatus_compra_items(conn, item_ids, 'COTIZADO')
