@@ -86,11 +86,17 @@ async def aprobar_horas_extra_bulk(
     comentario: str = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("vacaciones", "editor"),
 ):
-    ids = [UUID(x) for x in json.loads(asistencia_ids)]
+    if not context.get("user_db_id"):
+        raise HTTPException(status_code=401)
+    try:
+        ids = [UUID(x) for x in json.loads(asistencia_ids)]
+    except (json.JSONDecodeError, ValueError):
+        return toast_error(request, "Lista de registros inválida", status_code=400)
     aprobador_id = UUID(str(context["user_db_id"]))
     equipo = await get_equipo_ids(conn, aprobador_id, context)
+    if not equipo:
+        raise HTTPException(status_code=403)
 
     try:
         result = await bulk_aprobar_horas_extra_svc(
@@ -107,7 +113,10 @@ async def aprobar_horas_extra_bulk(
         logger.error("Error BD aprobando horas extra bulk: %s", exc)
         return toast_error(request, "Error al guardar las aprobaciones", status_code=500)
 
-    new_count = await db.count_horas_extra_pendientes(conn, equipo)
+    try:
+        new_count = await db.count_horas_extra_pendientes(conn, equipo)
+    except asyncpg.PostgresError:
+        new_count = 0
 
     svc = NotificationService()
     await svc.notify_horas_extra_aprobacion(
@@ -141,10 +150,13 @@ async def aprobar_horas_extra(
     comentario: str = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("vacaciones", "editor"),
 ):
+    if not context.get("user_db_id"):
+        raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
     equipo = await get_equipo_ids(conn, aprobador_id, context)
+    if not equipo:
+        raise HTTPException(status_code=403)
 
     try:
         result = await aprobar_horas_extra_svc(
@@ -161,7 +173,10 @@ async def aprobar_horas_extra(
         logger.error("Error BD aprobando horas extra: %s", exc)
         return toast_error(request, "Error al guardar la aprobacion", status_code=500)
 
-    new_count = await db.count_horas_extra_pendientes(conn, equipo)
+    try:
+        new_count = await db.count_horas_extra_pendientes(conn, equipo)
+    except asyncpg.PostgresError:
+        new_count = 0
 
     svc = NotificationService()
     await svc.notify_horas_extra_aprobacion(
@@ -195,10 +210,13 @@ async def omitir_horas_extra(
     asistencia_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("vacaciones", "editor"),
 ):
+    if not context.get("user_db_id"):
+        raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
     equipo = await get_equipo_ids(conn, aprobador_id, context)
+    if not equipo:
+        raise HTTPException(status_code=403)
 
     try:
         result = await omitir_horas_extra_svc(
@@ -210,7 +228,10 @@ async def omitir_horas_extra(
         logger.error("Error BD omitiendo horas extra: %s", exc)
         return toast_error(request, "Error al descartar el registro", status_code=500)
 
-    new_count = await db.count_horas_extra_pendientes(conn, equipo)
+    try:
+        new_count = await db.count_horas_extra_pendientes(conn, equipo)
+    except asyncpg.PostgresError:
+        new_count = 0
     return templates.TemplateResponse(
         request,
         "asistencia/partials/omitir_success.html",
@@ -229,10 +250,13 @@ async def recuperar_horas_extra(
     asistencia_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("vacaciones", "editor"),
 ):
+    if not context.get("user_db_id"):
+        raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
     equipo = await get_equipo_ids(conn, aprobador_id, context)
+    if not equipo:
+        raise HTTPException(status_code=403)
 
     try:
         await recuperar_horas_extra_svc(
@@ -244,7 +268,10 @@ async def recuperar_horas_extra(
         logger.error("Error BD recuperando horas extra: %s", exc)
         return toast_error(request, "Error al recuperar el registro", status_code=500)
 
-    new_count = await db.count_horas_extra_pendientes(conn, equipo)
+    try:
+        new_count = await db.count_horas_extra_pendientes(conn, equipo)
+    except asyncpg.PostgresError:
+        new_count = 0
     return templates.TemplateResponse(
         request,
         "asistencia/partials/recuperar_success.html",
@@ -264,6 +291,8 @@ async def solicitar_aprobacion_horas_extra(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
+    if not context.get("user_db_id"):
+        raise HTTPException(status_code=401)
     usuario_id = UUID(str(context["user_db_id"]))
 
     try:
