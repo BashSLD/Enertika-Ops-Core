@@ -66,26 +66,88 @@ class FakeAdendaDB:
         adenda = {
             "id_adenda": uuid4(),
             "id_bom_base": id_bom_base,
+            "id_bom": id_bom_base,
             "tipo_adenda": tipo_adenda,
             "motivo": motivo,
             "creado_por": creado_por,
+            "estatus": "PENDIENTE_CONSTRUCCION",
+            "bom_estatus": self.bom["estatus"],
+            "bom_version": self.bom["version"],
+            "jefe_construccion": self.bom.get("jefe_construccion"),
+            "responsable_ing": self.bom.get("responsable_ing"),
         }
         self.adendas.append(adenda)
         return adenda
 
     async def registrar_adenda_item(
         self, conn, id_adenda, tipo_linea, motivo,
-        id_item_origen=None, id_item_bom=None,
+        id_item_origen=None, id_item_bom=None, datos_item=None, grupo_ids=None,
     ):
         row = {
+            "id_adenda_item": uuid4(),
             "id_adenda": id_adenda,
             "tipo_linea": tipo_linea,
             "motivo": motivo,
             "id_item_origen": id_item_origen,
             "id_item_bom": id_item_bom,
+            "datos_item": datos_item or {},
+            "grupo_ids": list(grupo_ids or []),
         }
         self.adenda_items.append(row)
         return row
+
+    async def get_adenda_by_id(self, conn, id_adenda):
+        for adenda in self.adendas:
+            if adenda["id_adenda"] == id_adenda:
+                return dict(adenda)
+        return None
+
+    async def get_adenda_items(self, conn, id_adenda):
+        return [dict(i) for i in self.adenda_items if i["id_adenda"] == id_adenda]
+
+    async def marcar_adenda_construccion(
+        self, conn, id_adenda, user_id, requiere_ingenieria
+    ):
+        adenda = await self.get_adenda_by_id(conn, id_adenda)
+        adenda["estatus"] = (
+            "PENDIENTE_INGENIERIA" if requiere_ingenieria else "APROBADA"
+        )
+        adenda["requiere_aprobacion_ingenieria"] = requiere_ingenieria
+        for idx, actual in enumerate(self.adendas):
+            if actual["id_adenda"] == id_adenda:
+                self.adendas[idx].update(adenda)
+        return adenda
+
+    async def aprobar_adenda_ingenieria(self, conn, id_adenda, user_id):
+        adenda = await self.get_adenda_by_id(conn, id_adenda)
+        adenda["estatus"] = "APROBADA"
+        for idx, actual in enumerate(self.adendas):
+            if actual["id_adenda"] == id_adenda:
+                self.adendas[idx].update(adenda)
+        return adenda
+
+    async def rechazar_adenda(self, conn, id_adenda, user_id, motivo_rechazo):
+        adenda = await self.get_adenda_by_id(conn, id_adenda)
+        adenda["estatus"] = "RECHAZADA"
+        adenda["motivo_rechazo"] = motivo_rechazo
+        for idx, actual in enumerate(self.adendas):
+            if actual["id_adenda"] == id_adenda:
+                self.adendas[idx].update(adenda)
+        return adenda
+
+    async def vincular_adenda_item_bom(self, conn, id_adenda_item, id_item_bom):
+        for row in self.adenda_items:
+            if row["id_adenda_item"] == id_adenda_item:
+                row["id_item_bom"] = id_item_bom
+                return dict(row)
+        return None
+
+    async def get_item_compra_bloqueante(self, conn, id_item):
+        item = self.items.get(id_item, {})
+        return {
+            "tiene_cotizacion_seleccionada": item.get("cotizacion_seleccionada", False),
+            "tiene_autorizacion_activa": item.get("autorizacion_activa", False),
+        }
 
     async def upsert_item_ejecucion(self, conn, id_item, updated_by=None, **campos):
         self.execution_updates.append((id_item, updated_by, campos))
@@ -119,6 +181,9 @@ class FakeAdendaDB:
     async def set_item_grupos(self, conn, id_item, grupo_ids):
         self.grupos.append((id_item, list(grupo_ids)))
 
+    async def set_item_grupos_operativos(self, conn, id_item, grupo_ids, user_id=None):
+        self.grupos.append((id_item, list(grupo_ids)))
+
     async def get_adendas_by_bom(self, conn, id_bom):
         return [a for a in self.adendas if a["id_bom_base"] == id_bom]
 
@@ -130,40 +195,64 @@ def _service(db):
 
 
 @pytest.mark.asyncio
-async def test_cerrar_item_sin_compra_registra_adenda_y_no_desactiva_base():
+async def test_cerrar_item_sin_compra_registra_adenda_y_no_muta_base():
     bom_id = uuid4()
     item_id = uuid4()
     user_id = uuid4()
     db = FakeAdendaDB(_bom(bom_id), [_item(item_id, bom_id)])
     svc = _service(db)
 
-    updated = await svc.cerrar_item_sin_compra(
+    adenda = await svc.cerrar_item_sin_compra(
         FakeConn(), item_id, user_id, "Proveedor sin disponibilidad"
     )
 
-    assert updated["activo"] is True
-    assert updated["estatus_ejecucion"] == "NO_ADQUIRIDO"
+    assert db.items[item_id]["activo"] is True
+    assert db.items[item_id]["estatus_ejecucion"] is None
+    assert adenda["estatus"] == "PENDIENTE_CONSTRUCCION"
     assert db.adendas[0]["tipo_adenda"] == "NO_ADQUIRIDO"
     assert db.adenda_items == [
         {
+            "id_adenda_item": db.adenda_items[0]["id_adenda_item"],
             "id_adenda": db.adendas[0]["id_adenda"],
             "tipo_linea": "NO_ADQUIRIDO",
             "motivo": "Proveedor sin disponibilidad",
             "id_item_origen": item_id,
             "id_item_bom": None,
+            "datos_item": {},
+            "grupo_ids": [],
         }
     ]
 
 
 @pytest.mark.asyncio
-async def test_crear_reemplazo_marca_origen_y_crea_item_cotizable():
+async def test_aprobar_cierre_sin_compra_aplica_cambio():
     bom_id = uuid4()
     item_id = uuid4()
     user_id = uuid4()
     db = FakeAdendaDB(_bom(bom_id), [_item(item_id, bom_id)])
     svc = _service(db)
 
-    reemplazo = await svc.crear_reemplazo_item(
+    adenda = await svc.cerrar_item_sin_compra(
+        FakeConn(), item_id, user_id, "Proveedor sin disponibilidad"
+    )
+
+    await svc.aprobar_adenda_construccion(
+        FakeConn(), adenda["id_adenda"], user_id, "ADMIN"
+    )
+
+    assert db.items[item_id]["estatus_ejecucion"] == "NO_ADQUIRIDO"
+    assert db.adendas[0]["estatus"] == "APROBADA"
+
+
+@pytest.mark.asyncio
+async def test_crear_reemplazo_queda_pendiente_hasta_aprobacion():
+    bom_id = uuid4()
+    item_id = uuid4()
+    user_id = uuid4()
+    db = FakeAdendaDB(_bom(bom_id), [_item(item_id, bom_id)])
+    svc = _service(db)
+
+    adenda = await svc.crear_reemplazo_item(
         FakeConn(), item_id, user_id,
         descripcion="Modulo FV equivalente",
         cantidad=10,
@@ -173,6 +262,20 @@ async def test_crear_reemplazo_marca_origen_y_crea_item_cotizable():
         unidad_medida="pza",
     )
 
+    assert adenda["estatus"] == "PENDIENTE_CONSTRUCCION"
+    assert len(db.items) == 1
+    assert db.items[item_id]["estatus_ejecucion"] is None
+
+    await svc.aprobar_adenda_construccion(
+        FakeConn(), adenda["id_adenda"], user_id, "ADMIN"
+    )
+
+    reemplazos = [
+        item for item in db.items.values()
+        if item.get("tipo_origen_item") == "REEMPLAZO"
+    ]
+    assert len(reemplazos) == 1
+    reemplazo = reemplazos[0]
     assert reemplazo["tipo_origen_item"] == "REEMPLAZO"
     assert reemplazo["id_item_reemplazado"] == item_id
     assert reemplazo["motivo_adenda"] == "Cambio por disponibilidad"
@@ -183,13 +286,13 @@ async def test_crear_reemplazo_marca_origen_y_crea_item_cotizable():
 
 
 @pytest.mark.asyncio
-async def test_agregar_fuera_scope_crea_item_separado_del_presupuesto_base():
+async def test_agregar_fuera_scope_crea_item_al_aprobar():
     bom_id = uuid4()
     user_id = uuid4()
     db = FakeAdendaDB(_bom(bom_id))
     svc = _service(db)
 
-    item = await svc.agregar_fuera_scope(
+    adenda = await svc.agregar_fuera_scope(
         FakeConn(), bom_id, user_id,
         descripcion="Base adicional",
         cantidad=1,
@@ -198,6 +301,12 @@ async def test_agregar_fuera_scope_crea_item_separado_del_presupuesto_base():
         unidad_medida="servicio",
     )
 
+    assert len(db.items) == 0
+    await svc.aprobar_adenda_construccion(
+        FakeConn(), adenda["id_adenda"], user_id, "ADMIN"
+    )
+
+    item = next(iter(db.items.values()))
     assert item["tipo_origen_item"] == "FUERA_SCOPE"
     assert item["id_item_reemplazado"] is None
     assert item["creado_en_adenda"] == db.adendas[0]["id_adenda"]
@@ -235,7 +344,7 @@ async def test_no_permite_cerrar_item_autorizado():
     )
     svc = _service(db)
 
-    with pytest.raises(ValueError, match="autorizado, pagado o facturado"):
+    with pytest.raises(ValueError, match="cotizado, autorizado, pagado o facturado"):
         await svc.cerrar_item_sin_compra(
             FakeConn(), item_id, uuid4(), "Ya esta autorizado"
         )
@@ -251,7 +360,7 @@ async def test_no_permite_reemplazar_item_autorizado():
     )
     svc = _service(db)
 
-    with pytest.raises(ValueError, match="autorizado, pagado o facturado"):
+    with pytest.raises(ValueError, match="cotizado, autorizado, pagado o facturado"):
         await svc.crear_reemplazo_item(
             FakeConn(), item_id, uuid4(),
             descripcion="Reemplazo",
@@ -259,3 +368,37 @@ async def test_no_permite_reemplazar_item_autorizado():
             grupo_ids=[1],
             motivo="Cambio",
         )
+
+
+@pytest.mark.asyncio
+async def test_adenda_con_ok_ingenieria_no_aplica_hasta_aprobacion_tecnica():
+    bom_id = uuid4()
+    item_id = uuid4()
+    user_id = uuid4()
+    db = FakeAdendaDB(_bom(bom_id), [_item(item_id, bom_id)])
+    svc = _service(db)
+
+    adenda = await svc.crear_reemplazo_item(
+        FakeConn(), item_id, user_id,
+        descripcion="Modulo FV equivalente",
+        cantidad=10,
+        grupo_ids=[1],
+        motivo="Cambio tecnico",
+        id_categoria=11,
+        unidad_medida="pza",
+    )
+
+    updated = await svc.aprobar_adenda_construccion(
+        FakeConn(), adenda["id_adenda"], user_id, "ADMIN",
+        requiere_ingenieria=True,
+    )
+
+    assert updated["estatus"] == "PENDIENTE_INGENIERIA"
+    assert len(db.items) == 1
+
+    await svc.aprobar_adenda_ingenieria(
+        FakeConn(), adenda["id_adenda"], user_id, "ADMIN"
+    )
+
+    assert len(db.items) == 2
+    assert db.adendas[0]["estatus"] == "APROBADA"

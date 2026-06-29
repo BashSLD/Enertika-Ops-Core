@@ -301,6 +301,40 @@ async def test_editar_item_construccion_aprobado_final_actualiza_recepcion_no_ba
 
 
 @pytest.mark.asyncio
+async def test_editar_item_construccion_en_revision_no_muta_fecha_base_directo():
+    bom_id = uuid4()
+    proyecto_id = uuid4()
+    item_id = uuid4()
+    svc = _service([
+        _item(item_id, bom_id, proyecto_id, estatus="EN_REVISION_CONST"),
+    ])
+
+    with pytest.raises(ValueError, match="propuesta"):
+        await svc.editar_item(
+            FakeConn(), item_id, uuid4(), "construccion",
+            fecha_requerida="2026-07-01"
+        )
+
+    assert svc.db.base_updates == []
+    assert svc.db.execution_updates == []
+
+
+@pytest.mark.asyncio
+async def test_set_item_grupos_construccion_en_revision_no_muta_base_directo():
+    bom_id = uuid4()
+    proyecto_id = uuid4()
+    item_id = uuid4()
+    svc = _service([
+        _item(item_id, bom_id, proyecto_id, estatus="EN_REVISION_CONST"),
+    ])
+
+    with pytest.raises(ValueError, match="propuesta"):
+        await svc.set_item_grupos(FakeConn(), item_id, uuid4(), [1], "construccion")
+
+    assert svc.db.grupo_calls == []
+
+
+@pytest.mark.asyncio
 async def test_editar_item_ingenieria_aprobado_final_rechaza_presupuesto_base():
     bom_id = uuid4()
     proyecto_id = uuid4()

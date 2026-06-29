@@ -30,12 +30,15 @@
                 {% set es_catalogo = item.origen_precio == 'CATALOGO' %}
                 {% set base_bloqueada = bloqueado or bom.estatus in ['CANCELADO', 'APROBADO_FINAL'] %}
                 {% set ejecucion_bloqueada = bloqueado or bom.estatus == 'CANCELADO' %}
+                {% set base_construccion_bloqueada = bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL'] %}
                 {% set disabled_ing = area_editor != 'ingenieria' or base_bloqueada %}
                 {% set disabled_presupuesto = disabled_ing %}
                 {% set disabled_construccion = area_editor != 'construccion' or ejecucion_bloqueada %}
-                {% set disabled_fecha_requerida = area_editor != 'construccion' or base_bloqueada %}
+                {% set disabled_fecha_requerida = area_editor != 'construccion' or base_bloqueada or base_construccion_bloqueada %}
                 {% set disabled_compras = area_editor != 'compras' or ejecucion_bloqueada %}
-                {% set disabled_grupos = area_editor not in ['ingenieria', 'construccion'] or base_bloqueada %}
+                {% set grupos_operativos_editables = bom.estatus == 'APROBADO_FINAL' and area_editor == 'construccion' and not bloqueado %}
+                {% set disabled_grupos = area_editor not in ['ingenieria', 'construccion'] or (base_bloqueada and not grupos_operativos_editables) or (area_editor == 'construccion' and base_construccion_bloqueada) %}
+                {% set grupos_actuales = item.grupos_operativos if grupos_operativos_editables and item.grupos_operativos else item.grupos %}
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {# Campos de Ingenieria #}
@@ -153,6 +156,22 @@
                         </p>
                     </div>
 
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Fecha Estimada Entrega</label>
+                        <input type="date" name="fecha_estimada_entrega"
+                            value="{{ item.fecha_estimada_entrega.isoformat() if item.fecha_estimada_entrega else '' }}"
+                            class="w-full rounded-lg border-gray-300 text-sm"
+                            {% if disabled_construccion %}disabled{% endif %}>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Fecha Llegada Real</label>
+                        <input type="date" name="fecha_llegada_real"
+                            value="{{ item.fecha_llegada_real.isoformat() if item.fecha_llegada_real else '' }}"
+                            class="w-full rounded-lg border-gray-300 text-sm"
+                            {% if disabled_construccion %}disabled{% endif %}>
+                    </div>
+
                     {# Campos de Compras #}
                     <div class="sm:col-span-2 mt-2">
                         <div class="text-xs font-bold text-gray-400 uppercase mb-2 border-b pb-1">Compras</div>
@@ -234,20 +253,22 @@
 
                     {# Grupos BOM (AC/DC/CM/OC/TE) #}
                     <div class="sm:col-span-2 mt-2">
-                        <div class="text-xs font-bold text-gray-400 uppercase mb-2 border-b pb-1">Grupos BOM</div>
+                        <div class="text-xs font-bold text-gray-400 uppercase mb-2 border-b pb-1">
+                            {{ 'Grupos operativos' if grupos_operativos_editables else 'Grupos BOM' }}
+                        </div>
                     </div>
                     <div class="sm:col-span-2">
                         <label class="block text-sm font-medium text-gray-700 mb-2">Clasificacion tecnica del item</label>
                         <div class="flex flex-wrap gap-2">
                             {% for grupo in catalogos.grupos_bom %}
                             <label class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border cursor-pointer
-                                {% if grupo.codigo in (item.grupos or []) %}
+                                {% if grupo.codigo in (grupos_actuales or []) %}
                                     border-blue-500 bg-blue-50 text-blue-700
                                 {% else %}
                                     border-gray-300 bg-white text-gray-600 hover:bg-gray-50
                                 {% endif %}">
                                 <input type="checkbox" name="grupo_ids" value="{{ grupo.id }}"
-                                    {% if grupo.codigo in (item.grupos or []) %}checked{% endif %}
+                                    {% if grupo.codigo in (grupos_actuales or []) %}checked{% endif %}
                                     {% if disabled_grupos %}disabled{% endif %}
                                     class="hidden"
                                     onchange="this.closest('label').classList.toggle('border-blue-500', this.checked);

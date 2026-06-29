@@ -4,7 +4,9 @@ Logica de negocio, workflow de aprobaciones, versionado y exportacion Excel.
 """
 
 import logging
+import json
 from collections import defaultdict
+from decimal import Decimal, InvalidOperation
 from uuid import UUID
 from typing import Optional, List, Set
 
@@ -26,7 +28,7 @@ CAMPOS_INGENIERIA = {'id_categoria', 'descripcion', 'cantidad', 'unidad_medida',
 CAMPOS_CONSTRUCCION_BASE = {'fecha_requerida'}
 CAMPOS_CONSTRUCCION_EJECUCION = {
     'entregado', 'comentarios', 'comentarios_operativos', 'cantidad_recibida',
-    'fecha_llegada_real', 'estatus_ejecucion'
+    'fecha_estimada_entrega', 'fecha_llegada_real', 'estatus_ejecucion'
 }
 CAMPOS_CONSTRUCCION = CAMPOS_CONSTRUCCION_BASE | CAMPOS_CONSTRUCCION_EJECUCION
 CAMPOS_COMPRAS = {
@@ -53,7 +55,20 @@ TIPO_ITEM_BASE = "BASE"
 TIPO_ITEM_REEMPLAZO = "REEMPLAZO"
 TIPO_ITEM_FUERA_SCOPE = "FUERA_SCOPE"
 ESTATUS_ITEM_CERRADO_COMPRA = {"NO_ADQUIRIDO", "REEMPLAZADO", "CERRADO"}
-ESTATUS_COMPRA_BLOQUEA_ADENDA = {"AUTORIZADO", "PAGADO", "FACTURADO"}
+ESTATUS_COMPRA_BLOQUEA_ADENDA = {"COTIZADO", "AUTORIZADO", "PAGADO", "FACTURADO"}
+ESTATUS_ADENDA_PENDIENTE_CONSTRUCCION = "PENDIENTE_CONSTRUCCION"
+ESTATUS_ADENDA_PENDIENTE_INGENIERIA = "PENDIENTE_INGENIERIA"
+ESTATUS_ADENDA_APROBADA = "APROBADA"
+ESTATUS_ADENDA_TERMINALES = {"APROBADA", "RECHAZADA", "CANCELADA"}
+TIPOS_PROPUESTA_CAMBIO = {"OBRA", "CONSTRUCCION"}
+ACCIONES_PROPUESTA_CAMBIO = {"AGREGAR", "EDITAR", "ELIMINAR"}
+ESTATUS_PROPUESTA_CAMBIO = {EstatusBOM.EN_REVISION_OBRA, EstatusBOM.EN_REVISION_CONST}
+ESTATUS_BASE_CONSTRUCCION_BLOQUEADA = {
+    EstatusBOM.EN_REVISION_OBRA,
+    EstatusBOM.EN_REVISION_CONST,
+    EstatusBOM.APROBADO_CONST,
+    EstatusBOM.EN_REVISION_FINAL,
+}
 
 # Fechas de cabecera que representan el recorrido completo de aprobaciones.
 FECHAS_FLUJO_BOM = (
@@ -406,6 +421,11 @@ class BomService:
         estatus = EstatusBOM(bom['estatus'])
         if estatus in ESTATUS_BLOQUEADOS:
             raise ValueError(f"El BOM esta en estado {estatus} y no permite modificaciones")
+        if (
+            area_editor == "construccion"
+            and estatus in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA
+        ):
+            raise ValueError(self._mensaje_propuesta_requerida())
 
         if area_editor == 'ingenieria':
             await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
@@ -415,10 +435,14 @@ class BomService:
             # Fallback: permisos originales por area_editor
             await self._validar_edicion_items(conn, id_bom, area_editor)
 
-        from decimal import Decimal as _D
-        if _D(str(cantidad)) <= 0:
+        if self._decimal_o_error(cantidad, "La cantidad debe ser mayor a cero") <= 0:
             raise ValueError("La cantidad debe ser mayor a cero")
-        if precio_unitario is not None and _D(str(precio_unitario)) < 0:
+        if (
+            precio_unitario is not None
+            and self._decimal_o_error(
+                precio_unitario, "El precio unitario no puede ser negativo"
+            ) < 0
+        ):
             raise ValueError("El precio unitario no puede ser negativo")
 
         orden = await self.db.get_next_orden(conn, id_bom)
@@ -454,6 +478,48 @@ class BomService:
             raise ValueError("El motivo de la adenda es obligatorio")
         return motivo_limpio
 
+    @staticmethod
+    def _decimal_o_error(valor, mensaje: str) -> Decimal:
+        try:
+            return Decimal(str(valor))
+        except (InvalidOperation, TypeError, ValueError):
+            raise ValueError(mensaje) from None
+
+    @staticmethod
+    def _datos_item_adenda(**campos) -> dict:
+        """Normaliza datos propuestos de adenda para guardarlos como JSON."""
+        data = {}
+        for key, value in campos.items():
+            if value is None:
+                data[key] = None
+            elif isinstance(value, UUID):
+                data[key] = str(value)
+            else:
+                data[key] = str(value) if key in {"cantidad", "precio_unitario"} else value
+        return data
+
+    @staticmethod
+    def _datos_item_desde_adenda(datos: Optional[dict]) -> dict:
+        """Convierte JSON de adenda al formato esperado por agregar_item."""
+        if isinstance(datos, str):
+            data = json.loads(datos or "{}")
+        else:
+            data = dict(datos or {})
+        if data.get("cantidad") is not None:
+            data["cantidad"] = BomService._decimal_o_error(
+                data["cantidad"], "La cantidad debe ser mayor a cero"
+            )
+        if data.get("precio_unitario") not in (None, ""):
+            data["precio_unitario"] = BomService._decimal_o_error(
+                data["precio_unitario"], "El precio unitario no puede ser negativo"
+            )
+        else:
+            data["precio_unitario"] = None
+        for key in ("id_material_ref", "id_material_interno"):
+            if data.get(key):
+                data[key] = UUID(str(data[key]))
+        return data
+
     async def _validar_bom_aprobado_final_para_adenda(
         self, conn, id_bom: UUID
     ) -> dict:
@@ -476,7 +542,12 @@ class BomService:
             raise ValueError("El item ya esta cerrado para compra")
         if item.get("estatus_compra") in ESTATUS_COMPRA_BLOQUEA_ADENDA:
             raise ValueError(
-                "No se puede registrar una adenda sobre un item autorizado, pagado o facturado"
+                "No se puede registrar una adenda sobre un item cotizado, autorizado, pagado o facturado"
+            )
+        bloqueo = await self.db.get_item_compra_bloqueante(conn, id_item)
+        if bloqueo.get("tiene_cotizacion_seleccionada") or bloqueo.get("tiene_autorizacion_activa"):
+            raise ValueError(
+                "No se puede registrar una adenda mientras el item tenga cotizacion seleccionada o autorizacion activa"
             )
         bom = await self._validar_bom_aprobado_final_para_adenda(conn, item["id_bom"])
         return item, bom
@@ -484,7 +555,7 @@ class BomService:
     async def cerrar_item_sin_compra(
         self, conn, id_item: UUID, user_id: UUID, motivo: str
     ) -> dict:
-        """Cierra un item base aprobado final sin eliminarlo ni mutar presupuesto."""
+        """Crea una adenda pendiente para cerrar un item base sin compra."""
         motivo = self._validar_motivo_adenda(motivo)
         item, bom = await self._validar_item_base_para_adenda(conn, id_item)
 
@@ -496,20 +567,15 @@ class BomService:
                 conn, adenda["id_adenda"], "NO_ADQUIRIDO", motivo,
                 id_item_origen=id_item,
             )
-            await self.db.upsert_item_ejecucion(
-                conn, id_item, updated_by=user_id,
-                estatus_ejecucion="NO_ADQUIRIDO",
-                comentarios_operativos=motivo,
-            )
             await self.db.registrar_historial(
                 conn, item["id_bom"], AccionHistorial.EDITADO,
                 bom["version"], user_id,
                 id_item=id_item,
                 campo_modificado="adenda",
-                valor_nuevo="NO_ADQUIRIDO",
+                valor_nuevo="PENDIENTE_CONSTRUCCION",
             )
 
-        return await self.db.get_item_by_id(conn, id_item)
+        return {**adenda, "id_bom": item["id_bom"]}
 
     async def crear_reemplazo_item(
         self, conn, id_item_origen: UUID, user_id: UUID,
@@ -524,16 +590,19 @@ class BomService:
         tipo_partida: Optional[str] = "MATERIAL",
         moneda: Optional[str] = "MXN",
     ) -> dict:
-        """Crea un item sustituto cotizable y marca el item base como reemplazado."""
-        from decimal import Decimal as _D
-
+        """Crea una adenda pendiente para sustituir un item base."""
         motivo = self._validar_motivo_adenda(motivo)
         descripcion = (descripcion or "").strip()
         if not descripcion:
             raise ValueError("La descripcion del reemplazo es obligatoria")
-        if _D(str(cantidad)) <= 0:
+        if self._decimal_o_error(cantidad, "La cantidad debe ser mayor a cero") <= 0:
             raise ValueError("La cantidad debe ser mayor a cero")
-        if precio_unitario is not None and _D(str(precio_unitario)) < 0:
+        if (
+            precio_unitario is not None
+            and self._decimal_o_error(
+                precio_unitario, "El precio unitario no puede ser negativo"
+            ) < 0
+        ):
             raise ValueError("El precio unitario no puede ser negativo")
         if not grupo_ids:
             raise ValueError("Selecciona al menos un grupo BOM")
@@ -544,44 +613,33 @@ class BomService:
             adenda = await self.db.crear_adenda(
                 conn, item_origen["id_bom"], "REEMPLAZO", motivo, user_id
             )
-            orden = await self.db.get_next_orden(conn, item_origen["id_bom"])
-            item = await self.db.agregar_item(
-                conn, item_origen["id_bom"], descripcion, cantidad,
-                id_categoria=id_categoria,
-                unidad_medida=unidad_medida,
-                comentarios=comentarios,
-                orden=orden,
-                precio_unitario=precio_unitario,
-                origen_precio=origen_precio,
-                id_material_ref=id_material_ref,
-                id_material_interno=id_material_interno,
-                tipo_partida=tipo_partida,
-                moneda=moneda,
-                tipo_origen_item=TIPO_ITEM_REEMPLAZO,
-                id_item_reemplazado=id_item_origen,
-                motivo_adenda=motivo,
-                creado_en_adenda=adenda["id_adenda"],
-            )
-            await self.db.set_item_grupos(conn, item["id_item"], grupo_ids)
             await self.db.registrar_adenda_item(
                 conn, adenda["id_adenda"], "REEMPLAZO", motivo,
                 id_item_origen=id_item_origen,
-                id_item_bom=item["id_item"],
-            )
-            await self.db.upsert_item_ejecucion(
-                conn, id_item_origen, updated_by=user_id,
-                estatus_ejecucion="REEMPLAZADO",
-                comentarios_operativos=motivo,
+                datos_item=self._datos_item_adenda(
+                    descripcion=descripcion,
+                    cantidad=cantidad,
+                    id_categoria=id_categoria,
+                    unidad_medida=unidad_medida,
+                    comentarios=comentarios,
+                    precio_unitario=precio_unitario,
+                    origen_precio=origen_precio,
+                    id_material_ref=id_material_ref,
+                    id_material_interno=id_material_interno,
+                    tipo_partida=tipo_partida,
+                    moneda=moneda,
+                ),
+                grupo_ids=grupo_ids,
             )
             await self.db.registrar_historial(
                 conn, item_origen["id_bom"], AccionHistorial.AGREGADO,
                 bom["version"], user_id,
-                id_item=item["id_item"],
+                id_item=id_item_origen,
                 campo_modificado="adenda_reemplazo",
                 valor_nuevo=descripcion,
             )
 
-        return item
+        return {**adenda, "id_bom": item_origen["id_bom"]}
 
     async def agregar_fuera_scope(
         self, conn, id_bom: UUID, user_id: UUID,
@@ -596,16 +654,19 @@ class BomService:
         tipo_partida: Optional[str] = "MATERIAL",
         moneda: Optional[str] = "MXN",
     ) -> dict:
-        """Agrega una linea cotizable fuera del alcance principal aprobado."""
-        from decimal import Decimal as _D
-
+        """Crea una adenda pendiente para una linea fuera del alcance aprobado."""
         motivo = self._validar_motivo_adenda(motivo)
         descripcion = (descripcion or "").strip()
         if not descripcion:
             raise ValueError("La descripcion del item fuera de alcance es obligatoria")
-        if _D(str(cantidad)) <= 0:
+        if self._decimal_o_error(cantidad, "La cantidad debe ser mayor a cero") <= 0:
             raise ValueError("La cantidad debe ser mayor a cero")
-        if precio_unitario is not None and _D(str(precio_unitario)) < 0:
+        if (
+            precio_unitario is not None
+            and self._decimal_o_error(
+                precio_unitario, "El precio unitario no puede ser negativo"
+            ) < 0
+        ):
             raise ValueError("El precio unitario no puede ser negativo")
         if not grupo_ids:
             raise ValueError("Selecciona al menos un grupo BOM")
@@ -616,41 +677,487 @@ class BomService:
             adenda = await self.db.crear_adenda(
                 conn, id_bom, "FUERA_SCOPE", motivo, user_id
             )
-            orden = await self.db.get_next_orden(conn, id_bom)
-            item = await self.db.agregar_item(
-                conn, id_bom, descripcion, cantidad,
-                id_categoria=id_categoria,
-                unidad_medida=unidad_medida,
-                comentarios=comentarios,
-                orden=orden,
-                precio_unitario=precio_unitario,
-                origen_precio=origen_precio,
-                id_material_ref=id_material_ref,
-                id_material_interno=id_material_interno,
-                tipo_partida=tipo_partida,
-                moneda=moneda,
-                tipo_origen_item=TIPO_ITEM_FUERA_SCOPE,
-                motivo_adenda=motivo,
-                creado_en_adenda=adenda["id_adenda"],
-            )
-            await self.db.set_item_grupos(conn, item["id_item"], grupo_ids)
             await self.db.registrar_adenda_item(
                 conn, adenda["id_adenda"], "FUERA_SCOPE", motivo,
-                id_item_bom=item["id_item"],
+                datos_item=self._datos_item_adenda(
+                    descripcion=descripcion,
+                    cantidad=cantidad,
+                    id_categoria=id_categoria,
+                    unidad_medida=unidad_medida,
+                    comentarios=comentarios,
+                    precio_unitario=precio_unitario,
+                    origen_precio=origen_precio,
+                    id_material_ref=id_material_ref,
+                    id_material_interno=id_material_interno,
+                    tipo_partida=tipo_partida,
+                    moneda=moneda,
+                ),
+                grupo_ids=grupo_ids,
             )
             await self.db.registrar_historial(
                 conn, id_bom, AccionHistorial.AGREGADO,
                 bom["version"], user_id,
-                id_item=item["id_item"],
                 campo_modificado="adenda_fuera_scope",
                 valor_nuevo=descripcion,
             )
 
-        return item
+        return {**adenda, "id_bom": id_bom}
 
     async def get_adendas(self, conn, id_bom: UUID) -> list:
         """Lista adendas registradas para el BOM."""
         return await self.db.get_adendas_by_bom(conn, id_bom)
+
+    async def get_adenda_comentarios(self, conn, id_adenda: UUID) -> list:
+        """Lista comentarios de una adenda."""
+        return await self.db.get_adenda_comentarios(conn, id_adenda)
+
+    async def get_adenda_comentarios_by_bom(self, conn, id_bom: UUID) -> dict:
+        """Lista comentarios de adendas agrupados por adenda."""
+        return await self.db.get_adenda_comentarios_by_bom(conn, id_bom)
+
+    async def comentar_adenda(
+        self, conn, id_adenda: UUID, user_id: UUID, comentario: str
+    ) -> dict:
+        """Agrega un comentario de workflow a una adenda."""
+        comentario_limpio = (comentario or "").strip()
+        if not comentario_limpio:
+            raise ValueError("El comentario es obligatorio")
+        adenda = await self.db.get_adenda_by_id(conn, id_adenda)
+        if not adenda:
+            raise ValueError("Adenda no encontrada")
+        return await self.db.registrar_adenda_comentario(
+            conn, id_adenda, comentario_limpio, user_id
+        )
+
+    async def _aplicar_adenda(self, conn, adenda: dict, user_id: UUID) -> None:
+        """Aplica lineas de adenda aprobadas dentro de la transaccion activa."""
+        lineas = await self.db.get_adenda_items(conn, adenda["id_adenda"])
+        if not lineas:
+            raise ValueError("La adenda no tiene lineas para aplicar")
+
+        for linea in lineas:
+            tipo_linea = linea["tipo_linea"]
+            motivo = linea.get("motivo") or adenda["motivo"]
+
+            if tipo_linea == "NO_ADQUIRIDO":
+                id_item_origen = linea["id_item_origen"]
+                await self._validar_item_base_para_adenda(conn, id_item_origen)
+                await self.db.upsert_item_ejecucion(
+                    conn, id_item_origen, updated_by=user_id,
+                    estatus_ejecucion="NO_ADQUIRIDO",
+                    comentarios_operativos=motivo,
+                )
+                await self.db.registrar_historial(
+                    conn, adenda["id_bom_base"], AccionHistorial.EDITADO,
+                    adenda["bom_version"], user_id,
+                    id_item=id_item_origen,
+                    campo_modificado="adenda",
+                    valor_nuevo="NO_ADQUIRIDO",
+                )
+                continue
+
+            datos = self._datos_item_desde_adenda(linea.get("datos_item"))
+            orden = await self.db.get_next_orden(conn, adenda["id_bom_base"])
+            tipo_origen = (
+                TIPO_ITEM_REEMPLAZO
+                if tipo_linea == "REEMPLAZO"
+                else TIPO_ITEM_FUERA_SCOPE
+            )
+            id_item_origen = linea.get("id_item_origen")
+            if tipo_linea == "REEMPLAZO":
+                await self._validar_item_base_para_adenda(conn, id_item_origen)
+
+            item = await self.db.agregar_item(
+                conn,
+                adenda["id_bom_base"],
+                datos["descripcion"],
+                datos["cantidad"],
+                id_categoria=datos.get("id_categoria"),
+                unidad_medida=datos.get("unidad_medida"),
+                comentarios=datos.get("comentarios"),
+                orden=orden,
+                precio_unitario=datos.get("precio_unitario"),
+                origen_precio=datos.get("origen_precio") or "MANUAL",
+                id_material_ref=datos.get("id_material_ref"),
+                id_material_interno=datos.get("id_material_interno"),
+                tipo_partida=datos.get("tipo_partida") or "MATERIAL",
+                moneda=datos.get("moneda") or "MXN",
+                tipo_origen_item=tipo_origen,
+                id_item_reemplazado=id_item_origen,
+                motivo_adenda=motivo,
+                creado_en_adenda=adenda["id_adenda"],
+            )
+            await self.db.set_item_grupos_operativos(
+                conn, item["id_item"], list(linea.get("grupo_ids") or []), user_id
+            )
+            await self.db.vincular_adenda_item_bom(
+                conn, linea["id_adenda_item"], item["id_item"]
+            )
+
+            if tipo_linea == "REEMPLAZO":
+                await self.db.upsert_item_ejecucion(
+                    conn, id_item_origen, updated_by=user_id,
+                    estatus_ejecucion="REEMPLAZADO",
+                    comentarios_operativos=motivo,
+                )
+
+            await self.db.registrar_historial(
+                conn, adenda["id_bom_base"], AccionHistorial.AGREGADO,
+                adenda["bom_version"], user_id,
+                id_item=item["id_item"],
+                campo_modificado=(
+                    "adenda_reemplazo"
+                    if tipo_linea == "REEMPLAZO"
+                    else "adenda_fuera_scope"
+                ),
+                valor_nuevo=datos["descripcion"],
+            )
+
+    async def aprobar_adenda_construccion(
+        self, conn, id_adenda: UUID, user_id: UUID, user_role: str,
+        rol_org: Optional[str] = None, requiere_ingenieria: bool = False
+    ) -> dict:
+        """Aprueba una adenda por Construccion y la aplica si no requiere Ingenieria."""
+        adenda = await self.db.get_adenda_by_id(conn, id_adenda)
+        if not adenda:
+            raise ValueError("Adenda no encontrada")
+        if adenda["estatus"] != ESTATUS_ADENDA_PENDIENTE_CONSTRUCCION:
+            raise ValueError("La adenda no esta pendiente de Construccion")
+        if EstatusBOM(adenda["bom_estatus"]) != EstatusBOM.APROBADO_FINAL:
+            raise ValueError("Solo se pueden aprobar adendas en BOM aprobado final")
+        await self._validar_aprobador_bom(
+            conn, user_id, user_role, rol_org,
+            adenda.get("jefe_construccion"), "Jefe de Construccion", "jefe_construccion"
+        )
+
+        async with conn.transaction():
+            if not requiere_ingenieria:
+                await self._aplicar_adenda(conn, adenda, user_id)
+            updated = await self.db.marcar_adenda_construccion(
+                conn, id_adenda, user_id, requiere_ingenieria
+            )
+        return updated
+
+    async def aprobar_adenda_ingenieria(
+        self, conn, id_adenda: UUID, user_id: UUID, user_role: str,
+        rol_org: Optional[str] = None
+    ) -> dict:
+        """Aprueba tecnicamente una adenda y aplica sus cambios."""
+        adenda = await self.db.get_adenda_by_id(conn, id_adenda)
+        if not adenda:
+            raise ValueError("Adenda no encontrada")
+        if adenda["estatus"] != ESTATUS_ADENDA_PENDIENTE_INGENIERIA:
+            raise ValueError("La adenda no esta pendiente de Ingenieria")
+        await self._validar_aprobador_bom(
+            conn, user_id, user_role, rol_org,
+            adenda.get("responsable_ing"), "Responsable de Ingenieria", "jefe_ingenieria"
+        )
+
+        async with conn.transaction():
+            await self._aplicar_adenda(conn, adenda, user_id)
+            updated = await self.db.aprobar_adenda_ingenieria(conn, id_adenda, user_id)
+        return updated
+
+    async def rechazar_adenda(
+        self, conn, id_adenda: UUID, user_id: UUID, user_role: str,
+        rol_org: Optional[str], motivo_rechazo: str
+    ) -> dict:
+        """Rechaza una adenda pendiente sin mutar items."""
+        motivo = (motivo_rechazo or "").strip()
+        if not motivo:
+            raise ValueError("El motivo de rechazo es obligatorio")
+        adenda = await self.db.get_adenda_by_id(conn, id_adenda)
+        if not adenda:
+            raise ValueError("Adenda no encontrada")
+        if adenda["estatus"] in ESTATUS_ADENDA_TERMINALES:
+            raise ValueError("La adenda ya esta cerrada")
+        if adenda["estatus"] == ESTATUS_ADENDA_PENDIENTE_CONSTRUCCION:
+            await self._validar_aprobador_bom(
+                conn, user_id, user_role, rol_org,
+                adenda.get("jefe_construccion"), "Jefe de Construccion", "jefe_construccion"
+            )
+        elif adenda["estatus"] == ESTATUS_ADENDA_PENDIENTE_INGENIERIA:
+            await self._validar_aprobador_bom(
+                conn, user_id, user_role, rol_org,
+                adenda.get("responsable_ing"), "Responsable de Ingenieria", "jefe_ingenieria"
+            )
+        else:
+            raise ValueError("La adenda no esta pendiente de aprobacion")
+        return await self.db.rechazar_adenda(conn, id_adenda, user_id, motivo)
+
+    @staticmethod
+    def _normalizar_lineas_propuesta(lineas) -> list:
+        if isinstance(lineas, str):
+            lineas = json.loads(lineas or "[]")
+        if not isinstance(lineas, list) or not lineas:
+            raise ValueError("La propuesta debe incluir al menos una linea de cambio")
+        for linea in lineas:
+            if not isinstance(linea, dict):
+                raise ValueError("Cada linea de propuesta debe ser un objeto")
+            accion = (linea.get("accion") or "").upper()
+            if accion not in ACCIONES_PROPUESTA_CAMBIO:
+                raise ValueError("Accion de propuesta invalida")
+            linea["accion"] = accion
+            grupo_ids = linea.get("grupo_ids") or []
+            if not isinstance(grupo_ids, list):
+                raise ValueError("Los grupos de la propuesta deben enviarse como lista")
+            linea["grupo_ids"] = [
+                int(grupo_id)
+                for grupo_id in grupo_ids
+                if str(grupo_id).strip()
+            ]
+        return lineas
+
+    @staticmethod
+    def _tipo_propuesta_desde_estatus(estatus: EstatusBOM) -> tuple[str, str, str]:
+        if estatus == EstatusBOM.EN_REVISION_OBRA:
+            return "OBRA", "coordinador_obra", "Coordinador de Obra"
+        if estatus == EstatusBOM.EN_REVISION_CONST:
+            return "CONSTRUCCION", "jefe_construccion", "Jefe de Construccion"
+        raise ValueError(
+            "Solo se pueden registrar propuestas durante revision de Obra o Construccion"
+        )
+
+    @staticmethod
+    def _mensaje_propuesta_requerida() -> str:
+        return (
+            "Los cambios de alcance de Construccion deben registrarse como propuesta "
+            "para revision de Ingenieria"
+        )
+
+    async def crear_propuesta_cambio(
+        self, conn, id_bom: UUID, user_id: UUID,
+        tipo_solicitante: str, motivo: str, lineas,
+        user_role: str = "USER", rol_org: Optional[str] = None
+    ) -> dict:
+        """Crea una propuesta pre-final sin mutar items base."""
+        motivo_limpio = (motivo or "").strip()
+        if not motivo_limpio:
+            raise ValueError("El motivo de la propuesta es obligatorio")
+        lineas_norm = self._normalizar_lineas_propuesta(lineas)
+
+        bom = await self.get_bom(conn, id_bom)
+        estatus = EstatusBOM(bom["estatus"])
+        tipo, responsable_key, responsable_label = self._tipo_propuesta_desde_estatus(estatus)
+        tipo_form = (tipo_solicitante or tipo).upper()
+        if tipo_form not in TIPOS_PROPUESTA_CAMBIO:
+            raise ValueError("Tipo de solicitante invalido")
+        if tipo_form != tipo:
+            raise ValueError("El tipo de solicitante no corresponde al estado actual del BOM")
+
+        await self._validar_aprobador_bom(
+            conn, user_id, user_role, rol_org,
+            bom.get(responsable_key), responsable_label, responsable_key
+        )
+
+        return await self.db.crear_propuesta_cambio(
+            conn, id_bom, tipo, motivo_limpio, lineas_norm, user_id
+        )
+
+    async def get_propuestas_cambio(self, conn, id_bom: UUID) -> list:
+        """Lista propuestas pre-final del BOM."""
+        return await self.db.get_propuestas_cambio_by_bom(conn, id_bom)
+
+    async def _aplicar_lineas_propuesta(
+        self, conn, propuesta: dict, lineas: list, user_id: UUID
+    ) -> None:
+        for linea in lineas:
+            accion = linea["accion"]
+            datos = linea.get("datos") or {}
+            grupo_ids = list(linea.get("grupo_ids") or [])
+
+            if accion == "AGREGAR":
+                descripcion = (datos.get("descripcion") or "").strip()
+                if not descripcion:
+                    raise ValueError("La linea AGREGAR requiere descripcion")
+                cantidad = datos.get("cantidad")
+                if cantidad is None:
+                    raise ValueError("La linea AGREGAR requiere cantidad")
+                cantidad = self._decimal_o_error(
+                    cantidad, "La cantidad debe ser mayor a cero"
+                )
+                if cantidad <= 0:
+                    raise ValueError("La cantidad debe ser mayor a cero")
+                precio_unitario = datos.get("precio_unitario")
+                if precio_unitario not in (None, ""):
+                    precio_unitario = self._decimal_o_error(
+                        precio_unitario, "El precio unitario no puede ser negativo"
+                    )
+                    if precio_unitario < 0:
+                        raise ValueError("El precio unitario no puede ser negativo")
+                else:
+                    precio_unitario = None
+                id_categoria = datos.get("id_categoria")
+                id_categoria = int(id_categoria) if id_categoria not in (None, "") else None
+                id_material_ref = datos.get("id_material_ref")
+                id_material_ref = UUID(str(id_material_ref)) if id_material_ref else None
+                id_material_interno = datos.get("id_material_interno")
+                id_material_interno = (
+                    UUID(str(id_material_interno)) if id_material_interno else None
+                )
+                orden = await self.db.get_next_orden(conn, propuesta["id_bom"])
+                item = await self.db.agregar_item(
+                    conn,
+                    propuesta["id_bom"],
+                    descripcion,
+                    cantidad,
+                    id_categoria=id_categoria,
+                    unidad_medida=datos.get("unidad_medida"),
+                    comentarios=datos.get("comentarios"),
+                    orden=orden,
+                    precio_unitario=precio_unitario,
+                    origen_precio=datos.get("origen_precio") or "MANUAL",
+                    id_material_ref=id_material_ref,
+                    id_material_interno=id_material_interno,
+                    tipo_partida=datos.get("tipo_partida") or "MATERIAL",
+                    moneda=datos.get("moneda") or "MXN",
+                )
+                if grupo_ids:
+                    await self.db.set_item_grupos(conn, item["id_item"], grupo_ids)
+                await self.db.registrar_historial(
+                    conn, propuesta["id_bom"], AccionHistorial.AGREGADO,
+                    propuesta["bom_version"], user_id,
+                    id_item=item["id_item"],
+                    campo_modificado="propuesta_cambio",
+                    valor_nuevo=descripcion,
+                )
+                continue
+
+            id_item = linea.get("id_item")
+            if not id_item:
+                raise ValueError(f"La linea {accion} requiere id_item")
+            id_item = UUID(str(id_item))
+            item = await self.db.get_item_by_id(conn, id_item)
+            if not item or str(item["id_bom"]) != str(propuesta["id_bom"]):
+                raise ValueError("La propuesta contiene un item invalido")
+
+            if accion == "EDITAR":
+                campos_base = {
+                    key: value for key, value in datos.items()
+                    if key in CAMPOS_INGENIERIA or key in CAMPOS_CONSTRUCCION_BASE
+                }
+                if "cantidad" in campos_base and campos_base["cantidad"] is not None:
+                    campos_base["cantidad"] = self._decimal_o_error(
+                        campos_base["cantidad"], "La cantidad debe ser mayor a cero"
+                    )
+                    if campos_base["cantidad"] <= 0:
+                        raise ValueError("La cantidad debe ser mayor a cero")
+                if (
+                    "precio_unitario" in campos_base
+                    and campos_base["precio_unitario"] is not None
+                ):
+                    campos_base["precio_unitario"] = self._decimal_o_error(
+                        campos_base["precio_unitario"],
+                        "El precio unitario no puede ser negativo",
+                    )
+                    if campos_base["precio_unitario"] < 0:
+                        raise ValueError("El precio unitario no puede ser negativo")
+                if "id_categoria" in campos_base:
+                    id_categoria = campos_base["id_categoria"]
+                    campos_base["id_categoria"] = (
+                        int(id_categoria) if id_categoria not in (None, "") else None
+                    )
+                if campos_base:
+                    await self.db.update_item(conn, id_item, **campos_base)
+                if grupo_ids:
+                    await self.db.set_item_grupos(conn, id_item, grupo_ids)
+                await self.db.registrar_historial(
+                    conn, propuesta["id_bom"], AccionHistorial.EDITADO,
+                    propuesta["bom_version"], user_id,
+                    id_item=id_item,
+                    campo_modificado="propuesta_cambio",
+                    valor_nuevo=json.dumps(datos, ensure_ascii=False, default=str),
+                )
+            elif accion == "ELIMINAR":
+                await self.db.soft_delete_item(conn, id_item)
+                await self.db.registrar_historial(
+                    conn, propuesta["id_bom"], AccionHistorial.ELIMINADO,
+                    propuesta["bom_version"], user_id,
+                    id_item=id_item,
+                    campo_modificado="propuesta_cambio",
+                    valor_anterior=item.get("descripcion"),
+                )
+
+    async def aprobar_propuesta_cambio(
+        self, conn, id_propuesta: UUID, user_id: UUID, user_role: str,
+        rol_org: Optional[str] = None, lineas_revision=None,
+        ingenieria_modifico: bool = False,
+        comentario_revision: Optional[str] = None,
+    ) -> dict:
+        """Aprueba una propuesta pre-final y aplica sus lineas en transaccion."""
+        propuesta = await self.db.get_propuesta_cambio_by_id(conn, id_propuesta)
+        if not propuesta:
+            raise ValueError("Propuesta no encontrada")
+        if propuesta["estatus"] != "PENDIENTE_INGENIERIA":
+            raise ValueError("La propuesta no esta pendiente de Ingenieria")
+        await self._validar_aprobador_bom(
+            conn, user_id, user_role, rol_org,
+            propuesta.get("responsable_ing"), "Responsable de Ingenieria", "jefe_ingenieria"
+        )
+        lineas = self._normalizar_lineas_propuesta(
+            lineas_revision if lineas_revision is not None else propuesta["lineas"]
+        )
+
+        if ingenieria_modifico:
+            siguiente_estatus = EstatusBOM.EN_REVISION_ING
+            campos_limpios = self._limpiar_fechas_flujo(
+                "fecha_aprobacion_ing",
+                "fecha_envio_obra",
+                "fecha_aprobacion_obra",
+                "fecha_envio_const",
+                "fecha_aprobacion_const",
+                "fecha_envio_final",
+                "fecha_aprobacion_final",
+            )
+            campos_limpios["fecha_envio_ing"] = now_mx()
+        elif propuesta["tipo_solicitante"] == "OBRA":
+            siguiente_estatus = EstatusBOM.EN_REVISION_CONST
+            campos_limpios = self._limpiar_fechas_flujo(
+                "fecha_aprobacion_obra",
+                "fecha_envio_const",
+                "fecha_aprobacion_const",
+                "fecha_envio_final",
+                "fecha_aprobacion_final",
+            )
+            campos_limpios["fecha_envio_const"] = now_mx()
+        else:
+            siguiente_estatus = EstatusBOM.EN_REVISION_FINAL
+            campos_limpios = self._limpiar_fechas_flujo(
+                "fecha_envio_final",
+                "fecha_aprobacion_final",
+            )
+            campos_limpios["fecha_envio_final"] = now_mx()
+
+        async with conn.transaction():
+            await self._aplicar_lineas_propuesta(conn, propuesta, lineas, user_id)
+            updated = await self.db.actualizar_propuesta_cambio_revision(
+                conn, id_propuesta, "APLICADA", user_id, comentario_revision
+            )
+            await self.db.update_bom_estatus(
+                conn, propuesta["id_bom"], siguiente_estatus, **campos_limpios
+            )
+        return updated
+
+    async def rechazar_propuesta_cambio(
+        self, conn, id_propuesta: UUID, user_id: UUID, user_role: str,
+        rol_org: Optional[str], comentario_revision: str
+    ) -> dict:
+        """Rechaza una propuesta pre-final sin aplicar cambios."""
+        comentario = (comentario_revision or "").strip()
+        if not comentario:
+            raise ValueError("El motivo de rechazo es obligatorio")
+        propuesta = await self.db.get_propuesta_cambio_by_id(conn, id_propuesta)
+        if not propuesta:
+            raise ValueError("Propuesta no encontrada")
+        if propuesta["estatus"] != "PENDIENTE_INGENIERIA":
+            raise ValueError("La propuesta no esta pendiente de Ingenieria")
+        await self._validar_aprobador_bom(
+            conn, user_id, user_role, rol_org,
+            propuesta.get("responsable_ing"), "Responsable de Ingenieria", "jefe_ingenieria"
+        )
+        return await self.db.actualizar_propuesta_cambio_revision(
+            conn, id_propuesta, "RECHAZADA", user_id, comentario
+        )
 
     async def editar_item(
         self, conn, id_item: UUID, user_id: UUID,
@@ -688,8 +1195,10 @@ class BomService:
                 raise ValueError("El BOM no esta en estado editable para ingenieria")
             campos_base = {k: v for k, v in campos.items() if k in CAMPOS_INGENIERIA}
             if 'precio_unitario' in campos_base and campos_base['precio_unitario'] is not None:
-                from decimal import Decimal as _D
-                if _D(str(campos_base['precio_unitario'])) < 0:
+                if self._decimal_o_error(
+                    campos_base['precio_unitario'],
+                    "El precio unitario no puede ser negativo",
+                ) < 0:
                     raise ValueError("El precio unitario no puede ser negativo")
             # Items de catalogo: remover campos protegidos
             if es_catalogo:
@@ -700,6 +1209,11 @@ class BomService:
         elif area_editor == 'construccion':
             if bom_estatus not in ESTATUS_EDITABLE_CONST_COMPRAS:
                 raise ValueError("El BOM no esta en estado editable para construccion")
+            if (
+                bom_estatus in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA
+                and any(k in CAMPOS_CONSTRUCCION_BASE for k in campos)
+            ):
+                raise ValueError(self._mensaje_propuesta_requerida())
             puede_actualizar_base_construccion = bom_estatus not in ESTATUS_BLOQUEADOS
             if puede_actualizar_base_construccion:
                 campos_base = {
@@ -714,9 +1228,14 @@ class BomService:
                 campos_ejecucion['comentarios_operativos'] = campos_ejecucion.pop('comentarios')
             # Recepcion parcial: auto-calcular entregado segun cantidad recibida
             if 'cantidad_recibida' in campos_ejecucion:
-                from decimal import Decimal
-                cant_recibida = Decimal(str(campos_ejecucion['cantidad_recibida']))
-                cant_total = Decimal(str(item['cantidad']))
+                cant_recibida = self._decimal_o_error(
+                    campos_ejecucion['cantidad_recibida'],
+                    "La cantidad recibida no puede ser negativa",
+                )
+                cant_total = self._decimal_o_error(
+                    item['cantidad'],
+                    "La cantidad total del item no es valida",
+                )
                 if cant_recibida < 0:
                     raise ValueError("La cantidad recibida no puede ser negativa")
                 if cant_recibida > cant_total:
@@ -763,8 +1282,10 @@ class BomService:
                 if k not in {'origen_precio'}
             }
             if 'precio_real' in campos_ejecucion and campos_ejecucion['precio_real'] is not None:
-                from decimal import Decimal as _D
-                if _D(str(campos_ejecucion['precio_real'])) < 0:
+                if self._decimal_o_error(
+                    campos_ejecucion['precio_real'],
+                    "El precio unitario no puede ser negativo",
+                ) < 0:
                     raise ValueError("El precio unitario no puede ser negativo")
                 campos_ejecucion.setdefault('estatus_ejecucion', 'COTIZADO')
         else:
@@ -895,7 +1416,15 @@ class BomService:
                     if es_grupos:
                         if EstatusBOM(item['bom_estatus']) == EstatusBOM.APROBADO_FINAL:
                             raise ValueError("El BOM aprobado final no permite cambiar grupos")
-                        await self.set_item_grupos(conn, id_item, user_id, grupo_ids)
+                        if (
+                            area_editor == "construccion"
+                            and EstatusBOM(item["bom_estatus"])
+                            in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA
+                        ):
+                            raise ValueError(self._mensaje_propuesta_requerida())
+                        await self.set_item_grupos(
+                            conn, id_item, user_id, grupo_ids, area_editor
+                        )
                     else:
                         await self.editar_item(conn, id_item, user_id, area_editor, **{campo: valor})
                     actualizados += 1
@@ -915,6 +1444,11 @@ class BomService:
         estatus = EstatusBOM(bom['estatus'])
         if estatus in ESTATUS_BLOQUEADOS:
             raise ValueError(f"El BOM esta en estado {estatus} y no permite modificaciones")
+        if (
+            area_editor == "construccion"
+            and estatus in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA
+        ):
+            raise ValueError(self._mensaje_propuesta_requerida())
 
         if area_editor == 'ingenieria':
             await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
@@ -947,6 +1481,7 @@ class BomService:
         if not items:
             return items
         grupos_map = await self.db.get_grupos_por_bom(conn, id_bom)
+        grupos_operativos_map = await self.db.get_grupos_operativos_por_bom(conn, id_bom)
 
         usd_ids = [
             item['id_item'] for item in items
@@ -975,6 +1510,7 @@ class BomService:
 
         for item in items:
             item['grupos'] = grupos_map.get(str(item['id_item']), [])
+            item['grupos_operativos'] = grupos_operativos_map.get(str(item['id_item']), [])
             moneda = item.get('moneda', 'MXN')
             moneda_real = item.get('moneda_real')
             if moneda == 'USD' and item.get('precio_unitario'):
@@ -1338,7 +1874,8 @@ class BomService:
         await self.db.update_bom_estatus(conn, id_bom, nuevo_estatus, **campos_limpios)
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.RECHAZO_CONST,
-            bom['version'], user_id, comentarios=comentarios
+            bom['version'], user_id, comentarios=comentarios,
+            destino_rechazo=destino_rechazo
         )
         logger.info(
             "BOM %s rechazado por const %s hacia %s: %s",
@@ -1587,20 +2124,36 @@ class BomService:
     # ─── GRUPOS BOM ─────────────────────────────────────────
 
     async def set_item_grupos(
-        self, conn, id_item: UUID, user_id: UUID, grupo_ids: List[int]
+        self, conn, id_item: UUID, user_id: UUID, grupo_ids: List[int],
+        area_editor: str = "ingenieria"
     ) -> None:
-        """Asigna grupos BOM a un item. Registra en historial."""
+        """Asigna grupos base u operativos a un item segun estado del BOM."""
         if not grupo_ids:
             raise ValueError("Selecciona al menos un grupo BOM")
         item = await self.db.get_item_by_id(conn, id_item)
         if not item:
             raise ValueError("Item no encontrado")
-        await self.db.set_item_grupos(conn, id_item, grupo_ids)
+        bom_estatus = EstatusBOM(item["bom_estatus"])
+        if bom_estatus == EstatusBOM.APROBADO_FINAL:
+            if area_editor != "construccion":
+                raise ValueError("Solo Construccion puede cambiar grupos operativos en aprobado final")
+            await self.db.set_item_grupos_operativos(conn, id_item, grupo_ids, user_id)
+            campo_modificado = "grupos_operativos"
+        else:
+            if area_editor not in {"ingenieria", "construccion"}:
+                raise ValueError("Sin permisos para asignar grupos BOM")
+            if (
+                area_editor == "construccion"
+                and bom_estatus in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA
+            ):
+                raise ValueError(self._mensaje_propuesta_requerida())
+            await self.db.set_item_grupos(conn, id_item, grupo_ids)
+            campo_modificado = "grupos_bom"
         await self.db.registrar_historial(
             conn, item['id_bom'], AccionHistorial.EDITADO,
             item['bom_version'], user_id,
             id_item=id_item,
-            campo_modificado='grupos_bom',
+            campo_modificado=campo_modificado,
             valor_nuevo=str(grupo_ids)
         )
 
@@ -2133,6 +2686,18 @@ class BomService:
             raise ValueError(
                 f"No se pueden cotizar items cerrados o reemplazados: {nombres}"
             )
+        items_adenda_pendiente = [
+            bi for bi in bom_items_batch
+            if bi.get("creado_en_adenda") and bi.get("adenda_estatus") != ESTATUS_ADENDA_APROBADA
+        ]
+        if items_adenda_pendiente:
+            nombres = ", ".join(
+                (bi.get("descripcion") or "Item sin descripcion")[:60]
+                for bi in items_adenda_pendiente[:3]
+            )
+            raise ValueError(
+                f"No se pueden cotizar items de adendas pendientes de aprobacion: {nombres}"
+            )
 
         # RFQ: sin validación de precios
         tiene_precios = any(
@@ -2253,6 +2818,18 @@ class BomService:
                 )
                 raise ValueError(
                     f"No se pueden seleccionar cotizaciones con items cerrados o reemplazados: {nombres}"
+                )
+            items_adenda_pendiente = [
+                i for i in bom_items
+                if i.get("creado_en_adenda") and i.get("adenda_estatus") != ESTATUS_ADENDA_APROBADA
+            ]
+            if items_adenda_pendiente:
+                nombres = ", ".join(
+                    (i.get("descripcion") or "Item sin descripcion")[:60]
+                    for i in items_adenda_pendiente[:3]
+                )
+                raise ValueError(
+                    f"No se pueden seleccionar cotizaciones con items de adendas pendientes: {nombres}"
                 )
 
         updated = await self.db.actualizar_estatus_cotizacion(conn, cotizacion_id, 'SELECCIONADA')

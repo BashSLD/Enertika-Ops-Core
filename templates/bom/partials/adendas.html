@@ -1,56 +1,136 @@
-{# Bitacora de adendas del BOM #}
-{% if adendas %}
-<div class="overflow-hidden rounded-lg border border-gray-200 bg-white">
-    <table class="min-w-full divide-y divide-gray-200 text-sm">
-        <thead class="bg-gray-50">
-            <tr>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500">Tipo</th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500">Motivo</th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500">Items</th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500">Registro</th>
-                <th class="px-3 py-2 text-center text-xs font-medium uppercase tracking-wide text-gray-500">Estado</th>
-            </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-100">
-            {% for adenda in adendas %}
-            {% set tipo_label = 'Reemplazo' if adenda.tipo_adenda == 'REEMPLAZO' else ('Fuera de alcance' if adenda.tipo_adenda == 'FUERA_SCOPE' else 'No adquirido') %}
-            <tr class="hover:bg-gray-50">
-                <td class="px-3 py-2">
+{# Workflow de adendas del BOM #}
+<div id="tab-adendas-content" class="space-y-3">
+    {% if adendas %}
+    {% for adenda in adendas %}
+    {% set tipo_label = 'Reemplazo' if adenda.tipo_adenda == 'REEMPLAZO' else ('Fuera de alcance' if adenda.tipo_adenda == 'FUERA_SCOPE' else 'No adquirido') %}
+    {% set estatus_label = adenda.estatus|replace('_', ' ') %}
+    {% set comentarios = comentarios_adendas.get(adenda.id_adenda|string, []) if comentarios_adendas else [] %}
+    <div class="rounded-lg border border-gray-200 bg-white">
+        <div class="flex flex-col gap-3 p-4 md:flex-row md:items-start md:justify-between">
+            <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2">
                     <span class="inline-flex rounded px-2 py-0.5 text-xs font-medium
                         {% if adenda.tipo_adenda == 'REEMPLAZO' %}bg-emerald-50 text-emerald-700
                         {% elif adenda.tipo_adenda == 'FUERA_SCOPE' %}bg-cyan-50 text-cyan-700
                         {% else %}bg-gray-100 text-gray-600{% endif %}">
                         {{ tipo_label }}
                     </span>
-                </td>
-                <td class="px-3 py-2 text-gray-700">
-                    <div class="max-w-md whitespace-normal">{{ adenda.motivo }}</div>
-                </td>
-                <td class="px-3 py-2 text-gray-600">
-                    <div class="max-w-sm truncate" title="{{ adenda.items_resumen or '' }}">
-                        {{ adenda.items_resumen or 'Sin items vinculados' }}
-                    </div>
-                    <div class="text-[11px] text-gray-400">{{ adenda.total_lineas or 0 }} linea{{ 's' if (adenda.total_lineas or 0) != 1 else '' }}</div>
-                </td>
-                <td class="px-3 py-2 text-gray-500">
-                    <div>{{ adenda.creado_por_nombre or 'Sistema' }}</div>
-                    <div class="text-[11px] text-gray-400">
-                        {{ adenda.created_at.strftime('%d/%m/%Y %H:%M') if adenda.created_at else '--' }}
-                    </div>
-                </td>
-                <td class="px-3 py-2 text-center">
-                    <span class="inline-flex rounded bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
-                        {{ adenda.estatus|replace('_', ' ') }}
+                    <span class="inline-flex rounded px-2 py-0.5 text-xs font-medium
+                        {% if adenda.estatus == 'APROBADA' %}bg-green-50 text-green-700
+                        {% elif adenda.estatus in ['RECHAZADA', 'CANCELADA'] %}bg-red-50 text-red-700
+                        {% elif adenda.estatus == 'PENDIENTE_INGENIERIA' %}bg-blue-50 text-blue-700
+                        {% else %}bg-amber-50 text-amber-700{% endif %}">
+                        {{ estatus_label }}
                     </span>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+                    {% if adenda.requiere_aprobacion_ingenieria %}
+                    <span class="inline-flex rounded bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                        Requiere Ingeniería
+                    </span>
+                    {% endif %}
+                </div>
+
+                <p class="mt-2 text-sm text-gray-700">{{ adenda.motivo }}</p>
+                <div class="mt-2 text-xs text-gray-500">
+                    <span>{{ adenda.items_resumen or 'Sin items vinculados' }}</span>
+                    <span class="mx-1 text-gray-300">|</span>
+                    <span>{{ adenda.total_lineas or 0 }} línea{{ 's' if (adenda.total_lineas or 0) != 1 else '' }}</span>
+                </div>
+                <div class="mt-1 text-[11px] text-gray-400">
+                    Registró {{ adenda.creado_por_nombre or 'Sistema' }}
+                    {% if adenda.created_at %}el {{ adenda.created_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}
+                </div>
+                {% if adenda.aprobado_construccion_por_nombre %}
+                <div class="mt-1 text-[11px] text-gray-500">
+                    Construcción: {{ adenda.aprobado_construccion_por_nombre }}
+                    {% if adenda.fecha_aprobacion_construccion %}· {{ adenda.fecha_aprobacion_construccion.strftime('%d/%m/%Y %H:%M') }}{% endif %}
+                </div>
+                {% endif %}
+                {% if adenda.aprobado_ingenieria_por_nombre %}
+                <div class="mt-1 text-[11px] text-gray-500">
+                    Ingeniería: {{ adenda.aprobado_ingenieria_por_nombre }}
+                    {% if adenda.fecha_aprobacion_ingenieria %}· {{ adenda.fecha_aprobacion_ingenieria.strftime('%d/%m/%Y %H:%M') }}{% endif %}
+                </div>
+                {% endif %}
+                {% if adenda.motivo_rechazo %}
+                <div class="mt-2 rounded border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    Rechazo: {{ adenda.motivo_rechazo }}
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="w-full shrink-0 space-y-2 md:w-72">
+                {% if adenda.estatus == 'PENDIENTE_CONSTRUCCION' and es_const_editor %}
+                <form hx-post="/bom/adendas/{{ adenda.id_adenda }}/aprobar-construccion"
+                    hx-target="#tab-adendas" hx-swap="innerHTML"
+                    class="rounded border border-emerald-100 bg-emerald-50 p-2">
+                    <label class="flex items-center gap-2 text-xs text-emerald-800">
+                        <input type="checkbox" name="requiere_ingenieria"
+                            class="rounded border-emerald-300 text-emerald-600">
+                        Requiere OK de Ingeniería
+                    </label>
+                    <button type="submit"
+                        class="mt-2 w-full rounded bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">
+                        Aprobar Construcción
+                    </button>
+                </form>
+                {% elif adenda.estatus == 'PENDIENTE_INGENIERIA' and es_ing_editor %}
+                <form hx-post="/bom/adendas/{{ adenda.id_adenda }}/aprobar-ingenieria"
+                    hx-target="#tab-adendas" hx-swap="innerHTML">
+                    <button type="submit"
+                        class="w-full rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
+                        Aprobar Ingeniería
+                    </button>
+                </form>
+                {% endif %}
+
+                {% if adenda.estatus in ['PENDIENTE_CONSTRUCCION', 'PENDIENTE_INGENIERIA'] and (es_const_editor or es_ing_editor) %}
+                <form hx-post="/bom/adendas/{{ adenda.id_adenda }}/rechazar"
+                    hx-target="#tab-adendas" hx-swap="innerHTML"
+                    class="space-y-1">
+                    <input type="text" name="motivo_rechazo" required
+                        class="w-full rounded border-gray-300 text-xs"
+                        placeholder="Motivo de rechazo">
+                    <button type="submit"
+                        class="w-full rounded border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50">
+                        Rechazar
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="border-t border-gray-100 bg-gray-50 px-4 py-3">
+            {% if comentarios %}
+            <div class="mb-3 space-y-2">
+                {% for comentario in comentarios %}
+                <div class="text-xs text-gray-600">
+                    <span class="font-medium text-gray-700">{{ comentario.creado_por_nombre or 'Sistema' }}:</span>
+                    <span>{{ comentario.comentario }}</span>
+                    {% if comentario.created_at %}
+                    <span class="text-gray-400">· {{ comentario.created_at.strftime('%d/%m/%Y %H:%M') }}</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            <form hx-post="/bom/adendas/{{ adenda.id_adenda }}/comentarios"
+                hx-target="#tab-adendas" hx-swap="innerHTML"
+                class="flex flex-col gap-2 sm:flex-row">
+                <input type="text" name="comentario" required
+                    class="min-w-0 flex-1 rounded border-gray-300 text-xs"
+                    placeholder="Agregar comentario">
+                <button type="submit"
+                    class="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-white">
+                    Comentar
+                </button>
+            </form>
+        </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="rounded-lg border border-dashed border-gray-300 bg-white px-4 py-8 text-center">
+        <p class="text-sm font-medium text-gray-500">Sin adendas registradas</p>
+        <p class="mt-1 text-xs text-gray-400">Los reemplazos, cierres sin compra y fuera de alcance aparecerán aquí.</p>
+    </div>
+    {% endif %}
 </div>
-{% else %}
-<div class="rounded-lg border border-dashed border-gray-300 bg-white px-4 py-8 text-center">
-    <p class="text-sm font-medium text-gray-500">Sin adendas registradas</p>
-    <p class="mt-1 text-xs text-gray-400">Los reemplazos, cierres sin compra y fuera de alcance apareceran aqui.</p>
-</div>
-{% endif %}

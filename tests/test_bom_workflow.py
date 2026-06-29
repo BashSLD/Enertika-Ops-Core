@@ -11,6 +11,17 @@ class FakeConn:
     pass
 
 
+class FakeTxConn:
+    def transaction(self):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
 class FakeWorkflowDB:
     def __init__(
         self,
@@ -56,9 +67,10 @@ class FakeWorkflowDB:
         return dict(self.bom)
 
     async def registrar_aprobacion(
-        self, conn, id_bom, tipo, version_bom, usuario_id, comentarios=None
+        self, conn, id_bom, tipo, version_bom, usuario_id, comentarios=None,
+        destino_rechazo=None
     ):
-        self.aprobaciones.append((tipo, usuario_id, comentarios))
+        self.aprobaciones.append((tipo, usuario_id, comentarios, destino_rechazo))
         return {}
 
 
@@ -243,6 +255,7 @@ async def test_rechazar_const_a_obra_vuelve_a_revision_obra():
     assert updated["fecha_envio_final"] is None
     assert updated["fecha_aprobacion_final"] is None
     assert db.aprobaciones[0][0] == TipoAprobacion.RECHAZO_CONST
+    assert db.aprobaciones[0][3] == "obra"
 
 
 @pytest.mark.asyncio
@@ -260,6 +273,7 @@ async def test_rechazar_const_a_ingenieria_vuelve_a_borrador():
     assert updated["estatus"] == EstatusBOM.BORRADOR.value
     assert all(updated[campo] is None for campo in FLUJO_FECHAS)
     assert db.aprobaciones[0][0] == TipoAprobacion.RECHAZO_CONST
+    assert db.aprobaciones[0][3] == "ingenieria"
 
 
 @pytest.mark.asyncio
@@ -398,3 +412,246 @@ def test_row_item_muestra_editar_operativo_en_aprobado_final_para_compras():
     )
 
     assert f"/bom/items/{item_id}/modal" in html
+
+
+def test_row_item_filtra_por_grupo_operativo_si_existe():
+    template = bom_templates.env.get_template("bom/partials/row_item.html")
+    item_id = uuid4()
+    item = {
+        "id_item": item_id,
+        "grupos": ["AC"],
+        "grupos_operativos": ["DC"],
+        "tipo_partida": "MATERIAL",
+        "entregado": False,
+        "bloqueado": False,
+        "orden": 1,
+        "categoria_nombre": "Material",
+        "id_item_origen": None,
+        "descripcion": "Panel solar",
+        "comentarios": None,
+        "cantidad": 1,
+        "unidad_medida": "pz",
+        "precio_unitario": 100,
+        "precio_real": None,
+        "moneda": "MXN",
+        "moneda_real": None,
+        "origen_precio": "MANUAL",
+        "importe": 100,
+        "importe_real": None,
+        "costo_mxn": None,
+        "costo_real_mxn": None,
+        "gasto_real": None,
+        "fecha_requerida": None,
+        "estatus_compra": "SIN_COTIZAR",
+        "proveedor_nombre": None,
+        "tipo_entrega": None,
+        "fecha_estimada_entrega": None,
+        "fecha_llegada_real": None,
+        "cantidad_recibida": 0,
+    }
+
+    html = template.render(
+        item=item,
+        bom={"estatus": EstatusBOM.APROBADO_FINAL.value},
+        area_editor="construccion",
+        puede_gestionar_bom_ingenieria=False,
+    )
+
+    assert 'data-grupos="DC"' in html
+
+
+def test_adendas_template_renderiza_acciones_workflow():
+    template = bom_templates.env.get_template("bom/partials/adendas.html")
+    adenda_id = uuid4()
+
+    html = template.render(
+        bom={"estatus": EstatusBOM.APROBADO_FINAL.value},
+        adendas=[
+            {
+                "id_adenda": adenda_id,
+                "tipo_adenda": "REEMPLAZO",
+                "estatus": "PENDIENTE_CONSTRUCCION",
+                "motivo": "Cambio por disponibilidad",
+                "items_resumen": "Modulo FV",
+                "total_lineas": 1,
+                "creado_por_nombre": "Compras",
+                "created_at": None,
+                "requiere_aprobacion_ingenieria": False,
+                "aprobado_construccion_por_nombre": None,
+                "aprobado_ingenieria_por_nombre": None,
+                "motivo_rechazo": None,
+            }
+        ],
+        comentarios_adendas={str(adenda_id): []},
+        es_const_editor=True,
+        es_ing_editor=False,
+    )
+
+    assert "Aprobar Construcción" in html
+    assert f"/bom/adendas/{adenda_id}/aprobar-construccion" in html
+
+
+class FakePropuestaDB:
+    def __init__(self, bom):
+        self.bom = dict(bom)
+        self.propuestas = []
+        self.items = []
+        self.historial = []
+
+    async def get_bom_by_id(self, conn, id_bom):
+        return dict(self.bom) if self.bom["id_bom"] == id_bom else None
+
+    async def crear_propuesta_cambio(
+        self, conn, id_bom, tipo_solicitante, motivo, lineas, creado_por
+    ):
+        propuesta = {
+            "id_propuesta": uuid4(),
+            "id_bom": id_bom,
+            "tipo_solicitante": tipo_solicitante,
+            "motivo": motivo,
+            "lineas": list(lineas),
+            "creado_por": creado_por,
+            "estatus": "PENDIENTE_INGENIERIA",
+            "bom_version": self.bom["version"],
+            "bom_estatus": self.bom["estatus"],
+            "responsable_ing": self.bom.get("responsable_ing"),
+        }
+        self.propuestas.append(propuesta)
+        return dict(propuesta)
+
+    async def get_propuesta_cambio_by_id(self, conn, id_propuesta):
+        for propuesta in self.propuestas:
+            if propuesta["id_propuesta"] == id_propuesta:
+                return dict(propuesta)
+        return None
+
+    async def get_next_orden(self, conn, id_bom):
+        return len(self.items) + 1
+
+    async def agregar_item(self, conn, id_bom, descripcion, cantidad, **kwargs):
+        item = {
+            "id_item": uuid4(),
+            "id_bom": id_bom,
+            "descripcion": descripcion,
+            "cantidad": cantidad,
+            **kwargs,
+        }
+        self.items.append(item)
+        return dict(item)
+
+    async def set_item_grupos(self, conn, id_item, grupo_ids):
+        for item in self.items:
+            if item["id_item"] == id_item:
+                item["grupo_ids"] = list(grupo_ids)
+
+    async def registrar_historial(self, *args, **kwargs):
+        self.historial.append((args, kwargs))
+
+    async def actualizar_propuesta_cambio_revision(
+        self, conn, id_propuesta, estatus, revisado_por, comentario_revision=None
+    ):
+        propuesta = await self.get_propuesta_cambio_by_id(conn, id_propuesta)
+        propuesta["estatus"] = estatus
+        propuesta["revisado_por"] = revisado_por
+        for idx, actual in enumerate(self.propuestas):
+            if actual["id_propuesta"] == id_propuesta:
+                self.propuestas[idx].update(propuesta)
+        return propuesta
+
+    async def update_bom_estatus(self, conn, id_bom, estatus, **kwargs):
+        self.bom["estatus"] = estatus.value if hasattr(estatus, "value") else estatus
+        self.bom.update(kwargs)
+        return dict(self.bom)
+
+
+@pytest.mark.asyncio
+async def test_crear_propuesta_cambio_no_muta_items():
+    bom = _base_bom(estatus=EstatusBOM.EN_REVISION_CONST.value)
+    db = FakePropuestaDB(bom)
+    service = _service(db)
+
+    propuesta = await service.crear_propuesta_cambio(
+        FakeConn(),
+        bom["id_bom"],
+        uuid4(),
+        "CONSTRUCCION",
+        "Ajuste menor",
+        [{"accion": "AGREGAR", "datos": {"descripcion": "Canalizacion", "cantidad": 1}}],
+        "ADMIN",
+    )
+
+    assert propuesta["estatus"] == "PENDIENTE_INGENIERIA"
+    assert db.items == []
+
+
+@pytest.mark.asyncio
+async def test_aprobar_propuesta_obra_aplica_y_vuelve_a_construccion():
+    bom = _base_bom(estatus=EstatusBOM.EN_REVISION_OBRA.value)
+    user_id = uuid4()
+    db = FakePropuestaDB(bom)
+    service = _service(db)
+    propuesta = await service.crear_propuesta_cambio(
+        FakeConn(),
+        bom["id_bom"],
+        uuid4(),
+        "OBRA",
+        "Agregar material de montaje",
+        [
+            {
+                "accion": "AGREGAR",
+                "datos": {"descripcion": "Abrazadera", "cantidad": 2},
+                "grupo_ids": [1],
+            }
+        ],
+        "ADMIN",
+    )
+
+    await service.aprobar_propuesta_cambio(
+        FakeTxConn(), propuesta["id_propuesta"], user_id, "ADMIN"
+    )
+
+    assert len(db.items) == 1
+    assert db.items[0]["descripcion"] == "Abrazadera"
+    assert db.items[0]["grupo_ids"] == [1]
+    assert db.propuestas[0]["estatus"] == "APLICADA"
+    assert db.bom["estatus"] == EstatusBOM.EN_REVISION_CONST.value
+
+
+@pytest.mark.asyncio
+async def test_crear_propuesta_bloquea_tipo_que_no_corresponde_al_estado():
+    bom = _base_bom(estatus=EstatusBOM.EN_REVISION_OBRA.value)
+    db = FakePropuestaDB(bom)
+    service = _service(db)
+
+    with pytest.raises(ValueError, match="no corresponde al estado actual"):
+        await service.crear_propuesta_cambio(
+            FakeConn(),
+            bom["id_bom"],
+            uuid4(),
+            "CONSTRUCCION",
+            "Intento invalido",
+            [{"accion": "AGREGAR", "datos": {"descripcion": "Canalizacion", "cantidad": 1}}],
+            "ADMIN",
+        )
+
+    assert db.propuestas == []
+
+
+@pytest.mark.asyncio
+async def test_crear_propuesta_bloquea_estado_fuera_de_revision_obra_const():
+    bom = _base_bom(estatus=EstatusBOM.APROBADO_CONST.value)
+    db = FakePropuestaDB(bom)
+    service = _service(db)
+
+    with pytest.raises(ValueError, match="revision de Obra o Construccion"):
+        await service.crear_propuesta_cambio(
+            FakeConn(),
+            bom["id_bom"],
+            uuid4(),
+            "CONSTRUCCION",
+            "Intento tardio",
+            [{"accion": "AGREGAR", "datos": {"descripcion": "Canalizacion", "cantidad": 1}}],
+            "ADMIN",
+        )
+
+    assert db.propuestas == []

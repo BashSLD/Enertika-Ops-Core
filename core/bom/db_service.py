@@ -4,6 +4,7 @@ Queries SQL puras con asyncpg. Recibe conn como parametro.
 """
 
 import logging
+import json
 from uuid import UUID
 from typing import Optional, List
 
@@ -328,9 +329,12 @@ class BomDBService:
             SELECT i.id_item, i.descripcion, i.cantidad, i.moneda,
                    i.estatus_compra, i.activo, i.precio_unitario, i.origen_precio,
                    COALESCE(i.tipo_origen_item, 'BASE') AS tipo_origen_item,
-                   i.id_item_reemplazado, er.estatus_ejecucion
+                   i.id_item_reemplazado, i.creado_en_adenda,
+                   a.estatus AS adenda_estatus,
+                   er.estatus_ejecucion
             FROM tb_bom_items i
             LEFT JOIN tb_bom_item_ejecucion er ON er.id_item = i.id_item
+            LEFT JOIN tb_bom_adendas a ON a.id_adenda = i.creado_en_adenda
             WHERE i.id_item = ANY($1::uuid[]) AND i.activo = TRUE
         """, item_ids)
         return [dict(r) for r in rows]
@@ -477,50 +481,310 @@ class BomDBService:
 
     async def crear_adenda(
         self, conn, id_bom_base: UUID, tipo_adenda: str,
-        motivo: str, creado_por: UUID
+        motivo: str, creado_por: UUID,
+        estatus: str = "PENDIENTE_CONSTRUCCION",
     ) -> dict:
         """Crea el encabezado de una adenda operativa del BOM."""
         row = await conn.fetchrow("""
-            INSERT INTO tb_bom_adendas (id_bom_base, tipo_adenda, motivo, creado_por)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO tb_bom_adendas (
+                id_bom_base, tipo_adenda, motivo, estatus,
+                creado_por, enviado_construccion_por, fecha_envio_construccion
+            )
+            VALUES ($1, $2, $3, $4, $5, $5, NOW())
             RETURNING *
-        """, id_bom_base, tipo_adenda, motivo, creado_por)
+        """, id_bom_base, tipo_adenda, motivo, estatus, creado_por)
         return dict(row)
 
     async def registrar_adenda_item(
         self, conn, id_adenda: UUID, tipo_linea: str, motivo: str,
         id_item_origen: Optional[UUID] = None,
         id_item_bom: Optional[UUID] = None,
+        datos_item: Optional[dict] = None,
+        grupo_ids: Optional[List[int]] = None,
     ) -> dict:
         """Registra la relacion entre adenda, item origen e item generado."""
         row = await conn.fetchrow("""
             INSERT INTO tb_bom_adenda_items
-                (id_adenda, id_item_origen, id_item_bom, tipo_linea, motivo)
-            VALUES ($1, $2, $3, $4, $5)
+                (id_adenda, id_item_origen, id_item_bom, tipo_linea, motivo,
+                 datos_item, grupo_ids)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::integer[])
             RETURNING *
-        """, id_adenda, id_item_origen, id_item_bom, tipo_linea, motivo)
+        """, id_adenda, id_item_origen, id_item_bom, tipo_linea, motivo,
+             json.dumps(datos_item or {}), grupo_ids or [])
         return dict(row)
+
+    async def get_adenda_by_id(self, conn, id_adenda: UUID) -> Optional[dict]:
+        """Obtiene una adenda con contexto de BOM para validaciones."""
+        row = await conn.fetchrow("""
+            SELECT a.*,
+                   b.id_bom AS id_bom,
+                   b.id_proyecto,
+                   b.version AS bom_version,
+                   b.estatus AS bom_estatus,
+                   b.elaborado_por,
+                   b.responsable_ing,
+                   b.coordinador_obra,
+                   b.jefe_construccion
+            FROM tb_bom_adendas a
+            JOIN tb_bom b ON b.id_bom = a.id_bom_base
+            WHERE a.id_adenda = $1
+        """, id_adenda)
+        return dict(row) if row else None
+
+    async def get_adenda_items(self, conn, id_adenda: UUID) -> List[dict]:
+        """Lista lineas propuestas o aplicadas de una adenda."""
+        rows = await conn.fetch("""
+            SELECT ai.*,
+                   origen.descripcion AS origen_descripcion,
+                   item.descripcion AS item_bom_descripcion
+            FROM tb_bom_adenda_items ai
+            LEFT JOIN tb_bom_items origen ON origen.id_item = ai.id_item_origen
+            LEFT JOIN tb_bom_items item ON item.id_item = ai.id_item_bom
+            WHERE ai.id_adenda = $1
+            ORDER BY ai.created_at, ai.id_adenda_item
+        """, id_adenda)
+        return [dict(r) for r in rows]
+
+    async def marcar_adenda_construccion(
+        self, conn, id_adenda: UUID, user_id: UUID, requiere_ingenieria: bool
+    ) -> dict:
+        """Registra aprobacion de Construccion y deja la adenda en el siguiente paso."""
+        siguiente = "PENDIENTE_INGENIERIA" if requiere_ingenieria else "APROBADA"
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_adendas
+            SET estatus = $3,
+                requiere_aprobacion_ingenieria = $4,
+                aprobado_construccion_por = $2,
+                fecha_aprobacion_construccion = NOW(),
+                updated_at = NOW()
+            WHERE id_adenda = $1
+            RETURNING *
+        """, id_adenda, user_id, siguiente, requiere_ingenieria)
+        return dict(row) if row else None
+
+    async def aprobar_adenda_ingenieria(
+        self, conn, id_adenda: UUID, user_id: UUID
+    ) -> dict:
+        """Registra aprobacion tecnica de Ingenieria y marca la adenda aprobada."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_adendas
+            SET estatus = 'APROBADA',
+                aprobado_ingenieria_por = $2,
+                fecha_aprobacion_ingenieria = NOW(),
+                updated_at = NOW()
+            WHERE id_adenda = $1
+            RETURNING *
+        """, id_adenda, user_id)
+        return dict(row) if row else None
+
+    async def rechazar_adenda(
+        self, conn, id_adenda: UUID, user_id: UUID, motivo_rechazo: str
+    ) -> dict:
+        """Rechaza una adenda pendiente sin aplicar cambios al BOM."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_adendas
+            SET estatus = 'RECHAZADA',
+                rechazado_por = $2,
+                fecha_rechazo = NOW(),
+                motivo_rechazo = $3,
+                updated_at = NOW()
+            WHERE id_adenda = $1
+            RETURNING *
+        """, id_adenda, user_id, motivo_rechazo)
+        return dict(row) if row else None
+
+    async def vincular_adenda_item_bom(
+        self, conn, id_adenda_item: UUID, id_item_bom: UUID
+    ) -> dict:
+        """Vincula una linea de adenda con el item creado al aprobar."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_adenda_items
+            SET id_item_bom = $2,
+                updated_at = NOW()
+            WHERE id_adenda_item = $1
+            RETURNING *
+        """, id_adenda_item, id_item_bom)
+        return dict(row) if row else None
+
+    async def registrar_adenda_comentario(
+        self, conn, id_adenda: UUID, comentario: str, creado_por: UUID
+    ) -> dict:
+        """Agrega un comentario a una adenda."""
+        row = await conn.fetchrow("""
+            INSERT INTO tb_bom_adenda_comentarios (id_adenda, comentario, creado_por)
+            VALUES ($1, $2, $3)
+            RETURNING *
+        """, id_adenda, comentario, creado_por)
+        return dict(row)
+
+    async def get_adenda_comentarios(self, conn, id_adenda: UUID) -> List[dict]:
+        """Lista comentarios de una adenda."""
+        rows = await conn.fetch("""
+            SELECT c.*,
+                   u.nombre AS creado_por_nombre
+            FROM tb_bom_adenda_comentarios c
+            LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
+            WHERE c.id_adenda = $1
+            ORDER BY c.created_at ASC
+        """, id_adenda)
+        return [dict(r) for r in rows]
+
+    async def get_adenda_comentarios_by_bom(self, conn, id_bom: UUID) -> dict:
+        """Lista comentarios de todas las adendas de un BOM agrupados por adenda."""
+        rows = await conn.fetch("""
+            SELECT c.*,
+                   u.nombre AS creado_por_nombre
+            FROM tb_bom_adenda_comentarios c
+            JOIN tb_bom_adendas a ON a.id_adenda = c.id_adenda
+            LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
+            WHERE a.id_bom_base = $1
+            ORDER BY c.created_at ASC
+        """, id_bom)
+        result: dict = {}
+        for row in rows:
+            data = dict(row)
+            result.setdefault(str(data["id_adenda"]), []).append(data)
+        return result
+
+    async def get_item_compra_bloqueante(self, conn, id_item: UUID) -> dict:
+        """Indica si un item ya tiene cotizacion seleccionada o autorizacion activa."""
+        row = await conn.fetchrow("""
+            SELECT
+                EXISTS (
+                    SELECT 1
+                    FROM tb_bom_cotizacion_items ci
+                    JOIN tb_bom_cotizaciones c ON c.id = ci.cotizacion_id
+                    WHERE ci.bom_item_id = $1
+                      AND c.estatus = 'SELECCIONADA'
+                ) AS tiene_cotizacion_seleccionada,
+                EXISTS (
+                    SELECT 1
+                    FROM tb_bom_cotizacion_items ci
+                    JOIN tb_bom_autorizaciones a ON a.cotizacion_id = ci.cotizacion_id
+                    WHERE ci.bom_item_id = $1
+                      AND a.estatus IN (
+                          'PENDIENTE',
+                          'AUTORIZADO_OBRA',
+                          'AUTORIZADO_DIRECCION',
+                          'AUTORIZADO_FINANZAS'
+                      )
+                ) AS tiene_autorizacion_activa
+        """, id_item)
+        return dict(row) if row else {
+            "tiene_cotizacion_seleccionada": False,
+            "tiene_autorizacion_activa": False,
+        }
+
+    async def crear_propuesta_cambio(
+        self, conn, id_bom: UUID, tipo_solicitante: str,
+        motivo: str, lineas: list, creado_por: UUID
+    ) -> dict:
+        """Crea una propuesta de cambio pre-final pendiente de Ingenieria."""
+        row = await conn.fetchrow("""
+            INSERT INTO tb_bom_propuestas_cambio
+                (id_bom, tipo_solicitante, motivo, lineas, creado_por)
+            VALUES ($1, $2, $3, $4::jsonb, $5)
+            RETURNING *
+        """, id_bom, tipo_solicitante, motivo, json.dumps(lineas or []), creado_por)
+        return dict(row)
+
+    async def get_propuesta_cambio_by_id(
+        self, conn, id_propuesta: UUID
+    ) -> Optional[dict]:
+        """Obtiene una propuesta con contexto del BOM."""
+        row = await conn.fetchrow("""
+            SELECT p.*,
+                   b.id_proyecto,
+                   b.version AS bom_version,
+                   b.estatus AS bom_estatus,
+                   b.elaborado_por,
+                   b.responsable_ing,
+                   b.coordinador_obra,
+                   b.jefe_construccion
+            FROM tb_bom_propuestas_cambio p
+            JOIN tb_bom b ON b.id_bom = p.id_bom
+            WHERE p.id_propuesta = $1
+        """, id_propuesta)
+        if not row:
+            return None
+        data = dict(row)
+        if isinstance(data.get("lineas"), str):
+            data["lineas"] = json.loads(data["lineas"] or "[]")
+        return data
+
+    async def get_propuestas_cambio_by_bom(self, conn, id_bom: UUID) -> List[dict]:
+        """Lista propuestas de cambio pre-final de un BOM."""
+        rows = await conn.fetch("""
+            SELECT p.*,
+                   u.nombre AS creado_por_nombre,
+                   r.nombre AS revisado_por_nombre
+            FROM tb_bom_propuestas_cambio p
+            LEFT JOIN tb_usuarios u ON u.id_usuario = p.creado_por
+            LEFT JOIN tb_usuarios r ON r.id_usuario = p.revisado_por
+            WHERE p.id_bom = $1
+            ORDER BY p.created_at DESC
+        """, id_bom)
+        result = []
+        for row in rows:
+            data = dict(row)
+            if isinstance(data.get("lineas"), str):
+                data["lineas"] = json.loads(data["lineas"] or "[]")
+            result.append(data)
+        return result
+
+    async def actualizar_propuesta_cambio_revision(
+        self, conn, id_propuesta: UUID, estatus: str, revisado_por: UUID,
+        comentario_revision: Optional[str] = None
+    ) -> dict:
+        """Marca una propuesta como revisada."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_propuestas_cambio
+            SET estatus = $2,
+                revisado_por = $3,
+                fecha_revision = NOW(),
+                comentario_revision = $4,
+                updated_at = NOW()
+            WHERE id_propuesta = $1
+            RETURNING *
+        """, id_propuesta, estatus, revisado_por, comentario_revision)
+        return dict(row) if row else None
 
     async def get_adendas_by_bom(self, conn, id_bom: UUID) -> List[dict]:
         """Lista adendas del BOM con resumen de lineas afectadas."""
         rows = await conn.fetch("""
             SELECT a.*,
                    u.nombre AS creado_por_nombre,
+                   uc.nombre AS aprobado_construccion_por_nombre,
+                   ui.nombre AS aprobado_ingenieria_por_nombre,
+                   ur.nombre AS rechazado_por_nombre,
                    COUNT(ai.id_adenda_item) AS total_lineas,
                    COALESCE(
                        string_agg(
-                           DISTINCT COALESCE(item.descripcion, origen.descripcion),
+                           DISTINCT COALESCE(
+                               item.descripcion,
+                               origen.descripcion,
+                               ai.datos_item->>'descripcion'
+                           ),
                            ', '
-                       ) FILTER (WHERE COALESCE(item.descripcion, origen.descripcion) IS NOT NULL),
+                       ) FILTER (
+                           WHERE COALESCE(
+                               item.descripcion,
+                               origen.descripcion,
+                               ai.datos_item->>'descripcion'
+                           ) IS NOT NULL
+                       ),
                        ''
                    ) AS items_resumen
             FROM tb_bom_adendas a
             LEFT JOIN tb_usuarios u ON u.id_usuario = a.creado_por
+            LEFT JOIN tb_usuarios uc ON uc.id_usuario = a.aprobado_construccion_por
+            LEFT JOIN tb_usuarios ui ON ui.id_usuario = a.aprobado_ingenieria_por
+            LEFT JOIN tb_usuarios ur ON ur.id_usuario = a.rechazado_por
             LEFT JOIN tb_bom_adenda_items ai ON ai.id_adenda = a.id_adenda
             LEFT JOIN tb_bom_items origen ON origen.id_item = ai.id_item_origen
             LEFT JOIN tb_bom_items item ON item.id_item = ai.id_item_bom
             WHERE a.id_bom_base = $1
-            GROUP BY a.id_adenda, u.nombre
+            GROUP BY a.id_adenda, u.nombre, uc.nombre, ui.nombre, ur.nombre
             ORDER BY a.created_at DESC
         """, id_bom)
         return [dict(r) for r in rows]
@@ -563,21 +827,24 @@ class BomDBService:
 
     async def registrar_aprobacion(
         self, conn, id_bom: UUID, tipo: str, version_bom: int,
-        usuario_id: UUID, comentarios: Optional[str] = None
+        usuario_id: UUID, comentarios: Optional[str] = None,
+        destino_rechazo: Optional[str] = None,
     ) -> dict:
         """Registra una accion de aprobacion/rechazo."""
         row = await conn.fetchrow("""
             INSERT INTO tb_bom_aprobaciones (id_bom, tipo, version_bom,
-                                             usuario_id, comentarios)
-            VALUES ($1, $2, $3, $4, $5)
+                                             usuario_id, comentarios,
+                                             destino_rechazo)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-        """, id_bom, tipo, version_bom, usuario_id, comentarios)
+        """, id_bom, tipo, version_bom, usuario_id, comentarios, destino_rechazo)
         return dict(row)
 
     async def get_aprobaciones_by_bom(self, conn, id_bom: UUID) -> List[dict]:
         """Lista aprobaciones/rechazos de un BOM."""
         rows = await conn.fetch("""
-            SELECT a.id, a.id_bom, a.tipo, a.version_bom, a.usuario_id, a.comentarios,
+            SELECT a.id, a.id_bom, a.tipo, a.version_bom, a.usuario_id,
+                   a.comentarios, a.destino_rechazo,
                    a.created_at AT TIME ZONE 'America/Mexico_City' AS created_at,
                    u.nombre AS usuario_nombre
             FROM tb_bom_aprobaciones a
@@ -590,7 +857,7 @@ class BomDBService:
     async def get_ultimo_rechazo(self, conn, id_bom: UUID) -> Optional[dict]:
         """Obtiene el ultimo rechazo/devolucion del BOM."""
         row = await conn.fetchrow("""
-            SELECT a.tipo, a.comentarios,
+            SELECT a.tipo, a.comentarios, a.destino_rechazo,
                    a.created_at AT TIME ZONE 'America/Mexico_City' AS created_at,
                    u.nombre AS rechazado_por
             FROM tb_bom_aprobaciones a
@@ -1031,6 +1298,18 @@ class BomDBService:
         """, id_item)
         return [r['codigo'] for r in rows]
 
+    async def get_grupos_operativos_por_item(self, conn, id_item: UUID) -> List[str]:
+        """Retorna lista de codigos de grupos operativos para un item."""
+        rows = await conn.fetch("""
+            SELECT g.codigo
+            FROM tb_bom_item_grupos_operativos ig
+            JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo
+            WHERE ig.id_item = $1
+              AND g.activo = TRUE
+            ORDER BY g.orden ASC
+        """, id_item)
+        return [r['codigo'] for r in rows]
+
     async def get_grupos_por_bom(self, conn, id_bom: UUID) -> dict:
         """Retorna mapa {id_item: [codigo, ...]} para todos los items del BOM. Previene N+1."""
         rows = await conn.fetch("""
@@ -1039,6 +1318,25 @@ class BomDBService:
             JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo
             JOIN tb_bom_items i ON i.id_item = ig.id_item
             WHERE i.id_bom = $1 AND i.activo = TRUE
+            ORDER BY g.orden ASC
+        """, id_bom)
+        result: dict = {}
+        for r in rows:
+            key = str(r['id_item'])
+            result.setdefault(key, [])
+            result[key].append(r['codigo'])
+        return result
+
+    async def get_grupos_operativos_por_bom(self, conn, id_bom: UUID) -> dict:
+        """Retorna mapa {id_item: [codigo, ...]} de grupos operativos."""
+        rows = await conn.fetch("""
+            SELECT ig.id_item, g.codigo
+            FROM tb_bom_item_grupos_operativos ig
+            JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo
+            JOIN tb_bom_items i ON i.id_item = ig.id_item
+            WHERE i.id_bom = $1
+              AND i.activo = TRUE
+              AND g.activo = TRUE
             ORDER BY g.orden ASC
         """, id_bom)
         result: dict = {}
@@ -1059,6 +1357,24 @@ class BomDBService:
                     "INSERT INTO tb_bom_item_grupos (id_item, id_grupo) VALUES ($1, $2) ON CONFLICT DO NOTHING",
                     id_item, gid
                 )
+
+    async def set_item_grupos_operativos(
+        self, conn, id_item: UUID, grupo_ids: List[int], user_id: Optional[UUID] = None
+    ) -> None:
+        """Reemplaza todos los grupos operativos de un item."""
+        await conn.execute(
+            "DELETE FROM tb_bom_item_grupos_operativos WHERE id_item = $1", id_item
+        )
+        if grupo_ids:
+            await conn.executemany("""
+                    INSERT INTO tb_bom_item_grupos_operativos
+                        (id_item, id_grupo, created_by)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (id_item, id_grupo) DO UPDATE
+                    SET created_by = EXCLUDED.created_by
+                """,
+                [(id_item, gid, user_id) for gid in grupo_ids],
+            )
 
     # ─── SUPLENCIAS ─────────────────────────────────────────
 
@@ -1720,7 +2036,19 @@ class BomDBService:
                 LEFT JOIN tb_bom_item_ejecucion er ON er.id_item = i.id_item
                 WHERE i.id_bom = $1 AND i.activo = TRUE
             ),
-            item_grupos AS (
+            grupos_base_raw AS (
+                SELECT ig.id_item, g.id, g.codigo, g.nombre, g.orden
+                FROM tb_bom_item_grupos ig
+                JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo
+                WHERE g.activo = TRUE
+            ),
+            grupos_operativos_raw AS (
+                SELECT ig.id_item, g.id, g.codigo, g.nombre, g.orden
+                FROM tb_bom_item_grupos_operativos ig
+                JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo
+                WHERE g.activo = TRUE
+            ),
+            item_grupos_base AS (
                 SELECT ib.id_item,
                        ib.id_item_origen,
                        ib.id_categoria AS categoria_id,
@@ -1739,12 +2067,35 @@ class BomDBService:
                        ib.tipo_origen_item,
                        ib.estatus_ejecucion
                 FROM items_base ib
-                LEFT JOIN (
-                    SELECT ig.id_item, g.id, g.codigo, g.nombre, g.orden
-                    FROM tb_bom_item_grupos ig
-                    JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo
-                    WHERE g.activo = TRUE
-                ) g ON g.id_item = ib.id_item
+                LEFT JOIN grupos_base_raw g ON g.id_item = ib.id_item
+            ),
+            item_grupos_operativos AS (
+                SELECT ib.id_item,
+                       ib.id_item_origen,
+                       ib.id_categoria AS categoria_id,
+                       COALESCE(ib.categoria_nombre, 'Sin categoria') AS categoria_nombre,
+                       COALESCE(go.codigo, gb.codigo, ib.seccion_bom, 'SIN_CLASIFICAR') AS grupo_codigo,
+                       COALESCE(go.nombre, gb.nombre, ib.seccion_bom, 'Sin clasificar') AS grupo_nombre,
+                       COALESCE(go.orden, gb.orden, 999) AS grupo_orden,
+                       CASE
+                         WHEN COUNT(COALESCE(go.id, gb.id)) OVER (PARTITION BY ib.id_item) > 0
+                         THEN 1.0 / COUNT(COALESCE(go.id, gb.id)) OVER (PARTITION BY ib.id_item)
+                         ELSE 1.0
+                       END AS peso_grupo,
+                       ib.cantidad,
+                       ib.precio_unitario,
+                       ib.precio_real,
+                       ib.tipo_origen_item,
+                       ib.estatus_ejecucion
+                FROM items_base ib
+                LEFT JOIN grupos_operativos_raw go ON go.id_item = ib.id_item
+                LEFT JOIN grupos_base_raw gb
+                    ON gb.id_item = ib.id_item
+                   AND NOT EXISTS (
+                       SELECT 1
+                       FROM grupos_operativos_raw go_exists
+                       WHERE go_exists.id_item = ib.id_item
+                   )
             ),
             item_targets AS (
                 SELECT id_item AS current_id, id_item AS target_id
@@ -1762,7 +2113,7 @@ class BomDBService:
                                 THEN cantidad * precio_unitario * peso_grupo
                                 ELSE 0 END
                        ) AS presupuesto_mxn
-                FROM item_grupos
+                FROM item_grupos_base
                 GROUP BY grupo_codigo, grupo_nombre, grupo_orden, categoria_id, categoria_nombre
             ),
             compra_real AS (
@@ -1790,14 +2141,14 @@ class BomDBService:
                                 THEN cantidad * precio_unitario * peso_grupo
                                 ELSE 0 END
                        ) AS no_adquirido_mxn
-                FROM item_grupos
+                FROM item_grupos_operativos
                 GROUP BY grupo_codigo, grupo_nombre, grupo_orden, categoria_id, categoria_nombre
             ),
             facturado_confirmado AS (
                 SELECT ig.grupo_codigo, ig.grupo_nombre, ig.grupo_orden,
                        ig.categoria_id, ig.categoria_nombre,
                        SUM(m.importe * COALESCE(m.tipo_cambio_xml, 1) * ig.peso_grupo) AS facturado_confirmado_mxn
-                FROM item_grupos ig
+                FROM item_grupos_operativos ig
                 JOIN item_targets it ON it.current_id = ig.id_item
                 JOIN tb_materiales_historial m ON m.id_bom_item = it.target_id
                 GROUP BY ig.grupo_codigo, ig.grupo_nombre, ig.grupo_orden, ig.categoria_id, ig.categoria_nombre
@@ -1806,7 +2157,7 @@ class BomDBService:
                 SELECT ig.grupo_codigo, ig.grupo_nombre, ig.grupo_orden,
                        ig.categoria_id, ig.categoria_nombre,
                        SUM(m.importe * COALESCE(m.tipo_cambio_xml, 1) * ig.peso_grupo) AS facturado_sugerido_mxn
-                FROM item_grupos ig
+                FROM item_grupos_operativos ig
                 JOIN item_targets it ON it.current_id = ig.id_item
                 JOIN tb_materiales_historial m ON m.id_bom_item_sugerido = it.target_id
                 WHERE m.id_bom_item IS NULL
@@ -1828,7 +2179,7 @@ class BomDBService:
                        ig.categoria_id, ig.categoria_nombre, ig.peso_grupo
                 FROM tb_bom_autorizaciones a
                 JOIN tb_bom_cotizacion_items ci ON ci.cotizacion_id = a.cotizacion_id
-                JOIN item_grupos ig ON ig.id_item = ci.bom_item_id
+                JOIN item_grupos_operativos ig ON ig.id_item = ci.bom_item_id
                 WHERE a.bom_id = $1
             ),
             pago_por_auth AS (

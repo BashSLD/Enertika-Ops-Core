@@ -220,9 +220,9 @@
     {% endif %}
 
     {# Boton agregar item — permitido en todos los estados menos CANCELADO y APROBADO_FINAL #}
-    {% set puede_agregar_item = area_editor == 'construccion' or (area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria) %}
+    {% set puede_agregar_item = (area_editor == 'construccion' and bom.estatus in ['EN_REVISION_OBRA', 'EN_REVISION_CONST']) or (area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria) %}
     {% set puede_cotizar_seleccionados = es_compras_editor and bom.estatus == 'APROBADO_CONST' %}
-    {% set puede_agregar_fuera_scope = area_editor == 'construccion' and bom.estatus == 'APROBADO_FINAL' %}
+    {% set puede_agregar_fuera_scope = (area_editor == 'construccion' or es_compras_editor) and bom.estatus == 'APROBADO_FINAL' %}
     {% if bom and ((bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and (puede_agregar_item or puede_cotizar_seleccionados)) or puede_agregar_fuera_scope) %}
     <div class="mb-4 flex gap-2">
         {% if puede_agregar_item and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] %}
@@ -357,12 +357,14 @@
                     <option value="tipo_partida">Tipo de partida</option>
                     <option value="grupos">Grupos BOM</option>
                     {% elif area_editor == 'construccion' %}
-                    {% if not es_aprobado_final %}
+                    {% if bom.estatus in ['EN_REVISION_OBRA', 'EN_REVISION_CONST'] %}
                     <option value="fecha_requerida">Fecha requerida</option>
                     {% endif %}
+                    <option value="fecha_estimada_entrega">Fecha est. entrega</option>
+                    <option value="fecha_llegada_real">Fecha llegada real</option>
                     <option value="entregado">Entregado</option>
                     <option value="comentarios">Comentarios</option>
-                    {% if not es_aprobado_final %}
+                    {% if bom.estatus in ['EN_REVISION_OBRA', 'EN_REVISION_CONST'] %}
                     <option value="grupos">Grupos BOM</option>
                     {% endif %}
                     {% elif area_editor == 'compras' %}
@@ -415,6 +417,10 @@
 
                 {% if area_editor == 'construccion' %}
                 <input type="date" name="valor" {{ vctl('fecha_requerida') }}
+                       class="w-full rounded-lg border-gray-300 text-sm">
+                <input type="date" name="valor" {{ vctl('fecha_estimada_entrega') }}
+                       class="w-full rounded-lg border-gray-300 text-sm">
+                <input type="date" name="valor" {{ vctl('fecha_llegada_real') }}
                        class="w-full rounded-lg border-gray-300 text-sm">
                 <select name="valor" {{ vctl('entregado') }}
                         class="w-full rounded-lg border-gray-300 text-sm">
@@ -497,11 +503,19 @@
     <div class="mt-6" x-data="{ tab: 'aprobaciones' }">
         <div class="border-b border-gray-200 mb-4">
             <nav class="flex -mb-px space-x-4 flex-wrap gap-y-1">
+                {% set muestra_propuestas = area_editor in ['ingenieria', 'construccion'] and bom.estatus in ['EN_REVISION_ING', 'APROBADO_ING', 'EN_REVISION_OBRA', 'EN_REVISION_CONST', 'APROBADO_CONST', 'EN_REVISION_FINAL'] %}
                 <button @click="tab = 'aprobaciones'"
                     :class="{'border-blue-500 text-blue-600': tab === 'aprobaciones', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'aprobaciones'}"
                     class="py-2 px-3 border-b-2 font-medium text-sm transition">
                     Aprobaciones
                 </button>
+                {% if muestra_propuestas %}
+                <button @click="tab = 'propuestas-cambio'"
+                    :class="{'border-cyan-500 text-cyan-600': tab === 'propuestas-cambio', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'propuestas-cambio'}"
+                    class="py-2 px-3 border-b-2 font-medium text-sm transition">
+                    Propuestas de cambio
+                </button>
+                {% endif %}
                 <button @click="tab = 'historial'"
                     :class="{'border-blue-500 text-blue-600': tab === 'historial', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'historial'}"
                     class="py-2 px-3 border-b-2 font-medium text-sm transition">
@@ -547,6 +561,14 @@
             hx-trigger="intersect once" hx-swap="innerHTML">
             <div class="text-center py-4 text-gray-400 text-sm">Cargando aprobaciones...</div>
         </div>
+
+        {% if muestra_propuestas %}
+        <div x-show="tab === 'propuestas-cambio'" id="tab-propuestas-cambio"
+            hx-get="/bom/{{ bom.id_bom }}/propuestas-cambio"
+            hx-trigger="intersect once" hx-swap="innerHTML">
+            <div class="text-center py-4 text-gray-400 text-sm">Cargando propuestas...</div>
+        </div>
+        {% endif %}
 
         <div x-show="tab === 'historial'" id="tab-historial" hx-get="/bom/{{ bom.id_bom }}/historial"
             hx-trigger="intersect once" hx-swap="innerHTML">
