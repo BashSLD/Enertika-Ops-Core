@@ -86,6 +86,7 @@ async def aprobar_horas_extra_bulk(
     comentario: str = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
 ):
     if not context.get("user_db_id"):
         raise HTTPException(status_code=401)
@@ -115,7 +116,8 @@ async def aprobar_horas_extra_bulk(
 
     try:
         new_count = await db.count_horas_extra_pendientes(conn, equipo)
-    except asyncpg.PostgresError:
+    except asyncpg.PostgresError as exc:
+        logger.error("Error contando horas extra pendientes: %s", exc)
         new_count = 0
 
     svc = NotificationService()
@@ -150,6 +152,7 @@ async def aprobar_horas_extra(
     comentario: str = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
 ):
     if not context.get("user_db_id"):
         raise HTTPException(status_code=401)
@@ -175,7 +178,8 @@ async def aprobar_horas_extra(
 
     try:
         new_count = await db.count_horas_extra_pendientes(conn, equipo)
-    except asyncpg.PostgresError:
+    except asyncpg.PostgresError as exc:
+        logger.error("Error contando horas extra pendientes: %s", exc)
         new_count = 0
 
     svc = NotificationService()
@@ -210,6 +214,7 @@ async def omitir_horas_extra(
     asistencia_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
 ):
     if not context.get("user_db_id"):
         raise HTTPException(status_code=401)
@@ -230,7 +235,8 @@ async def omitir_horas_extra(
 
     try:
         new_count = await db.count_horas_extra_pendientes(conn, equipo)
-    except asyncpg.PostgresError:
+    except asyncpg.PostgresError as exc:
+        logger.error("Error contando horas extra pendientes: %s", exc)
         new_count = 0
     return templates.TemplateResponse(
         request,
@@ -250,6 +256,7 @@ async def recuperar_horas_extra(
     asistencia_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
 ):
     if not context.get("user_db_id"):
         raise HTTPException(status_code=401)
@@ -270,7 +277,8 @@ async def recuperar_horas_extra(
 
     try:
         new_count = await db.count_horas_extra_pendientes(conn, equipo)
-    except asyncpg.PostgresError:
+    except asyncpg.PostgresError as exc:
+        logger.error("Error contando horas extra pendientes: %s", exc)
         new_count = 0
     return templates.TemplateResponse(
         request,

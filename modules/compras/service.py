@@ -29,6 +29,7 @@ MATCH_TOLERANCIA = Decimal("0.50")
 
 # Constraints de unicidad que corresponden a duplicados de negocio (mismo PDF cargado dos veces).
 # Cualquier otra UniqueViolationError en insert_comprobante es un error de infraestructura y debe propagarse.
+# IMPORTANTE: si una migración renombra alguno de estos constraints, actualizar este set en paralelo.
 _BUSINESS_DUPLICATE_CONSTRAINTS = frozenset({
     "uq_comprobante_pago_key",
     "uq_comprobante_duplicado_no_bom",
@@ -189,7 +190,7 @@ class ComprasService:
                 try:
                     new_id = await db_svc.insert_comprobante(conn, comprobante_data)
                 except asyncpg.exceptions.UniqueViolationError as e:
-                    if e.constraint_name not in _BUSINESS_DUPLICATE_CONSTRAINTS:
+                    if e.constraint_name is None or e.constraint_name not in _BUSINESS_DUPLICATE_CONSTRAINTS:
                         raise
                     duplicados.append(entrada_duplicado)
                     logger.info("Duplicado concurrente detectado: %s", filename)
