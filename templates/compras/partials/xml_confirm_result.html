@@ -35,4 +35,5 @@
   if (typeof window.__xmlToConfirm !== 'undefined' && window.__xmlToConfirm > 0) {
     window.__xmlToConfirm--;
   }
+  htmx.trigger(document.body, 'reloadComprobantes');
 </script>
