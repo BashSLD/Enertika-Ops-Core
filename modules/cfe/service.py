@@ -49,6 +49,7 @@ from .scraper import (
     descargar_periodos_busqueda,
     descargar_recibo,
     descargar_ultimo_recibo_miespacio,
+    descargar_xml_periodo,
     registrar_servicio_miespacio,
 )
 
@@ -644,6 +645,31 @@ class CfeService:
         )
         return "Descarga de PDF encolada. La página se actualizará automáticamente.", servicio
 
+    async def iniciar_descarga_xml(
+        self,
+        conn: asyncpg.Connection,
+        servicio_id: UUID,
+        periodo: str,
+        usuario_id: UUID,
+    ) -> tuple[str, dict]:
+        """Encola solo el XML de un periodo que no tiene XML completado."""
+        if await self.db.tiene_descarga_en_progreso(conn, servicio_id):
+            raise ValueError("Ya hay una descarga en curso para este servicio.")
+
+        servicio = await self.db.get_servicio_by_id(conn, servicio_id)
+        if not servicio:
+            raise ValueError("Servicio no encontrado.")
+
+        xml_row = await self.db.get_descarga_por_tipo(conn, servicio_id, periodo, "xml")
+        if xml_row and xml_row["estatus"] == "completado":
+            raise ValueError("El XML de este periodo ya está descargado.")
+
+        await self.db.upsert_descarga(
+            conn, servicio_id=servicio_id, periodo=periodo, tipo="xml",
+            estatus="pendiente", error_mensaje=None, descargado_por=usuario_id,
+        )
+        return "Descarga de XML encolada. La página se actualizará automáticamente.", servicio
+
     async def procesar_pendientes(self, pool: asyncpg.Pool) -> None:
         """
         Llamado por el worker en cada ciclo. Reclama UN trabajo (atomico) y lo ejecuta
@@ -1018,6 +1044,13 @@ class CfeService:
             )
             return
 
+        if job["tipo"] == "xml" and job["periodo"] != "pendiente":
+            await self._ejecutar_descarga_xml(
+                pool=pool, servicio=servicio, cfg_global=cfg_global,
+                periodo=job["periodo"], usuario_id=job["descargado_por"],
+            )
+            return
+
         await self._ejecutar_descarga(
             pool=pool, servicio=servicio,
             cfg_global=cfg_global, usuario_id=job["descargado_por"],
@@ -1216,6 +1249,77 @@ class CfeService:
                     tipo="pdf", estatus="error",
                     error_mensaje="No se descargó el PDF de MiEspacio.",
                     descargado_por=usuario_id, tipo_recibo=tipo_recibo,
+                )
+
+            if result.session_json_nuevo:
+                await self._save_session(conn, result.session_json_nuevo)
+                logger.info("[CFE] Sesion MiEspacio renovada servicio=%s", servicio["numero_servicio"])
+
+    async def _ejecutar_descarga_xml(
+        self,
+        pool: asyncpg.Pool,
+        servicio: dict,
+        cfg_global: dict,
+        periodo: str,
+        usuario_id: UUID,
+    ) -> None:
+        """Background task: descarga solo XML desde MiEspacio y actualiza la fila XML."""
+        logger.info(
+            "[CFE] Iniciando descarga XML servicio=%s periodo=%s",
+            servicio["numero_servicio"],
+            periodo,
+        )
+        cfg = self._build_scraper_config(servicio, cfg_global)
+        result = await descargar_xml_periodo(cfg, periodo)
+        logger.info(
+            "[CFE] Scraper XML finalizado servicio=%s periodo=%s xml=%s error=%s",
+            servicio["numero_servicio"],
+            periodo,
+            bool(result.xml_content),
+            bool(result.error),
+        )
+
+        async with pool.acquire() as conn:
+            error_mensaje = result.error
+            if error_mensaje:
+                await self.db.upsert_descarga(
+                    conn, servicio_id=servicio["id"], periodo=periodo,
+                    tipo="xml", estatus="error", error_mensaje=error_mensaje,
+                    descargado_por=usuario_id,
+                )
+                if self._es_error_sesion(error_mensaje):
+                    await self._marcar_sesion_invalida(conn)
+            elif result.xml_content:
+                rpu_error = self._rpu_no_coincide(
+                    result.xml_content, result.xml_filename, servicio["numero_servicio"]
+                )
+                if rpu_error:
+                    logger.warning(
+                        "[CFE] %s servicio=%s periodo=%s", rpu_error,
+                        servicio["numero_servicio"], periodo,
+                    )
+                    await self.db.upsert_descarga(
+                        conn, servicio_id=servicio["id"], periodo=periodo,
+                        tipo="xml", estatus="error", error_mensaje=rpu_error,
+                        descargado_por=usuario_id,
+                    )
+                else:
+                    tipo_recibo = self._extraer_tipo_recibo(result.xml_content, result.xml_filename)
+                    xml_sp_url = await self._upload_to_sharepoint(
+                        conn, content=result.xml_content, filename=result.xml_filename,
+                        servicio_numero=servicio["numero_servicio"], periodo=periodo, tipo="xml",
+                    )
+                    await self._registrar_descarga_sp(
+                        conn, servicio_id=servicio["id"], periodo=periodo, tipo="xml",
+                        nombre_archivo=result.xml_filename, sp_url=xml_sp_url, usuario_id=usuario_id,
+                        tipo_recibo=tipo_recibo,
+                    )
+            else:
+                await self.db.upsert_descarga(
+                    conn, servicio_id=servicio["id"], periodo=periodo,
+                    tipo="xml", estatus="error",
+                    error_mensaje="No se descargó el XML de MiEspacio.",
+                    descargado_por=usuario_id,
                 )
 
             if result.session_json_nuevo:

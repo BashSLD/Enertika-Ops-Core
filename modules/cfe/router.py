@@ -886,6 +886,46 @@ async def reintentar_pdf(
     )
 
 
+@router.post("/servicios/{servicio_id}/descargas/{periodo}/reintentar-xml", response_class=HTMLResponse)
+async def reintentar_xml(
+    request: Request,
+    servicio_id: UUID,
+    periodo: str,
+    modulo: str | None = Query(default=None),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_viewer,
+):
+    svc = get_cfe_service()
+    modulo_activo, _ = _resolver_modulos(user, modulo)
+    servicio = await _get_servicio_accesible(svc, conn, servicio_id, user)
+    tiene_activo = False
+    toast_type = "info"
+    toast_msg = ""
+    status_code = 200
+    try:
+        toast_msg, servicio = await svc.iniciar_descarga_xml(
+            conn, servicio_id, periodo, user["user_db_id"]
+        )
+        tiene_activo = True
+    except ValueError as exc:
+        toast_msg = str(exc)
+        toast_type = "error"
+        status_code = 400
+    except asyncpg.PostgresError as exc:
+        logger.error("Error de BD encolando XML CFE para %s/%s: %s", servicio_id, periodo, exc)
+        toast_msg = "Error interno al encolar la descarga del XML."
+        toast_type = "error"
+        status_code = 500
+    descargas = await svc.db.get_descargas_por_servicio(conn, servicio_id)
+    return templates.TemplateResponse(
+        request, "cfe/partials/historial_descargas.html",
+        {"servicio": servicio, "descargas": descargas, "tiene_activo": tiene_activo,
+         "modulo": modulo_activo, "user": user, "_toast": {"message": toast_msg, "type": toast_type}},
+        status_code=status_code,
+    )
+
+
 # ── Renovacion de sesion (lanzador local) ──────────────────────────────────────
 
 @router.post("/sesion/subir", include_in_schema=False)

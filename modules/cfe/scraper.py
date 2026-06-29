@@ -1373,6 +1373,92 @@ async def descargar_pdf_periodo(cfg: CfeScraperConfig, periodo: str) -> Descarga
     return result
 
 
+async def descargar_xml_periodo(cfg: CfeScraperConfig, periodo: str) -> DescargaResult:
+    """Descarga solo el XML desde MiEspacio para un periodo ya conocido."""
+    result = DescargaResult(periodo=periodo)
+    try:
+        from playwright.async_api import async_playwright
+    except ModuleNotFoundError as exc:
+        if exc.name != "playwright":
+            raise
+        result.error = (
+            "Playwright no esta instalado en el entorno. "
+            "Reconstruye la imagen Docker para instalar dependencias CFE."
+        )
+        logger.error(result.error)
+        return result
+
+    if not cfg.mi_user or not cfg.mi_pass:
+        result.error = (
+            "Faltan credenciales CFE MiEspacio. "
+            "Configúralas en Admin > Configuración Global > Recibos CFE."
+        )
+        return result
+
+    launch_kwargs = _chromium_launch_kwargs()
+
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(**launch_kwargs)
+            try:
+                mi_ctx, mi_page = await _setup_miespacio_page(browser, cfg)
+                try:
+                    block_msg = await _detect_block(mi_page)
+                    if block_msg:
+                        result.error = block_msg
+                        return result
+
+                    if not await _is_logged_in(mi_page):
+                        result.error = (
+                            "La sesión CFE MiEspacio expiró o no existe. "
+                            "Un administrador debe renovar la sesión en Admin > Configuración Global > Recibos CFE."
+                        )
+                        return result
+
+                    await _select_service_miespacio(mi_page, cfg)
+
+                    try:
+                        rows_raw = await _abrir_otras_facturas(mi_page, cfg)
+                        rows_by_periodo = {r["periodo"]: r for r in _otras_facturas_por_periodo(rows_raw)}
+                        row = rows_by_periodo.get(periodo)
+                        if not row:
+                            raise ValueError(
+                                f"Periodo {periodo} no encontrado en Otras Facturas de MiEspacio "
+                                f"para el servicio {cfg.numero_servicio}."
+                            )
+                        result.xml_content, result.xml_filename = await _descargar_otras_factura_reintento(
+                            mi_page, cfg, row, "xml"
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "No se pudo descargar XML CFE servicio=%s periodo=%s error=%s",
+                            cfg.numero_servicio,
+                            periodo,
+                            exc,
+                        )
+                        result.error = f"No se pudo descargar el XML de MiEspacio: {exc}"
+
+                    state = await mi_ctx.storage_state()
+                    result.session_json_nuevo = json.dumps(state)
+                finally:
+                    try:
+                        await mi_ctx.close()
+                    except Exception:
+                        pass
+            finally:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+    except ValueError as exc:
+        result.error = str(exc)
+    except Exception as exc:
+        logger.exception("Error inesperado descargando XML CFE para %s", cfg.numero_servicio)
+        result.error = f"Error inesperado descargando XML: {exc}"
+
+    return result
+
+
 async def descargar_ultimo_recibo_miespacio(cfg: CfeScraperConfig) -> DescargaResult:
     """
     Descarga el ultimo recibo (XML + PDF) directamente desde MiEspacio · Otras

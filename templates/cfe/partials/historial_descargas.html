@@ -90,6 +90,8 @@
                     <span class="text-xs text-amber-600">PDF en progreso</span>
                     {% elif xml_completo %}
                     <span class="text-xs text-amber-600">Falta PDF</span>
+                    {% elif pdf_completo and not xml_row %}
+                    <span class="text-xs text-amber-600">Falta XML</span>
                     {% elif (xml_row and xml_row.estatus in ['pendiente', 'descargando']) or (pdf_row and pdf_row.estatus in ['pendiente', 'descargando']) %}
                     <span class="text-xs text-amber-600">En progreso</span>
                     {% else %}
@@ -115,6 +117,14 @@
                         hx-swap="innerHTML"
                         class="text-xs text-teal-600 hover:text-teal-800 font-medium">
                         Reintentar PDF
+                    </button>
+                    {% elif pdf_completo and not xml_row %}
+                    <button type="button"
+                        hx-post="/cfe/servicios/{{ servicio.id }}/descargas/{{ periodo }}/reintentar-xml{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                        hx-target="closest div[id^='historial']"
+                        hx-swap="innerHTML"
+                        class="text-xs text-teal-600 hover:text-teal-800 font-medium">
+                        Descargar XML
                     </button>
                     {% endif %}
                 </td>
