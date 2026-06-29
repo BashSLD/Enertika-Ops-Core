@@ -63,7 +63,7 @@ async def aprobar_horas_extra_svc(
     if row["horas_extra_estado"] not in ("pendiente", "solicitado"):
         raise ValueError("Este registro ya fue procesado")
     if row["usuario_id"] not in equipo_ids:
-        raise ValueError("El empleado no pertenece a tu equipo")
+        raise ValueError("Registro no encontrado")
     validate_aprobacion(minutos_aprobados, row["minutos_extra"], comentario)
 
     await db.aprobar_horas_extra(
@@ -103,7 +103,7 @@ async def bulk_aprobar_horas_extra_svc(
 
     empleado_id = next(iter(usuario_ids_set))
     if empleado_id not in equipo_ids:
-        raise ValueError("El empleado no pertenece a tu equipo")
+        raise ValueError("Registro no encontrado")
 
     for row in rows:
         if row["horas_extra_estado"] not in ("pendiente", "solicitado"):
@@ -658,7 +658,7 @@ async def omitir_horas_extra_svc(
     if row["horas_extra_estado"] not in ("pendiente", "solicitado"):
         raise ValueError("Solo se pueden descartar registros pendientes o solicitados")
     if row["usuario_id"] not in equipo_ids:
-        raise ValueError("El empleado no pertenece a tu equipo")
+        raise ValueError("Registro no encontrado")
     await db.omitir_horas_extra(conn, asistencia_id)
     return {"empleado_nombre": row["empleado_nombre"]}
 
@@ -675,7 +675,7 @@ async def recuperar_horas_extra_svc(
     if row["horas_extra_estado"] != "omitido":
         raise ValueError("El registro no está descartado")
     if row["usuario_id"] not in equipo_ids:
-        raise ValueError("El empleado no pertenece a tu equipo")
+        raise ValueError("Registro no encontrado")
     await db.recuperar_horas_extra(conn, asistencia_id)
     return {"empleado_nombre": row["empleado_nombre"]}
 
