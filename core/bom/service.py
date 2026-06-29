@@ -707,6 +707,17 @@ class BomService:
         """Lista adendas registradas para el BOM."""
         return await self.db.get_adendas_by_bom(conn, id_bom)
 
+    async def get_item_grupos(self, conn, id_item: UUID) -> tuple[list, list]:
+        grupos = await self.db.get_grupos_por_item(conn, id_item)
+        grupos_operativos = await self.db.get_grupos_operativos_por_item(conn, id_item)
+        return grupos, grupos_operativos
+
+    async def get_item_grupos_base(self, conn, id_item: UUID) -> list:
+        return await self.db.get_grupos_por_item(conn, id_item)
+
+    async def get_adenda(self, conn, id_adenda: UUID) -> Optional[dict]:
+        return await self.db.get_adenda_by_id(conn, id_adenda)
+
     async def get_adenda_comentarios(self, conn, id_adenda: UUID) -> list:
         """Lista comentarios de una adenda."""
         return await self.db.get_adenda_comentarios(conn, id_adenda)
@@ -714,6 +725,39 @@ class BomService:
     async def get_adenda_comentarios_by_bom(self, conn, id_bom: UUID) -> dict:
         """Lista comentarios de adendas agrupados por adenda."""
         return await self.db.get_adenda_comentarios_by_bom(conn, id_bom)
+
+    async def get_jefe_ingenieria_label(self, conn) -> str:
+        jefe = await self.db.get_usuario_activo_por_rol_org(conn, "jefe_ingenieria")
+        return jefe["nombre"] if jefe else "el jefe de Ingeniería"
+
+    @staticmethod
+    def requiere_propuesta_construccion(bom: dict, area_editor: str) -> bool:
+        return (
+            area_editor == "construccion"
+            and bom
+            and bom.get("estatus") in ESTATUS_PROPUESTA_CAMBIO
+        )
+
+    @staticmethod
+    def base_construccion_bloqueada(bom: dict, area_editor: str) -> bool:
+        return (
+            area_editor == "construccion"
+            and bom
+            and bom.get("estatus") in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA
+        )
+
+    @staticmethod
+    def _lineas_propuesta_json_safe(lineas: list) -> list:
+        return json.loads(json.dumps(lineas, default=str))
+
+    async def registrar_propuesta_auto(
+        self, conn, id_bom: UUID, user_id: UUID, context: dict, motivo: str, lineas: list
+    ) -> dict:
+        return await self.crear_propuesta_cambio(
+            conn, id_bom, user_id, None, motivo,
+            self._lineas_propuesta_json_safe(lineas),
+            context.get("role"), context.get("rol_organizacional"),
+        )
 
     async def comentar_adenda(
         self, conn, id_adenda: UUID, user_id: UUID, comentario: str
@@ -1379,6 +1423,8 @@ class BomService:
             if bom_estatus not in ESTATUS_EDITABLE_ING:
                 raise ValueError("El BOM no esta en estado editable para ingenieria")
         elif area_editor == 'construccion':
+            if bom_estatus in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA:
+                raise ValueError(self._mensaje_propuesta_requerida())
             if bom_estatus not in ESTATUS_EDITABLE_CONST_COMPRAS:
                 raise ValueError("El BOM no esta en estado editable para construccion")
         elif area_editor == 'compras':

@@ -203,56 +203,6 @@ def _parse_item_form_data(form) -> tuple[dict, list[int]]:
     return data, _parse_grupo_ids(form)
 
 
-PROPUESTA_CAMBIO_ESTADOS = {"EN_REVISION_OBRA", "EN_REVISION_CONST"}
-BASE_CONSTRUCCION_BLOQUEADA_ESTADOS = {
-    "EN_REVISION_OBRA",
-    "EN_REVISION_CONST",
-    "APROBADO_CONST",
-    "EN_REVISION_FINAL",
-}
-
-
-def _requiere_propuesta_construccion(bom: dict, area_editor: str) -> bool:
-    return (
-        area_editor == "construccion"
-        and bom
-        and bom.get("estatus") in PROPUESTA_CAMBIO_ESTADOS
-    )
-
-
-def _base_construccion_bloqueada(bom: dict, area_editor: str) -> bool:
-    return (
-        area_editor == "construccion"
-        and bom
-        and bom.get("estatus") in BASE_CONSTRUCCION_BLOQUEADA_ESTADOS
-    )
-
-
-def _lineas_propuesta_json_safe(lineas: list[dict]) -> list[dict]:
-    return json.loads(json.dumps(lineas, default=str))
-
-
-async def _registrar_propuesta_auto(
-    conn,
-    service: BomService,
-    id_bom: UUID,
-    user_id: UUID,
-    context: dict,
-    motivo: str,
-    lineas: list[dict],
-) -> dict:
-    return await service.crear_propuesta_cambio(
-        conn,
-        id_bom,
-        user_id,
-        None,
-        motivo,
-        _lineas_propuesta_json_safe(lineas),
-        context.get("role"),
-        context.get("rol_organizacional"),
-    )
-
-
 def _item_disponible_cotizacion(item: dict) -> bool:
     estatus_compra = item.get("estatus_compra", "SIN_COTIZAR")
     estatus_ejecucion = item.get("estatus_ejecucion")
@@ -260,11 +210,6 @@ def _item_disponible_cotizacion(item: dict) -> bool:
         estatus_compra not in ESTATUS_COMPRA_BLOQUEA_ADENDA
         and estatus_ejecucion not in ESTATUS_ITEM_CERRADO_COMPRA
     )
-
-
-async def _jefe_ingenieria_label(conn, service: BomService) -> str:
-    jefe = await service.db.get_usuario_activo_por_rol_org(conn, "jefe_ingenieria")
-    return jefe["nombre"] if jefe else "el jefe de Ingeniería"
 
 
 # ========================================
@@ -322,7 +267,7 @@ async def bom_ui(
                 "El BOM no ha sido iniciado. Solo lo puede crear el departamento de Ingeniería.",
             )
         if not puede_gestionar_bom_ingenieria:
-            jefe_label = await _jefe_ingenieria_label(conn, service)
+            jefe_label = await service.get_jefe_ingenieria_label(conn)
             return _toast_response(
                 request,
                 f"No tienes este proyecto asignado como ingeniero. Solicita a {jefe_label} que te asigne o que cree el BOM.",
@@ -549,16 +494,15 @@ async def agregar_item(
             "moneda": form.get("moneda", "MXN").strip() or "MXN",
         }
 
-        if _requiere_propuesta_construccion(bom, area_editor):
+        if service.requiere_propuesta_construccion(bom, area_editor):
             descripcion = item_data["descripcion"] or "item"
             motivo = (
                 form.get("motivo")
                 or item_data.get("comentarios")
                 or f"Solicitud de Construccion para agregar {descripcion}"
             )
-            await _registrar_propuesta_auto(
+            await service.registrar_propuesta_auto(
                 conn,
-                service,
                 bom["id_bom"],
                 user_id,
                 context,
@@ -571,7 +515,7 @@ async def agregar_item(
                 "success",
                 "Propuesta registrada",
             )
-        if _base_construccion_bloqueada(bom, area_editor):
+        if service.base_construccion_bloqueada(bom, area_editor):
             return _toast_response(
                 request,
                 "Los cambios de alcance deben regresar por el flujo de aprobacion",
@@ -680,16 +624,15 @@ async def editar_item(
         )
         grupo_ids = _parse_grupo_ids(form) if actualiza_grupos else None
         propuesta_creada = False
-        if _requiere_propuesta_construccion(bom_actual, area_editor):
+        if service.requiere_propuesta_construccion(bom_actual, area_editor):
             campos_propuesta = {
                 key: campos.pop(key)
                 for key in list(campos.keys())
                 if key in CAMPOS_CONSTRUCCION_BASE
             }
             if campos_propuesta or grupo_ids is not None:
-                await _registrar_propuesta_auto(
+                await service.registrar_propuesta_auto(
                     conn,
-                    service,
                     bom_actual["id_bom"],
                     user_id,
                     context,
@@ -723,8 +666,7 @@ async def editar_item(
 
         # Retornar fila actualizada
         item = await service.get_item(conn, id_item)
-        item['grupos'] = await service.db.get_grupos_por_item(conn, id_item)
-        item['grupos_operativos'] = await service.db.get_grupos_operativos_por_item(conn, id_item)
+        item['grupos'], item['grupos_operativos'] = await service.get_item_grupos(conn, id_item)
         bom = await service.get_bom(conn, item['id_bom'])
 
         ctx = _build_bom_context(
@@ -778,7 +720,7 @@ async def bulk_editar_items(
             raise ValueError("Selecciona un campo a editar")
 
         bom = await service.get_bom(conn, id_bom)
-        if _requiere_propuesta_construccion(bom, area_editor) and (
+        if service.requiere_propuesta_construccion(bom, area_editor) and (
             campo == "grupos" or campo in CAMPOS_CONSTRUCCION_BASE
         ):
             if campo == "grupos":
@@ -803,9 +745,8 @@ async def bulk_editar_items(
                     }
                     for item_id in item_ids
                 ]
-            await _registrar_propuesta_auto(
+            await service.registrar_propuesta_auto(
                 conn,
-                service,
                 id_bom,
                 user_id,
                 context,
@@ -890,10 +831,9 @@ async def eliminar_item(
     try:
         item = await service.get_item(conn, id_item)
         bom = await service.get_bom(conn, item['id_bom'])
-        if _requiere_propuesta_construccion(bom, area_editor):
-            await _registrar_propuesta_auto(
+        if service.requiere_propuesta_construccion(bom, area_editor):
+            await service.registrar_propuesta_auto(
                 conn,
-                service,
                 bom["id_bom"],
                 user_id,
                 context,
@@ -979,8 +919,7 @@ async def get_modal_editar_item(
 ):
     """Modal para editar un item."""
     item = await service.get_item(conn, id_item)
-    item["grupos"] = await service.db.get_grupos_por_item(conn, id_item)
-    item["grupos_operativos"] = await service.db.get_grupos_operativos_por_item(conn, id_item)
+    item["grupos"], item["grupos_operativos"] = await service.get_item_grupos(conn, id_item)
     bom = await service.get_bom(conn, item['id_bom'])
     catalogos = await service.get_catalogos(conn)
 
@@ -1005,7 +944,7 @@ async def get_modal_adenda_item(
     if accion not in ("reemplazo", "cerrar"):
         raise HTTPException(status_code=400, detail="Accion invalida")
     item = await service.get_item(conn, id_item)
-    item["grupos"] = await service.db.get_grupos_por_item(conn, id_item)
+    item["grupos"] = await service.get_item_grupos_base(conn, id_item)
     bom = await service.get_bom(conn, item["id_bom"])
     catalogos = await service.get_catalogos(conn)
     ctx = _build_bom_context(
@@ -1337,7 +1276,7 @@ async def comentar_adenda(
     user_id = context.get("user_db_id")
     try:
         await service.comentar_adenda(conn, id_adenda, user_id, form.get("comentario", ""))
-        adenda = await service.db.get_adenda_by_id(conn, id_adenda)
+        adenda = await service.get_adenda(conn, id_adenda)
         return await _adendas_tab_response(
             request, context, conn, service, adenda["id_bom_base"]
         )
@@ -1938,10 +1877,9 @@ async def set_item_grupos(
         area_editor = _get_area_editor(context)
         item = await service.get_item(conn, id_item)
         bom = await service.get_bom(conn, item['id_bom'])
-        if _requiere_propuesta_construccion(bom, area_editor):
-            await _registrar_propuesta_auto(
+        if service.requiere_propuesta_construccion(bom, area_editor):
+            await service.registrar_propuesta_auto(
                 conn,
-                service,
                 bom["id_bom"],
                 user_id,
                 context,
@@ -1961,8 +1899,7 @@ async def set_item_grupos(
             )
         await service.set_item_grupos(conn, id_item, user_id, grupo_ids, area_editor)
 
-        item['grupos'] = await service.db.get_grupos_por_item(conn, id_item)
-        item['grupos_operativos'] = await service.db.get_grupos_operativos_por_item(conn, id_item)
+        item['grupos'], item['grupos_operativos'] = await service.get_item_grupos(conn, id_item)
         ctx = _build_bom_context(request, context, bom, item=item)
         return templates.TemplateResponse(request, "bom/partials/row_item.html", ctx)
 
