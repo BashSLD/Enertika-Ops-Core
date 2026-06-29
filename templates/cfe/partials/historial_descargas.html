@@ -104,7 +104,7 @@
                 <td class="py-2 text-right">
                     {% if xml_row and xml_row.estatus == 'error' %}
                     <button type="button"
-                        hx-post="/cfe/servicios/{{ servicio.id }}/descargar{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                        hx-post="/cfe/servicios/{{ servicio.id }}/descargas/{{ periodo }}/reintentar-xml{% if modulo %}?modulo={{ modulo }}{% endif %}"
                         hx-target="closest div[id^='historial']"
                         hx-swap="innerHTML"
                         class="text-xs text-teal-600 hover:text-teal-800 font-medium">
