@@ -1,0 +1,435 @@
+<!-- Documentación: CFE — Recibos, Scraper y Proxy de Oficina -->
+<!-- INTERNA — no publicada en el modal de ayuda. Para consulta de agentes y equipo de sistemas. -->
+<div x-data="{ activeTab: 'arquitectura' }" class="bg-white min-h-full">
+
+    <!-- Tabs Navigation -->
+    <div class="border-b border-gray-200 bg-white sticky top-0 z-10 px-6 pt-2">
+        <nav class="flex space-x-6 overflow-x-auto no-scrollbar" aria-label="Tabs">
+            <button @click="activeTab = 'arquitectura'"
+                :class="{'border-[#00BABB] text-[#00BABB]': activeTab === 'arquitectura', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': activeTab !== 'arquitectura'}"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150">
+                Arquitectura
+            </button>
+            <button @click="activeTab = 'proxy'"
+                :class="{'border-[#00BABB] text-[#00BABB]': activeTab === 'proxy', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': activeTab !== 'proxy'}"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150">
+                Proxy 3proxy
+            </button>
+            <button @click="activeTab = 'scraper'"
+                :class="{'border-[#00BABB] text-[#00BABB]': activeTab === 'scraper', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': activeTab !== 'scraper'}"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150">
+                Scraper
+            </button>
+            <button @click="activeTab = 'operacion'"
+                :class="{'border-[#00BABB] text-[#00BABB]': activeTab === 'operacion', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': activeTab !== 'operacion'}"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150">
+                Operacion y Diagnostico
+            </button>
+            <button @click="activeTab = 'miespacio'"
+                :class="{'border-[#00BABB] text-[#00BABB]': activeTab === 'miespacio', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': activeTab !== 'miespacio'}"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150">
+                MiEspacio y Sesion
+            </button>
+        </nav>
+    </div>
+
+    <div class="p-6 md:p-8">
+
+        <!-- TAB: Arquitectura -->
+        <div x-show="activeTab === 'arquitectura'" x-transition:enter="transition ease-out duration-200">
+            <h3 class="text-2xl font-bold text-[#123456] mb-1">Modulo CFE — Vision General</h3>
+            <p class="text-sm text-gray-500 mb-6">Implementado en junio 2026. Descarga automatica de recibos XML y PDF del portal CFE para todos los servicios registrados.</p>
+
+            <!-- Por que existe -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Por que existe</h4>
+            <p class="text-sm text-gray-600 mb-4">Los clientes de O&M tienen contratos de monitoreo que requieren validar consumos contra la facturacion de CFE. El modulo automatiza la descarga de recibos (XML oficial + PDF) para todos los servicios registrados, evitando la descarga manual mes a mes.</p>
+
+            <!-- Flujo general -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Flujo de datos</h4>
+            <div class="space-y-3 mb-8">
+                <div class="flex gap-4 p-4 rounded-lg border border-gray-200">
+                    <div class="w-7 h-7 rounded-full bg-[#00BABB] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">1</div>
+                    <div>
+                        <p class="text-sm font-semibold text-gray-800">Registro de servicio CFE</p>
+                        <p class="text-xs text-gray-500 mt-0.5">El usuario registra el numero de servicio (RPU). El sistema verifica que exista en el portal publico de CFE y obtiene el nombre del titular.</p>
+                    </div>
+                </div>
+                <div class="flex gap-4 p-4 rounded-lg border border-gray-200">
+                    <div class="w-7 h-7 rounded-full bg-[#00BABB] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">2</div>
+                    <div>
+                        <p class="text-sm font-semibold text-gray-800">Alta en MiEspacio CFE</p>
+                        <p class="text-xs text-gray-500 mt-0.5">El Worker registra el servicio en la cuenta MiEspacio de Enertika. Requiere el total del ultimo recibo como verificacion. Este paso es independiente de la descarga.</p>
+                    </div>
+                </div>
+                <div class="flex gap-4 p-4 rounded-lg border border-gray-200">
+                    <div class="w-7 h-7 rounded-full bg-[#00BABB] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">3</div>
+                    <div>
+                        <p class="text-sm font-semibold text-gray-800">Descarga periodica automatica</p>
+                        <p class="text-xs text-gray-500 mt-0.5">El Worker revisa periodicamente si hay periodos nuevos. Descarga XML del portal publico y PDF desde MiEspacio > Otras Facturas. Los archivos se guardan en SharePoint.</p>
+                    </div>
+                </div>
+                <div class="flex gap-4 p-4 rounded-lg border border-gray-200">
+                    <div class="w-7 h-7 rounded-full bg-[#00BABB] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">4</div>
+                    <div>
+                        <p class="text-sm font-semibold text-gray-800">Consulta y analisis</p>
+                        <p class="text-xs text-gray-500 mt-0.5">Los usuarios pueden consultar el historico de recibos, descargar ZIP (XML + PDF + Excel), y ver el analisis de perfil tarifario (GDMTH/GDMTO) por servicio.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Componentes del sistema -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Componentes</h4>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div class="rounded-lg border border-gray-200 p-4">
+                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Backend (Railway)</p>
+                    <ul class="text-sm text-gray-700 space-y-1">
+                        <li><span class="font-mono text-xs bg-gray-100 px-1 rounded">modules/cfe/scraper.py</span> — Playwright headless</li>
+                        <li><span class="font-mono text-xs bg-gray-100 px-1 rounded">modules/cfe/service.py</span> — logica de negocio y jobs</li>
+                        <li><span class="font-mono text-xs bg-gray-100 px-1 rounded">modules/cfe/analysis.py</span> — KPIs y perfil tarifario</li>
+                        <li><span class="font-mono text-xs bg-gray-100 px-1 rounded">worker.py</span> — jobs periodicos de descarga</li>
+                    </ul>
+                </div>
+                <div class="rounded-lg border border-gray-200 p-4">
+                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Infraestructura externa</p>
+                    <ul class="text-sm text-gray-700 space-y-1">
+                        <li><strong>3proxy</strong> — PC de oficina, puerto 3128, IP publica estatica</li>
+                        <li><strong>SharePoint</strong> — almacenamiento de XML y PDF</li>
+                        <li><strong>app.cfe.mx</strong> — portal publico (XML) y MiEspacio (PDF)</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <p class="text-xs font-bold text-amber-700 uppercase tracking-wide mb-1">Limitacion critica</p>
+                <p class="text-sm text-gray-700">Railway corre en AWS. CFE bloquea IPs de datacenters silenciosamente (sin respuesta HTTP, la conexion simplemente expira). Por eso todo el trafico del scraper pasa por el proxy 3proxy instalado en la oficina, que sale con la IP publica estatica contratada de Enertika.</p>
+            </div>
+        </div>
+
+        <!-- TAB: Proxy 3proxy -->
+        <div x-show="activeTab === 'proxy'" x-transition:enter="transition ease-out duration-200">
+            <h3 class="text-2xl font-bold text-[#123456] mb-1">Proxy 3proxy — Configuracion Completa</h3>
+            <p class="text-sm text-gray-500 mb-6">Proxy HTTP instalado en la PC de oficina. Implementado el 11 de junio 2026. Repositorio: <span class="font-mono text-xs bg-gray-100 px-1 rounded">github.com/3proxy/3proxy</span></p>
+
+            <!-- Donde esta instalado -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Donde esta instalado</h4>
+            <div class="rounded-lg border border-gray-200 p-4 mb-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                    <div>
+                        <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Maquina</p>
+                        <p class="text-gray-700">PC de oficina (Windows) — la misma que tiene IP publica estatica asignada por el ISP</p>
+                    </div>
+                    <div>
+                        <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Directorio</p>
+                        <p class="font-mono text-xs bg-gray-100 px-2 py-1 rounded">C:\3proxy\</p>
+                        <p class="text-gray-500 text-xs mt-1">Contiene: <span class="font-mono">3proxy.exe</span> y <span class="font-mono">3proxy.cfg</span></p>
+                    </div>
+                    <div>
+                        <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Puerto</p>
+                        <p class="text-gray-700">3128 (HTTP proxy estandar)</p>
+                    </div>
+                    <div>
+                        <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Modo de inicio</p>
+                        <p class="text-gray-700">Servicio de Windows (<span class="font-mono text-xs">sc create</span>) con <span class="font-mono text-xs">start= auto</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Archivo de configuracion -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Archivo de configuracion (C:\3proxy\3proxy.cfg)</h4>
+            <pre class="bg-gray-900 text-green-400 text-xs rounded-lg p-4 mb-6 overflow-x-auto">nserver 8.8.8.8
+nserver 8.8.4.4
+auth strong
+users cfe:CL5:&lt;PASSWORD&gt;
+allow *
+proxy -p3128</pre>
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
+                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Notas del archivo</p>
+                <ul class="text-sm text-gray-700 space-y-1">
+                    <li><span class="font-mono text-xs">auth strong</span> — requiere usuario y contrasena en cada conexion</li>
+                    <li><span class="font-mono text-xs">cfe:CL5:&lt;PASSWORD&gt;</span> — usuario <strong>cfe</strong>, hash tipo CL5 (MD5 de 3proxy)</li>
+                    <li><span class="font-mono text-xs">proxy -p3128</span> — escucha en puerto 3128 en todas las interfaces</li>
+                    <li>La contrasena real esta en la configuracion del servidor, no en este documento</li>
+                </ul>
+            </div>
+
+            <!-- Variable Railway -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Variable de entorno en Railway</h4>
+            <div class="rounded-lg border border-[#00BABB] bg-[#E0F7F7] p-4 mb-6">
+                <p class="text-xs font-bold text-[#123456] uppercase tracking-wide mb-2">Worker → Variables</p>
+                <pre class="bg-white text-gray-800 text-xs rounded p-3 border border-gray-200">CFE_PROXY_URL=http://cfe:&lt;PASSWORD&gt;@&lt;IP_PUBLICA_OFICINA&gt;:3128</pre>
+                <p class="text-xs text-gray-600 mt-2">Esta variable esta configurada SOLO en el servicio <strong>Worker</strong> (no en el app principal). Si no existe o esta vacia, el scraper corre sin proxy y CFE bloquea la conexion.</p>
+            </div>
+
+            <!-- Red: router y firewall -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Configuracion de red</h4>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div class="rounded-lg border border-gray-200 p-4">
+                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Router de oficina</p>
+                    <p class="text-sm text-gray-700">Port-forward TCP puerto 3128 externo → IP local de la PC con 3proxy, puerto 3128 interno.</p>
+                </div>
+                <div class="rounded-lg border border-gray-200 p-4">
+                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Firewall de Windows</p>
+                    <p class="text-sm text-gray-700">Regla de entrada habilitada para TCP 3128. Nombre de regla: <span class="font-mono text-xs">3proxy CFE</span>.</p>
+                    <pre class="bg-gray-100 text-xs rounded p-2 mt-2 overflow-x-auto">netsh advfirewall firewall add rule name="3proxy CFE" dir=in action=allow protocol=TCP localport=3128</pre>
+                </div>
+            </div>
+
+            <!-- Servicio de Windows -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Servicio de Windows (auto-inicio)</h4>
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <p class="text-xs font-bold text-blue-700 uppercase tracking-wide mb-2">Comandos para crear/administrar el servicio</p>
+                <pre class="bg-white text-gray-800 text-xs rounded p-3 border border-gray-200 overflow-x-auto"># Crear el servicio (ejecutar como Administrador)
+sc create 3proxy binPath= "C:\3proxy\3proxy.exe C:\3proxy\3proxy.cfg" start= auto
+
+# Iniciar manualmente
+sc start 3proxy
+
+# Detener
+sc stop 3proxy
+
+# Verificar estado
+sc query 3proxy</pre>
+            </div>
+            <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p class="text-xs font-bold text-red-700 uppercase tracking-wide mb-1">Advertencia — Task Scheduler no es equivalente</p>
+                <p class="text-sm text-gray-700">Si se uso el Programador de Tareas en lugar de <span class="font-mono text-xs">sc create</span>, el proceso puede no iniciar despues de un reinicio si no hay sesion activa. Usar siempre <span class="font-mono text-xs">sc create</span> con <span class="font-mono text-xs">start= auto</span> para garantizar inicio automatico independiente de la sesion del usuario.</p>
+            </div>
+        </div>
+
+        <!-- TAB: Scraper -->
+        <div x-show="activeTab === 'scraper'" x-transition:enter="transition ease-out duration-200">
+            <h3 class="text-2xl font-bold text-[#123456] mb-1">Scraper CFE — Como funciona</h3>
+            <p class="text-sm text-gray-500 mb-6">Playwright (Python, headless Chromium) que navega el portal CFE. Archivo: <span class="font-mono text-xs bg-gray-100 px-1 rounded">modules/cfe/scraper.py</span></p>
+
+            <!-- Dos flujos -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Dos portales, dos flujos</h4>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                <div class="rounded-lg border border-gray-200 p-4">
+                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Portal Publico</p>
+                    <p class="text-sm font-semibold text-gray-800 mb-1">app.cfe.mx — ReciboDeLuzGMX</p>
+                    <ul class="text-sm text-gray-600 space-y-1">
+                        <li>No requiere sesion</li>
+                        <li>Devuelve XML oficial con el consumo</li>
+                        <li>Se usa para alta (obtener total del ultimo recibo) y para descarga de XML</li>
+                        <li>Sujeto a bloqueo por IP de datacenter</li>
+                    </ul>
+                </div>
+                <div class="rounded-lg border border-[#00BABB] bg-[#E0F7F7] p-4">
+                    <p class="text-xs font-bold text-[#123456] uppercase tracking-wide mb-2">MiEspacio</p>
+                    <p class="text-sm font-semibold text-gray-800 mb-1">app.cfe.mx — MiEspacio</p>
+                    <ul class="text-sm text-gray-600 space-y-1">
+                        <li>Requiere sesion activa (cookie guardada)</li>
+                        <li>Acceso a Otras Facturas: XML + PDF historicos</li>
+                        <li>Permite registrar servicios en la cuenta de Enertika</li>
+                        <li>La sesion expira periodicamente — requiere renovacion manual</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Como se aplica el proxy -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Como se aplica el proxy al scraper</h4>
+            <div class="rounded-lg border border-gray-200 p-4 mb-6">
+                <p class="text-sm text-gray-700 mb-3">La funcion <span class="font-mono text-xs bg-gray-100 px-1 rounded">_build_proxy_kwargs()</span> en <span class="font-mono text-xs">scraper.py:37</span> lee <span class="font-mono text-xs">CFE_PROXY_URL</span> del entorno y construye los kwargs de Playwright:</p>
+                <pre class="bg-gray-900 text-green-400 text-xs rounded-lg p-4 overflow-x-auto">def _build_proxy_kwargs() -> dict:
+    raw = os.environ.get("CFE_PROXY_URL", "").strip()
+    if not raw:
+        return {}   # sin proxy — CFE bloqueara la conexion
+    parsed = urlparse(raw)
+    proxy = {"server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"}
+    if parsed.username:
+        proxy["username"] = parsed.username
+    if parsed.password:
+        proxy["password"] = parsed.password
+    return {"proxy": proxy}</pre>
+                <p class="text-sm text-gray-600 mt-3">Se aplica en <span class="font-mono text-xs">_chromium_launch_kwargs()</span> que es llamado por todos los flujos (portal publico, MiEspacio y alta). El proxy opera a nivel del browser, no del contexto, por lo que aplica a todas las navegaciones.</p>
+            </div>
+
+            <!-- Deteccion de bloqueo -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Deteccion de bloqueo</h4>
+            <p class="text-sm text-gray-600 mb-3">La funcion <span class="font-mono text-xs">_detect_block(page)</span> analiza el HTML cargado y detecta:</p>
+            <div class="space-y-2 mb-6">
+                <div class="flex gap-3 p-3 rounded-lg bg-gray-50 border border-gray-200">
+                    <span class="text-xs font-mono bg-red-100 text-red-700 px-2 py-0.5 rounded flex-shrink-0">Imperva/Incapsula</span>
+                    <p class="text-xs text-gray-600">Bloqueo activo — CFE devuelve pagina con contenido de seguridad</p>
+                </div>
+                <div class="flex gap-3 p-3 rounded-lg bg-gray-50 border border-gray-200">
+                    <span class="text-xs font-mono bg-red-100 text-red-700 px-2 py-0.5 rounded flex-shrink-0">Pagina vacia</span>
+                    <p class="text-xs text-gray-600">body_html_len menor 600 bytes y sin titulo — bloqueo silencioso por IP de datacenter (la pagina carga pero sin contenido)</p>
+                </div>
+                <div class="flex gap-3 p-3 rounded-lg bg-amber-50 border border-amber-200">
+                    <span class="text-xs font-mono bg-amber-100 text-amber-700 px-2 py-0.5 rounded flex-shrink-0">ERR_TIMED_OUT</span>
+                    <p class="text-xs text-gray-600">La conexion TCP nunca completo. Ocurre cuando el proxy esta caido o no configurado. _detect_block nunca llega a ejecutarse porque goto() ya expiro.</p>
+                </div>
+            </div>
+
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <p class="text-xs font-bold text-amber-700 uppercase tracking-wide mb-1">Nota sobre el log ERR_TIMED_OUT</p>
+                <p class="text-sm text-gray-700">Cuando el Worker muestra <span class="font-mono text-xs">net::ERR_TIMED_OUT</span> en el log CFE, la causa mas probable es que el proxy de oficina no estaba corriendo al momento del intento. No indica un problema con el codigo ni con Railway. Verificar primero el estado del servicio 3proxy en la PC de oficina.</p>
+            </div>
+        </div>
+
+        <!-- TAB: Operacion y Diagnostico -->
+        <div x-show="activeTab === 'operacion'" x-transition:enter="transition ease-out duration-200">
+            <h3 class="text-2xl font-bold text-[#123456] mb-1">Operacion y Diagnostico</h3>
+            <p class="text-sm text-gray-500 mb-6">Procedimientos para verificar el estado del sistema, diagnosticar errores y recuperar el servicio.</p>
+
+            <!-- Checklist de verificacion -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Checklist de verificacion rapida</h4>
+            <div class="space-y-3 mb-8">
+                <div class="flex gap-4 p-4 rounded-lg border border-gray-200">
+                    <div class="w-7 h-7 rounded-full bg-[#123456] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">1</div>
+                    <div class="flex-1">
+                        <p class="text-sm font-semibold text-gray-800">Verificar que el servicio 3proxy esta corriendo</p>
+                        <pre class="bg-gray-100 text-xs rounded p-2 mt-1">sc query 3proxy</pre>
+                        <p class="text-xs text-gray-500 mt-1">Esperado: <span class="font-mono">STATE: RUNNING</span>. Si dice STOPPED o no existe el servicio, ver Paso 2.</p>
+                    </div>
+                </div>
+                <div class="flex gap-4 p-4 rounded-lg border border-gray-200">
+                    <div class="w-7 h-7 rounded-full bg-[#123456] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">2</div>
+                    <div class="flex-1">
+                        <p class="text-sm font-semibold text-gray-800">Iniciar el servicio manualmente (si esta STOPPED)</p>
+                        <pre class="bg-gray-100 text-xs rounded p-2 mt-1">sc start 3proxy</pre>
+                        <p class="text-xs text-gray-500 mt-1">Si el servicio no existe aun, recrearlo con el comando completo de la tab "Proxy 3proxy".</p>
+                    </div>
+                </div>
+                <div class="flex gap-4 p-4 rounded-lg border border-gray-200">
+                    <div class="w-7 h-7 rounded-full bg-[#123456] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">3</div>
+                    <div class="flex-1">
+                        <p class="text-sm font-semibold text-gray-800">Confirmar que el puerto es accesible desde internet</p>
+                        <pre class="bg-gray-100 text-xs rounded p-2 mt-1">telnet &lt;IP_PUBLICA_OFICINA&gt; 3128</pre>
+                        <p class="text-xs text-gray-500 mt-1">Debe conectar (pantalla en negro). Si no conecta: verificar port-forward en el router y la regla del firewall de Windows.</p>
+                    </div>
+                </div>
+                <div class="flex gap-4 p-4 rounded-lg border border-gray-200">
+                    <div class="w-7 h-7 rounded-full bg-[#123456] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">4</div>
+                    <div class="flex-1">
+                        <p class="text-sm font-semibold text-gray-800">Verificar la variable en Railway Worker</p>
+                        <p class="text-xs text-gray-500 mt-1">Railway → proyecto → servicio Worker → Variables → buscar <span class="font-mono text-xs">CFE_PROXY_URL</span>. Debe existir con el formato <span class="font-mono text-xs">http://cfe:PASS@IP:3128</span>.</p>
+                    </div>
+                </div>
+                <div class="flex gap-4 p-4 rounded-lg border border-gray-200">
+                    <div class="w-7 h-7 rounded-full bg-[#123456] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">5</div>
+                    <div class="flex-1">
+                        <p class="text-sm font-semibold text-gray-800">Confirmar en logs del Worker que el proxy esta activo</p>
+                        <pre class="bg-gray-100 text-xs rounded p-2 mt-1">[CFE] Usando proxy http://&lt;hostname&gt;:3128</pre>
+                        <p class="text-xs text-gray-500 mt-1">Esta linea aparece en cada descarga si <span class="font-mono text-xs">CFE_PROXY_URL</span> esta configurada. Si no aparece, la variable no llega al Worker.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabla de errores comunes -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Errores comunes y su causa</h4>
+            <div class="overflow-x-auto mb-8">
+                <table class="w-full text-sm border-collapse">
+                    <thead>
+                        <tr class="bg-gray-50 border-b border-gray-200">
+                            <th class="text-left py-2 px-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Mensaje en log</th>
+                            <th class="text-left py-2 px-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Causa</th>
+                            <th class="text-left py-2 px-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Accion</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        <tr>
+                            <td class="py-3 px-3 font-mono text-xs text-red-600">net::ERR_TIMED_OUT</td>
+                            <td class="py-3 px-3 text-xs text-gray-600">3proxy no esta corriendo o el puerto no es accesible</td>
+                            <td class="py-3 px-3 text-xs text-gray-600"><span class="font-mono">sc start 3proxy</span> en la PC de oficina</td>
+                        </tr>
+                        <tr>
+                            <td class="py-3 px-3 font-mono text-xs text-red-600">Portal CFE devolvio pagina vacia</td>
+                            <td class="py-3 px-3 text-xs text-gray-600">IP de datacenter bloqueada — el proxy no estaba activo o CFE cambio sus reglas</td>
+                            <td class="py-3 px-3 text-xs text-gray-600">Verificar proxy. Si el proxy esta activo pero el error persiste, CFE puede estar bloqueando la IP de la oficina temporalmente.</td>
+                        </tr>
+                        <tr>
+                            <td class="py-3 px-3 font-mono text-xs text-red-600">Portal CFE bloqueado por Imperva</td>
+                            <td class="py-3 px-3 text-xs text-gray-600">Demasiadas solicitudes en poco tiempo desde la misma IP</td>
+                            <td class="py-3 px-3 text-xs text-gray-600">Esperar 15-30 minutos. El bloqueo de Imperva es temporal.</td>
+                        </tr>
+                        <tr>
+                            <td class="py-3 px-3 font-mono text-xs text-amber-600">La sesion CFE MiEspacio expiro</td>
+                            <td class="py-3 px-3 text-xs text-gray-600">La cookie de sesion de MiEspacio venco</td>
+                            <td class="py-3 px-3 text-xs text-gray-600">Renovar sesion desde Admin > Configuracion Global > Recibos CFE</td>
+                        </tr>
+                        <tr>
+                            <td class="py-3 px-3 font-mono text-xs text-amber-600">El servicio no esta registrado en MiEspacio</td>
+                            <td class="py-3 px-3 text-xs text-gray-600">El alta automatica no se completo aun o fallo</td>
+                            <td class="py-3 px-3 text-xs text-gray-600">Forzar alta manual desde la lista de servicios CFE</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Inicio manual de 3proxy -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Iniciar 3proxy manualmente (sin el servicio)</h4>
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <p class="text-sm text-gray-600 mb-2">Si el servicio no existe o no arranca, se puede ejecutar directamente desde CMD como Administrador:</p>
+                <pre class="bg-gray-900 text-green-400 text-xs rounded p-3 overflow-x-auto">C:\3proxy\3proxy.exe C:\3proxy\3proxy.cfg</pre>
+                <p class="text-xs text-gray-500 mt-2">Corre en primer plano — cerrar la ventana detiene el proxy. Solo para pruebas; para produccion usar el servicio de Windows.</p>
+            </div>
+        </div>
+
+        <!-- TAB: MiEspacio y Sesion -->
+        <div x-show="activeTab === 'miespacio'" x-transition:enter="transition ease-out duration-200">
+            <h3 class="text-2xl font-bold text-[#123456] mb-1">MiEspacio CFE — Sesion y Alta de Servicios</h3>
+            <p class="text-sm text-gray-500 mb-6">MiEspacio es la cuenta de Enertika en el portal CFE. Permite descargar facturas historicas (XML + PDF) y registrar servicios de clientes.</p>
+
+            <!-- Sesion -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Sesion de MiEspacio</h4>
+            <div class="rounded-lg border border-gray-200 p-4 mb-6">
+                <p class="text-sm text-gray-700 mb-3">La sesion se guarda como JSON de cookies (storage state de Playwright) en la base de datos, campo <span class="font-mono text-xs bg-gray-100 px-1 rounded">tb_configuracion_global</span> con clave <span class="font-mono text-xs">cfe.session_json</span>.</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Duracion de la sesion</p>
+                        <p class="text-sm text-gray-700">Variable — CFE puede expirarla en dias o semanas. No hay notificacion automatica de expiracion.</p>
+                    </div>
+                    <div>
+                        <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Como renovar</p>
+                        <p class="text-sm text-gray-700">Admin → Configuracion Global → Recibos CFE → boton Renovar Sesion. Requiere correr el lanzador local <span class="font-mono text-xs">renovar_sesion.py</span> desde una PC de la oficina (necesita acceso interactivo para resolver CAPTCHA).</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Alta de servicios -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Alta de servicios en MiEspacio</h4>
+            <p class="text-sm text-gray-600 mb-4">Cuando se agrega un servicio CFE, el Worker debe registrarlo en la cuenta MiEspacio de Enertika. CFE requiere el total del ultimo recibo como verificacion de identidad del servicio.</p>
+            <div class="space-y-3 mb-6">
+                <div class="flex gap-4 p-3 rounded-lg border border-gray-200">
+                    <div class="w-6 h-6 rounded-full bg-[#00BABB] text-white flex items-center justify-center text-xs font-bold flex-shrink-0">A</div>
+                    <div>
+                        <p class="text-sm font-semibold text-gray-800">Alta automatica</p>
+                        <p class="text-xs text-gray-500">El Worker extrae el total del ultimo recibo desde el portal publico (XML) y lo usa para registrar el servicio automaticamente.</p>
+                    </div>
+                </div>
+                <div class="flex gap-4 p-3 rounded-lg border border-gray-200">
+                    <div class="w-6 h-6 rounded-full bg-[#00BABB] text-white flex items-center justify-center text-xs font-bold flex-shrink-0">M</div>
+                    <div>
+                        <p class="text-sm font-semibold text-gray-800">Alta manual (cuando falla la automatica)</p>
+                        <p class="text-xs text-gray-500">Si el portal publico no tiene el recibo o el total no coincide, el usuario puede ingresar el total manualmente desde el popup de error en la lista de servicios.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Herramientas locales -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Herramientas locales (correr en PC de oficina)</h4>
+            <div class="space-y-3 mb-6">
+                <div class="rounded-lg border border-gray-200 p-4">
+                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">tools/cfe/renovar_sesion.py</p>
+                    <p class="text-sm text-gray-700">Abre Edge de forma interactiva para que el usuario inicie sesion en MiEspacio y resuelva el CAPTCHA. Guarda las cookies en la BD automaticamente.</p>
+                </div>
+                <div class="rounded-lg border border-gray-200 p-4">
+                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">tools/cfe/alta_asistida.py</p>
+                    <p class="text-sm font-medium text-gray-700">Alta supervisada paso a paso. Pausa antes de cada "Guardar" para revision humana. Util cuando el alta automatica falla repetidamente.</p>
+                </div>
+                <div class="rounded-lg border border-gray-200 p-4">
+                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">tools/cfe/volcar_dom.py</p>
+                    <p class="text-sm text-gray-700">Captura el DOM real de las paginas de MiEspacio (AgregarServicio.aspx, Default.aspx) para diagnosticar cambios de selectores cuando el alta falla.</p>
+                </div>
+            </div>
+
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p class="text-xs font-bold text-blue-700 uppercase tracking-wide mb-1">Por que las herramientas locales evitan el proxy</p>
+                <p class="text-sm text-gray-700">Estas herramientas corren en la PC de la oficina, que ya tiene la IP publica estatica. Por eso no necesitan el proxy 3proxy — salen directamente con la IP de confianza de Enertika. El scraper del Worker en Railway sí necesita el proxy porque Railway usa IPs de AWS que CFE bloquea.</p>
+            </div>
+        </div>
+
+    </div>
+</div>
