@@ -848,6 +848,8 @@ class BomService:
             raise ValueError("Adenda no encontrada")
         if adenda["estatus"] != ESTATUS_ADENDA_PENDIENTE_INGENIERIA:
             raise ValueError("La adenda no esta pendiente de Ingenieria")
+        if EstatusBOM(adenda["bom_estatus"]) != EstatusBOM.APROBADO_FINAL:
+            raise ValueError("Solo se pueden aprobar adendas en BOM aprobado final")
         await self._validar_aprobador_bom(
             conn, user_id, user_role, rol_org,
             adenda.get("responsable_ing"), "Responsable de Ingenieria", "jefe_ingenieria"
@@ -884,6 +886,22 @@ class BomService:
         else:
             raise ValueError("La adenda no esta pendiente de aprobacion")
         return await self.db.rechazar_adenda(conn, id_adenda, user_id, motivo)
+
+    async def cancelar_adenda(
+        self, conn, id_adenda: UUID, user_id: UUID, user_role: str,
+        rol_org: Optional[str] = None
+    ) -> dict:
+        """Cancela una adenda pendiente de construccion sin mutar items."""
+        adenda = await self.db.get_adenda_by_id(conn, id_adenda)
+        if not adenda:
+            raise ValueError("Adenda no encontrada")
+        if adenda["estatus"] != ESTATUS_ADENDA_PENDIENTE_CONSTRUCCION:
+            raise ValueError("Solo se pueden cancelar adendas pendientes de Construccion")
+        await self._validar_aprobador_bom(
+            conn, user_id, user_role, rol_org,
+            adenda.get("jefe_construccion"), "Jefe de Construccion", "jefe_construccion"
+        )
+        return await self.db.cancelar_adenda(conn, id_adenda, user_id)
 
     @staticmethod
     def _normalizar_lineas_propuesta(lineas) -> list:

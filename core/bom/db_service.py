@@ -593,6 +593,21 @@ class BomDBService:
         """, id_adenda, user_id, motivo_rechazo)
         return dict(row) if row else None
 
+    async def cancelar_adenda(
+        self, conn, id_adenda: UUID, user_id: UUID
+    ) -> dict:
+        """Cancela una adenda pendiente de construccion sin mutar items."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_adendas
+            SET estatus = 'CANCELADA',
+                cancelado_por = $2,
+                fecha_cancelacion = NOW(),
+                updated_at = NOW()
+            WHERE id_adenda = $1
+            RETURNING *
+        """, id_adenda, user_id)
+        return dict(row) if row else None
+
     async def vincular_adenda_item_bom(
         self, conn, id_adenda_item: UUID, id_item_bom: UUID
     ) -> dict:

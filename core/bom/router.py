@@ -1294,6 +1294,35 @@ async def rechazar_adenda(
         return _toast_response(request, "Error interno al rechazar la adenda", "error", "Error")
 
 
+@router.post("/adendas/{id_adenda}/cancelar", include_in_schema=False)
+async def cancelar_adenda(
+    request: Request,
+    id_adenda: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("construccion", "editor"),
+):
+    """Cancela una adenda pendiente de Construccion."""
+    user_id = context.get("user_db_id")
+    try:
+        adenda = await service.cancelar_adenda(
+            conn,
+            id_adenda,
+            user_id,
+            context.get("role"),
+            context.get("rol_organizacional"),
+        )
+        return await _adendas_tab_response(
+            request, context, conn, service, adenda["id_bom_base"]
+        )
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", "Error")
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al cancelar adenda")
+        return _toast_response(request, "Error interno al cancelar la adenda", "error", "Error")
+
+
 @router.post("/adendas/{id_adenda}/comentarios", include_in_schema=False)
 async def comentar_adenda(
     request: Request,

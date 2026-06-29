@@ -96,6 +96,16 @@
                     </button>
                 </form>
                 {% endif %}
+                {% if adenda.estatus == 'PENDIENTE_CONSTRUCCION' and es_const_editor %}
+                <form hx-post="/bom/adendas/{{ adenda.id_adenda }}/cancelar"
+                    hx-target="#tab-adendas" hx-swap="innerHTML"
+                    hx-confirm="¿Cancelar esta adenda? Esta acción no se puede deshacer.">
+                    <button type="submit"
+                        class="w-full rounded border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">
+                        Cancelar adenda
+                    </button>
+                </form>
+                {% endif %}
             </div>
         </div>
 

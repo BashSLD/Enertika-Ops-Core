@@ -187,6 +187,15 @@ class FakeAdendaDB:
     async def get_adendas_by_bom(self, conn, id_bom):
         return [a for a in self.adendas if a["id_bom_base"] == id_bom]
 
+    async def cancelar_adenda(self, conn, id_adenda, user_id):
+        adenda = await self.get_adenda_by_id(conn, id_adenda)
+        adenda["estatus"] = "CANCELADA"
+        adenda["cancelado_por"] = user_id
+        for idx, actual in enumerate(self.adendas):
+            if actual["id_adenda"] == id_adenda:
+                self.adendas[idx].update(adenda)
+        return adenda
+
 
 def _service(db):
     svc = BomService()
@@ -402,3 +411,67 @@ async def test_adenda_con_ok_ingenieria_no_aplica_hasta_aprobacion_tecnica():
 
     assert len(db.items) == 2
     assert db.adendas[0]["estatus"] == "APROBADA"
+
+
+@pytest.mark.asyncio
+async def test_aprobar_ingenieria_falla_si_bom_no_es_aprobado_final():
+    bom_id = uuid4()
+    user_id = uuid4()
+    bom = {"id_bom": bom_id, "id_proyecto": uuid4(), "estatus": "BORRADOR", "version": 1}
+    db = FakeAdendaDB(bom)
+    adenda_id = uuid4()
+    db.adendas.append({
+        "id_adenda": adenda_id,
+        "id_bom_base": bom_id,
+        "id_bom": bom_id,
+        "tipo_adenda": "NO_ADQUIRIDO",
+        "motivo": "Test",
+        "estatus": "PENDIENTE_INGENIERIA",
+        "bom_estatus": "BORRADOR",
+        "bom_version": 1,
+        "jefe_construccion": None,
+        "responsable_ing": None,
+    })
+    svc = _service(db)
+
+    with pytest.raises(ValueError, match="Solo se pueden aprobar adendas en BOM aprobado final"):
+        await svc.aprobar_adenda_ingenieria(FakeConn(), adenda_id, user_id, "ADMIN")
+
+
+@pytest.mark.asyncio
+async def test_cancelar_adenda_pendiente_construccion_ok():
+    bom_id = uuid4()
+    item_id = uuid4()
+    user_id = uuid4()
+    db = FakeAdendaDB(_bom(bom_id), [_item(item_id, bom_id)])
+    svc = _service(db)
+
+    adenda = await svc.cerrar_item_sin_compra(
+        FakeConn(), item_id, user_id, "Proveedor sin stock"
+    )
+    assert adenda["estatus"] == "PENDIENTE_CONSTRUCCION"
+
+    resultado = await svc.cancelar_adenda(FakeConn(), adenda["id_adenda"], user_id, "ADMIN")
+
+    assert resultado["estatus"] == "CANCELADA"
+    assert db.items[item_id]["estatus_ejecucion"] is None
+
+
+@pytest.mark.asyncio
+async def test_cancelar_adenda_falla_si_no_pendiente_construccion():
+    bom_id = uuid4()
+    item_id = uuid4()
+    user_id = uuid4()
+    db = FakeAdendaDB(_bom(bom_id), [_item(item_id, bom_id)])
+    svc = _service(db)
+
+    adenda = await svc.cerrar_item_sin_compra(
+        FakeConn(), item_id, user_id, "Proveedor sin stock"
+    )
+    await svc.aprobar_adenda_construccion(
+        FakeConn(), adenda["id_adenda"], user_id, "ADMIN", requiere_ingenieria=True
+    )
+    assert db.adendas[0]["estatus"] == "PENDIENTE_INGENIERIA"
+
+    with pytest.raises(ValueError, match="Solo se pueden cancelar adendas pendientes de Construccion"):
+        await svc.cancelar_adenda(FakeConn(), adenda["id_adenda"], user_id, "ADMIN")
