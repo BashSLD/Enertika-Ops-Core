@@ -27,6 +27,13 @@ logger = logging.getLogger("ComprasService")
 # Tolerancia de matching por monto (pesos/dolares)
 MATCH_TOLERANCIA = Decimal("0.50")
 
+# Constraints de unicidad que corresponden a duplicados de negocio (mismo PDF cargado dos veces).
+# Cualquier otra UniqueViolationError en insert_comprobante es un error de infraestructura y debe propagarse.
+_BUSINESS_DUPLICATE_CONSTRAINTS = frozenset({
+    "uq_comprobante_pago_key",
+    "uq_comprobante_duplicado_no_bom",
+})
+
 
 def parse_exceso_monto_error(msg: str) -> tuple[str | None, str | None, str]:
     parts = msg.split("|", 3)
@@ -181,7 +188,9 @@ class ComprasService:
                 }
                 try:
                     new_id = await db_svc.insert_comprobante(conn, comprobante_data)
-                except asyncpg.exceptions.UniqueViolationError:
+                except asyncpg.exceptions.UniqueViolationError as e:
+                    if e.constraint_name not in _BUSINESS_DUPLICATE_CONSTRAINTS:
+                        raise
                     duplicados.append(entrada_duplicado)
                     logger.info("Duplicado concurrente detectado: %s", filename)
                     continue
@@ -913,9 +922,6 @@ class ComprasService:
         emisor_rfc = cfdi_data['emisor_rfc']
         tipo_factura = cfdi_data.get('tipo_factura', 'NORMAL')
 
-        if await db_svc.uuid_factura_exists_for_comprobante(conn, id_comprobante, uuid_factura):
-            raise ValueError(f"UUID {uuid_factura[:8]}... ya esta vinculado a este comprobante")
-
         # Obtener/crear proveedor
         proveedor = await db_svc.get_proveedor_by_rfc(conn, emisor_rfc)
         if not proveedor:
@@ -924,10 +930,14 @@ class ComprasService:
             )
         id_proveedor = proveedor['id_proveedor']
 
-        # Obtener comprobante y bloquear la fila para la duración de la transacción
+        # Bloquear el comprobante primero; luego re-verificar el UUID dentro del lock
+        # para evitar que una carrera concurrente produzca un 500 en lugar de ValueError.
         comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante, for_update=True)
         if not comprobante:
             raise ValueError("Comprobante no encontrado")
+
+        if await db_svc.uuid_factura_exists_for_comprobante(conn, id_comprobante, uuid_factura):
+            raise ValueError(f"UUID {uuid_factura[:8]}... ya esta vinculado a este comprobante")
 
         current_estatus = comprobante['estatus']
         if current_estatus not in ('PENDIENTE', 'ANTICIPO', 'PARCIALMENTE_FACTURADO'):
