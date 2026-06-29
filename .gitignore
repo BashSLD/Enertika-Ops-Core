@@ -52,7 +52,7 @@ AGENTS.md
 .agent/
 .agents/
 .mcp.json
-docs/
+/docs/
 .claude/knowledge/
 .vscode/
 memory/
