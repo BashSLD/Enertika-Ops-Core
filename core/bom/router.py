@@ -241,7 +241,7 @@ async def bom_ui(
             "El BOM solo lo pueden abrir Ingeniería, Construcción, Compras o Finanzas.",
         )
 
-    proyecto = await service.db.get_proyecto_info(conn, id_proyecto)
+    proyecto = await service.get_proyecto_info(conn, id_proyecto)
     if not proyecto:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
@@ -322,7 +322,7 @@ async def bom_ui(
     if bom:
         items = await service.get_items(conn, bom['id_bom'])
         estadisticas = await service.get_estadisticas(conn, bom['id_bom'])
-        versiones = await service.db.get_all_bom_versions(conn, id_proyecto)
+        versiones = await service.get_all_bom_versions(conn, id_proyecto)
         if bom['estatus'] == 'BORRADOR':
             ultimo_rechazo = await service.get_ultimo_rechazo(conn, bom['id_bom'])
         aprobador_final_id = await service.get_aprobador_final_id(conn)
@@ -885,7 +885,7 @@ async def restaurar_item(
     user_id = context.get("user_db_id")
     try:
         item = await service.get_item(conn, id_item)
-        await service.db.restaurar_item(conn, id_item)
+        await service.restaurar_item(conn, id_item)
 
         bom = await service.get_bom(conn, item['id_bom'])
         items = await service.get_items(conn, bom['id_bom'])
@@ -1433,12 +1433,12 @@ async def buscar_materiales(
     offset = max(offset, 0)
     resultado_busqueda = {"items": [], "total": 0, "limit": limit}
     if len(q) >= 3:
-        resultado_busqueda = await service.db.buscar_materiales_para_bom(
+        resultado_busqueda = await service.buscar_materiales_para_bom(
             conn, q, query_norm=normalizar_descripcion(q), limite=limit, offset=offset
         )
     else:
         # Sin query: mostrar materiales recientes como dropdown inicial
-        resultado_busqueda = await service.db.get_materiales_recientes(
+        resultado_busqueda = await service.get_materiales_recientes(
             conn, limite=limit, offset=offset
         )
 
@@ -1927,8 +1927,8 @@ async def get_modal_suplencia(
     """Modal para configurar suplente del usuario actual."""
     user_id = context.get("user_db_id")
     suplencia_activa = await service.get_suplencia_activa(conn, user_id)
-    usuarios = await service.db.get_usuarios_por_area(conn, 'ingenieria', solo_jefes=False)
-    const_usuarios = await service.db.get_usuarios_por_area(conn, 'construccion', solo_jefes=False)
+    usuarios = await service.get_usuarios_por_area(conn, 'ingenieria', solo_jefes=False)
+    const_usuarios = await service.get_usuarios_por_area(conn, 'construccion', solo_jefes=False)
     todos_usuarios = {str(u['id_usuario']): u for u in usuarios + const_usuarios}
     return templates.TemplateResponse(request, "bom/partials/modal_suplencia.html", {"suplencia_activa": suplencia_activa,
         "usuarios": list(todos_usuarios.values()),
@@ -2216,7 +2216,7 @@ async def get_cotizaciones_tab(
     _=require_any_module_access(["ingenieria", "compras"]),
 ):
     """Tab de cotizaciones — cargado lazy con HTMX intersect."""
-    bom = await service.db.get_bom_by_id(conn, id_bom)
+    bom = await service.get_bom_by_id(conn, id_bom)
     if not bom:
         raise HTTPException(status_code=404, detail="BOM no encontrado")
 
@@ -2294,7 +2294,7 @@ async def crear_cotizacion(
         raise HTTPException(status_code=400, detail=str(e))
 
     # Retornar tab actualizado
-    bom = await service.db.get_bom_by_id(conn, id_bom)
+    bom = await service.get_bom_by_id(conn, id_bom)
     cotizaciones = await service.listar_cotizaciones(conn, id_bom)
     items = await service.get_items(conn, id_bom)
     items_disponibles = [i for i in items if _item_disponible_cotizacion(i)]
@@ -2346,7 +2346,7 @@ async def crear_rfq_rapido(
     except ValueError:
         raise HTTPException(status_code=400, detail="IDs inválidos")
 
-    items_bd = await service.db.get_items_by_ids(conn, item_ids)
+    items_bd = await service.get_items_by_ids(conn, item_ids)
     items_data = [
         {
             "bom_item_id": i["id_item"],
@@ -2388,7 +2388,7 @@ async def crear_rfq_rapido(
             headers={"HX-Reswap": "none"},
         )
 
-    bom = await service.db.get_bom_by_id(conn, id_bom)
+    bom = await service.get_bom_by_id(conn, id_bom)
     cotizaciones = await service.listar_cotizaciones(conn, id_bom)
     items = await service.get_items(conn, id_bom)
     items_disponibles = [
@@ -2427,8 +2427,8 @@ async def solicitar_aclaracion(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    cotizacion = await service.db.get_cotizacion_by_id(conn, cotizacion_id)
-    bom = await service.db.get_bom_by_id(conn, cotizacion['bom_id'])
+    cotizacion = await service.get_cotizacion_by_id(conn, cotizacion_id)
+    bom = await service.get_bom_by_id(conn, cotizacion['bom_id'])
     cotizaciones = await service.listar_cotizaciones(conn, cotizacion['bom_id'])
     items = await service.get_items(conn, cotizacion['bom_id'])
     items_disponibles = [i for i in items if _item_disponible_cotizacion(i)]
@@ -2460,10 +2460,10 @@ async def get_comparativa(
     comparativas = []
     for rfq in rfqs:
         responses = await service.get_rfq_responses(conn, rfq['id'])
-        rfq_items = await service.db.get_items_cotizacion(conn, rfq['id'])
+        rfq_items = await service.get_items_cotizacion(conn, rfq['id'])
         resp_items = {}
         for resp in responses:
-            resp_items[str(resp['id'])] = await service.db.get_items_cotizacion(conn, resp['id'])
+            resp_items[str(resp['id'])] = await service.get_items_cotizacion(conn, resp['id'])
         comparativas.append({
             'rfq': rfq,
             'items': rfq_items,
@@ -2516,7 +2516,7 @@ async def seleccionar_cotizacion(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    bom = await service.db.get_bom_by_id(conn, cotizacion['bom_id'])
+    bom = await service.get_bom_by_id(conn, cotizacion['bom_id'])
     cotizaciones = await service.listar_cotizaciones(conn, cotizacion['bom_id'])
     items = await service.get_items(conn, cotizacion['bom_id'])
     items_disponibles = [i for i in items if _item_disponible_cotizacion(i)]
@@ -2549,7 +2549,7 @@ async def rechazar_cotizacion(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    bom = await service.db.get_bom_by_id(conn, cotizacion['bom_id'])
+    bom = await service.get_bom_by_id(conn, cotizacion['bom_id'])
     cotizaciones = await service.listar_cotizaciones(conn, cotizacion['bom_id'])
     items = await service.get_items(conn, cotizacion['bom_id'])
     items_disponibles = [i for i in items if _item_disponible_cotizacion(i)]
@@ -2582,14 +2582,14 @@ async def subir_pdf_cotizacion(
     if not pdf_url:
         raise HTTPException(status_code=400, detail="URL del PDF es requerida")
     try:
-        await service.db.actualizar_pdf_cotizacion(conn, cotizacion_id, pdf_url)
+        await service.actualizar_pdf_cotizacion(conn, cotizacion_id, pdf_url)
     except asyncpg.PostgresError:
         raise HTTPException(status_code=500, detail="Error al actualizar PDF")
 
-    cotizacion = await service.db.get_cotizacion_by_id(conn, cotizacion_id)
+    cotizacion = await service.get_cotizacion_by_id(conn, cotizacion_id)
     if not cotizacion:
         raise HTTPException(status_code=404, detail="Cotización no encontrada")
-    bom = await service.db.get_bom_by_id(conn, cotizacion['bom_id'])
+    bom = await service.get_bom_by_id(conn, cotizacion['bom_id'])
     cotizaciones = await service.listar_cotizaciones(conn, cotizacion['bom_id'])
     items = await service.get_items(conn, cotizacion['bom_id'])
     items_disponibles = [i for i in items if _item_disponible_cotizacion(i)]
@@ -2645,7 +2645,7 @@ async def get_autorizaciones_tab(
     service: BomService = Depends(get_bom_service),
     _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
 ):
-    bom = await service.db.get_bom_by_id(conn, id_bom)  # autorizaciones tab
+    bom = await service.get_bom_by_id(conn, id_bom)  # autorizaciones tab
     if not bom:
         raise HTTPException(status_code=404, detail="BOM no encontrado")
     autorizaciones = await service.listar_autorizaciones(conn, id_bom)
@@ -2665,7 +2665,7 @@ async def get_resumen_compra_tab(
     _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
 ):
     """Tab Resumen de compra — comparativo Presupuesto vs Facturado vs Pagado, lazy HTMX."""
-    bom = await service.db.get_bom_by_id(conn, id_bom)
+    bom = await service.get_bom_by_id(conn, id_bom)
     if not bom:
         raise HTTPException(status_code=404, detail="BOM no encontrado")
     resumen = await service.get_resumen_compra(conn, id_bom)
@@ -2761,7 +2761,7 @@ async def aprobar_autorizacion_obra(
     except asyncpg.PostgresError:
         raise HTTPException(status_code=500, detail="Error al aprobar la autorización.")
 
-    bom = await service.db.get_bom_by_id(conn, aut['bom_id'])
+    bom = await service.get_bom_by_id(conn, aut['bom_id'])
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
     return templates.TemplateResponse(
         request, "bom/partials/autorizaciones.html",
@@ -2789,7 +2789,7 @@ async def aprobar_autorizacion_direccion(
     except asyncpg.PostgresError:
         raise HTTPException(status_code=500, detail="Error al aprobar la autorización.")
 
-    bom = await service.db.get_bom_by_id(conn, aut['bom_id'])
+    bom = await service.get_bom_by_id(conn, aut['bom_id'])
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
     return templates.TemplateResponse(
         request, "bom/partials/autorizaciones.html",
@@ -2819,7 +2819,7 @@ async def aprobar_autorizacion_finanzas(
     except asyncpg.PostgresError:
         raise HTTPException(status_code=500, detail="Error al aprobar la autorización.")
 
-    bom = await service.db.get_bom_by_id(conn, aut['bom_id'])
+    bom = await service.get_bom_by_id(conn, aut['bom_id'])
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
     return templates.TemplateResponse(
         request, "bom/partials/autorizaciones.html",
@@ -2848,7 +2848,7 @@ async def rechazar_autorizacion(
     except asyncpg.PostgresError:
         raise HTTPException(status_code=500, detail="Error al rechazar la autorización.")
 
-    bom = await service.db.get_bom_by_id(conn, aut['bom_id'])
+    bom = await service.get_bom_by_id(conn, aut['bom_id'])
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
     return templates.TemplateResponse(
         request, "bom/partials/autorizaciones.html",

@@ -3427,6 +3427,43 @@ class BomService:
         ]
         await self.db.bulk_replace_cotizacion_items(conn, cotizacion_id, items)
 
+    # ========================================
+    # DB PROXIES (router -> service -> db)
+    # ========================================
+
+    async def get_proyecto_info(self, conn, id_proyecto: UUID) -> Optional[dict]:
+        return await self.db.get_proyecto_info(conn, id_proyecto)
+
+    async def get_all_bom_versions(self, conn, id_proyecto: UUID) -> List[dict]:
+        return await self.db.get_all_bom_versions(conn, id_proyecto)
+
+    async def restaurar_item(self, conn, id_item: UUID) -> dict:
+        return await self.db.restaurar_item(conn, id_item)
+
+    async def buscar_materiales_para_bom(self, conn, query: str, **kwargs) -> dict:
+        return await self.db.buscar_materiales_para_bom(conn, query, **kwargs)
+
+    async def get_materiales_recientes(self, conn, limite: int = 10, offset: int = 0) -> dict:
+        return await self.db.get_materiales_recientes(conn, limite=limite, offset=offset)
+
+    async def get_usuarios_por_area(self, conn, module_slug: str, solo_jefes: bool = False) -> List[dict]:
+        return await self.db.get_usuarios_por_area(conn, module_slug, solo_jefes=solo_jefes)
+
+    async def get_bom_by_id(self, conn, id_bom: UUID) -> Optional[dict]:
+        return await self.db.get_bom_by_id(conn, id_bom)
+
+    async def get_cotizacion_by_id(self, conn, cotizacion_id: UUID) -> Optional[dict]:
+        return await self.db.get_cotizacion_by_id(conn, cotizacion_id)
+
+    async def get_items_by_ids(self, conn, item_ids: List[UUID]) -> List[dict]:
+        return await self.db.get_items_by_ids(conn, item_ids)
+
+    async def get_items_cotizacion(self, conn, cotizacion_id: UUID) -> List[dict]:
+        return await self.db.get_items_cotizacion(conn, cotizacion_id)
+
+    async def actualizar_pdf_cotizacion(self, conn, cotizacion_id: UUID, pdf_url: str) -> Optional[dict]:
+        return await self.db.actualizar_pdf_cotizacion(conn, cotizacion_id, pdf_url)
+
 
 def get_bom_service():
     """Dependency injection para FastAPI."""
