@@ -208,7 +208,8 @@ class ComprasDBService:
         
         return await conn.fetch(base_query, *params)
 
-    async def get_comprobante_by_id(self, conn, id_comprobante: UUID) -> Optional[dict]:
+    async def get_comprobante_by_id(self, conn, id_comprobante: UUID, for_update: bool = False) -> Optional[dict]:
+        suffix = " FOR UPDATE OF c" if for_update else ""
         row = await conn.fetchrow(f"""
             SELECT
                 c.*,
@@ -224,7 +225,7 @@ class ComprasDBService:
             LEFT JOIN tb_cat_zonas_compra z ON c.id_zona = z.id
             LEFT JOIN tb_proyectos_gate pr ON c.id_proyecto = pr.id_proyecto
             LEFT JOIN tb_cat_categorias_compra cat ON c.id_categoria = cat.id
-            WHERE c.id_comprobante = $1
+            WHERE c.id_comprobante = $1{suffix}
         """, id_comprobante)
         return dict(row) if row else None
 
@@ -1584,14 +1585,15 @@ class ComprasDBService:
         """, f"%{descripcion}%")
         return float(val) if val else 0
 
-    async def get_comprobantes_by_ids(self, conn, ids: List[UUID]) -> List[dict]:
+    async def get_comprobantes_by_ids(self, conn, ids: List[UUID], for_update: bool = False) -> List[dict]:
         """Obtiene comprobantes disponibles para match por lista de IDs."""
-        rows = await conn.fetch("""
+        suffix = " ORDER BY id_comprobante FOR UPDATE" if for_update else ""
+        rows = await conn.fetch(f"""
             SELECT id_comprobante, fecha_pago, beneficiario_orig, monto, moneda, estatus, monto_facturado
             FROM tb_comprobantes_pago
             WHERE id_comprobante = ANY($1)
               AND (estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO')
-                   OR (estatus = 'ANTICIPO' AND COALESCE(monto_facturado, 0) < monto - 0.50))
+                   OR (estatus = 'ANTICIPO' AND COALESCE(monto_facturado, 0) < monto - 0.50)){suffix}
         """, ids)
         return [dict(r) for r in rows]
 

@@ -152,17 +152,19 @@ class ComprasService:
                 conn, fecha_pago_date, data.beneficiario, Decimal(str(data.monto))
             )
             
+            entrada_duplicado = {
+                "archivo": filename,
+                "fecha": data.fecha_pago.strftime("%d/%m/%Y"),
+                "beneficiario": data.beneficiario,
+                "monto": data.monto,
+                "moneda": data.moneda,
+            }
+
             if exists:
-                duplicados.append({
-                    "archivo": filename,
-                    "fecha": data.fecha_pago.strftime("%d/%m/%Y"),
-                    "beneficiario": data.beneficiario,
-                    "monto": data.monto,
-                    "moneda": data.moneda
-                })
+                duplicados.append(entrada_duplicado)
                 logger.info(f"Duplicado detectado: {filename}")
                 continue
-            
+
             # 4. Insertar en base de datos using db_service
             try:
                 # Intentar auto-asignar el proveedor si ya existe la relación
@@ -177,7 +179,12 @@ class ComprasService:
                     'user_id': user_id,
                     'id_proveedor': id_proveedor
                 }
-                new_id = await db_svc.insert_comprobante(conn, comprobante_data)
+                try:
+                    new_id = await db_svc.insert_comprobante(conn, comprobante_data)
+                except asyncpg.exceptions.UniqueViolationError:
+                    duplicados.append(entrada_duplicado)
+                    logger.info("Duplicado concurrente detectado: %s", filename)
+                    continue
 
                 insertados += 1
                 logger.info(f"Comprobante insertado: {filename} - {data.beneficiario} - ${data.monto}")
@@ -917,8 +924,8 @@ class ComprasService:
             )
         id_proveedor = proveedor['id_proveedor']
 
-        # Obtener comprobante para saber el beneficiario y estado actual
-        comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+        # Obtener comprobante y bloquear la fila para la duración de la transacción
+        comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante, for_update=True)
         if not comprobante:
             raise ValueError("Comprobante no encontrado")
 
@@ -1518,7 +1525,7 @@ class ComprasService:
         if len(rfcs) > 1:
             raise ValueError(f"Las facturas deben ser del mismo proveedor (RFCs: {', '.join(rfcs)})")
 
-        comprobantes = await db_svc.get_comprobantes_by_ids(conn, comprobante_ids)
+        comprobantes = await db_svc.get_comprobantes_by_ids(conn, comprobante_ids, for_update=True)
         if len(comprobantes) != len(comprobante_ids):
             raise ValueError("Uno o mas comprobantes no fueron encontrados")
 

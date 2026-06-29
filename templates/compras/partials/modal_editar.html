@@ -50,7 +50,7 @@
 
             <!-- Formulario de edición -->
             <form hx-patch="/compras/comprobantes/{{ comprobante.id_comprobante }}"
-                hx-target="#row-{{ comprobante.id_comprobante }}" hx-swap="outerHTML"
+                hx-target="#comprobante-row-{{ comprobante.id_comprobante }}" hx-swap="outerHTML"
                 hx-on::after-request="if(event.detail.successful) cerrarModalEdicion()" class="space-y-4">
 
                 <!-- Zona -->

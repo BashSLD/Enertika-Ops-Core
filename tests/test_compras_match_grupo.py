@@ -13,7 +13,7 @@ class FakeComprasDBService:
         self.links = []
         self.id_proveedor = uuid4()
 
-    async def get_comprobantes_by_ids(self, conn, ids):
+    async def get_comprobantes_by_ids(self, conn, ids, for_update=False):
         return [dict(self.comprobantes[i]) for i in ids if i in self.comprobantes]
 
     async def uuid_factura_exists_for_comprobante(self, conn, id_comprobante, uuid_factura):
@@ -29,7 +29,7 @@ class FakeComprasDBService:
             "nombre_comercial": None,
         }
 
-    async def get_comprobante_by_id(self, conn, id_comprobante):
+    async def get_comprobante_by_id(self, conn, id_comprobante, for_update=False):
         comprobante = self.comprobantes.get(id_comprobante)
         return dict(comprobante) if comprobante else None
 
