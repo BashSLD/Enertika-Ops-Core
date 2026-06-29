@@ -119,10 +119,17 @@
       get bulkEmpleadosCount() {
         return new Set(this.selectedRows.map(r => r.usuario_id)).size;
       },
-      openAprobar(id, nombre, fecha, maxMin, motivo) {
-        this.modalId = id; this.modalNombre = nombre; this.modalFecha = fecha;
-        this.modalMaxMinutos = maxMin; this.modalMinutos = Math.min(maxMin, 60);
-        this.modalComentario = ''; this.modalMotivo = motivo || '';
+      openAprobar(id) {
+        const row = this.rows.find(r => r.id === String(id));
+        if (!row) return;
+        const maxMinutos = Number(row.minutos_extra || 0);
+        this.modalId = row.id;
+        this.modalNombre = row.empleado_nombre || '';
+        this.modalFecha = row.fecha_fmt || '';
+        this.modalMaxMinutos = maxMinutos;
+        this.modalMinutos = Math.min(maxMinutos, 60);
+        this.modalComentario = '';
+        this.modalMotivo = row.motivo_solicitud || '';
         this.openModal = true;
       },
       onAprobacionDone() {
@@ -217,7 +224,7 @@
           {% if can_manage_horas_extra %}
           <div class="flex items-center gap-2 flex-shrink-0">
             <button
-              @click="openAprobar('{{ row.id }}', '{{ row.empleado_nombre | replace("'", "\\'") }}', '{{ row.fecha_laboral.strftime('%d/%m/%Y') }}', {{ row.minutos_extra }}, '{{ (row.motivo_solicitud or '') | replace("'", "\\'") }}')"
+              @click="openAprobar('{{ row.id }}')"
               class="px-3 py-1 rounded-lg text-xs font-medium text-white bg-blue-600 hover:bg-blue-700">
               Aprobar
             </button>

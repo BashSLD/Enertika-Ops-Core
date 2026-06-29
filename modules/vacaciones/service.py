@@ -664,6 +664,7 @@ async def get_equipo_dashboard(conn, user_id: UUID, user_ctx: dict) -> dict:
             "id": str(row["id"]),
             "usuario_id": str(row["usuario_id"]),
             "empleado_nombre": row["empleado_nombre"],
+            "fecha_fmt": row["fecha_laboral"].strftime("%d/%m/%Y"),
             "minutos_extra": int(row.get("minutos_extra") or 0),
             "horas_extra_estado": row.get("horas_extra_estado", "pendiente"),
             "motivo_solicitud": row.get("motivo_solicitud"),

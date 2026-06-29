@@ -432,6 +432,7 @@ async def aprobaciones_pendientes(
             "id": str(row["id"]),
             "usuario_id": str(row["usuario_id"]),
             "empleado_nombre": row["empleado_nombre"],
+            "fecha_fmt": row["fecha_laboral"].strftime("%d/%m/%Y"),
             "minutos_extra": int(row.get("minutos_extra") or 0),
             "horas_extra_estado": row.get("horas_extra_estado", "pendiente"),
             "motivo_solicitud": row.get("motivo_solicitud"),
