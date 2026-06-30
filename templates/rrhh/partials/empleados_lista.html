@@ -18,6 +18,7 @@
           <th class="text-left px-4 py-3">Nombre</th>
           <th class="text-left px-4 py-3 hidden md:table-cell">Contratación</th>
           <th class="text-left px-4 py-3 hidden md:table-cell">Sucursal</th>
+          <th class="text-left px-4 py-3 hidden lg:table-cell">Jefe(s)</th>
           <th class="text-left px-4 py-3 hidden lg:table-cell">Aprobador</th>
           <th class="text-left px-4 py-3 hidden lg:table-cell">Vacaciones</th>
         </tr>
@@ -49,6 +50,9 @@
           </td>
           <td class="px-4 py-3 hidden md:table-cell text-gray-600 text-xs">
             {{ emp.sucursal_nombre or '—' }}
+          </td>
+          <td class="px-4 py-3 hidden lg:table-cell text-gray-600 text-xs">
+            {{ emp.jefes_nombres or '—' }}
           </td>
           <td class="px-4 py-3 hidden lg:table-cell text-gray-600 text-xs">
             {{ emp.aprobador_nombre or '—' }}
