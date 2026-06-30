@@ -3,9 +3,8 @@ from __future__ import annotations
 import base64
 import binascii
 import logging
+from datetime import date, timedelta
 from uuid import UUID
-
-from datetime import timedelta
 
 import asyncpg
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
@@ -18,7 +17,14 @@ from core.security import get_current_user_context
 from core.timezone import fmt_time_mx, today_mx
 from modules.asistencia import db_service as asistencia_db
 from modules.asistencia.constants import ASISTENCIA_ESTADO_COLORES, ASISTENCIA_ESTADO_LABELS
-from modules.asistencia.service import omitir_horas_extra_propio_svc
+from modules.asistencia.schemas import SolicitudManualIn
+from modules.asistencia.service import (
+    crear_solicitud_manual_svc,
+    format_solicitudes_manuales,
+    get_equipo_ids,
+    omitir_horas_extra_propio_svc,
+    preparar_solicitud_manual_svc,
+)
 from modules.perfil import db_service as perfil_db
 from modules.perfil import service as perfil_service
 from modules.shared import signatures_db_service as signatures_db
@@ -164,8 +170,10 @@ async def perfil_ui(
     firma = await signatures_db.get_firma_usuario(conn, usuario_id)
     es_jefe = await vac_service.es_jefe_o_aprobador_de_alguien(conn, usuario_id)
     es_rrhh_viewer = user_has_module_access("rrhh", context_perfil, "viewer")
+    es_rrhh_editor = user_has_module_access("rrhh", context_perfil, "editor")
     hoy = today_mx()
     fecha_inicio = hoy - timedelta(days=30)
+    solicitudes_manuales_count = 0
     if es_jefe:
         pendientes_aprobacion = await vac_db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
         equipo_ids = await vac_db.get_empleados_donde_soy_jefe(conn, usuario_id)
@@ -175,6 +183,12 @@ async def perfil_ui(
     else:
         pendientes_aprobacion = []
         he_solicitadas = []
+    if es_jefe or es_rrhh_editor:
+        equipo_manual_ids = await get_equipo_ids(conn, usuario_id, context_perfil)
+        solicitudes_manuales_count = await asistencia_db.count_solicitudes_manuales_pendientes_equipo(
+            conn,
+            equipo_manual_ids,
+        )
     es_jefe_o_aprobador = es_jefe or es_rrhh_viewer
     initial_tab, initial_endpoint = _resolve_initial_tab(
         tab,
@@ -192,7 +206,9 @@ async def perfil_ui(
         "tipos": tipos,
         "firma": firma,
         "es_jefe_o_aprobador": es_jefe_o_aprobador,
-        "pendientes_aprobaciones_count": len(pendientes_aprobacion) + len(he_solicitadas),
+        "pendientes_aprobaciones_count": (
+            len(pendientes_aprobacion) + len(he_solicitadas) + solicitudes_manuales_count
+        ),
         "initial_tab": initial_tab,
         "initial_endpoint": initial_endpoint,
         "context": context_perfil,
@@ -305,6 +321,51 @@ async def _fetch_asistencia(conn, usuario_id: UUID, offset: int) -> tuple[list[d
     return _preparar_asistencia_rows(rows[:15]), tiene_mas
 
 
+async def _build_asistencia_tab_context(
+    conn,
+    usuario_id: UUID,
+    context: dict,
+    *,
+    toast_type: str | None = None,
+    toast_title: str | None = None,
+    toast_message: str | None = None,
+) -> dict:
+    hoy = today_mx()
+    desde_heatmap = hoy - timedelta(days=_HEATMAP_DIAS_VENTANA)
+    rows, tiene_mas = await _fetch_asistencia(conn, usuario_id, offset=0)
+    heatmap_raw = await perfil_db.get_mi_asistencia_heatmap(conn, usuario_id, desde_heatmap, hoy)
+    mis_solicitudes = await asistencia_db.get_mis_solicitudes_manuales(conn, usuario_id)
+
+    es_jefe = await vac_service.es_jefe_o_aprobador_de_alguien(conn, usuario_id)
+    es_rrhh_editor = user_has_module_access("rrhh", context, "editor")
+    puede_revisar = es_jefe or es_rrhh_editor
+    solicitudes_pendientes = []
+    solicitudes_pendientes_count = 0
+    if puede_revisar:
+        equipo_ids = await get_equipo_ids(conn, usuario_id, context)
+        solicitudes_pendientes = await asistencia_db.get_solicitudes_manuales_pendientes_equipo(conn, equipo_ids)
+        solicitudes_pendientes_count = await asistencia_db.count_solicitudes_manuales_pendientes_equipo(
+            conn,
+            equipo_ids,
+        )
+
+    return {
+        "asistencia": rows,
+        "tiene_mas": tiene_mas,
+        "offset": 0,
+        "context": context,
+        "heatmap_semanas": _build_heatmap(heatmap_raw, hoy),
+        "hoy_iso": hoy.isoformat(),
+        "mis_solicitudes_manuales": format_solicitudes_manuales(mis_solicitudes),
+        "solicitudes_manuales_pendientes": format_solicitudes_manuales(solicitudes_pendientes),
+        "solicitudes_manuales_pendientes_count": solicitudes_pendientes_count,
+        "puede_revisar_solicitudes_manuales": puede_revisar,
+        "toast_type": toast_type,
+        "toast_title": toast_title,
+        "toast_message": toast_message,
+    }
+
+
 @router.get("/asistencia")
 async def mi_asistencia(
     request: Request,
@@ -312,23 +373,85 @@ async def mi_asistencia(
     context=Depends(get_current_user_context),
 ):
     usuario_id = _get_usuario_id(context)
-    hoy = today_mx()
-    desde = hoy - timedelta(days=_ASISTENCIA_DIAS_VENTANA)
-    desde_heatmap = hoy - timedelta(days=_HEATMAP_DIAS_VENTANA)
-    rows, tiene_mas = await _fetch_asistencia(conn, usuario_id, offset=0)
-    heatmap_raw = await perfil_db.get_mi_asistencia_heatmap(conn, usuario_id, desde_heatmap, hoy)
-    heatmap_semanas = _build_heatmap(heatmap_raw, hoy)
+    ctx = await _build_asistencia_tab_context(conn, usuario_id, context)
     return templates.TemplateResponse(
         request,
         "perfil/partials/tab_asistencia.html",
-        {
-            "asistencia": rows,
-            "tiene_mas": tiene_mas,
-            "offset": 0,
-            "context": context,
-            "heatmap_semanas": heatmap_semanas,
-        },
+        ctx,
     )
+
+
+@router.get("/asistencia/solicitudes-manuales/nueva")
+async def nueva_solicitud_manual(
+    request: Request,
+    fecha_laboral: date | None = Query(None),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+):
+    usuario_id = _get_usuario_id(context)
+    target_date = fecha_laboral or today_mx()
+    modal_ctx = await preparar_solicitud_manual_svc(conn, usuario_id, target_date)
+    return templates.TemplateResponse(
+        request,
+        "perfil/partials/modal_solicitud_manual.html",
+        {**modal_ctx, "context": context},
+    )
+
+
+@router.post("/asistencia/solicitudes-manuales")
+async def crear_solicitud_manual(
+    request: Request,
+    fecha_laboral: date = Form(...),
+    fecha_entrada: date | None = Form(None),
+    hora_entrada: str | None = Form(None),
+    fecha_salida: date | None = Form(None),
+    hora_salida: str | None = Form(None),
+    motivo: str = Form(...),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+):
+    usuario_id = _get_usuario_id(context)
+    payload = SolicitudManualIn(
+        fecha_laboral=fecha_laboral,
+        fecha_entrada=fecha_entrada,
+        hora_entrada=hora_entrada,
+        fecha_salida=fecha_salida,
+        hora_salida=hora_salida,
+        motivo=motivo,
+    )
+    try:
+        await crear_solicitud_manual_svc(conn, usuario_id, payload)
+    except ValueError as exc:
+        ctx = await _build_asistencia_tab_context(
+            conn,
+            usuario_id,
+            context,
+            toast_type="error",
+            toast_title="No se pudo registrar",
+            toast_message=str(exc),
+        )
+        return templates.TemplateResponse(request, "perfil/partials/tab_asistencia.html", ctx)
+    except asyncpg.PostgresError as exc:
+        logger.error("Error BD creando solicitud manual: %s", exc)
+        ctx = await _build_asistencia_tab_context(
+            conn,
+            usuario_id,
+            context,
+            toast_type="error",
+            toast_title="Error",
+            toast_message="Error al guardar la solicitud",
+        )
+        return templates.TemplateResponse(request, "perfil/partials/tab_asistencia.html", ctx, status_code=500)
+
+    ctx = await _build_asistencia_tab_context(
+        conn,
+        usuario_id,
+        context,
+        toast_type="success",
+        toast_title="Listo",
+        toast_message="Solicitud enviada para revision.",
+    )
+    return templates.TemplateResponse(request, "perfil/partials/tab_asistencia.html", ctx)
 
 
 @router.get("/asistencia/mas")

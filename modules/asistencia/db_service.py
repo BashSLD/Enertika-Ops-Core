@@ -901,3 +901,395 @@ async def get_horas_extra_omitidas_equipo(
     )
     return [dict(row) for row in rows]
 
+
+async def insert_solicitud_manual(
+    conn,
+    *,
+    usuario_id: UUID,
+    fecha_laboral: date,
+    solicita_entrada: bool,
+    solicita_salida: bool,
+    entrada_tiempo: datetime | None,
+    salida_tiempo: datetime | None,
+    motivo: str,
+) -> dict:
+    row = await conn.fetchrow(
+        """
+        INSERT INTO tb_asistencia_solicitudes_manuales (
+            usuario_id,
+            fecha_laboral,
+            solicita_entrada,
+            solicita_salida,
+            entrada_tiempo,
+            salida_tiempo,
+            motivo
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING
+            id,
+            usuario_id,
+            fecha_laboral,
+            solicita_entrada,
+            solicita_salida,
+            entrada_tiempo,
+            salida_tiempo,
+            motivo,
+            estado,
+            revisado_por,
+            comentario_revision,
+            check_entrada_id,
+            check_salida_id,
+            created_at,
+            updated_at
+        """,
+        usuario_id,
+        fecha_laboral,
+        solicita_entrada,
+        solicita_salida,
+        entrada_tiempo,
+        salida_tiempo,
+        motivo,
+    )
+    return dict(row)
+
+
+async def get_solicitud_manual(conn, solicitud_id: UUID) -> dict | None:
+    row = await conn.fetchrow(
+        """
+        SELECT
+            s.id,
+            s.usuario_id,
+            s.fecha_laboral,
+            s.solicita_entrada,
+            s.solicita_salida,
+            s.entrada_tiempo,
+            s.salida_tiempo,
+            s.motivo,
+            s.estado,
+            s.revisado_por,
+            s.comentario_revision,
+            s.check_entrada_id,
+            s.check_salida_id,
+            s.created_at,
+            s.updated_at,
+            u.nombre AS empleado_nombre,
+            u.email AS empleado_email,
+            r.nombre AS revisor_nombre
+        FROM tb_asistencia_solicitudes_manuales s
+        JOIN tb_usuarios u ON u.id_usuario = s.usuario_id
+        LEFT JOIN tb_usuarios r ON r.id_usuario = s.revisado_por
+        WHERE s.id = $1
+        """,
+        solicitud_id,
+    )
+    return dict(row) if row else None
+
+
+async def get_solicitud_manual_for_update(conn, solicitud_id: UUID) -> dict | None:
+    row = await conn.fetchrow(
+        """
+        SELECT
+            s.id,
+            s.usuario_id,
+            s.fecha_laboral,
+            s.solicita_entrada,
+            s.solicita_salida,
+            s.entrada_tiempo,
+            s.salida_tiempo,
+            s.motivo,
+            s.estado,
+            s.revisado_por,
+            s.comentario_revision,
+            s.check_entrada_id,
+            s.check_salida_id,
+            s.created_at,
+            s.updated_at,
+            u.nombre AS empleado_nombre,
+            u.email AS empleado_email
+        FROM tb_asistencia_solicitudes_manuales s
+        JOIN tb_usuarios u ON u.id_usuario = s.usuario_id
+        WHERE s.id = $1
+        FOR UPDATE OF s
+        """,
+        solicitud_id,
+    )
+    return dict(row) if row else None
+
+
+async def get_solicitud_manual_existente_activa(
+    conn,
+    usuario_id: UUID,
+    fecha_laboral: date,
+) -> dict | None:
+    row = await conn.fetchrow(
+        """
+        SELECT id, estado
+        FROM tb_asistencia_solicitudes_manuales
+        WHERE usuario_id = $1
+          AND fecha_laboral = $2
+          AND estado IN ('pendiente', 'aprobado')
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        usuario_id,
+        fecha_laboral,
+    )
+    return dict(row) if row else None
+
+
+async def get_mis_solicitudes_manuales(
+    conn,
+    usuario_id: UUID,
+    *,
+    limit: int = 10,
+) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT
+            s.id,
+            s.usuario_id,
+            s.fecha_laboral,
+            s.solicita_entrada,
+            s.solicita_salida,
+            s.entrada_tiempo,
+            s.salida_tiempo,
+            s.motivo,
+            s.estado,
+            s.revisado_por,
+            s.comentario_revision,
+            s.check_entrada_id,
+            s.check_salida_id,
+            s.created_at,
+            s.updated_at,
+            r.nombre AS revisor_nombre
+        FROM tb_asistencia_solicitudes_manuales s
+        LEFT JOIN tb_usuarios r ON r.id_usuario = s.revisado_por
+        WHERE s.usuario_id = $1
+        ORDER BY s.created_at DESC
+        LIMIT $2
+        """,
+        usuario_id,
+        limit,
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_solicitudes_manuales_pendientes_equipo(
+    conn,
+    usuario_ids: list[UUID],
+    *,
+    limit: int = 50,
+) -> list[dict]:
+    if not usuario_ids:
+        return []
+    rows = await conn.fetch(
+        """
+        SELECT
+            s.id,
+            s.usuario_id,
+            s.fecha_laboral,
+            s.solicita_entrada,
+            s.solicita_salida,
+            s.entrada_tiempo,
+            s.salida_tiempo,
+            s.motivo,
+            s.estado,
+            s.revisado_por,
+            s.comentario_revision,
+            s.check_entrada_id,
+            s.check_salida_id,
+            s.created_at,
+            s.updated_at,
+            u.nombre AS empleado_nombre,
+            u.email AS empleado_email
+        FROM tb_asistencia_solicitudes_manuales s
+        JOIN tb_usuarios u ON u.id_usuario = s.usuario_id
+        WHERE s.usuario_id = ANY($1::uuid[])
+          AND s.estado = 'pendiente'
+        ORDER BY s.fecha_laboral DESC, s.created_at ASC
+        LIMIT $2
+        """,
+        usuario_ids,
+        limit,
+    )
+    return [dict(row) for row in rows]
+
+
+async def count_solicitudes_manuales_pendientes_equipo(
+    conn,
+    usuario_ids: list[UUID],
+) -> int:
+    if not usuario_ids:
+        return 0
+    return await conn.fetchval(
+        """
+        SELECT COUNT(*)::int
+        FROM tb_asistencia_solicitudes_manuales
+        WHERE usuario_id = ANY($1::uuid[])
+          AND estado = 'pendiente'
+        """,
+        usuario_ids,
+    )
+
+
+async def aprobar_solicitud_manual(
+    conn,
+    *,
+    solicitud_id: UUID,
+    revisado_por: UUID,
+    check_entrada_id: UUID | None,
+    check_salida_id: UUID | None,
+    comentario_revision: str | None = None,
+) -> None:
+    await conn.execute(
+        """
+        UPDATE tb_asistencia_solicitudes_manuales
+        SET estado = 'aprobado',
+            revisado_por = $2,
+            comentario_revision = $5,
+            check_entrada_id = $3,
+            check_salida_id = $4,
+            updated_at = now()
+        WHERE id = $1
+          AND estado = 'pendiente'
+        """,
+        solicitud_id,
+        revisado_por,
+        check_entrada_id,
+        check_salida_id,
+        comentario_revision,
+    )
+
+
+async def rechazar_solicitud_manual(
+    conn,
+    *,
+    solicitud_id: UUID,
+    revisado_por: UUID,
+    comentario_revision: str,
+) -> None:
+    await conn.execute(
+        """
+        UPDATE tb_asistencia_solicitudes_manuales
+        SET estado = 'rechazado',
+            revisado_por = $2,
+            comentario_revision = $3,
+            updated_at = now()
+        WHERE id = $1
+          AND estado = 'pendiente'
+        """,
+        solicitud_id,
+        revisado_por,
+        comentario_revision,
+    )
+
+
+async def insert_manual_check(
+    conn,
+    *,
+    usuario_id: UUID,
+    biotime_emp_code: str,
+    check_time: datetime,
+    punch_state: str,
+    solicitud_manual_id: UUID,
+) -> UUID:
+    row = await conn.fetchrow(
+        """
+        INSERT INTO tb_biotime_checks (
+            biotime_transaction_id,
+            biotime_emp_code,
+            usuario_id,
+            check_time,
+            punch_state,
+            verify_type,
+            terminal_alias,
+            raw_payload,
+            es_manual,
+            solicitud_manual_id
+        )
+        VALUES (
+            NULL,
+            $1,
+            $2,
+            $3,
+            $4,
+            'manual',
+            'Registro manual',
+            $5::jsonb,
+            true,
+            $6
+        )
+        ON CONFLICT (biotime_emp_code, check_time)
+        WHERE biotime_transaction_id IS NULL
+        DO UPDATE SET
+            usuario_id = EXCLUDED.usuario_id,
+            punch_state = EXCLUDED.punch_state,
+            verify_type = EXCLUDED.verify_type,
+            terminal_alias = EXCLUDED.terminal_alias,
+            raw_payload = EXCLUDED.raw_payload,
+            es_manual = true,
+            solicitud_manual_id = EXCLUDED.solicitud_manual_id
+        RETURNING id
+        """,
+        biotime_emp_code,
+        usuario_id,
+        check_time,
+        punch_state,
+        json.dumps({"source": "asistencia_manual", "solicitud_manual_id": str(solicitud_manual_id)}),
+        solicitud_manual_id,
+    )
+    return row["id"]
+
+
+async def get_biotime_checks_usuario_window(
+    conn,
+    *,
+    usuario_id: UUID,
+    start: datetime,
+    end: datetime,
+) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT
+            id,
+            usuario_id,
+            biotime_emp_code,
+            check_time,
+            punch_state,
+            COALESCE(es_manual, false) AS es_manual,
+            solicitud_manual_id
+        FROM tb_biotime_checks
+        WHERE usuario_id = $1
+          AND check_time >= $2
+          AND check_time < $3
+        ORDER BY check_time
+        """,
+        usuario_id,
+        start,
+        end,
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_biotime_emp_code_para_manual(conn, usuario_id: UUID) -> str | None:
+    return await conn.fetchval(
+        """
+        SELECT COALESCE(
+            NULLIF(TRIM(ed.biotime_emp_code), ''),
+            NULLIF(TRIM(m.biotime_emp_code), '')
+        )
+        FROM tb_usuarios u
+        LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = u.id_usuario
+        LEFT JOIN LATERAL (
+            SELECT bm.biotime_emp_code
+            FROM tb_biotime_empleado_map bm
+            WHERE bm.usuario_id = u.id_usuario
+              AND bm.activo = TRUE
+            ORDER BY bm.last_seen_at DESC NULLS LAST, bm.updated_at DESC
+            LIMIT 1
+        ) m ON TRUE
+        WHERE u.id_usuario = $1
+        """,
+        usuario_id,
+    )
+

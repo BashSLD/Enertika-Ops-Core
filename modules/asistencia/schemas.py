@@ -36,3 +36,16 @@ class BulkAprobacionIn(BaseModel):
 
 class SolicitudHorasExtraIn(BaseModel):
     motivo: str
+
+
+class SolicitudManualIn(BaseModel):
+    fecha_laboral: date
+    fecha_entrada: date | None = None
+    hora_entrada: str | None = None
+    fecha_salida: date | None = None
+    hora_salida: str | None = None
+    motivo: str
+
+
+class RechazarSolicitudManualIn(BaseModel):
+    comentario: str

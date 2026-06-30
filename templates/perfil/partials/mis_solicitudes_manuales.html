@@ -1,0 +1,42 @@
+<div id="mis-solicitudes-manuales" class="border-b border-gray-100">
+  <div class="px-5 py-3 flex items-center justify-between gap-3">
+    <div>
+      <h4 class="text-sm font-semibold text-gray-800">Solicitudes manuales</h4>
+      <p class="text-xs text-gray-400">Últimas solicitudes enviadas.</p>
+    </div>
+  </div>
+
+  {% if not mis_solicitudes_manuales %}
+  <div class="px-5 pb-4 text-xs text-gray-400">
+    Sin solicitudes manuales.
+  </div>
+  {% else %}
+  <div class="divide-y divide-gray-50">
+    {% for solicitud in mis_solicitudes_manuales %}
+    <div class="px-5 py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div class="min-w-0">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-sm font-semibold text-gray-800">{{ solicitud.fecha_laboral_fmt }}</span>
+          {% if solicitud.estado == 'pendiente' %}
+          <span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">{{ solicitud.estado_label }}</span>
+          {% elif solicitud.estado == 'aprobado' %}
+          <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-semibold">{{ solicitud.estado_label }}</span>
+          {% else %}
+          <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-semibold">{{ solicitud.estado_label }}</span>
+          {% endif %}
+        </div>
+        <p class="mt-0.5 text-xs text-gray-500">
+          {% if solicitud.solicita_entrada and solicitud.entrada_fmt %}Entrada: {{ solicitud.entrada_fmt }}{% endif %}
+          {% if solicitud.solicita_entrada and solicitud.solicita_salida %}<span class="text-gray-300"> | </span>{% endif %}
+          {% if solicitud.solicita_salida and solicitud.salida_fmt %}Salida: {{ solicitud.salida_fmt }}{% endif %}
+        </p>
+        {% if solicitud.comentario_revision %}
+        <p class="mt-1 text-xs text-gray-500 italic">"{{ solicitud.comentario_revision }}"</p>
+        {% endif %}
+      </div>
+      <span class="text-xs text-gray-400">{{ solicitud.created_at_fmt }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
