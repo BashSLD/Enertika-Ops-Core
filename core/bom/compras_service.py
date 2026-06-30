@@ -758,3 +758,6 @@ class BomComprasServiceMixin:
             for iid in item_ids
         ]
         await self.db.bulk_replace_cotizacion_items(conn, cotizacion_id, items)
+
+    async def get_proveedores_buscar(self, conn, q: str) -> List[dict]:
+        return await self.db.get_proveedores_buscar(conn, q)
