@@ -1569,6 +1569,19 @@ class BomDBService:
         """, cotizacion_id)
         return [dict(r) for r in rows]
 
+    async def get_items_by_cotizacion_ids(self, conn, cotizacion_ids: list) -> List[dict]:
+        rows = await conn.fetch("""
+            SELECT ci.*,
+                   bi.descripcion, bi.unidad_medida, bi.id_categoria,
+                   cat.nombre AS categoria_nombre
+            FROM tb_bom_cotizacion_items ci
+            JOIN tb_bom_items bi ON bi.id_item = ci.bom_item_id
+            LEFT JOIN tb_cat_categorias_compra cat ON cat.id = bi.id_categoria
+            WHERE ci.cotizacion_id = ANY($1::uuid[])
+            ORDER BY ci.cotizacion_id, bi.orden ASC
+        """, cotizacion_ids)
+        return [dict(r) for r in rows]
+
     async def actualizar_estatus_cotizacion(
         self, conn, cotizacion_id: UUID, estatus: str
     ) -> Optional[dict]:
