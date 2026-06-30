@@ -26,6 +26,7 @@ from core.tasks import (
     sat_inbox_cleanup_periodically,
     generar_festivos_anuales_periodically,
     verificar_recordatorios_aprobacion_periodically,
+    verificar_recordatorios_horas_extra_periodically,
     verificar_periodos_por_expirar_periodically,
     verificar_solicitudes_vencidas_periodically,
 )
@@ -86,6 +87,7 @@ async def main():
         asyncio.create_task(sat_inbox_cleanup_periodically()),
         asyncio.create_task(generar_festivos_anuales_periodically()),
         asyncio.create_task(verificar_recordatorios_aprobacion_periodically()),
+        asyncio.create_task(verificar_recordatorios_horas_extra_periodically()),
         asyncio.create_task(verificar_periodos_por_expirar_periodically()),
         asyncio.create_task(verificar_solicitudes_vencidas_periodically()),
         asyncio.create_task(sync_biotime_periodically()),

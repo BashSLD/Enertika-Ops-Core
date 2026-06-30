@@ -98,6 +98,54 @@ def test_vacation_without_checks_marks_vacaciones():
     assert resumen["minutos_extra"] == 0
 
 
+def test_paid_leave_without_checks_marks_ausencia():
+    schedule = ScheduleConfig(
+        hora_entrada=time(8, 0),
+        hora_salida=time(17, 0),
+        minutos_programados=480,
+    )
+
+    resumen = calcular_resumen_dia(
+        checks=[],
+        schedule=schedule,
+        tiene_vacaciones=False,
+        tiene_ausencia_justificada=True,
+        ausencia_tipo_nombre="Permiso con goce de sueldo",
+        es_feriado=False,
+    )
+
+    assert resumen["estado"] == "ausencia"
+    assert resumen["minutos_trabajados"] == 0
+    assert resumen["minutos_extra"] == 0
+    assert resumen["observaciones"] == "Permiso con goce de sueldo"
+
+
+def test_checks_during_paid_leave_mark_checada_en_ausencia_without_overtime():
+    schedule = ScheduleConfig(
+        hora_entrada=time(8, 0),
+        hora_salida=time(17, 0),
+        minutos_programados=480,
+    )
+    checks = [
+        AttendanceCheck(_dt(2026, 5, 12, 8, 0), "0"),
+        AttendanceCheck(_dt(2026, 5, 12, 19, 0), "1"),
+    ]
+
+    resumen = calcular_resumen_dia(
+        checks=checks,
+        schedule=schedule,
+        tiene_vacaciones=False,
+        tiene_ausencia_justificada=True,
+        ausencia_tipo_nombre="Permiso con goce de sueldo",
+        es_feriado=False,
+    )
+
+    assert resumen["estado"] == "checada_en_ausencia"
+    assert resumen["minutos_trabajados"] == 660
+    assert resumen["minutos_extra"] == 0
+    assert "Permiso con goce de sueldo" in resumen["observaciones"]
+
+
 def test_entry_without_exit_inside_window_marks_en_curso():
     schedule = ScheduleConfig(
         hora_entrada=time(8, 0),

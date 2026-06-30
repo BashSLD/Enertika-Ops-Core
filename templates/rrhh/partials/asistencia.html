@@ -162,6 +162,7 @@
           {% set estado_colors = {
             'asistencia': 'bg-green-100 text-green-700',
             'vacaciones': 'bg-blue-100 text-blue-700',
+            'ausencia': 'bg-sky-100 text-sky-700',
             'falta': 'bg-red-100 text-red-700',
             'incompleto': 'bg-amber-100 text-amber-700',
             'en_curso': 'bg-sky-100 text-sky-700',
@@ -169,6 +170,7 @@
             'feriado': 'bg-purple-100 text-purple-700',
             'sin_registro': 'bg-gray-100 text-gray-400',
             'checada_en_vacaciones': 'bg-cyan-100 text-cyan-700',
+            'checada_en_ausencia': 'bg-cyan-100 text-cyan-700',
             'sin_horario': 'bg-orange-100 text-orange-600',
           } %}
           <tr class="hover:bg-gray-50 transition-colors">
@@ -192,8 +194,10 @@
               <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{ estado_colors.get(row.estado, 'bg-gray-100 text-gray-600') }}">
                 {{ row.estado_label }}
               </span>
-              {% if row.tiene_vacaciones %}
-              <span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-600">vac</span>
+              {% if row.tiene_ausencia_justificada %}
+              <span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-600">
+                {{ row.tipo_ausencia_abreviatura or row.tipo_ausencia_nombre or 'Ausencia' }}
+              </span>
               {% endif %}
             </td>
           </tr>

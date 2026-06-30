@@ -832,6 +832,112 @@ async def verificar_recordatorios_aprobacion_periodically(interval_seconds: int 
             logger.error("[VAC_RECORDATORIO] Error inesperado: %s", e, exc_info=True)
 
 
+async def verificar_recordatorios_horas_extra_periodically(interval_seconds: int = 3600):
+    """
+    Envia recordatorios de horas extra solicitadas y un resumen a RH cuando ya
+    se agotaron los recordatorios al responsable.
+    """
+    logger.info("[HE_RECORDATORIO] Tarea inicializada (intervalo: %sh)", interval_seconds // 3600)
+
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            from core.config_service import ConfigService
+            from core.database import get_db_pool
+            from core.workflow.notification_service import get_notification_service
+            from modules.shared.utils import format_minutes
+
+            pool = await get_db_pool()
+            notif = get_notification_service()
+
+            async with pool.acquire() as conn:
+                configs = await ConfigService.get_global_configs_bulk(
+                    conn,
+                    {
+                        "ASISTENCIA_HE_RECORDATORIO_PRIMERAS_HORAS": 24,
+                        "ASISTENCIA_HE_RECORDATORIO_INTERVALO_HORAS": 48,
+                        "ASISTENCIA_HE_RECORDATORIO_MAX": 3,
+                        "ASISTENCIA_HE_RESUMEN_RH_DIAS": 7,
+                    },
+                )
+                primer_delay_horas = int(configs["ASISTENCIA_HE_RECORDATORIO_PRIMERAS_HORAS"])
+                intervalo_horas = int(configs["ASISTENCIA_HE_RECORDATORIO_INTERVALO_HORAS"])
+                max_recordatorios = int(configs["ASISTENCIA_HE_RECORDATORIO_MAX"])
+                resumen_rh_dias = int(configs["ASISTENCIA_HE_RESUMEN_RH_DIAS"])
+
+                rh_rows = await tasks_db.get_active_rh_contacts(conn)
+                rh_emails = {r["email"] for r in rh_rows if r["email"]}
+
+                recordatorios = await tasks_db.get_horas_extra_recordatorios_pendientes(
+                    conn,
+                    primer_delay_horas=primer_delay_horas,
+                    intervalo_horas=intervalo_horas,
+                    max_recordatorios=max_recordatorios,
+                )
+
+                for row in recordatorios:
+                    jefe_emails = {email for email in (row.get("jefe_emails") or []) if email}
+                    destinatarios = jefe_emails or rh_emails
+                    if not destinatarios:
+                        logger.warning(
+                            "[HE_RECORDATORIO] Sin destinatarios para asistencia=%s",
+                            row["id"],
+                        )
+                        continue
+                    cc_emails = rh_emails if row.get("tiene_director") and jefe_emails else set()
+                    recordatorio_numero = int(row.get("horas_extra_recordatorios_enviados") or 0) + 1
+                    enviado = await notif.notify_horas_extra_solicitud(
+                        conn,
+                        empleado_nombre=row["empleado_nombre"],
+                        fecha_laboral=row["fecha_laboral"],
+                        extra_fmt=format_minutes(row.get("minutos_extra") or 0),
+                        motivo=row.get("motivo_solicitud") or "",
+                        destinatarios=destinatarios,
+                        cc_emails=cc_emails,
+                        via_rh=not jefe_emails,
+                        es_recordatorio=True,
+                        recordatorio_numero=recordatorio_numero,
+                    )
+                    if enviado:
+                        await tasks_db.mark_horas_extra_recordatorio_enviado(conn, row["id"])
+                        logger.info(
+                            "[HE_RECORDATORIO] Enviado asistencia=%s recordatorio=%s TO=%d CC=%d",
+                            row["id"],
+                            recordatorio_numero,
+                            len(destinatarios),
+                            len(cc_emails),
+                        )
+
+                resumen_rows = await tasks_db.get_horas_extra_resumen_rh_pendiente(
+                    conn,
+                    max_recordatorios=max_recordatorios,
+                    intervalo_dias=resumen_rh_dias,
+                )
+                if resumen_rows and rh_emails:
+                    rows_email = []
+                    for row in resumen_rows:
+                        formatted = dict(row)
+                        formatted["fecha_fmt"] = row["fecha_laboral"].strftime("%d/%m/%Y")
+                        formatted["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
+                        rows_email.append(formatted)
+                    enviado = await notif.notify_horas_extra_resumen_rh(
+                        conn,
+                        rows=rows_email,
+                        rh_emails=rh_emails,
+                    )
+                    if enviado:
+                        await tasks_db.mark_horas_extra_resumen_rh_enviado(
+                            conn,
+                            [row["id"] for row in resumen_rows],
+                        )
+                        logger.info("[HE_RECORDATORIO] Resumen RH enviado: %d registros", len(resumen_rows))
+
+        except asyncpg.PostgresError as e:
+            logger.error("[HE_RECORDATORIO] Error de BD: %s", e)
+        except TASK_ROW_RUNTIME_ERRORS as e:
+            logger.error("[HE_RECORDATORIO] Error inesperado: %s", e, exc_info=True)
+
+
 async def generar_festivos_anuales_periodically(interval_seconds: int = 86400):
     """
     Verifica diariamente que exista el catalogo de festivos del año actual.

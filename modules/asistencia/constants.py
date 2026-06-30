@@ -3,6 +3,7 @@ from __future__ import annotations
 ASISTENCIA_ESTADOS = {
     "asistencia",
     "vacaciones",
+    "ausencia",
     "sin_registro",
     "falta",
     "incompleto",
@@ -10,12 +11,14 @@ ASISTENCIA_ESTADOS = {
     "descanso",
     "feriado",
     "checada_en_vacaciones",
+    "checada_en_ausencia",
     "sin_horario",
 }
 
 ASISTENCIA_ESTADO_LABELS = {
     "asistencia": "Asistencia",
     "vacaciones": "Vacaciones",
+    "ausencia": "Ausencia aprobada",
     "sin_registro": "Sin registro",
     "falta": "Falta",
     "incompleto": "Incompleto",
@@ -23,6 +26,7 @@ ASISTENCIA_ESTADO_LABELS = {
     "descanso": "Descanso",
     "feriado": "Feriado",
     "checada_en_vacaciones": "Checada en vacaciones",
+    "checada_en_ausencia": "Checada en ausencia",
     "sin_horario": "Sin horario",
 }
 
@@ -34,6 +38,8 @@ ASISTENCIA_ESTADO_COLORES: dict[str, str] = {
     "incompleto": "#fdba74",
     "vacaciones": "#00BABB",
     "checada_en_vacaciones": "#5eead4",
+    "ausencia": "#7dd3fc",
+    "checada_en_ausencia": "#bae6fd",
     "descanso": "#d1d5db",
     "feriado": "#e5e7eb",
     "sin_horario": "#e9d5ff",

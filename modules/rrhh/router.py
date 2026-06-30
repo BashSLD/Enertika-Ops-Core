@@ -272,7 +272,8 @@ _ASISTENCIA_HEADERS = [
     "Horas a cubrir",
     "Horas extra",
     "Estado",
-    "Vacaciones",
+    "Ausencia aprobada",
+    "Tipo de ausencia",
     "Observaciones",
 ]
 
@@ -290,7 +291,8 @@ def _asistencia_row_values(row: dict) -> list:
         format_minutes(row.get("minutos_programados")),
         format_minutes(row.get("minutos_extra")),
         _format_estado_asistencia(row.get("estado")),
-        "Si" if row.get("tiene_vacaciones") else "No",
+        "Si" if row.get("tiene_ausencia_justificada") else "No",
+        row.get("tipo_ausencia_nombre") or "",
         row.get("observaciones") or "",
     ]
 

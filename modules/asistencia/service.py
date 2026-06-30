@@ -26,6 +26,7 @@ from modules.asistencia.logic import (
     is_in_state,
     is_out_state,
 )
+from modules.shared.utils import format_minutes
 from modules.vacaciones import db_service as vacaciones_db
 
 logger = logging.getLogger("asistencia.service")
@@ -545,7 +546,7 @@ async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[
 
     context_rows = await db.get_attendance_contexts(conn, usuario_ids)
     schedule_by_user_day, sucursal_by_user = _build_context_maps(context_rows)
-    vacaciones = await db.get_vacaciones_aprobadas(
+    ausencias = await db.get_ausencias_justificadas(
         conn,
         usuario_ids=usuario_ids,
         fecha_inicio=fecha_inicio,
@@ -572,11 +573,17 @@ async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[
             check for check in checks_by_user.get(usuario_id, [])
             if window.start <= ensure_mx(check.check_time) < window.end
         ]
-        solicitud_id = _find_vacacion_id(vacaciones, usuario_id, fecha_laboral)
+        ausencia = _find_ausencia_justificada(ausencias, usuario_id, fecha_laboral)
+        tipo_slug = ausencia.get("tipo_slug") if ausencia else None
+        solicitud_id = ausencia["id"] if ausencia else None
+        tiene_vacaciones = tipo_slug == "vacaciones"
+        tiene_ausencia_justificada = ausencia is not None
         resumen = calcular_resumen_dia(
             checks=checks_dia,
             schedule=schedule,
-            tiene_vacaciones=solicitud_id is not None,
+            tiene_vacaciones=tiene_vacaciones,
+            tiene_ausencia_justificada=tiene_ausencia_justificada,
+            ausencia_tipo_nombre=ausencia.get("tipo_nombre") if ausencia else None,
             es_feriado=fecha_laboral in festivos,
             fecha_laboral=fecha_laboral,
             now=calculated_at,
@@ -586,7 +593,8 @@ async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[
             "usuario_id": usuario_id,
             "sucursal_id": sucursal_by_user.get(usuario_id),
             "fecha_laboral": fecha_laboral,
-            "tiene_vacaciones": solicitud_id is not None,
+            "tiene_vacaciones": tiene_vacaciones,
+            "tiene_ausencia_justificada": tiene_ausencia_justificada,
             "solicitud_ausencia_id": solicitud_id,
             "calculated_at": calculated_at,
             **resumen,
@@ -631,10 +639,14 @@ def _group_checks_by_user(rows: list[dict]) -> dict[UUID, list[AttendanceCheck]]
     return grouped
 
 
-def _find_vacacion_id(vacaciones: list[dict], usuario_id: UUID, fecha_laboral: date) -> UUID | None:
-    for row in vacaciones:
+def _find_ausencia_justificada(
+    ausencias: list[dict],
+    usuario_id: UUID,
+    fecha_laboral: date,
+) -> dict | None:
+    for row in ausencias:
         if row["usuario_id"] == usuario_id and row["fecha_inicio"] <= fecha_laboral <= row["fecha_fin"]:
-            return row["id"]
+            return row
     return None
 
 
@@ -694,6 +706,7 @@ async def solicitar_aprobacion_svc(
     asistencia_id: UUID,
     usuario_id: UUID,
     motivo: str,
+    empleado_nombre: str | None = None,
 ) -> dict:
     row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
     if not row:
@@ -704,8 +717,48 @@ async def solicitar_aprobacion_svc(
         raise ValueError("Solo puedes solicitar aprobacion de registros pendientes")
     if not motivo or not motivo.strip():
         raise ValueError("El motivo es obligatorio")
-    await db.solicitar_aprobacion_horas_extra(conn, asistencia_id, usuario_id, motivo.strip())
+    motivo_limpio = motivo.strip()
+    await db.solicitar_aprobacion_horas_extra(conn, asistencia_id, usuario_id, motivo_limpio)
+    if empleado_nombre:
+        await _notificar_solicitud_horas_extra(
+            conn,
+            usuario_id=usuario_id,
+            empleado_nombre=empleado_nombre,
+            fecha_laboral=row["fecha_laboral"],
+            minutos_extra=row["minutos_extra"],
+            motivo=motivo_limpio,
+        )
     return {"fecha_laboral": row["fecha_laboral"], "minutos_extra": row["minutos_extra"]}
+
+
+async def _notificar_solicitud_horas_extra(
+    conn,
+    *,
+    usuario_id: UUID,
+    empleado_nombre: str,
+    fecha_laboral: date,
+    minutos_extra: int,
+    motivo: str,
+) -> None:
+    from core.workflow.notification_service import NotificationService
+
+    svc_notif = NotificationService()
+    jefes = await db.get_jefes_del_empleado(conn, usuario_id)
+    jefe_emails = {j["email"] for j in jefes if j.get("email")}
+    rh_emails = await svc_notif._get_rh_emails_cc(conn)
+    tiene_director = any((j.get("rol_organizacional") or "").lower() == "director" for j in jefes)
+    destinatarios = jefe_emails or rh_emails
+    cc_emails = rh_emails if tiene_director and jefe_emails else set()
+    await svc_notif.notify_horas_extra_solicitud(
+        conn,
+        empleado_nombre=empleado_nombre,
+        fecha_laboral=fecha_laboral,
+        extra_fmt=format_minutes(minutos_extra),
+        motivo=motivo,
+        destinatarios=destinatarios,
+        cc_emails=cc_emails,
+        via_rh=not jefe_emails,
+    )
 
 
 async def _get_config_manual_asistencia(conn) -> tuple[int, int]:

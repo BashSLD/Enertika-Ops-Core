@@ -34,7 +34,8 @@ async def get_catalogo_dias_admin(conn) -> list[dict]:
 
 async def get_tipos_ausencia(conn) -> list[dict]:
     rows = await conn.fetch(
-        "SELECT id::text AS id, nombre, slug, abreviatura, afecta_saldo, requiere_aprobacion, orden "
+        "SELECT id::text AS id, nombre, slug, abreviatura, afecta_saldo, requiere_aprobacion, "
+        "justifica_asistencia_dia, orden "
         "FROM tb_cat_tipos_ausencia WHERE is_active = true ORDER BY orden"
     )
     return [dict(r) for r in rows]
@@ -44,7 +45,7 @@ async def get_tipos_ausencia_admin(conn) -> list[dict]:
     rows = await conn.fetch(
         """
         SELECT id, nombre, slug, abreviatura, afecta_saldo, requiere_aprobacion,
-               is_active, orden, es_sistema, updated_at
+               justifica_asistencia_dia, is_active, orden, es_sistema, updated_at
         FROM tb_cat_tipos_ausencia
         ORDER BY orden, nombre
         """
@@ -54,7 +55,7 @@ async def get_tipos_ausencia_admin(conn) -> list[dict]:
 
 async def get_tipo_ausencia_by_id(conn, tipo_id: UUID) -> Optional[dict]:
     row = await conn.fetchrow(
-        "SELECT id, nombre, slug, abreviatura, afecta_saldo, requiere_aprobacion "
+        "SELECT id, nombre, slug, abreviatura, afecta_saldo, requiere_aprobacion, justifica_asistencia_dia "
         "FROM tb_cat_tipos_ausencia WHERE id = $1",
         tipo_id,
     )
@@ -704,7 +705,7 @@ async def get_solicitud(conn, solicitud_id: UUID) -> Optional[dict]:
                sa.ultima_notificacion_aprobador, sa.firma_solicitante_pendiente,
                sa.es_migracion, sa.migrado_por,
                ta.nombre AS tipo_nombre, ta.abreviatura AS tipo_abreviatura,
-               ta.slug AS tipo_slug, ta.afecta_saldo,
+               ta.slug AS tipo_slug, ta.afecta_saldo, ta.justifica_asistencia_dia,
                u.nombre AS solicitante_nombre, u.email AS solicitante_email,
                a.nombre AS aprobado_por_nombre,
                m.nombre AS migrado_por_nombre

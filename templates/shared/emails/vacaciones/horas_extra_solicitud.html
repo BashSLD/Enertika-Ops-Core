@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html lang="es">
-<head><meta charset="UTF-8"><title>Solicitud de horas extra — {{ empleado_nombre }}</title></head>
+<head><meta charset="UTF-8"><title>{% if es_recordatorio %}Recordatorio de horas extra{% else %}Solicitud de horas extra{% endif %} — {{ empleado_nombre }}</title></head>
 <body style="margin:0;padding:0;font-family:'Segoe UI',sans-serif;background-color:#f4f4f4;color:#333;">
 <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:20px 0;">
 <tr><td align="center">
   <table width="600" cellpadding="0" cellspacing="0" style="background-color:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
     <tr>
       <td style="background:linear-gradient(135deg,#123456 0%,#00BABB 100%);padding:30px 40px;text-align:center;">
-        <h1 style="margin:0;color:#fff;font-size:24px;font-weight:600;">Solicitud de horas extra</h1>
-        <p style="margin:10px 0 0;color:#E0F7F7;font-size:14px;">Requiere aprobación</p>
+        <h1 style="margin:0;color:#fff;font-size:24px;font-weight:600;">{% if es_recordatorio %}Recordatorio de horas extra{% else %}Solicitud de horas extra{% endif %}</h1>
+        <p style="margin:10px 0 0;color:#E0F7F7;font-size:14px;">Requiere aprobación o rechazo</p>
       </td>
     </tr>
     <tr>
@@ -16,6 +16,9 @@
         <p style="margin:0 0 20px;font-size:16px;">Hola,</p>
         <p style="margin:0 0 24px;color:#555;font-size:15px;line-height:1.6;">
           <strong>{{ empleado_nombre }}</strong> ha solicitado la aprobación de horas extra.
+          {% if es_recordatorio %}
+          Este es el recordatorio {{ recordatorio_numero or '' }} porque la solicitud sigue pendiente.
+          {% endif %}
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9f9f9;border-left:4px solid #00BABB;border-radius:4px;margin-bottom:28px;">
           <tr><td style="padding:20px;">
@@ -39,6 +42,9 @@
             </table>
           </td></tr>
         </table>
+        <p style="margin:0 0 24px;color:#555;font-size:14px;line-height:1.6;">
+          Revisa el registro y apruébalo o recházalo/descártalo para mantener limpia la asistencia y evitar pendientes acumulados.
+        </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="margin:28px 0;">
           <tr><td align="center">
             <a href="{{ url_aprobacion }}"

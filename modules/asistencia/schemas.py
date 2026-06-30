@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 
 class AsistenciaReporteRow(BaseModel):
-    id: UUID
+    id: UUID | None = None
     fecha_laboral: date
     primera_entrada: datetime | None
     ultima_salida: datetime | None
@@ -16,6 +16,10 @@ class AsistenciaReporteRow(BaseModel):
     minutos_extra: int
     estado: str
     tiene_vacaciones: bool
+    tiene_ausencia_justificada: bool = False
+    tipo_ausencia_nombre: str | None = None
+    tipo_ausencia_abreviatura: str | None = None
+    tipo_ausencia_slug: str | None = None
     observaciones: str | None
     id_usuario: UUID
     empleado_nombre: str

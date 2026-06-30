@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><title>Resumen de horas extra pendientes</title></head>
+<body style="margin:0;padding:0;font-family:'Segoe UI',sans-serif;background-color:#f4f4f4;color:#333;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:20px 0;">
+<tr><td align="center">
+  <table width="700" cellpadding="0" cellspacing="0" style="background-color:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+    <tr>
+      <td style="background:linear-gradient(135deg,#123456 0%,#00BABB 100%);padding:28px 36px;text-align:center;">
+        <h1 style="margin:0;color:#fff;font-size:24px;font-weight:600;">Horas extra pendientes de resolver</h1>
+        <p style="margin:10px 0 0;color:#E0F7F7;font-size:14px;">Ya se enviaron los recordatorios al responsable</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:34px 36px;">
+        <p style="margin:0 0 18px;color:#555;font-size:15px;line-height:1.6;">
+          Estas solicitudes siguen en estado solicitado despues de agotar los recordatorios configurados.
+          RH debe aprobarlas o rechazarlas/descartarlas para mantener limpios los registros de asistencia.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="background:#f8f9fa;color:#123456;">
+              <th align="left" style="padding:10px;border-bottom:1px solid #e5e7eb;">Empleado</th>
+              <th align="left" style="padding:10px;border-bottom:1px solid #e5e7eb;">Fecha</th>
+              <th align="left" style="padding:10px;border-bottom:1px solid #e5e7eb;">Horas extra</th>
+              <th align="left" style="padding:10px;border-bottom:1px solid #e5e7eb;">Recordatorios</th>
+              <th align="left" style="padding:10px;border-bottom:1px solid #e5e7eb;">Motivo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            <tr>
+              <td style="padding:10px;border-bottom:1px solid #edf2f7;">{{ row.empleado_nombre }}</td>
+              <td style="padding:10px;border-bottom:1px solid #edf2f7;">{{ row.fecha_fmt }}</td>
+              <td style="padding:10px;border-bottom:1px solid #edf2f7;"><strong>{{ row.extra_fmt }}</strong></td>
+              <td style="padding:10px;border-bottom:1px solid #edf2f7;">{{ row.horas_extra_recordatorios_enviados }}</td>
+              <td style="padding:10px;border-bottom:1px solid #edf2f7;color:#555;">{{ row.motivo_solicitud or '' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td style="background:#f8f9fa;padding:20px 40px;text-align:center;border-top:1px solid #e0e0e0;">
+        <p style="margin:0;color:#00BABB;font-weight:700;">ECO — Enertika Core Ops</p>
+        <p style="margin:8px 0 0;color:#ccc;font-size:11px;">Correo automático. No responder.</p>
+      </td>
+    </tr>
+  </table>
+</td></tr>
+</table>
+</body>
+</html>

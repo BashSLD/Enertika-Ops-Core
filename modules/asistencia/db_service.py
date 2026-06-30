@@ -360,7 +360,7 @@ async def get_checks_for_users_window(
     return [dict(row) for row in rows]
 
 
-async def get_vacaciones_aprobadas(
+async def get_ausencias_justificadas(
     conn,
     *,
     usuario_ids: list[UUID],
@@ -371,12 +371,19 @@ async def get_vacaciones_aprobadas(
         return []
     rows = await conn.fetch(
         """
-        SELECT sa.id, sa.usuario_id, sa.fecha_inicio, sa.fecha_fin
+        SELECT
+            sa.id,
+            sa.usuario_id,
+            sa.fecha_inicio,
+            sa.fecha_fin,
+            ta.nombre AS tipo_nombre,
+            ta.abreviatura AS tipo_abreviatura,
+            ta.slug AS tipo_slug
         FROM tb_solicitudes_ausencia sa
         JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
         WHERE sa.usuario_id = ANY($1::uuid[])
           AND sa.estado = 'aprobado'
-          AND ta.slug = 'vacaciones'
+          AND COALESCE(ta.justifica_asistencia_dia, false) = true
           AND COALESCE(sa.es_migracion, false) = false
           AND sa.fecha_inicio <= $3
           AND sa.fecha_fin >= $2
@@ -472,9 +479,9 @@ async def upsert_asistencia_diaria_batch(conn, rows: list[dict]) -> None:
         INSERT INTO tb_asistencia_diaria
             (usuario_id, sucursal_id, fecha_laboral, primera_entrada, ultima_salida,
              minutos_trabajados, minutos_programados, minutos_extra, estado,
-             tiene_vacaciones, solicitud_ausencia_id, observaciones, calculated_at,
+             tiene_vacaciones, tiene_ausencia_justificada, solicitud_ausencia_id, observaciones, calculated_at,
              updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now())
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
         ON CONFLICT (usuario_id, fecha_laboral) DO UPDATE SET
             sucursal_id = EXCLUDED.sucursal_id,
             primera_entrada = EXCLUDED.primera_entrada,
@@ -484,6 +491,7 @@ async def upsert_asistencia_diaria_batch(conn, rows: list[dict]) -> None:
             minutos_extra = EXCLUDED.minutos_extra,
             estado = EXCLUDED.estado,
             tiene_vacaciones = EXCLUDED.tiene_vacaciones,
+            tiene_ausencia_justificada = EXCLUDED.tiene_ausencia_justificada,
             solicitud_ausencia_id = EXCLUDED.solicitud_ausencia_id,
             observaciones = EXCLUDED.observaciones,
             calculated_at = EXCLUDED.calculated_at,
@@ -501,6 +509,7 @@ async def upsert_asistencia_diaria_batch(conn, rows: list[dict]) -> None:
                 row["minutos_extra"],
                 row["estado"],
                 row["tiene_vacaciones"],
+                row["tiene_ausencia_justificada"],
                 row.get("solicitud_ausencia_id"),
                 row.get("observaciones"),
                 row["calculated_at"],
@@ -543,9 +552,13 @@ async def get_reporte_asistencia(
             ad.minutos_extra,
             ad.estado,
             ad.tiene_vacaciones,
+            ad.tiene_ausencia_justificada,
             ad.observaciones,
             ad.horas_extra_estado,
             ad.motivo_solicitud,
+            ta.nombre AS tipo_ausencia_nombre,
+            ta.abreviatura AS tipo_ausencia_abreviatura,
+            ta.slug AS tipo_ausencia_slug,
             u.id_usuario,
             u.nombre AS empleado_nombre,
             u.email AS empleado_email,
@@ -555,6 +568,8 @@ async def get_reporte_asistencia(
             hea.comentario AS aprobacion_comentario
         FROM tb_asistencia_diaria ad
         JOIN tb_usuarios u ON u.id_usuario = ad.usuario_id
+        LEFT JOIN tb_solicitudes_ausencia sa ON sa.id = ad.solicitud_ausencia_id
+        LEFT JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
         LEFT JOIN tb_cat_sucursales s ON s.id = ad.sucursal_id
         LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = ad.usuario_id
         LEFT JOIN tb_horas_extra_aprobaciones hea ON hea.asistencia_id = ad.id
@@ -566,7 +581,69 @@ async def get_reporte_asistencia(
           AND ($6::bool = false OR ad.minutos_extra > 0)
           AND ($7::bool = true OR u.is_active = true)
           AND ($8::bool = true OR NOT (ad.estado = 'descanso' AND ad.primera_entrada IS NULL))
-        ORDER BY ad.fecha_laboral DESC, u.nombre
+        UNION ALL
+        SELECT
+            NULL::uuid AS id,
+            dias.fecha_laboral::date AS fecha_laboral,
+            NULL::timestamptz AS primera_entrada,
+            NULL::timestamptz AS ultima_salida,
+            0::int AS minutos_trabajados,
+            0::int AS minutos_programados,
+            0::int AS minutos_extra,
+            CASE WHEN ta.slug = 'vacaciones' THEN 'vacaciones' ELSE 'ausencia' END AS estado,
+            (ta.slug = 'vacaciones') AS tiene_vacaciones,
+            true AS tiene_ausencia_justificada,
+            'Ausencia aprobada: ' || ta.nombre AS observaciones,
+            NULL::text AS horas_extra_estado,
+            NULL::text AS motivo_solicitud,
+            ta.nombre AS tipo_ausencia_nombre,
+            ta.abreviatura AS tipo_ausencia_abreviatura,
+            ta.slug AS tipo_ausencia_slug,
+            u.id_usuario,
+            u.nombre AS empleado_nombre,
+            u.email AS empleado_email,
+            s.nombre AS sucursal_nombre,
+            ed.departamento,
+            NULL::int AS minutos_aprobados,
+            NULL::text AS aprobacion_comentario
+        FROM tb_solicitudes_ausencia sa
+        JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
+        JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
+        LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = sa.usuario_id
+        LEFT JOIN LATERAL (
+            SELECT sucursal_id
+            FROM tb_biotime_empleado_map
+            WHERE usuario_id = sa.usuario_id
+              AND activo = true
+            ORDER BY updated_at DESC NULLS LAST
+            LIMIT 1
+        ) m ON true
+        LEFT JOIN tb_cat_sucursales s ON s.id = COALESCE(m.sucursal_id, ed.sucursal_id)
+        CROSS JOIN LATERAL generate_series(
+            GREATEST(sa.fecha_inicio, $1::date),
+            LEAST(sa.fecha_fin, $2::date),
+            INTERVAL '1 day'
+        ) AS dias(fecha_laboral)
+        WHERE sa.estado = 'aprobado'
+          AND COALESCE(ta.justifica_asistencia_dia, false) = true
+          AND COALESCE(sa.es_migracion, false) = false
+          AND sa.fecha_inicio <= $2
+          AND sa.fecha_fin >= $1
+          AND NOT EXISTS (
+              SELECT 1
+              FROM tb_asistencia_diaria ad_existing
+              WHERE ad_existing.usuario_id = sa.usuario_id
+                AND ad_existing.fecha_laboral = dias.fecha_laboral::date
+          )
+          AND (cardinality($3::uuid[]) = 0 OR sa.usuario_id = ANY($3))
+          AND (cardinality($4::uuid[]) = 0 OR COALESCE(m.sucursal_id, ed.sucursal_id) = ANY($4))
+          AND (
+              cardinality($5::text[]) = 0
+              OR (CASE WHEN ta.slug = 'vacaciones' THEN 'vacaciones' ELSE 'ausencia' END) = ANY($5)
+          )
+          AND $6::bool = false
+          AND ($7::bool = true OR u.is_active = true)
+        ORDER BY fecha_laboral DESC, empleado_nombre
         LIMIT $9 OFFSET $10
         """,
         fecha_inicio,
@@ -640,6 +717,10 @@ async def get_horas_extra_equipo(
             ad.estado,
             ad.horas_extra_estado,
             ad.motivo_solicitud,
+            ad.horas_extra_solicitada_at,
+            ad.horas_extra_ultimo_recordatorio_at,
+            ad.horas_extra_recordatorios_enviados,
+            ad.horas_extra_resumen_rh_at,
             ad.observaciones,
             u.nombre AS empleado_nombre,
             u.email AS empleado_email,
@@ -683,6 +764,10 @@ async def get_horas_extra_todas(
             ad.estado,
             ad.horas_extra_estado,
             ad.motivo_solicitud,
+            ad.horas_extra_solicitada_at,
+            ad.horas_extra_ultimo_recordatorio_at,
+            ad.horas_extra_recordatorios_enviados,
+            ad.horas_extra_resumen_rh_at,
             ad.observaciones,
             u.nombre AS empleado_nombre,
             u.email AS empleado_email,
@@ -738,7 +823,8 @@ async def aprobar_horas_extra(
             VALUES ($1, $2, $3, $4)
         )
         UPDATE tb_asistencia_diaria
-        SET horas_extra_estado = 'aprobado'
+        SET horas_extra_estado = 'aprobado',
+            horas_extra_resumen_rh_at = NULL
         WHERE id = $1
         """,
         asistencia_id,
@@ -786,7 +872,8 @@ async def bulk_aprobar_horas_extra(
             ON CONFLICT (asistencia_id) DO NOTHING
         )
         UPDATE tb_asistencia_diaria
-        SET horas_extra_estado = 'aprobado'
+        SET horas_extra_estado = 'aprobado',
+            horas_extra_resumen_rh_at = NULL
         WHERE id = ANY($1::uuid[])
         """,
         asistencia_ids,
@@ -815,7 +902,8 @@ async def omitir_horas_extra(conn, asistencia_id: UUID) -> None:
     await conn.execute(
         """
         UPDATE tb_asistencia_diaria
-        SET horas_extra_estado = 'omitido'
+        SET horas_extra_estado = 'omitido',
+            horas_extra_resumen_rh_at = NULL
         WHERE id = $1
         """,
         asistencia_id,
@@ -826,7 +914,12 @@ async def recuperar_horas_extra(conn, asistencia_id: UUID) -> None:
     await conn.execute(
         """
         UPDATE tb_asistencia_diaria
-        SET horas_extra_estado = 'pendiente'
+        SET horas_extra_estado = 'pendiente',
+            motivo_solicitud = NULL,
+            horas_extra_solicitada_at = NULL,
+            horas_extra_ultimo_recordatorio_at = NULL,
+            horas_extra_recordatorios_enviados = 0,
+            horas_extra_resumen_rh_at = NULL
         WHERE id = $1
           AND horas_extra_estado = 'omitido'
         """,
@@ -841,7 +934,11 @@ async def solicitar_aprobacion_horas_extra(
         """
         UPDATE tb_asistencia_diaria
         SET horas_extra_estado = 'solicitado',
-            motivo_solicitud = $3
+            motivo_solicitud = $3,
+            horas_extra_solicitada_at = now(),
+            horas_extra_ultimo_recordatorio_at = NULL,
+            horas_extra_recordatorios_enviados = 0,
+            horas_extra_resumen_rh_at = NULL
         WHERE id = $1
           AND usuario_id = $2
           AND horas_extra_estado = 'pendiente'

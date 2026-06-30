@@ -410,7 +410,13 @@ async def _notificar_aprobadores(conn, solicitud_id: UUID, solicitud: dict) -> N
 
 
 async def _recalcular_asistencia_por_solicitud(conn, solicitud: dict | None) -> None:
-    if not solicitud or solicitud.get("tipo_slug") not in VACACIONES_SLUGS:
+    if not solicitud:
+        return
+    justifica_asistencia = (
+        solicitud.get("justifica_asistencia_dia")
+        or solicitud.get("tipo_slug") in VACACIONES_SLUGS
+    )
+    if not justifica_asistencia:
         return
     fecha_inicio = solicitud["fecha_inicio"]
     fecha_fin = solicitud["fecha_fin"]

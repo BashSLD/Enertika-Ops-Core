@@ -589,6 +589,131 @@ class TasksDBService:
         )
         return [dict(row) for row in rows]
 
+    async def get_horas_extra_recordatorios_pendientes(
+        self,
+        conn,
+        *,
+        primer_delay_horas: int,
+        intervalo_horas: int,
+        max_recordatorios: int,
+        limit: int = 50,
+    ) -> list[dict]:
+        rows = await conn.fetch(
+            """
+            SELECT
+                ad.id,
+                ad.usuario_id,
+                ad.fecha_laboral,
+                ad.minutos_extra,
+                ad.motivo_solicitud,
+                ad.horas_extra_recordatorios_enviados,
+                u.nombre AS empleado_nombre,
+                u.email AS empleado_email,
+                COALESCE(jefes.emails, ARRAY[]::text[]) AS jefe_emails,
+                COALESCE(jefes.tiene_director, false) AS tiene_director
+            FROM tb_asistencia_diaria ad
+            JOIN tb_usuarios u ON u.id_usuario = ad.usuario_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    ARRAY_AGG(DISTINCT j.email) FILTER (WHERE j.email IS NOT NULL) AS emails,
+                    BOOL_OR(LOWER(COALESCE(j.rol_organizacional, '')) = 'director') AS tiene_director
+                FROM tb_empleados_jefes ej
+                JOIN tb_usuarios j ON j.id_usuario = ej.jefe_id AND j.is_active = true
+                WHERE ej.empleado_id = ad.usuario_id
+            ) jefes ON true
+            WHERE ad.horas_extra_estado = 'solicitado'
+              AND ad.minutos_extra > 0
+              AND COALESCE(ad.horas_extra_recordatorios_enviados, 0) < $3
+              AND (
+                  (
+                      COALESCE(ad.horas_extra_recordatorios_enviados, 0) = 0
+                      AND ad.horas_extra_solicitada_at IS NOT NULL
+                      AND ad.horas_extra_solicitada_at <= now() - ($1::int * INTERVAL '1 hour')
+                  )
+                  OR
+                  (
+                      COALESCE(ad.horas_extra_recordatorios_enviados, 0) > 0
+                      AND ad.horas_extra_ultimo_recordatorio_at IS NOT NULL
+                      AND ad.horas_extra_ultimo_recordatorio_at <= now() - ($2::int * INTERVAL '1 hour')
+                  )
+              )
+            ORDER BY COALESCE(ad.horas_extra_ultimo_recordatorio_at, ad.horas_extra_solicitada_at),
+                     ad.fecha_laboral,
+                     u.nombre
+            LIMIT $4
+            """,
+            primer_delay_horas,
+            intervalo_horas,
+            max_recordatorios,
+            limit,
+        )
+        return [dict(row) for row in rows]
+
+    async def mark_horas_extra_recordatorio_enviado(self, conn, asistencia_id: UUID) -> None:
+        await conn.execute(
+            """
+            UPDATE tb_asistencia_diaria
+            SET horas_extra_ultimo_recordatorio_at = now(),
+                horas_extra_recordatorios_enviados = COALESCE(horas_extra_recordatorios_enviados, 0) + 1
+            WHERE id = $1
+              AND horas_extra_estado = 'solicitado'
+            """,
+            asistencia_id,
+        )
+
+    async def get_horas_extra_resumen_rh_pendiente(
+        self,
+        conn,
+        *,
+        max_recordatorios: int,
+        intervalo_dias: int,
+        limit: int = 100,
+    ) -> list[dict]:
+        rows = await conn.fetch(
+            """
+            SELECT
+                ad.id,
+                ad.usuario_id,
+                ad.fecha_laboral,
+                ad.minutos_extra,
+                ad.motivo_solicitud,
+                ad.horas_extra_recordatorios_enviados,
+                ad.horas_extra_ultimo_recordatorio_at,
+                u.nombre AS empleado_nombre,
+                u.email AS empleado_email
+            FROM tb_asistencia_diaria ad
+            JOIN tb_usuarios u ON u.id_usuario = ad.usuario_id
+            WHERE ad.horas_extra_estado = 'solicitado'
+              AND ad.minutos_extra > 0
+              AND COALESCE(ad.horas_extra_recordatorios_enviados, 0) >= $1
+              AND ad.horas_extra_ultimo_recordatorio_at IS NOT NULL
+              AND ad.horas_extra_ultimo_recordatorio_at <= now() - ($2::int * INTERVAL '1 day')
+              AND (
+                  ad.horas_extra_resumen_rh_at IS NULL
+                  OR ad.horas_extra_resumen_rh_at <= now() - ($2::int * INTERVAL '1 day')
+              )
+            ORDER BY ad.horas_extra_ultimo_recordatorio_at, ad.fecha_laboral, u.nombre
+            LIMIT $3
+            """,
+            max_recordatorios,
+            intervalo_dias,
+            limit,
+        )
+        return [dict(row) for row in rows]
+
+    async def mark_horas_extra_resumen_rh_enviado(self, conn, asistencia_ids: list[UUID]) -> None:
+        if not asistencia_ids:
+            return
+        await conn.execute(
+            """
+            UPDATE tb_asistencia_diaria
+            SET horas_extra_resumen_rh_at = now()
+            WHERE id = ANY($1::uuid[])
+              AND horas_extra_estado = 'solicitado'
+            """,
+            asistencia_ids,
+        )
+
 
 def get_tasks_db_service() -> TasksDBService:
     return TasksDBService()

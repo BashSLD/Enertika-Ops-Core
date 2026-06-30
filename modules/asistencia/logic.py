@@ -70,17 +70,24 @@ def calcular_resumen_dia(
     checks: list[AttendanceCheck],
     schedule: ScheduleConfig | None,
     tiene_vacaciones: bool,
-    es_feriado: bool,
+    tiene_ausencia_justificada: bool | None = None,
+    ausencia_tipo_nombre: str | None = None,
+    es_feriado: bool = False,
     fecha_laboral: date | None = None,
     now: datetime | None = None,
     min_minutos_he: int = 0,
 ) -> dict:
     checks_ordenados = sorted(checks, key=lambda c: ensure_mx(c.check_time))
     observaciones: list[str] = []
+    if tiene_ausencia_justificada is None:
+        tiene_ausencia_justificada = tiene_vacaciones
+    ausencia_label = ausencia_tipo_nombre or "Ausencia aprobada"
 
     if not checks_ordenados:
         if tiene_vacaciones:
             estado = "vacaciones"
+        elif tiene_ausencia_justificada:
+            estado = "ausencia"
         elif es_feriado:
             estado = "feriado"
         elif schedule and not schedule.es_laboral:
@@ -97,7 +104,7 @@ def calcular_resumen_dia(
             "minutos_trabajados": 0,
             "minutos_programados": _minutos_programados(schedule, es_feriado),
             "minutos_extra": 0,
-            "observaciones": None,
+            "observaciones": ausencia_label if tiene_ausencia_justificada and not tiene_vacaciones else None,
         }
 
     entradas = [c for c in checks_ordenados if is_in_state(c.punch_state)]
@@ -114,6 +121,8 @@ def calcular_resumen_dia(
         observaciones.append("Sin horario configurado")
     if tiene_vacaciones:
         observaciones.append("Tiene vacaciones aprobadas y tambien registro checadas")
+    elif tiene_ausencia_justificada:
+        observaciones.append(f"Tiene ausencia aprobada ({ausencia_label}) y tambien registro checadas")
 
     minutos_trabajados = 0
     if entradas and ultima_salida and ultima_salida > primera:
@@ -125,6 +134,8 @@ def calcular_resumen_dia(
 
     if tiene_vacaciones:
         estado = "checada_en_vacaciones"
+    elif tiene_ausencia_justificada:
+        estado = "checada_en_ausencia"
     elif schedule is None:
         estado = "sin_horario"
     elif not entradas:
@@ -146,6 +157,7 @@ def calcular_resumen_dia(
         schedule=schedule,
         es_feriado=es_feriado,
         tiene_vacaciones=tiene_vacaciones,
+        tiene_ausencia_justificada=tiene_ausencia_justificada,
         min_minutos_he=min_minutos_he,
     )
 
@@ -188,9 +200,12 @@ def _calcular_extra(
     schedule: ScheduleConfig | None,
     es_feriado: bool,
     tiene_vacaciones: bool,
+    tiene_ausencia_justificada: bool | None = None,
     min_minutos_he: int = 0,
 ) -> int:
-    if minutos_trabajados <= 0 or tiene_vacaciones:
+    if tiene_ausencia_justificada is None:
+        tiene_ausencia_justificada = tiene_vacaciones
+    if minutos_trabajados <= 0 or tiene_ausencia_justificada:
         return 0
     if es_feriado or (schedule and not schedule.es_laboral):
         exceso = minutos_trabajados

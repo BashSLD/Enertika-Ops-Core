@@ -57,10 +57,16 @@ async def get_mi_asistencia(
             ad.minutos_programados,
             ad.minutos_extra,
             ad.estado,
+            ad.tiene_ausencia_justificada,
             ad.horas_extra_estado,
             ad.motivo_solicitud,
+            ta.nombre AS tipo_ausencia_nombre,
+            ta.abreviatura AS tipo_ausencia_abreviatura,
+            ta.slug AS tipo_ausencia_slug,
             s.nombre AS sucursal_nombre
         FROM tb_asistencia_diaria ad
+        LEFT JOIN tb_solicitudes_ausencia sa ON sa.id = ad.solicitud_ausencia_id
+        LEFT JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
         LEFT JOIN tb_cat_sucursales s ON s.id = ad.sucursal_id
         WHERE ad.usuario_id = $1
           AND ad.fecha_laboral >= $2
