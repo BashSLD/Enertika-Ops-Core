@@ -23,10 +23,18 @@ from modules.asistencia.logic import (
     build_labor_window,
     calcular_resumen_dia,
     ensure_mx,
+    is_in_state,
+    is_out_state,
 )
 from modules.vacaciones import db_service as vacaciones_db
 
 logger = logging.getLogger("asistencia.service")
+
+_SOLICITUD_MANUAL_ESTADOS = {
+    "pendiente": "Pendiente",
+    "aprobado": "Aprobado",
+    "rechazado": "Rechazado",
+}
 
 
 def validate_aprobacion(minutos_aprobados: int, minutos_extra: int, comentario: str) -> None:
@@ -698,6 +706,416 @@ async def solicitar_aprobacion_svc(
         raise ValueError("El motivo es obligatorio")
     await db.solicitar_aprobacion_horas_extra(conn, asistencia_id, usuario_id, motivo.strip())
     return {"fecha_laboral": row["fecha_laboral"], "minutos_extra": row["minutos_extra"]}
+
+
+async def _get_config_manual_asistencia(conn) -> tuple[int, int]:
+    configs = await ConfigService.get_global_configs_bulk(
+        conn,
+        {
+            "ASISTENCIA_MANUAL_DIAS_RETROACTIVO": 7,
+            "ASISTENCIA_MANUAL_MAX_HORAS": 16,
+        },
+    )
+    return int(configs["ASISTENCIA_MANUAL_DIAS_RETROACTIVO"]), int(configs["ASISTENCIA_MANUAL_MAX_HORAS"])
+
+
+def _parse_manual_datetime(fecha: date | None, hora: str | None) -> datetime:
+    if not fecha or not hora:
+        raise ValueError("Fecha y hora son obligatorias")
+    try:
+        parsed_time = time.fromisoformat(hora)
+    except ValueError as exc:
+        raise ValueError("Hora invalida") from exc
+    return datetime.combine(fecha, parsed_time, tzinfo=MX_TZ)
+
+
+def _format_manual_datetime(value: datetime | None) -> str | None:
+    if not value:
+        return None
+    return ensure_mx(value).strftime("%d/%m/%Y %H:%M")
+
+
+def _format_manual_request(row: dict) -> dict:
+    formatted = dict(row)
+    formatted["estado_label"] = _SOLICITUD_MANUAL_ESTADOS.get(row.get("estado"), row.get("estado", ""))
+    formatted["fecha_laboral_fmt"] = row["fecha_laboral"].strftime("%d/%m/%Y")
+    formatted["entrada_fmt"] = _format_manual_datetime(row.get("entrada_tiempo"))
+    formatted["salida_fmt"] = _format_manual_datetime(row.get("salida_tiempo"))
+    formatted["created_at_fmt"] = _format_manual_datetime(row.get("created_at"))
+    return formatted
+
+
+def format_solicitudes_manuales(rows: list[dict]) -> list[dict]:
+    return [_format_manual_request(row) for row in rows]
+
+
+async def _get_labor_window_usuario_fecha(conn, usuario_id: UUID, fecha_laboral: date):
+    context_rows = await db.get_attendance_contexts(conn, [usuario_id])
+    schedule_by_user_day, _ = _build_context_maps(context_rows)
+    schedule = schedule_by_user_day.get((usuario_id, fecha_laboral.weekday()))
+    return build_labor_window(fecha_laboral, schedule), schedule
+
+
+async def _detectar_huecos_manual(conn, usuario_id: UUID, fecha_laboral: date) -> dict:
+    labor_window, schedule = await _get_labor_window_usuario_fecha(conn, usuario_id, fecha_laboral)
+    checks = await db.get_biotime_checks_usuario_window(
+        conn,
+        usuario_id=usuario_id,
+        start=labor_window.start,
+        end=labor_window.end,
+    )
+    huecos = _clasificar_huecos_biotime(checks)
+    return {
+        "labor_window": labor_window,
+        "schedule": schedule,
+        "checks": checks,
+        "huecos": huecos,
+    }
+
+
+def _clasificar_huecos_biotime(checks: list[dict]) -> dict:
+    real_checks = sorted(
+        [check for check in checks if not check.get("es_manual")],
+        key=lambda check: ensure_mx(check["check_time"]),
+    )
+    if not real_checks:
+        return {
+            "falta_entrada": True,
+            "falta_salida": True,
+            "entrada_real": None,
+            "salida_real": None,
+            "bloqueado": False,
+            "mensaje_bloqueo": None,
+        }
+
+    entradas = [check for check in real_checks if is_in_state(check.get("punch_state"))]
+    salidas = [check for check in real_checks if is_out_state(check.get("punch_state"))]
+    desconocidas = [
+        check
+        for check in real_checks
+        if not is_in_state(check.get("punch_state")) and not is_out_state(check.get("punch_state"))
+    ]
+    if desconocidas or len(entradas) > 1 or len(salidas) > 1:
+        return {
+            "falta_entrada": False,
+            "falta_salida": False,
+            "entrada_real": ensure_mx(entradas[0]["check_time"]) if entradas else None,
+            "salida_real": ensure_mx(salidas[-1]["check_time"]) if salidas else None,
+            "bloqueado": True,
+            "mensaje_bloqueo": "El dia tiene checadas BioTime ambiguas. Solicita revision de RRHH.",
+        }
+
+    entrada_real = ensure_mx(entradas[0]["check_time"]) if entradas else None
+    salida_real = ensure_mx(salidas[-1]["check_time"]) if salidas else None
+    return {
+        "falta_entrada": entrada_real is None,
+        "falta_salida": salida_real is None,
+        "entrada_real": entrada_real,
+        "salida_real": salida_real,
+        "bloqueado": False,
+        "mensaje_bloqueo": None,
+    }
+
+
+def _validar_fechas_manual(
+    *,
+    fecha_laboral: date,
+    fecha_entrada: date | None,
+    fecha_salida: date | None,
+    solicita_entrada: bool,
+    solicita_salida: bool,
+    entrada_tiempo: datetime | None,
+    salida_tiempo: datetime | None,
+    dias_retroactivo: int,
+    max_horas: int,
+    labor_window,
+    huecos: dict,
+) -> None:
+    hoy = today_mx()
+    if fecha_laboral > hoy:
+        raise ValueError("La fecha laboral no puede ser futura")
+    if fecha_laboral < hoy - timedelta(days=dias_retroactivo):
+        raise ValueError(f"Solo puedes solicitar registros de los ultimos {dias_retroactivo} dias")
+    if solicita_entrada and fecha_entrada != fecha_laboral:
+        raise ValueError("La fecha de entrada debe coincidir con la fecha laboral")
+    if solicita_salida and fecha_salida not in {fecha_laboral, fecha_laboral + timedelta(days=1)}:
+        raise ValueError("La fecha de salida debe ser la fecha laboral o el dia siguiente")
+
+    _validar_tiempos_manual(
+        solicita_entrada=solicita_entrada,
+        solicita_salida=solicita_salida,
+        entrada_tiempo=entrada_tiempo,
+        salida_tiempo=salida_tiempo,
+        max_horas=max_horas,
+        labor_window=labor_window,
+        huecos=huecos,
+    )
+
+
+def _validar_tiempos_manual(
+    *,
+    solicita_entrada: bool,
+    solicita_salida: bool,
+    entrada_tiempo: datetime | None,
+    salida_tiempo: datetime | None,
+    max_horas: int,
+    labor_window,
+    huecos: dict,
+) -> None:
+    ahora = now_mx()
+    if solicita_entrada:
+        if not entrada_tiempo:
+            raise ValueError("La fecha y hora de entrada son obligatorias")
+        if entrada_tiempo > ahora:
+            raise ValueError("La fecha y hora capturada no puede ser futura.")
+        if not labor_window.start <= entrada_tiempo <= labor_window.end:
+            raise ValueError("La entrada esta fuera de la ventana laboral esperada")
+
+    if solicita_salida:
+        if not salida_tiempo:
+            raise ValueError("La fecha y hora de salida son obligatorias")
+        if salida_tiempo > ahora:
+            raise ValueError("La fecha y hora capturada no puede ser futura.")
+        if not labor_window.start <= salida_tiempo <= labor_window.end:
+            raise ValueError("La salida esta fuera de la ventana laboral esperada")
+
+    entrada_ref = entrada_tiempo if solicita_entrada else huecos.get("entrada_real")
+    salida_ref = salida_tiempo if solicita_salida else huecos.get("salida_real")
+    if entrada_ref and salida_ref:
+        if salida_ref <= entrada_ref:
+            raise ValueError("La hora de salida es anterior a la entrada. Revisa la fecha y hora correcta.")
+        duracion_horas = (salida_ref - entrada_ref).total_seconds() / 3600
+        if duracion_horas > max_horas:
+            raise ValueError(f"La jornada no puede exceder {max_horas} horas")
+
+
+def _validar_solicitud_vs_huecos(
+    *,
+    solicita_entrada: bool,
+    solicita_salida: bool,
+    huecos: dict,
+) -> dict:
+    if huecos.get("bloqueado"):
+        raise ValueError(huecos.get("mensaje_bloqueo") or "El dia tiene checadas BioTime ambiguas")
+
+    falta_entrada = bool(huecos.get("falta_entrada"))
+    falta_salida = bool(huecos.get("falta_salida"))
+    if not falta_entrada and not falta_salida:
+        raise ValueError("El dia ya tiene entrada y salida registradas")
+    if falta_entrada and not solicita_entrada:
+        raise ValueError("La solicitud ya no coincide con los huecos actuales de BioTime.")
+    if falta_salida and not solicita_salida:
+        raise ValueError("La solicitud ya no coincide con los huecos actuales de BioTime.")
+
+    insertar_entrada = solicita_entrada and falta_entrada
+    insertar_salida = solicita_salida and falta_salida
+    if not insertar_entrada and not insertar_salida:
+        raise ValueError("La solicitud ya no coincide con los huecos actuales de BioTime.")
+    return {"insertar_entrada": insertar_entrada, "insertar_salida": insertar_salida}
+
+
+def _prefill_manual_times(fecha_laboral: date, schedule: ScheduleConfig | None) -> dict:
+    fecha_salida = fecha_laboral
+    hora_entrada = "08:00"
+    hora_salida = "17:00"
+    if schedule:
+        if schedule.hora_entrada:
+            hora_entrada = schedule.hora_entrada.strftime("%H:%M")
+        if schedule.hora_salida:
+            hora_salida = schedule.hora_salida.strftime("%H:%M")
+        if schedule.cruza_medianoche or (
+            schedule.hora_entrada and schedule.hora_salida and schedule.hora_salida < schedule.hora_entrada
+        ):
+            fecha_salida = fecha_laboral + timedelta(days=1)
+    return {
+        "fecha_entrada": fecha_laboral,
+        "fecha_salida": fecha_salida,
+        "hora_entrada": hora_entrada,
+        "hora_salida": hora_salida,
+    }
+
+
+async def preparar_solicitud_manual_svc(conn, usuario_id: UUID, fecha_laboral: date) -> dict:
+    dias_retroactivo, _ = await _get_config_manual_asistencia(conn)
+    hoy = today_mx()
+    base = {
+        "fecha_laboral": fecha_laboral,
+        "fecha_laboral_iso": fecha_laboral.isoformat(),
+        "fecha_laboral_fmt": fecha_laboral.strftime("%d/%m/%Y"),
+    }
+    if fecha_laboral > hoy:
+        return {**base, "bloqueado": True, "mensaje_bloqueo": "La fecha laboral no puede ser futura"}
+    if fecha_laboral < hoy - timedelta(days=dias_retroactivo):
+        return {
+            **base,
+            "bloqueado": True,
+            "mensaje_bloqueo": f"Solo puedes solicitar registros de los ultimos {dias_retroactivo} dias",
+        }
+
+    deteccion = await _detectar_huecos_manual(conn, usuario_id, fecha_laboral)
+    huecos = deteccion["huecos"]
+    if huecos.get("bloqueado"):
+        return {**base, "bloqueado": True, "mensaje_bloqueo": huecos["mensaje_bloqueo"]}
+    if not huecos["falta_entrada"] and not huecos["falta_salida"]:
+        return {**base, "bloqueado": True, "mensaje_bloqueo": "El dia ya tiene entrada y salida registradas"}
+
+    return {
+        **base,
+        **_prefill_manual_times(fecha_laboral, deteccion["schedule"]),
+        "bloqueado": False,
+        "mensaje_bloqueo": None,
+        "solicita_entrada": huecos["falta_entrada"],
+        "solicita_salida": huecos["falta_salida"],
+    }
+
+
+async def crear_solicitud_manual_svc(conn, usuario_id: UUID, payload) -> dict:
+    motivo = (payload.motivo or "").strip()
+    if not motivo:
+        raise ValueError("El motivo es obligatorio")
+
+    existente = await db.get_solicitud_manual_existente_activa(conn, usuario_id, payload.fecha_laboral)
+    if existente:
+        raise ValueError("Ya existe una solicitud activa para esa fecha")
+
+    dias_retroactivo, max_horas = await _get_config_manual_asistencia(conn)
+    deteccion = await _detectar_huecos_manual(conn, usuario_id, payload.fecha_laboral)
+    huecos = deteccion["huecos"]
+    solicita_entrada = huecos["falta_entrada"]
+    solicita_salida = huecos["falta_salida"]
+    _validar_solicitud_vs_huecos(
+        solicita_entrada=solicita_entrada,
+        solicita_salida=solicita_salida,
+        huecos=huecos,
+    )
+
+    entrada_tiempo = _parse_manual_datetime(payload.fecha_entrada, payload.hora_entrada) if solicita_entrada else None
+    salida_tiempo = _parse_manual_datetime(payload.fecha_salida, payload.hora_salida) if solicita_salida else None
+    _validar_fechas_manual(
+        fecha_laboral=payload.fecha_laboral,
+        fecha_entrada=payload.fecha_entrada,
+        fecha_salida=payload.fecha_salida,
+        solicita_entrada=solicita_entrada,
+        solicita_salida=solicita_salida,
+        entrada_tiempo=entrada_tiempo,
+        salida_tiempo=salida_tiempo,
+        dias_retroactivo=dias_retroactivo,
+        max_horas=max_horas,
+        labor_window=deteccion["labor_window"],
+        huecos=huecos,
+    )
+
+    row = await db.insert_solicitud_manual(
+        conn,
+        usuario_id=usuario_id,
+        fecha_laboral=payload.fecha_laboral,
+        solicita_entrada=solicita_entrada,
+        solicita_salida=solicita_salida,
+        entrada_tiempo=entrada_tiempo,
+        salida_tiempo=salida_tiempo,
+        motivo=motivo,
+    )
+    return _format_manual_request(row)
+
+
+async def aprobar_solicitud_manual_svc(
+    conn,
+    *,
+    solicitud_id: UUID,
+    aprobador_id: UUID,
+    equipo_ids: list[UUID],
+) -> dict:
+    async with conn.transaction():
+        solicitud = await db.get_solicitud_manual_for_update(conn, solicitud_id)
+        if not solicitud:
+            raise ValueError("Solicitud no encontrada")
+        if solicitud["usuario_id"] not in equipo_ids:
+            raise ValueError("Solicitud no encontrada")
+        if solicitud["estado"] != "pendiente":
+            raise ValueError("Esta solicitud ya fue procesada")
+
+        _, max_horas = await _get_config_manual_asistencia(conn)
+        deteccion = await _detectar_huecos_manual(conn, solicitud["usuario_id"], solicitud["fecha_laboral"])
+        acciones = _validar_solicitud_vs_huecos(
+            solicita_entrada=solicitud["solicita_entrada"],
+            solicita_salida=solicitud["solicita_salida"],
+            huecos=deteccion["huecos"],
+        )
+        _validar_tiempos_manual(
+            solicita_entrada=acciones["insertar_entrada"],
+            solicita_salida=acciones["insertar_salida"],
+            entrada_tiempo=solicitud["entrada_tiempo"] if acciones["insertar_entrada"] else None,
+            salida_tiempo=solicitud["salida_tiempo"] if acciones["insertar_salida"] else None,
+            max_horas=max_horas,
+            labor_window=deteccion["labor_window"],
+            huecos=deteccion["huecos"],
+        )
+
+        emp_code = await db.get_biotime_emp_code_para_manual(conn, solicitud["usuario_id"])
+        if not emp_code:
+            raise ValueError("No hay codigo BioTime configurado para este usuario")
+
+        check_entrada_id = None
+        check_salida_id = None
+        if acciones["insertar_entrada"]:
+            check_entrada_id = await db.insert_manual_check(
+                conn,
+                usuario_id=solicitud["usuario_id"],
+                biotime_emp_code=emp_code,
+                check_time=solicitud["entrada_tiempo"],
+                punch_state="0",
+                solicitud_manual_id=solicitud_id,
+            )
+        if acciones["insertar_salida"]:
+            check_salida_id = await db.insert_manual_check(
+                conn,
+                usuario_id=solicitud["usuario_id"],
+                biotime_emp_code=emp_code,
+                check_time=solicitud["salida_tiempo"],
+                punch_state="1",
+                solicitud_manual_id=solicitud_id,
+            )
+
+        await db.aprobar_solicitud_manual(
+            conn,
+            solicitud_id=solicitud_id,
+            revisado_por=aprobador_id,
+            check_entrada_id=check_entrada_id,
+            check_salida_id=check_salida_id,
+        )
+        await recalcular_asistencia(conn, [(solicitud["usuario_id"], solicitud["fecha_laboral"])])
+
+    return _format_manual_request({**solicitud, "estado": "aprobado"})
+
+
+async def rechazar_solicitud_manual_svc(
+    conn,
+    *,
+    solicitud_id: UUID,
+    aprobador_id: UUID,
+    equipo_ids: list[UUID],
+    comentario: str,
+) -> dict:
+    comentario = (comentario or "").strip()
+    if not comentario:
+        raise ValueError("El comentario es obligatorio")
+
+    async with conn.transaction():
+        solicitud = await db.get_solicitud_manual_for_update(conn, solicitud_id)
+        if not solicitud:
+            raise ValueError("Solicitud no encontrada")
+        if solicitud["usuario_id"] not in equipo_ids:
+            raise ValueError("Solicitud no encontrada")
+        if solicitud["estado"] != "pendiente":
+            raise ValueError("Esta solicitud ya fue procesada")
+        await db.rechazar_solicitud_manual(
+            conn,
+            solicitud_id=solicitud_id,
+            revisado_por=aprobador_id,
+            comentario_revision=comentario,
+        )
+
+    return _format_manual_request({**solicitud, "estado": "rechazado", "comentario_revision": comentario})
 
 
 async def sync_biotime_periodically() -> None:

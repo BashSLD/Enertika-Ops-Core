@@ -20,10 +20,12 @@ from modules.asistencia import db_service as db
 from modules.asistencia.constants import ASISTENCIA_ESTADOS
 from modules.asistencia.schemas import SolicitudHorasExtraIn
 from modules.asistencia.service import (
+    aprobar_solicitud_manual_svc,
     aprobar_horas_extra_svc,
     bulk_aprobar_horas_extra_svc,
     get_equipo_ids,
     omitir_horas_extra_svc,
+    rechazar_solicitud_manual_svc,
     recuperar_horas_extra_svc,
     solicitar_aprobacion_svc,
     sync_biotime_once,
@@ -339,6 +341,98 @@ async def solicitar_aprobacion_horas_extra(
         {
             "asistencia_id": str(asistencia_id),
             "mensaje": "Solicitud enviada al responsable.",
+        },
+        headers={"HX-Reswap": "none"},
+    )
+
+
+@router.post("/api/solicitudes-manuales/{solicitud_id}/aprobar")
+async def aprobar_solicitud_manual(
+    request: Request,
+    solicitud_id: UUID,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+):
+    if not context.get("user_db_id"):
+        raise HTTPException(status_code=401)
+    aprobador_id = UUID(str(context["user_db_id"]))
+    equipo = await get_equipo_ids(conn, aprobador_id, context)
+    if not equipo:
+        raise HTTPException(status_code=403)
+
+    try:
+        result = await aprobar_solicitud_manual_svc(
+            conn,
+            solicitud_id=solicitud_id,
+            aprobador_id=aprobador_id,
+            equipo_ids=equipo,
+        )
+    except ValueError as exc:
+        return toast_error(request, str(exc))
+    except asyncpg.PostgresError as exc:
+        logger.error("Error BD aprobando solicitud manual: %s", exc)
+        return toast_error(request, "Error al aprobar la solicitud", status_code=500)
+
+    try:
+        new_count = await db.count_solicitudes_manuales_pendientes_equipo(conn, equipo)
+    except asyncpg.PostgresError as exc:
+        logger.error("Error contando solicitudes manuales pendientes: %s", exc)
+        new_count = 0
+
+    return templates.TemplateResponse(
+        request,
+        "asistencia/partials/solicitud_manual_success.html",
+        {
+            "solicitud_id": str(solicitud_id),
+            "new_count": new_count,
+            "mensaje": f"Registro manual aprobado para {result['empleado_nombre']}",
+        },
+        headers={"HX-Reswap": "none"},
+    )
+
+
+@router.post("/api/solicitudes-manuales/{solicitud_id}/rechazar")
+async def rechazar_solicitud_manual(
+    request: Request,
+    solicitud_id: UUID,
+    comentario: str = Form(...),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+):
+    if not context.get("user_db_id"):
+        raise HTTPException(status_code=401)
+    aprobador_id = UUID(str(context["user_db_id"]))
+    equipo = await get_equipo_ids(conn, aprobador_id, context)
+    if not equipo:
+        raise HTTPException(status_code=403)
+
+    try:
+        result = await rechazar_solicitud_manual_svc(
+            conn,
+            solicitud_id=solicitud_id,
+            aprobador_id=aprobador_id,
+            equipo_ids=equipo,
+            comentario=comentario,
+        )
+    except ValueError as exc:
+        return toast_error(request, str(exc))
+    except asyncpg.PostgresError as exc:
+        logger.error("Error BD rechazando solicitud manual: %s", exc)
+        return toast_error(request, "Error al rechazar la solicitud", status_code=500)
+
+    try:
+        new_count = await db.count_solicitudes_manuales_pendientes_equipo(conn, equipo)
+    except asyncpg.PostgresError as exc:
+        logger.error("Error contando solicitudes manuales pendientes: %s", exc)
+        new_count = 0
+
+    return templates.TemplateResponse(
+        request,
+        "asistencia/partials/solicitud_manual_success.html",
+        {
+            "solicitud_id": str(solicitud_id),
+            "new_count": new_count,
+            "mensaje": f"Registro manual rechazado para {result['empleado_nombre']}",
         },
         headers={"HX-Reswap": "none"},
     )

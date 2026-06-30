@@ -1,27 +1,37 @@
 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-  <div class="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
-    <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[#00BABB]/10 text-[#007C7D]">
-      <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 6.75v5.5l3.25 2M12 3.75a8.25 8.25 0 1 1 0 16.5 8.25 8.25 0 0 1 0-16.5Z"/>
-      </svg>
-    </span>
-    <div>
-      <h3 class="text-sm font-semibold text-gray-800">Mi Asistencia</h3>
-      <p class="text-xs text-gray-400">Últimos 90 días registrados.</p>
+  <div class="px-5 py-3 border-b border-gray-100 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div class="flex items-center gap-2">
+      <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[#00BABB]/10 text-[#007C7D]">
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 6.75v5.5l3.25 2M12 3.75a8.25 8.25 0 1 1 0 16.5 8.25 8.25 0 0 1 0-16.5Z"/>
+        </svg>
+      </span>
+      <div>
+        <h3 class="text-sm font-semibold text-gray-800">Mi Asistencia</h3>
+        <p class="text-xs text-gray-400">Ultimos 90 dias registrados.</p>
+      </div>
     </div>
+    <button type="button"
+            hx-get="/perfil/asistencia/solicitudes-manuales/nueva?fecha_laboral={{ hoy_iso }}"
+            hx-target="#asistencia-manual-modal"
+            hx-swap="innerHTML"
+            class="inline-flex items-center justify-center gap-2 rounded-lg bg-[#00BABB] px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#009899]">
+      <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 5v14M5 12h14"/>
+      </svg>
+      Registrar asistencia
+    </button>
   </div>
 
   {% if heatmap_semanas %}
   <div class="px-5 pt-4 pb-3 border-b border-gray-100"
        x-data="{ tip: '' }">
     <div class="flex gap-[3px] items-start">
-      <!-- Etiquetas días -->
       <div class="flex flex-col gap-[3px] flex-shrink-0 mr-0.5 pt-px">
         {% for label in ['L','M','X','J','V','S','D'] %}
         <span class="text-[9px] text-gray-300 leading-3 w-3 text-center select-none">{{ label }}</span>
         {% endfor %}
       </div>
-      <!-- Semanas -->
       {% for semana in heatmap_semanas %}
       <div class="flex flex-col gap-[3px] flex-1 min-w-0">
         {% for dia in semana %}
@@ -37,7 +47,6 @@
       </div>
       {% endfor %}
     </div>
-    <!-- Info bar + leyenda -->
     <div class="flex items-center justify-between mt-2 gap-2">
       <p class="text-xs text-gray-400 h-4 leading-4 truncate transition-opacity duration-75 min-w-0"
          :class="tip ? 'opacity-100' : 'opacity-0'"
@@ -53,9 +62,15 @@
   </div>
   {% endif %}
 
+  {% if puede_revisar_solicitudes_manuales %}
+    {% include "perfil/partials/solicitudes_manuales_pendientes.html" %}
+  {% endif %}
+
+  {% include "perfil/partials/mis_solicitudes_manuales.html" %}
+
   {% if not asistencia %}
   <div class="px-5 py-10 text-center text-sm text-gray-400">
-    Sin registros en el período.
+    Sin registros en el periodo.
   </div>
   {% else %}
 
@@ -65,3 +80,12 @@
 
   {% endif %}
 </div>
+
+<div id="asistencia-manual-modal"></div>
+
+{% if toast_message %}
+  {% set type = toast_type or "info" %}
+  {% set title = toast_title or "" %}
+  {% set message = toast_message %}
+  {% include "shared/toast.html" %}
+{% endif %}
