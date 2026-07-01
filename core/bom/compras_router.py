@@ -94,7 +94,9 @@ async def get_cotizaciones_tab(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras"]),
+    _=require_any_module_access(
+        ["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}
+    ),
 ):
     """Tab de cotizaciones — cargado lazy con HTMX intersect."""
     role = context.get("role")

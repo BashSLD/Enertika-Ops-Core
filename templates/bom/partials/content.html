@@ -533,7 +533,7 @@
                     Adendas
                 </button>
                 {% endif %}
-                {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] and es_compras_editor %}
+                {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] %}
                 <button x-ref="tabCotizaciones" @click="tab = 'cotizaciones'"
                     :class="{'border-emerald-500 text-emerald-600': tab === 'cotizaciones', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'cotizaciones'}"
                     class="py-2 px-3 border-b-2 font-medium text-sm transition">
@@ -589,7 +589,7 @@
         </div>
         {% endif %}
 
-        {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] and es_compras_editor %}
+        {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] %}
         <div x-show="tab === 'cotizaciones'" id="tab-cotizaciones"
             hx-get="/bom/{{ bom.id_bom }}/cotizaciones"
             hx-trigger="intersect once" hx-swap="innerHTML">
