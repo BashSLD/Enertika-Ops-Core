@@ -47,9 +47,14 @@ def validate_aprobacion(minutos_aprobados: int, minutos_extra: int, comentario: 
         raise ValueError(f"No puede aprobar más de {minutos_extra} minutos registrados")
 
 
+_RRHH_EDITOR_EQUIPO_MAX_EMPLEADOS = 10000
+
+
 async def get_equipo_ids(conn, user_id: UUID, user_ctx: dict) -> list[UUID]:
     if user_has_module_access("rrhh", user_ctx, "editor"):
-        rows = await vacaciones_db.get_all_empleados_con_datos(conn, limit=500, offset=0)
+        rows = await vacaciones_db.get_all_empleados_con_datos(
+            conn, limit=_RRHH_EDITOR_EQUIPO_MAX_EMPLEADOS, offset=0
+        )
         return [r["id_usuario"] for r in rows]
 
     ids_jefe = await vacaciones_db.get_empleados_donde_soy_jefe(conn, user_id)

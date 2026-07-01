@@ -312,6 +312,96 @@
     {% endif %}
   </section>
 
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[#00BABB]/10 text-[#007C7D]">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 8v4l3 2M12 3.75a8.25 8.25 0 1 1 0 16.5 8.25 8.25 0 0 1 0-16.5Z"/>
+          </svg>
+        </span>
+        <div>
+          <h3 class="text-sm font-semibold text-gray-800">Registros manuales pendientes</h3>
+          <p class="text-xs text-gray-400">Solicitudes de checada manual — todos los empleados.</p>
+        </div>
+      </div>
+      {% if solicitudes_manuales_pendientes %}
+      <span id="manual-pending-badge" class="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700">
+        {{ solicitudes_manuales_pendientes | length }} solicitudes manuales pendientes
+      </span>
+      {% endif %}
+    </div>
+
+    {% if not solicitudes_manuales_pendientes %}
+    <div class="px-5 py-8 text-center text-sm text-gray-400">
+      Sin solicitudes manuales pendientes.
+    </div>
+    {% else %}
+    <div class="divide-y divide-gray-50">
+      {% for solicitud in solicitudes_manuales_pendientes %}
+      <div id="solicitud-manual-pendiente-{{ solicitud.id }}"
+           x-data="{ rechazar: false }"
+           class="px-5 py-3 flex flex-col gap-3">
+        <div class="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-sm font-semibold text-gray-800">{{ solicitud.empleado_nombre }}</span>
+              <span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">Pendiente</span>
+              <span class="text-xs text-gray-400">{{ solicitud.fecha_laboral_fmt }}</span>
+            </div>
+            <p class="mt-1 text-xs text-gray-500">
+              {% if solicitud.solicita_entrada and solicitud.entrada_fmt %}Entrada: {{ solicitud.entrada_fmt }}{% endif %}
+              {% if solicitud.solicita_entrada and solicitud.solicita_salida %}<span class="text-gray-300"> | </span>{% endif %}
+              {% if solicitud.solicita_salida and solicitud.salida_fmt %}Salida: {{ solicitud.salida_fmt }}{% endif %}
+            </p>
+            <p class="mt-1 text-xs text-gray-500">{{ solicitud.motivo }}</p>
+          </div>
+          {% if can_edit_rrhh %}
+          <div class="flex flex-wrap gap-2">
+            <button type="button"
+                    hx-post="/asistencia/api/solicitudes-manuales/{{ solicitud.id }}/aprobar"
+                    hx-target="#solicitud-manual-pendiente-{{ solicitud.id }}"
+                    hx-swap="outerHTML"
+                    class="inline-flex items-center justify-center rounded-lg bg-[#00BABB] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#009899]">
+              Aprobar
+            </button>
+            <button type="button"
+                    @click="rechazar = !rechazar"
+                    class="inline-flex items-center justify-center rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-200">
+              Rechazar
+            </button>
+          </div>
+          {% endif %}
+        </div>
+        {% if can_edit_rrhh %}
+        <form x-show="rechazar"
+              x-cloak
+              hx-post="/asistencia/api/solicitudes-manuales/{{ solicitud.id }}/rechazar"
+              hx-target="#solicitud-manual-pendiente-{{ solicitud.id }}"
+              hx-swap="outerHTML"
+              class="flex flex-col gap-2 sm:flex-row">
+          <textarea name="comentario" rows="2" required
+                    placeholder="Comentario de rechazo"
+                    class="min-h-16 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#00BABB]"></textarea>
+          <div class="flex items-start gap-2">
+            <button type="button"
+                    @click="rechazar = false"
+                    class="rounded-lg bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-200">
+              Cancelar
+            </button>
+            <button type="submit"
+                    class="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-red-700">
+              Confirmar
+            </button>
+          </div>
+        </form>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
   {% if can_edit_rrhh %}
   <div x-show="rechazandoId !== null" x-cloak
     class="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 sm:items-center">

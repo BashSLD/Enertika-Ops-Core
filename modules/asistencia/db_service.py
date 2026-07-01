@@ -1171,14 +1171,24 @@ async def get_mis_solicitudes_manuales(
     return [dict(row) for row in rows]
 
 
-async def get_solicitudes_manuales_pendientes_equipo(
+async def count_solicitudes_manuales_pendientes_equipo(
     conn,
     usuario_ids: list[UUID],
-    *,
-    limit: int = 50,
-) -> list[dict]:
+) -> int:
     if not usuario_ids:
-        return []
+        return 0
+    return await conn.fetchval(
+        """
+        SELECT COUNT(*)::int
+        FROM tb_asistencia_solicitudes_manuales
+        WHERE usuario_id = ANY($1::uuid[])
+          AND estado = 'pendiente'
+        """,
+        usuario_ids,
+    )
+
+
+async def get_solicitudes_manuales_pendientes_todas(conn) -> list[dict]:
     rows = await conn.fetch(
         """
         SELECT
@@ -1201,32 +1211,11 @@ async def get_solicitudes_manuales_pendientes_equipo(
             u.email AS empleado_email
         FROM tb_asistencia_solicitudes_manuales s
         JOIN tb_usuarios u ON u.id_usuario = s.usuario_id
-        WHERE s.usuario_id = ANY($1::uuid[])
-          AND s.estado = 'pendiente'
+        WHERE s.estado = 'pendiente'
         ORDER BY s.fecha_laboral DESC, s.created_at ASC
-        LIMIT $2
-        """,
-        usuario_ids,
-        limit,
+        """
     )
     return [dict(row) for row in rows]
-
-
-async def count_solicitudes_manuales_pendientes_equipo(
-    conn,
-    usuario_ids: list[UUID],
-) -> int:
-    if not usuario_ids:
-        return 0
-    return await conn.fetchval(
-        """
-        SELECT COUNT(*)::int
-        FROM tb_asistencia_solicitudes_manuales
-        WHERE usuario_id = ANY($1::uuid[])
-          AND estado = 'pendiente'
-        """,
-        usuario_ids,
-    )
 
 
 async def aprobar_solicitud_manual(

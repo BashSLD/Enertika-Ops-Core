@@ -424,6 +424,7 @@ async def aprobaciones_pendientes(
     hoy = today_mx()
     pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
     horas_extra = await asistencia_db.get_horas_extra_todas(conn, hoy - timedelta(days=30), hoy)
+    solicitudes_manuales = await service.get_solicitudes_manuales_pendientes_todas_svc(conn)
     grupos_map: dict[str, dict] = {}
     horas_extra_json = []
     for row in horas_extra:
@@ -458,6 +459,7 @@ async def aprobaciones_pendientes(
             "pendientes": pendientes,
             "horas_extra_grupos": list(grupos_map.values()),
             "horas_extra_json": horas_extra_json,
+            "solicitudes_manuales_pendientes": solicitudes_manuales,
             "context": context,
             "rrhh_perms": _get_rrhh_permissions(context),
         },
@@ -1676,10 +1678,12 @@ async def aprobar_solicitud(
     except ValueError as e:
         return toast_error(request, str(e))
     pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
+    solicitudes_manuales = await service.get_solicitudes_manuales_pendientes_todas_svc(conn)
     return templates.TemplateResponse(
         request, "rrhh/partials/aprobaciones_pendientes.html",
         {
             "pendientes": pendientes,
+            "solicitudes_manuales_pendientes": solicitudes_manuales,
             "context": context,
             "rrhh_perms": _get_rrhh_permissions(context),
             "toast_type": "success",
@@ -1704,10 +1708,12 @@ async def rechazar_solicitud(
     except ValueError as e:
         return toast_error(request, str(e))
     pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
+    solicitudes_manuales = await service.get_solicitudes_manuales_pendientes_todas_svc(conn)
     return templates.TemplateResponse(
         request, "rrhh/partials/aprobaciones_pendientes.html",
         {
             "pendientes": pendientes,
+            "solicitudes_manuales_pendientes": solicitudes_manuales,
             "context": context,
             "rrhh_perms": _get_rrhh_permissions(context),
             "toast_type": "success",

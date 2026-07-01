@@ -12,7 +12,6 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from core.database import get_db_connection
-from core.permissions import user_has_module_access
 from core.security import get_current_user_context
 from core.timezone import fmt_time_mx, today_mx
 from modules.asistencia import db_service as asistencia_db
@@ -21,7 +20,6 @@ from modules.asistencia.schemas import SolicitudManualIn
 from modules.asistencia.service import (
     crear_solicitud_manual_svc,
     format_solicitudes_manuales,
-    get_equipo_ids,
     omitir_horas_extra_propio_svc,
     preparar_solicitud_manual_svc,
 )
@@ -169,11 +167,8 @@ async def perfil_ui(
     tipos = await vac_db.get_tipos_ausencia(conn)
     firma = await signatures_db.get_firma_usuario(conn, usuario_id)
     es_jefe = await vac_service.es_jefe_o_aprobador_de_alguien(conn, usuario_id)
-    es_rrhh_viewer = user_has_module_access("rrhh", context_perfil, "viewer")
-    es_rrhh_editor = user_has_module_access("rrhh", context_perfil, "editor")
     hoy = today_mx()
     fecha_inicio = hoy - timedelta(days=30)
-    solicitudes_manuales_count = 0
     if es_jefe:
         pendientes_aprobacion = await vac_db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
         equipo_ids = await vac_db.get_empleados_donde_soy_jefe(conn, usuario_id)
@@ -183,13 +178,7 @@ async def perfil_ui(
     else:
         pendientes_aprobacion = []
         he_solicitadas = []
-    if es_rrhh_editor:
-        equipo_manual_ids = await get_equipo_ids(conn, usuario_id, context_perfil)
-        solicitudes_manuales_count = await asistencia_db.count_solicitudes_manuales_pendientes_equipo(
-            conn,
-            equipo_manual_ids,
-        )
-    es_jefe_o_aprobador = es_jefe or es_rrhh_viewer
+    es_jefe_o_aprobador = es_jefe
     initial_tab, initial_endpoint = _resolve_initial_tab(
         tab,
         es_jefe_o_aprobador=es_jefe_o_aprobador,
@@ -206,9 +195,7 @@ async def perfil_ui(
         "tipos": tipos,
         "firma": firma,
         "es_jefe_o_aprobador": es_jefe_o_aprobador,
-        "pendientes_aprobaciones_count": (
-            len(pendientes_aprobacion) + len(he_solicitadas) + solicitudes_manuales_count
-        ),
+        "pendientes_aprobaciones_count": len(pendientes_aprobacion) + len(he_solicitadas),
         "initial_tab": initial_tab,
         "initial_endpoint": initial_endpoint,
         "context": context_perfil,
@@ -336,17 +323,6 @@ async def _build_asistencia_tab_context(
     heatmap_raw = await perfil_db.get_mi_asistencia_heatmap(conn, usuario_id, desde_heatmap, hoy)
     mis_solicitudes = await asistencia_db.get_mis_solicitudes_manuales(conn, usuario_id)
 
-    puede_revisar = user_has_module_access("rrhh", context, "editor")
-    solicitudes_pendientes = []
-    solicitudes_pendientes_count = 0
-    if puede_revisar:
-        equipo_ids = await get_equipo_ids(conn, usuario_id, context)
-        solicitudes_pendientes = await asistencia_db.get_solicitudes_manuales_pendientes_equipo(conn, equipo_ids)
-        solicitudes_pendientes_count = await asistencia_db.count_solicitudes_manuales_pendientes_equipo(
-            conn,
-            equipo_ids,
-        )
-
     return {
         "asistencia": rows,
         "tiene_mas": tiene_mas,
@@ -355,9 +331,6 @@ async def _build_asistencia_tab_context(
         "heatmap_semanas": _build_heatmap(heatmap_raw, hoy),
         "hoy_iso": hoy.isoformat(),
         "mis_solicitudes_manuales": format_solicitudes_manuales(mis_solicitudes),
-        "solicitudes_manuales_pendientes": format_solicitudes_manuales(solicitudes_pendientes),
-        "solicitudes_manuales_pendientes_count": solicitudes_pendientes_count,
-        "puede_revisar_solicitudes_manuales": puede_revisar,
         "toast_type": toast_type,
         "toast_title": toast_title,
         "toast_message": toast_message,

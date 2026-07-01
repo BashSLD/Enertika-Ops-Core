@@ -19,7 +19,11 @@ from core.config import settings
 from core.config_service import ConfigService
 from core.timezone import today_mx
 from modules.asistencia import db_service as asistencia_db
-from modules.asistencia.service import recalcular_asistencia, recalcular_asistencia_reciente_usuario
+from modules.asistencia.service import (
+    format_solicitudes_manuales,
+    recalcular_asistencia,
+    recalcular_asistencia_reciente_usuario,
+)
 from modules.asistencia.constants import ASISTENCIA_ESTADO_LABELS, ASISTENCIA_ESTADOS
 from modules.rrhh import db_service as rrhh_db
 from modules.vacaciones import db_service as vac_db
@@ -44,6 +48,11 @@ MIGRACION_PREVIEW_TTL_SECONDS = 20 * 60
 MIGRACION_MAX_FILE_BYTES = 5 * 1024 * 1024
 FESTIVOS_ANIO_MIN = 2026
 FESTIVOS_ANIO_MAX = 2100
+
+
+async def get_solicitudes_manuales_pendientes_todas_svc(conn) -> list[dict]:
+    solicitudes = await asistencia_db.get_solicitudes_manuales_pendientes_todas(conn)
+    return format_solicitudes_manuales(solicitudes)
 
 
 async def get_dashboard_data(conn) -> dict:
