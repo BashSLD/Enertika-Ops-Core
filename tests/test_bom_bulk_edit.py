@@ -123,6 +123,9 @@ class FakeSeleccionCotizacionDB:
     async def get_autorizacion_by_cotizacion(self, conn, cotizacion_id):
         return {"id": uuid4()}
 
+    async def get_bom_by_id(self, conn, bom_id):
+        return {"id_proyecto": uuid4(), "estatus": "APROBADO_FINAL", "coordinador_obra": None}
+
 
 def _item(item_id, bom_id, proyecto_id, *, estatus="BORRADOR", activo=True, bloqueado=False):
     return {
@@ -366,6 +369,8 @@ async def test_seleccionar_cotizacion_registra_costo_real_sin_actualizar_base():
             "estatus": "RECIBIDA",
             "proveedor_id": proveedor_id,
             "moneda": "MXN",
+            "pdf_url": "https://example.com/cotizacion.pdf",
+            "total": 123,
         },
         [
             {

@@ -9,6 +9,8 @@ from fastapi.responses import HTMLResponse
 from uuid import UUID
 from typing import Optional
 import asyncpg
+import html
+import json
 import logging
 
 from core.database import get_db_connection
@@ -30,6 +32,11 @@ templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
 register_timezone_filters(templates.env)
 
 compras_router = APIRouter()
+
+
+def _js_str(value: str) -> str:
+    """Codifica un string para uso seguro como literal JS dentro de un atributo HTML con comillas dobles."""
+    return html.escape(json.dumps(value), quote=True)
 
 
 def _item_disponible_cotizacion(item: dict) -> bool:
@@ -107,7 +114,7 @@ async def crear_cotizacion(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("compras"),
+    _=require_module_access("compras", "editor"),
 ):
     """Crea una nueva cotización (RFQ, simplificada o completa). Recibe JSON en el body."""
     user_id = context.get("user_db_id")
@@ -157,7 +164,7 @@ async def crear_rfq_rapido(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("compras"),
+    _=require_module_access("compras", "editor"),
 ):
     """Crea un RFQ con los items seleccionados desde la tabla de items.
 
@@ -240,7 +247,7 @@ async def solicitar_aclaracion(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "construccion"]),
+    _=require_any_module_access(["ingenieria", "construccion"], min_role="editor"),
 ):
     """Devuelve una cotización a BORRADOR con motivo de aclaración."""
     user_id = context.get("user_db_id")
@@ -296,7 +303,7 @@ async def bulk_asignar_items(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("compras"),
+    _=require_module_access("compras", "editor"),
 ):
     """Asigna items a una cotización de proveedor en lote."""
     body = await request.json()
@@ -319,7 +326,7 @@ async def seleccionar_cotizacion(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("compras"),
+    _=require_module_access("compras", "editor"),
 ):
     user_id = context.get("user_db_id")
     try:
@@ -338,7 +345,7 @@ async def rechazar_cotizacion(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("compras"),
+    _=require_module_access("compras", "editor"),
 ):
     user_id = context.get("user_db_id")
     try:
@@ -357,7 +364,7 @@ async def subir_pdf_cotizacion(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("compras"),
+    _=require_module_access("compras", "editor"),
 ):
     """Sube PDF de cotización (URL). Actualiza estatus a RECIBIDA."""
     form = await request.form()
@@ -366,6 +373,8 @@ async def subir_pdf_cotizacion(
         raise HTTPException(status_code=400, detail="URL del PDF es requerida")
     try:
         await service.actualizar_pdf_cotizacion(conn, cotizacion_id, pdf_url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except asyncpg.PostgresError:
         raise HTTPException(status_code=500, detail="Error al actualizar PDF")
 
@@ -638,10 +647,12 @@ async def buscar_proveedores_bom(
     proveedores = await service.get_proveedores_buscar(conn, q)
     items_html = "".join(
         f'<button type="button" '
-        f'onclick="seleccionarProveedor(\'{p["id_proveedor"]}\', \'{(p["nombre_comercial"] or p["razon_social"] or "").replace(chr(39), "")}\'); document.getElementById(\'resultados-proveedores-bom\').innerHTML=\'\'"'
+        f'onclick="seleccionarProveedor({_js_str(str(p["id_proveedor"]))}, '
+        f'{_js_str(p["nombre_comercial"] or p["razon_social"] or "")}); '
+        f'document.getElementById(\'resultados-proveedores-bom\').innerHTML=\'\'"'
         f' class="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-gray-100 last:border-0">'
-        f'<span class="font-medium">{p["nombre_comercial"] or p["razon_social"]}</span>'
-        f'<span class="text-xs text-gray-400 ml-2">{p["rfc"] or ""}</span>'
+        f'<span class="font-medium">{html.escape(p["nombre_comercial"] or p["razon_social"] or "")}</span>'
+        f'<span class="text-xs text-gray-400 ml-2">{html.escape(p["rfc"] or "")}</span>'
         f'</button>'
         for p in proveedores
     )

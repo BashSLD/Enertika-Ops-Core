@@ -14,7 +14,12 @@ import asyncpg
 import httpx
 from jinja2 import TemplateError
 
-from core.bom.compras_service import BomComprasServiceMixin, ESTATUS_ITEM_CERRADO_COMPRA, ESTATUS_ADENDA_APROBADA
+from core.bom.compras_service import (
+    BomComprasServiceMixin,
+    ESTATUS_ITEM_CERRADO_COMPRA,
+    ESTATUS_COMPRA_BLOQUEA_ADENDA,
+    ESTATUS_ADENDA_APROBADA,
+)
 from core.bom.db_service import BomDBService
 from core.bom.schemas import EstatusBOM, AccionHistorial, TipoAprobacion
 from core.config import settings
@@ -55,7 +60,6 @@ ESTATUS_BLOQUEADOS_EJECUCION = {EstatusBOM.CANCELADO}
 TIPO_ITEM_BASE = "BASE"
 TIPO_ITEM_REEMPLAZO = "REEMPLAZO"
 TIPO_ITEM_FUERA_SCOPE = "FUERA_SCOPE"
-ESTATUS_COMPRA_BLOQUEA_ADENDA = {"COTIZADO", "AUTORIZADO", "PAGADO", "FACTURADO"}
 ESTATUS_ADENDA_PENDIENTE_CONSTRUCCION = "PENDIENTE_CONSTRUCCION"
 ESTATUS_ADENDA_PENDIENTE_INGENIERIA = "PENDIENTE_INGENIERIA"
 ESTATUS_ADENDA_TERMINALES = {ESTATUS_ADENDA_APROBADA, "RECHAZADA", "CANCELADA"}
@@ -2732,7 +2736,13 @@ class BomService(BomComprasServiceMixin):
         return await self.db.get_items_cotizacion(conn, cotizacion_id)
 
     async def actualizar_pdf_cotizacion(self, conn, cotizacion_id: UUID, pdf_url: str) -> Optional[dict]:
-        return await self.db.actualizar_pdf_cotizacion(conn, cotizacion_id, pdf_url)
+        updated = await self.db.actualizar_pdf_cotizacion(conn, cotizacion_id, pdf_url)
+        if not updated:
+            cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
+            if not cotizacion:
+                raise ValueError("Cotización no encontrada.")
+            raise ValueError(f"La cotización está en estatus {cotizacion['estatus']} y no puede modificarse.")
+        return updated
 
 
 def get_bom_service():

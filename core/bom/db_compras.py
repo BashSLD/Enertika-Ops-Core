@@ -123,7 +123,7 @@ class BomComprasDBMixin:
         row = await conn.fetchrow("""
             UPDATE tb_bom_cotizaciones
             SET pdf_url = $2, estatus = 'RECIBIDA', actualizado_en = NOW()
-            WHERE id = $1
+            WHERE id = $1 AND estatus IN ('BORRADOR', 'RECIBIDA')
             RETURNING *
         """, cotizacion_id, pdf_url)
         return dict(row) if row else None

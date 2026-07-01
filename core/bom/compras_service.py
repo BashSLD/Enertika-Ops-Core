@@ -17,31 +17,39 @@ from core.config import settings
 logger = logging.getLogger("BOM.Service")
 
 ESTATUS_ITEM_CERRADO_COMPRA = {"NO_ADQUIRIDO", "REEMPLAZADO", "CERRADO"}
+ESTATUS_COMPRA_BLOQUEA_ADENDA = {"COTIZADO", "AUTORIZADO", "PAGADO", "FACTURADO"}
 ESTATUS_ADENDA_APROBADA = "APROBADA"
 
 
 class BomComprasServiceMixin:
     """Cotizaciones, RFQ, autorizaciones Fase D, conciliacion y match."""
 
+    @staticmethod
+    def _raise_si_items(items: list, mensaje: str) -> None:
+        if not items:
+            return
+        nombres = ", ".join(
+            (i.get("descripcion") or "Item sin descripcion")[:60] for i in items[:3]
+        )
+        raise ValueError(f"{mensaje}: {nombres}")
+
     def _validar_items_cotizables(self, bom_items: list, accion: str) -> None:
-        """Valida que ningún item esté cerrado o en adenda pendiente."""
-        items_cerrados = [
-            i for i in bom_items if i.get("estatus_ejecucion") in ESTATUS_ITEM_CERRADO_COMPRA
-        ]
-        if items_cerrados:
-            nombres = ", ".join(
-                (i.get("descripcion") or "Item sin descripcion")[:60] for i in items_cerrados[:3]
-            )
-            raise ValueError(f"No se pueden {accion} items cerrados o reemplazados: {nombres}")
-        items_adenda_pendiente = [
-            i for i in bom_items
-            if i.get("creado_en_adenda") and i.get("adenda_estatus") != ESTATUS_ADENDA_APROBADA
-        ]
-        if items_adenda_pendiente:
-            nombres = ", ".join(
-                (i.get("descripcion") or "Item sin descripcion")[:60] for i in items_adenda_pendiente[:3]
-            )
-            raise ValueError(f"No se pueden {accion} items de adendas pendientes de aprobacion: {nombres}")
+        """Valida que ningún item esté cerrado, en adenda pendiente, o ya comprometido en otra cotizacion."""
+        self._raise_si_items(
+            [i for i in bom_items if i.get("estatus_ejecucion") in ESTATUS_ITEM_CERRADO_COMPRA],
+            f"No se pueden {accion} items cerrados o reemplazados",
+        )
+        self._raise_si_items(
+            [
+                i for i in bom_items
+                if i.get("creado_en_adenda") and i.get("adenda_estatus") != ESTATUS_ADENDA_APROBADA
+            ],
+            f"No se pueden {accion} items de adendas pendientes de aprobacion",
+        )
+        self._raise_si_items(
+            [i for i in bom_items if i.get("estatus_compra") in ESTATUS_COMPRA_BLOQUEA_ADENDA],
+            f"No se pueden {accion} items ya cotizados, autorizados, pagados o facturados en otra cotizacion",
+        )
 
     async def _actualizar_estatus_items_cotizacion(
         self, conn, cotizacion_id: UUID, nuevo_estatus: str
@@ -217,6 +225,14 @@ class BomComprasServiceMixin:
             raise ValueError("Cotización no encontrada.")
         if cotizacion['estatus'] not in ('BORRADOR', 'RECIBIDA'):
             raise ValueError(f"La cotización está en estatus {cotizacion['estatus']} y no puede seleccionarse.")
+        if not cotizacion.get('pdf_url'):
+            raise ValueError("La cotización no tiene PDF cargado. Sube el PDF antes de seleccionarla.")
+        if not cotizacion.get('total') or float(cotizacion['total']) <= 0:
+            raise ValueError("La cotización no tiene un total válido.")
+
+        bom = await self.db.get_bom_by_id(conn, cotizacion['bom_id'])
+        if not bom or EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_FINAL:
+            raise ValueError("El BOM debe estar en estatus APROBADO_FINAL para autorizar la compra.")
 
         items = await self.db.get_items_cotizacion(conn, cotizacion_id)
         if items:
@@ -744,6 +760,11 @@ class BomComprasServiceMixin:
         precio_unitario: float = None, moneda: str = "MXN"
     ) -> None:
         """Asigna items a una cotización de proveedor (reemplaza items existentes)."""
+        cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
+        if not cotizacion:
+            raise ValueError("Cotización no encontrada.")
+        if cotizacion['estatus'] in ('SELECCIONADA', 'RECHAZADA'):
+            raise ValueError(f"La cotización está en estatus {cotizacion['estatus']} y no puede modificarse.")
         if item_ids:
             bom_items = await self.db.get_items_by_ids(conn, [UUID(str(iid)) for iid in item_ids])
             self._validar_items_cotizables(bom_items, "asignar en bulk a cotizaciones de")
