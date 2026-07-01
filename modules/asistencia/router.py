@@ -88,7 +88,6 @@ async def aprobar_horas_extra_bulk(
     comentario: str = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("rrhh", "editor"),
 ):
     if not context.get("user_db_id"):
         raise HTTPException(status_code=401)
@@ -154,7 +153,6 @@ async def aprobar_horas_extra(
     comentario: str = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("rrhh", "editor"),
 ):
     if not context.get("user_db_id"):
         raise HTTPException(status_code=401)
@@ -216,7 +214,6 @@ async def omitir_horas_extra(
     asistencia_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("rrhh", "editor"),
 ):
     if not context.get("user_db_id"):
         raise HTTPException(status_code=401)
@@ -258,7 +255,6 @@ async def recuperar_horas_extra(
     asistencia_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("rrhh", "editor"),
 ):
     if not context.get("user_db_id"):
         raise HTTPException(status_code=401)
