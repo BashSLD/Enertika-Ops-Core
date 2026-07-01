@@ -1828,10 +1828,16 @@ async def notificar_costos_pendientes(
     user_id = context.get("user_db_id")
     try:
         resultado = await service.notificar_items_sin_costo_compras(conn, id_bom, user_id)
+        canales = []
+        if resultado.get("sse"):
+            canales.append("aviso interno")
+        if resultado.get("correo_enviado"):
+            canales.append("correo")
+        canal_txt = " y ".join(canales) if canales else "Compras"
         return _toast_response(
             request,
             (
-                f"Notificacion enviada a Compras con {resultado['items_sin_costo']} "
+                f"Notificado por {canal_txt} con {resultado['items_sin_costo']} "
                 f"item(s) sin presupuesto base."
             ),
             "success",

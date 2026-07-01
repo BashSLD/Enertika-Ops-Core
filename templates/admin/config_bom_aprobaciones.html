@@ -16,11 +16,11 @@
 
         <!-- Flags booleanas -->
         <form hx-post="/admin/config-bom-aprobaciones/guardar"
-              hx-target="#toast-container"
+              hx-target="#global-toast-container"
               hx-swap="afterbegin"
               class="space-y-4">
 
-            <div class="border rounded-lg p-4 space-y-4">
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
                 <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Workflow BOM</h3>
 
                 <label class="flex items-start gap-3 cursor-pointer">
@@ -35,7 +35,7 @@
 
             </div>
 
-            <div class="border rounded-lg p-4 space-y-4">
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
                 <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Equipo de Proyecto</h3>
 
                 <label class="flex items-start gap-3 cursor-pointer">
@@ -59,56 +59,59 @@
                 </label>
             </div>
 
-            <div class="border rounded-lg p-4 space-y-4">
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
                 <div>
                     <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Costos pendientes</h3>
                     <p class="mt-1 text-xs text-gray-500">Configura el correo que recibe Compras cuando el BOM tiene items sin costo.</p>
                 </div>
 
-                <div class="grid grid-cols-1 gap-3">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Destinatarios principales (Para)</label>
-                        <input type="text" name="costos_to" value="{{ costos_to or '' }}"
-                               class="w-full rounded-lg border-gray-300 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                               placeholder="compras@empresa.com, jefe@empresa.com">
-                        <p class="mt-1 text-xs text-gray-400">Separa varios correos con coma o punto y coma.</p>
-                    </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">CC</label>
-                            <input type="text" name="costos_cc" value="{{ costos_cc or '' }}"
-                                   class="w-full rounded-lg border-gray-300 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                                   placeholder="correo@empresa.com">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">CCO</label>
-                            <input type="text" name="costos_cco" value="{{ costos_cco or '' }}"
-                                   class="w-full rounded-lg border-gray-300 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                                   placeholder="correo@empresa.com">
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Asunto</label>
-                        <input type="text" name="costos_asunto" value="{{ costos_asunto or '' }}"
-                               class="w-full rounded-lg border-gray-300 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Plantilla del mensaje</label>
-                        <textarea name="costos_template" rows="4"
-                                  class="w-full rounded-lg border-gray-300 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500">{{ costos_template or '' }}</textarea>
-                        <p class="mt-1 text-xs text-gray-400">Variables disponibles: {total_items}, {proyecto_id}, {proyecto_nombre}, {version}, {por_nombre}.</p>
-                    </div>
-                </div>
-
-                <label class="flex items-start gap-3 cursor-pointer">
+                <label class="flex items-start gap-3 cursor-pointer bg-teal-50 border border-teal-200 rounded-lg p-3 hover:bg-teal-100 transition-colors">
                     <input type="checkbox" name="costos_sse" value="true"
                            {% if costos_sse %}checked{% endif %}
                            class="mt-0.5 h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500">
                     <span>
                         <span class="block text-sm font-medium text-gray-900">Enviar aviso interno a Compras</span>
-                        <span class="block text-xs text-gray-500">Ademas del correo, crea una notificacion en la plataforma para usuarios activos con rol editor/admin de Compras.</span>
+                        <span class="block text-xs text-gray-500">Notifica dentro de la plataforma a todos los usuarios activos con rol editor/admin de Compras. Es el canal principal: no depende de tener correos capturados abajo.</span>
                     </span>
                 </label>
+
+                <div class="bg-white border-2 border-teal-300 rounded-lg p-3 space-y-3 shadow-sm">
+                    <p class="text-xs font-semibold text-teal-700 uppercase tracking-wide">Correo (opcional)</p>
+                    <div class="grid grid-cols-1 gap-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Destinatarios principales (Para)</label>
+                            <input type="text" name="costos_to" value="{{ costos_to or '' }}"
+                                   class="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                   placeholder="compras@empresa.com, jefe@empresa.com">
+                            <p class="mt-1 text-xs text-gray-400">Opcional. Agrega aqui correos adicionales que deban recibir el aviso por email, pertenezcan o no al equipo de Compras dado de alta en la plataforma. Separa varios correos con coma o punto y coma.</p>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">CC</label>
+                                <input type="text" name="costos_cc" value="{{ costos_cc or '' }}"
+                                       class="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                       placeholder="correo@empresa.com">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">CCO</label>
+                                <input type="text" name="costos_cco" value="{{ costos_cco or '' }}"
+                                       class="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                       placeholder="correo@empresa.com">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Asunto</label>
+                            <input type="text" name="costos_asunto" value="{{ costos_asunto or '' }}"
+                                   class="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Plantilla del mensaje</label>
+                            <textarea name="costos_template" rows="4"
+                                      class="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500">{{ costos_template or '' }}</textarea>
+                            <p class="mt-1 text-xs text-gray-400">Variables disponibles: {total_items}, {proyecto_id}, {proyecto_nombre}, {version}, {por_nombre}.</p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="flex justify-end">
@@ -120,11 +123,11 @@
         </form>
 
         <!-- Aprobador final (form separado — endpoint BOM existente) -->
-        <div class="border rounded-lg p-4">
+        <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
             <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1">Aprobador final del BOM</h3>
             <p class="text-xs text-gray-500 mb-3">Usuario de Dirección que aprueba el paso final. Sin bypass, incluso para ADMIN.</p>
             <form hx-post="/bom/admin/aprobador-final"
-                  hx-target="#toast-container"
+                  hx-target="#global-toast-container"
                   hx-swap="afterbegin"
                   class="flex gap-2">
                 <select name="user_id"

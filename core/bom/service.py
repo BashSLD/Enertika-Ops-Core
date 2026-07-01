@@ -2365,61 +2365,69 @@ class BomService(BomComprasServiceMixin):
             bcc_emails = await notif._get_emails_for_event(
                 conn, BOM_COSTOS_EVENTO, "CCO", BOM_COSTOS_REGLAS_MODULOS
             )
-            if not to_emails:
-                raise ValueError(
-                    "Faltan correos para notificar a Compras. Configura al menos "
-                    "un destinatario principal en Admin > Configuracion BOM > "
-                    "Costos pendientes."
-                )
-
-            sender = await notif._get_notification_sender(conn, "BOM")
-            por_nombre = await self.db.get_usuario_nombre(conn, user_id)
-            proyecto_id = bom.get("proyecto_id_estandar") or str(bom.get("id_proyecto"))
-            format_ctx = {
-                "bom": bom,
-                "items": items,
-                "total_items": len(items),
-                "proyecto_id": proyecto_id,
-                "proyecto_nombre": bom.get("proyecto_nombre") or "",
-                "version": bom.get("version", ""),
-                "por_nombre": por_nombre or "Sistema",
-                "app_url": f"{settings.APP_BASE_URL}/bom/{bom.get('id_proyecto')}/ui",
-            }
-
-            subject_template = await ConfigService.get_global_config(
-                conn, BOM_COSTOS_ASUNTO_KEY, BOM_COSTOS_DEFAULT_ASUNTO, str
-            )
-            body_template = await ConfigService.get_global_config(
-                conn, BOM_COSTOS_TEMPLATE_KEY, BOM_COSTOS_DEFAULT_TEMPLATE, str
-            )
-            subject = self._format_template(subject_template, format_ctx).strip()
-            mensaje = self._format_template(body_template, format_ctx).strip()
-            if not subject:
-                subject = self._format_template(BOM_COSTOS_DEFAULT_ASUNTO, format_ctx)
-            if not mensaje:
-                mensaje = self._format_template(BOM_COSTOS_DEFAULT_TEMPLATE, format_ctx)
-
-            html = notif._render_template("shared/emails/bom/items_sin_costo.html", {
-                **format_ctx,
-                "mensaje": mensaje,
-            })
-            sent = await notif._send_email(
-                to_emails,
-                cc_emails,
-                subject,
-                html,
-                sender["email"],
-                bcc_emails=bcc_emails,
-            )
-            if not sent:
-                raise ValueError("No se pudo enviar la notificacion a Compras.")
-
-            sse_notificados = 0
             sse_activa = await ConfigService.get_global_config(
                 conn, BOM_COSTOS_SSE_KEY, False, bool
             )
+            hay_correo = bool(to_emails or cc_emails or bcc_emails)
+            if not hay_correo and not sse_activa:
+                raise ValueError(
+                    "No hay ningun canal configurado para notificar a Compras. "
+                    "Activa el aviso interno o captura al menos un correo en "
+                    "Admin > Configuracion BOM > Costos pendientes."
+                )
+
+            sse_notificados = 0
             if sse_activa:
                 sse_notificados = await self._broadcast_costos_pendientes(conn, bom, items)
+
+            correo_enviado = False
+            if hay_correo:
+                por_nombre = await self.db.get_usuario_nombre(conn, user_id)
+                proyecto_id = bom.get("proyecto_id_estandar") or str(bom.get("id_proyecto"))
+                format_ctx = {
+                    "bom": bom,
+                    "items": items,
+                    "total_items": len(items),
+                    "proyecto_id": proyecto_id,
+                    "proyecto_nombre": bom.get("proyecto_nombre") or "",
+                    "version": bom.get("version", ""),
+                    "por_nombre": por_nombre or "Sistema",
+                    "app_url": f"{settings.APP_BASE_URL}/bom/{bom.get('id_proyecto')}/ui",
+                }
+                sender = await notif._get_notification_sender(conn, "BOM")
+                subject_template = await ConfigService.get_global_config(
+                    conn, BOM_COSTOS_ASUNTO_KEY, BOM_COSTOS_DEFAULT_ASUNTO, str
+                )
+                body_template = await ConfigService.get_global_config(
+                    conn, BOM_COSTOS_TEMPLATE_KEY, BOM_COSTOS_DEFAULT_TEMPLATE, str
+                )
+                subject = self._format_template(subject_template, format_ctx).strip()
+                mensaje = self._format_template(body_template, format_ctx).strip()
+                if not subject:
+                    subject = self._format_template(BOM_COSTOS_DEFAULT_ASUNTO, format_ctx)
+                if not mensaje:
+                    mensaje = self._format_template(BOM_COSTOS_DEFAULT_TEMPLATE, format_ctx)
+
+                html = notif._render_template("shared/emails/bom/items_sin_costo.html", {
+                    **format_ctx,
+                    "mensaje": mensaje,
+                })
+                correo_enviado = await notif._send_email(
+                    to_emails,
+                    cc_emails,
+                    subject,
+                    html,
+                    sender["email"],
+                    bcc_emails=bcc_emails,
+                )
+                if not correo_enviado:
+                    logger.warning(
+                        "BOM costos pendientes: correo no enviado (revisar destinatarios TO) bom=%s",
+                        id_bom,
+                    )
+
+            if not correo_enviado and not sse_notificados:
+                raise ValueError("No se pudo notificar a Compras por ningun canal.")
 
             logger.info(
                 "BOM costos pendientes notificados: bom=%s items=%d to=%d cc=%d cco=%d sse=%d por=%s",
@@ -2432,6 +2440,7 @@ class BomService(BomComprasServiceMixin):
                 "cc": len(cc_emails),
                 "cco": len(bcc_emails),
                 "sse": sse_notificados,
+                "correo_enviado": correo_enviado,
             }
         except ValueError:
             raise
