@@ -170,13 +170,11 @@ class CfeService:
         content = await sp.download_file_by_item_id(conn, item_id)
         return content, version
 
-    async def subir_sesion_con_token(
-        self, conn: asyncpg.Connection, *, token: str, session_json: str
-    ) -> None:
+    async def _validar_token_lanzador(self, conn: asyncpg.Connection, token: str) -> None:
         """
-        Guarda el storage_state de MiEspacio enviado por el lanzador local.
-        Se autentica con un token compartido (no con sesion Azure AD) porque el
-        script corre en la PC del usuario sin cookie de sesion del app.
+        Valida el token compartido de los endpoints del lanzador local
+        (/sesion/subir, /sesion/credenciales). No usa sesion Azure AD porque
+        el script corre en la PC del usuario sin cookie de sesion del app.
         """
         configurado = await ConfigService.get_global_config(
             conn, CFE_CONFIG_KEYS["upload_token"], "", str
@@ -189,7 +187,13 @@ class CfeService:
         # compare_digest en bytes: con str lanza TypeError si el token entrante
         # trae caracteres no-ASCII (los headers llegan en latin-1).
         if not token or not secrets.compare_digest(token.encode("utf-8"), configurado.encode("utf-8")):
-            raise PermissionError("Token de subida de sesion CFE invalido.")
+            raise PermissionError("Token del lanzador CFE invalido.")
+
+    async def subir_sesion_con_token(
+        self, conn: asyncpg.Connection, *, token: str, session_json: str
+    ) -> None:
+        """Guarda el storage_state de MiEspacio enviado por el lanzador local."""
+        await self._validar_token_lanzador(conn, token)
 
         self._validar_storage_state(session_json)
         async with conn.transaction():
@@ -197,6 +201,28 @@ class CfeService:
             await self._admin_db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_invalida"], "")
         ConfigService.invalidar_cache()
         logger.info("[CFE] Sesion MiEspacio renovada via lanzador local")
+
+    async def obtener_credenciales_con_token(
+        self, conn: asyncpg.Connection, *, token: str
+    ) -> dict:
+        """
+        Entrega usuario/contrasena de MiEspacio al lanzador local para que
+        autocomplete el login y la persona solo resuelva el CAPTCHA.
+        """
+        await self._validar_token_lanzador(conn, token)
+
+        cfg = await ConfigService.get_global_configs_bulk(conn, {
+            CFE_CONFIG_KEYS["mi_user"]: ("", str),
+            CFE_CONFIG_KEYS["mi_pass"]: ("", str),
+        })
+        mi_user = cfg[CFE_CONFIG_KEYS["mi_user"]]
+        mi_pass = cfg[CFE_CONFIG_KEYS["mi_pass"]]
+        if not mi_user or not mi_pass:
+            raise ValueError(
+                "No hay credenciales de MiEspacio configuradas. "
+                "Un administrador debe capturarlas en Admin > Configuracion Global > Recibos CFE."
+            )
+        return {"usuario": mi_user, "password": mi_pass}
 
     @staticmethod
     def _validar_storage_state(session_json: str) -> None:

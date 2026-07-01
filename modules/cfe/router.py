@@ -964,6 +964,33 @@ async def subir_sesion(
     return JSONResponse(content={"ok": True, "mensaje": "Sesion CFE MiEspacio renovada correctamente."})
 
 
+@router.get("/sesion/credenciales", include_in_schema=False)
+async def obtener_credenciales_sesion(
+    request: Request,
+    x_cfe_token: str = Header("", alias="X-CFE-Token"),
+    conn=Depends(get_db_connection),
+):
+    """
+    Entrega usuario/contrasena de MiEspacio al lanzador local para que
+    autocomplete el login (la persona solo resuelve el CAPTCHA). Mismo
+    token compartido que /sesion/subir; no requiere sesion Azure AD.
+    """
+    svc = get_cfe_service()
+    try:
+        credenciales = await svc.obtener_credenciales_con_token(conn, token=x_cfe_token)
+    except PermissionError as exc:
+        logger.warning(
+            "cfe_credenciales_no_autorizado origen=%s", request.client.host if request.client else "?"
+        )
+        return JSONResponse(status_code=403, content={"ok": False, "error": str(exc)})
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    except asyncpg.PostgresError as exc:
+        logger.error("Error de BD leyendo credenciales CFE via lanzador: %s", exc)
+        return JSONResponse(status_code=500, content={"ok": False, "error": "Error interno al leer las credenciales."})
+    return JSONResponse(content={"ok": True, **credenciales}, headers={"Cache-Control": "no-store"})
+
+
 @router.get("/lanzador/descargar", include_in_schema=False)
 async def descargar_lanzador_cfe(
     conn=Depends(get_db_connection),

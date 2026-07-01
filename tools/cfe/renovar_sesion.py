@@ -99,6 +99,37 @@ def lanzar_edge(pw):
         )
 
 
+def obtener_credenciales(app_base_url: str, token: str) -> dict | None:
+    """
+    Pide al app usuario/contrasena de MiEspacio para autocompletar el login.
+    Si falla por cualquier motivo, se devuelve None y el flujo cae al login
+    manual de siempre (no es un error fatal).
+    """
+    url = f"{app_base_url}/cfe/sesion/credenciales"
+    req = urllib.request.Request(url, method="GET", headers={"X-CFE-Token": token})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return {"usuario": data["usuario"], "password": data["password"]}
+    except urllib.error.HTTPError as exc:
+        print(f"Aviso: no se pudieron obtener las credenciales ({exc.code}). Se pedira el login manual.")
+        return None
+    except (urllib.error.URLError, KeyError, json.JSONDecodeError) as exc:
+        print(f"Aviso: no se pudieron obtener las credenciales ({exc}). Se pedira el login manual.")
+        return None
+
+
+def autocompletar_login(page, credenciales: dict) -> bool:
+    """Rellena usuario/contrasena; el CAPTCHA y el boton Ingresar los resuelve la persona."""
+    try:
+        page.fill("#ctl00_MainContent_txtUsuario", credenciales["usuario"])
+        page.fill("#ctl00_MainContent_txtPassword", credenciales["password"])
+        return True
+    except Exception as exc:
+        print(f"Aviso: no se pudo autocompletar el login ({exc}). Ingresa usuario y contrasena manualmente.")
+        return False
+
+
 def subir_sesion(app_base_url: str, token: str, storage_state: dict) -> None:
     url = f"{app_base_url}/cfe/sesion/subir"
     body = json.dumps(storage_state).encode("utf-8")
@@ -134,14 +165,21 @@ def main() -> None:
         print("Falta URL del app o token. Borra cfe_config.json y reintenta.")
         sys.exit(1)
 
+    credenciales = obtener_credenciales(cfg["app_base_url"], cfg["token"])
+
     with sync_playwright() as pw:
         browser = lanzar_edge(pw)
         ctx = browser.new_context(ignore_https_errors=True)
         page = ctx.new_page()
         page.goto(MIESPACIO_URL, wait_until="domcontentloaded", timeout=60_000)
 
+        autocompletado = bool(credenciales) and autocompletar_login(page, credenciales)
+
         print("\nSe abrio Edge en MiEspacio.")
-        print("  1) Inicia sesion y resuelve el CAPTCHA.")
+        if autocompletado:
+            print("  1) Usuario y contrasena ya estan llenos. Solo resuelve el CAPTCHA y da clic en Ingresar.")
+        else:
+            print("  1) Inicia sesion y resuelve el CAPTCHA.")
         print("  2) NO cierres la ventana: el login se detecta automaticamente.\n")
         print("Esperando inicio de sesion...", end="", flush=True)
 

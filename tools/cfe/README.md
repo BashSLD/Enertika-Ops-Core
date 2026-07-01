@@ -38,14 +38,21 @@ La **primera vez** pedirá:
 Ambos se guardan en `cfe_config.json` junto al script para no volver a pedirlos.
 
 Luego:
-1. Se abre Edge en MiEspacio.
-2. Inicia sesión y resuelve el CAPTCHA (**único paso manual**).
+1. Se abre Edge en MiEspacio. El script pide usuario/contraseña al app con el
+   token y **los autocompleta** — no necesitas conocerlos.
+2. Resuelve el CAPTCHA y da clic en *Ingresar* (**único paso manual**).
 3. **No cierres la ventana**: el script detecta el login solo.
 4. Cuando veas *"Sesión renovada correctamente"*, listo.
+
+Si el autocompletado falla (por ejemplo, CFE cambió el formulario o no hay
+credenciales configuradas), el script cae al login manual de siempre: solo
+tendrás que teclear usuario y contraseña además del CAPTCHA.
 
 ## Notas
 
 - El `token` y el `cfe_config.json` son secretos: no los compartas ni los subas a git.
+  Ya no necesitas compartir el correo/contraseña del portal MiEspacio junto con
+  el token — el script los obtiene del app en tiempo real y nunca los muestra en pantalla.
 - Si el token deja de funcionar, un admin lo regeneró: pide el nuevo y borra
   `cfe_config.json` para reconfigurar.
 - Empaquetado como `.exe` (doble clic, sin instalar Python): pendiente de definir.
