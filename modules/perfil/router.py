@@ -183,7 +183,7 @@ async def perfil_ui(
     else:
         pendientes_aprobacion = []
         he_solicitadas = []
-    if es_jefe or es_rrhh_editor:
+    if es_rrhh_editor:
         equipo_manual_ids = await get_equipo_ids(conn, usuario_id, context_perfil)
         solicitudes_manuales_count = await asistencia_db.count_solicitudes_manuales_pendientes_equipo(
             conn,
@@ -336,9 +336,7 @@ async def _build_asistencia_tab_context(
     heatmap_raw = await perfil_db.get_mi_asistencia_heatmap(conn, usuario_id, desde_heatmap, hoy)
     mis_solicitudes = await asistencia_db.get_mis_solicitudes_manuales(conn, usuario_id)
 
-    es_jefe = await vac_service.es_jefe_o_aprobador_de_alguien(conn, usuario_id)
-    es_rrhh_editor = user_has_module_access("rrhh", context, "editor")
-    puede_revisar = es_jefe or es_rrhh_editor
+    puede_revisar = user_has_module_access("rrhh", context, "editor")
     solicitudes_pendientes = []
     solicitudes_pendientes_count = 0
     if puede_revisar:
