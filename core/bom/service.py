@@ -1793,7 +1793,7 @@ class BomService(BomComprasServiceMixin):
             'fecha_envio_ing': now_mx()
         }
 
-        updated = await self.db.update_bom_estatus(
+        await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.EN_REVISION_ING, **update_kwargs
         )
 
