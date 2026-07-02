@@ -11,11 +11,12 @@ from typing import Optional, List
 import asyncpg
 from jinja2 import TemplateError
 
-from core.bom.schemas import EstatusBOM
+from core.bom.schemas import EstatusBOM, EstatusCotizacionAprobacion
 from core.config import settings
 
 logger = logging.getLogger("BOM.Service")
 
+ESTATUS_COTIZABLE = {EstatusBOM.APROBADO_CONST, EstatusBOM.EN_REVISION_FINAL, EstatusBOM.APROBADO_FINAL}
 ESTATUS_ITEM_CERRADO_COMPRA = {"NO_ADQUIRIDO", "REEMPLAZADO", "CERRADO"}
 ESTATUS_COMPRA_BLOQUEA_ADENDA = {"COTIZADO", "AUTORIZADO", "PAGADO", "FACTURADO"}
 ESTATUS_ADENDA_APROBADA = "APROBADA"
@@ -113,7 +114,6 @@ class BomComprasServiceMixin:
         Valida sobrecosto si hay precios individuales.
         """
         bom = await self.get_bom(conn, id_bom)
-        ESTATUS_COTIZABLE = {EstatusBOM.APROBADO_CONST, EstatusBOM.EN_REVISION_FINAL, EstatusBOM.APROBADO_FINAL}
         if EstatusBOM(bom['estatus']) not in ESTATUS_COTIZABLE:
             raise ValueError("Solo se pueden crear cotizaciones en BOMs aprobados por Construccion.")
 
@@ -269,23 +269,31 @@ class BomComprasServiceMixin:
                         **campos_reales,
                     )
 
-            # Crear autorización de compra (Fase D) si no existe ya
+            # Crear autorización de compra (Fase D) si no existe ya; si quedó
+            # RECHAZADA de un ciclo anterior, reabrirla a PENDIENTE (nuevo ciclo)
             existente = await self.db.get_autorizacion_by_cotizacion(conn, cotizacion_id)
-            if not existente:
+            if not existente or existente.get('estatus') == 'RECHAZADO':
                 bom = await self.db.get_bom_by_id(conn, cotizacion['bom_id'])
                 tc = await self.db.get_tipo_cambio_vigente(conn)
-                autorizacion = await self.db.crear_autorizacion(
-                    conn,
-                    cotizacion_id=cotizacion_id,
-                    bom_id=cotizacion['bom_id'],
-                    proyecto_id=bom['id_proyecto'],
-                    monto_total=cotizacion['total'],
-                    moneda=cotizacion['moneda'],
-                    tipo_cambio_snapshot=tc['tasa_mxn'] if tc else None,
-                    creado_por=user_id,
-                )
+                tc_valor = tc['tasa_mxn'] if tc else None
+                if existente:
+                    autorizacion = await self.db.reabrir_autorizacion_db(
+                        conn, existente['id'], cotizacion['total'],
+                        cotizacion['moneda'], tc_valor, user_id
+                    )
+                else:
+                    autorizacion = await self.db.crear_autorizacion(
+                        conn,
+                        cotizacion_id=cotizacion_id,
+                        bom_id=cotizacion['bom_id'],
+                        proyecto_id=bom['id_proyecto'],
+                        monto_total=cotizacion['total'],
+                        moneda=cotizacion['moneda'],
+                        tipo_cambio_snapshot=tc_valor,
+                        creado_por=user_id,
+                    )
                 coordinador_id = bom.get('coordinador_obra')
-                if coordinador_id:
+                if autorizacion and coordinador_id:
                     _notify_args = (
                         {**autorizacion, 'nombre_proveedor': cotizacion.get('nombre_proveedor')},
                         bom,
@@ -366,19 +374,25 @@ class BomComprasServiceMixin:
 
         updated = await self.db.update_autorizacion_paso_direccion(conn, autorizacion_id, user_id, nota)
 
-        # Notificar al creador de la autorización (Compras) como proxy hasta Fase E
-        bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
-        if aut.get('creado_por'):
-            await self._notify_autorizacion(
-                conn, {**aut, **updated}, bom,
-                to_user_id=aut['creado_por'],
-                evento='PENDIENTE_FINANZAS',
-                por_user_id=user_id,
-                nota=nota,
-            )
+        await self._notify_direccion_aprobada(conn, aut, updated, user_id, nota)
 
         logger.info("Autorización %s aprobada (dirección) por usuario %s", autorizacion_id, user_id)
         return updated
+
+    async def _notify_direccion_aprobada(
+        self, conn, aut: dict, updated: dict, user_id: UUID, nota: Optional[str]
+    ) -> None:
+        """Notifica al creador de la autorización (Compras) como proxy hasta Fase E."""
+        if not aut.get('creado_por'):
+            return
+        bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
+        await self._notify_autorizacion(
+            conn, {**aut, **updated}, bom,
+            to_user_id=aut['creado_por'],
+            evento='PENDIENTE_FINANZAS',
+            por_user_id=user_id,
+            nota=nota,
+        )
 
     async def aprobar_finanzas(
         self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
@@ -452,11 +466,8 @@ class BomComprasServiceMixin:
 
         updated = await self.db.rechazar_autorizacion_db(conn, autorizacion_id, user_id, motivo, paso)
 
-        # Cotización vuelve a RECIBIDA
-        await self.db.actualizar_estatus_cotizacion(conn, aut['cotizacion_id'], 'RECIBIDA')
-
-        # Ítems vuelven a SIN_COTIZAR
-        await self._actualizar_estatus_items_cotizacion(conn, aut['cotizacion_id'], 'SIN_COTIZAR')
+        # Cotización vuelve a RECIBIDA e ítems a SIN_COTIZAR
+        await self._liberar_cotizacion_rechazada(conn, aut['cotizacion_id'])
 
         # Notificar al creador de la autorización (Compras)
         bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
@@ -470,6 +481,168 @@ class BomComprasServiceMixin:
             )
 
         logger.info("Autorización %s rechazada en paso %s por usuario %s", autorizacion_id, paso, user_id)
+        return updated
+
+    # ─── APROBACIONES DE COTIZACION (post-BOM) ──────────────
+
+    async def _liberar_cotizacion_rechazada(self, conn, cotizacion_id: UUID) -> None:
+        """Regresa la cotización a RECIBIDA y libera sus items a SIN_COTIZAR tras un rechazo."""
+        await self.db.actualizar_estatus_cotizacion(conn, cotizacion_id, 'RECIBIDA')
+        await self._actualizar_estatus_items_cotizacion(conn, cotizacion_id, 'SIN_COTIZAR')
+
+    async def solicitar_aprobacion_cotizacion(
+        self, conn, cotizacion_id: UUID, user_id: UUID,
+        comentarios: Optional[str] = None
+    ) -> dict:
+        """
+        Crea la aprobacion documental de Direccion (tb_bom_cotizacion_aprobaciones)
+        para una cotizacion. Precondiciones (plan ## 7.2 / ## 8.1 / ## 9.3): cotizacion
+        real (no RFQ) con PDF y total, SELECCIONADA, BOM en APROBADO_FINAL y
+        autorizacion Fase D ya aprobada por Obra.
+        """
+        cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
+        if not cotizacion:
+            raise ValueError("Cotización no encontrada.")
+        if cotizacion.get('es_rfq'):
+            raise ValueError("Las RFQ no participan del flujo de aprobación de Dirección.")
+        if not cotizacion.get('pdf_url'):
+            raise ValueError("La cotización no tiene PDF cargado. Sube el PDF antes de solicitar aprobación.")
+        if not cotizacion.get('total') or float(cotizacion['total']) <= 0:
+            raise ValueError("La cotización no tiene un total válido.")
+        if cotizacion['estatus'] != 'SELECCIONADA':
+            raise ValueError("La cotización debe estar seleccionada antes de solicitar aprobación de Dirección.")
+
+        bom = await self.db.get_bom_by_id(conn, cotizacion['bom_id'])
+        if not bom or EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_FINAL:
+            raise ValueError("El BOM debe estar en estatus APROBADO_FINAL para solicitar aprobación.")
+
+        autorizacion = await self.db.get_autorizacion_by_cotizacion(conn, cotizacion_id)
+        if not autorizacion or autorizacion['estatus'] != 'AUTORIZADO_OBRA':
+            raise ValueError("La autorización de compra debe estar aprobada por Obra antes de solicitar aprobación de Dirección.")
+
+        existente = await self.db.get_cotizacion_aprobacion_activa(conn, cotizacion_id)
+        if existente:
+            raise ValueError("La cotización ya tiene una aprobación de Dirección pendiente o aprobada.")
+
+        try:
+            aprobacion = await self.db.crear_cotizacion_aprobacion(
+                conn, cotizacion_id, cotizacion['bom_id'], bom['id_proyecto'],
+                user_id, comentarios
+            )
+        except asyncpg.UniqueViolationError:
+            # Carrera check-then-insert (doble click): el índice uq_bom_cot_aprob_activa
+            # garantiza una sola activa; traducir a 400 amigable.
+            raise ValueError("La cotización ya tiene una aprobación de Dirección pendiente o aprobada.")
+        logger.info(
+            "Aprobación de cotización %s solicitada (aprobación %s) por usuario %s",
+            cotizacion_id, aprobacion['id'], user_id
+        )
+        return aprobacion
+
+    async def aprobar_cotizacion_direccion(
+        self, conn, cotizacion_id: UUID, user_id: UUID,
+        user_role: str, rol_org: Optional[str],
+        comentarios: Optional[str] = None
+    ) -> dict:
+        """
+        Direccion aprueba la cotizacion (aprobacion documental). Requiere la
+        autorizacion Fase D en AUTORIZADO_OBRA (guard duro: si cambio por la
+        superficie standalone, se rechaza la operacion); la avanza en la misma
+        transaccion y notifica a Finanzas despues del commit (## 8.5).
+        """
+        if user_role != 'ADMIN' and rol_org != 'director':
+            raise ValueError("Solo el Director puede aprobar cotizaciones.")
+
+        aprobacion = await self.db.get_cotizacion_aprobacion_activa(conn, cotizacion_id)
+        if not aprobacion or aprobacion['estatus'] != EstatusCotizacionAprobacion.PENDIENTE_DIRECCION:
+            raise ValueError("La cotización no tiene una aprobación pendiente de Dirección.")
+
+        _notify_args = None
+        async with conn.transaction():
+            autorizacion = await self.db.get_autorizacion_by_cotizacion(conn, cotizacion_id)
+            if not autorizacion or autorizacion['estatus'] != 'AUTORIZADO_OBRA':
+                raise ValueError(
+                    "La autorización de compra ya no está aprobada por Obra; "
+                    "resuélvela en la pestaña Autorizaciones antes de aprobar la cotización."
+                )
+
+            updated = await self.db.aprobar_cotizacion_aprobacion_db(
+                conn, aprobacion['id'], user_id, comentarios
+            )
+            if not updated:
+                raise ValueError("La aprobación ya no está pendiente de Dirección.")
+
+            aut_updated = await self.db.update_autorizacion_paso_direccion(
+                conn, autorizacion['id'], user_id, comentarios
+            )
+            _notify_args = (autorizacion, aut_updated)
+
+        # Notificar fuera de la transacción (fire-and-forget)
+        if _notify_args:
+            aut, aut_updated = _notify_args
+            await self._notify_direccion_aprobada(conn, aut, aut_updated, user_id, comentarios)
+
+        logger.info("Cotización %s aprobada por Dirección (usuario %s)", cotizacion_id, user_id)
+        return updated
+
+    async def rechazar_cotizacion_direccion(
+        self, conn, cotizacion_id: UUID, user_id: UUID, motivo: str,
+        user_role: str, rol_org: Optional[str]
+    ) -> dict:
+        """
+        Direccion rechaza la cotizacion con motivo obligatorio. Requiere la
+        autorizacion Fase D en PENDIENTE o AUTORIZADO_OBRA (guard duro simetrico
+        al de aprobar). Cancela en cascada la autorizacion (paso
+        'RECHAZO_COTIZACION'), libera los items a SIN_COTIZAR para permitir
+        reemplazo (## 7.3) y notifica al creador (Compras) despues del commit.
+        """
+        if not motivo or not motivo.strip():
+            raise ValueError("El motivo de rechazo es obligatorio.")
+        if user_role != 'ADMIN' and rol_org != 'director':
+            raise ValueError("Solo el Director puede rechazar cotizaciones.")
+
+        aprobacion = await self.db.get_cotizacion_aprobacion_activa(conn, cotizacion_id)
+        if not aprobacion or aprobacion['estatus'] != EstatusCotizacionAprobacion.PENDIENTE_DIRECCION:
+            raise ValueError("La cotización no tiene una aprobación pendiente de Dirección.")
+
+        _notify_args = None
+        async with conn.transaction():
+            autorizacion = await self.db.get_autorizacion_by_cotizacion(conn, cotizacion_id)
+            if not autorizacion or autorizacion['estatus'] not in ('PENDIENTE', 'AUTORIZADO_OBRA'):
+                raise ValueError(
+                    "La autorización de compra ya avanzó o no existe; "
+                    "resuélvela en la pestaña Autorizaciones antes de rechazar la cotización."
+                )
+
+            updated = await self.db.rechazar_cotizacion_aprobacion_db(
+                conn, aprobacion['id'], user_id, motivo
+            )
+            if not updated:
+                raise ValueError("La aprobación ya no está pendiente de Dirección.")
+
+            rechazada = await self.db.rechazar_autorizacion_db(
+                conn, autorizacion['id'], user_id, motivo, 'RECHAZO_COTIZACION'
+            )
+            await self._liberar_cotizacion_rechazada(conn, cotizacion_id)
+            if autorizacion.get('creado_por'):
+                _notify_args = (autorizacion, rechazada)
+
+        # Notificar a Compras fuera de la transacción (fire-and-forget)
+        if _notify_args:
+            aut, rechazada = _notify_args
+            bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
+            await self._notify_autorizacion(
+                conn, {**aut, **rechazada}, bom,
+                to_user_id=aut['creado_por'],
+                evento='RECHAZADO',
+                por_user_id=user_id,
+                nota=motivo,
+            )
+
+        logger.info(
+            "Cotización %s rechazada por Dirección (usuario %s): %s",
+            cotizacion_id, user_id, motivo[:80]
+        )
         return updated
 
     async def _notify_autorizacion(

@@ -18,6 +18,8 @@ from core.security import get_current_user_context
 from core.permissions import require_module_access, require_any_module_access
 from core.config import settings
 from core.jinja_filters import register_timezone_filters
+from .compras_service import ESTATUS_COTIZABLE
+from .schemas import EstatusBOM
 from .service import (
     BomService,
     get_bom_service,
@@ -57,6 +59,7 @@ def _cotizacion_ctx(request, cotizaciones, bom, es_compras_editor: bool) -> dict
         "cotizaciones": cotizaciones,
         "bom": bom,
         "es_compras_editor": es_compras_editor,
+        "bom_cotizable": EstatusBOM(bom['estatus']) in ESTATUS_COTIZABLE,
     }
 
 
@@ -384,6 +387,93 @@ async def subir_pdf_cotizacion(
     if not cotizacion:
         raise HTTPException(status_code=404, detail="Cotización no encontrada")
     return await _render_cotizaciones_tab(request, conn, service, context, cotizacion['bom_id'])
+
+
+# ========================================
+# APROBACIONES DE COTIZACION (post-BOM)
+# ========================================
+
+@compras_router.post("/cotizaciones/{cotizacion_id}/solicitar-aprobacion", include_in_schema=False)
+async def solicitar_aprobacion_cotizacion(
+    request: Request,
+    cotizacion_id: UUID,
+    comentarios: Optional[str] = Form(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Solicita aprobación de Dirección para una cotización seleccionada (post-BOM)."""
+    user_id = context.get("user_db_id")
+    if not user_id:
+        raise HTTPException(status_code=401)
+    try:
+        aprobacion = await service.solicitar_aprobacion_cotizacion(conn, cotizacion_id, user_id, comentarios)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al solicitar aprobación de cotización")
+        raise HTTPException(status_code=500, detail="Error al solicitar la aprobación.")
+
+    return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
+
+
+@compras_router.post("/cotizaciones/{cotizacion_id}/aprobar-direccion", include_in_schema=False)
+async def aprobar_cotizacion_direccion(
+    request: Request,
+    cotizacion_id: UUID,
+    comentarios: Optional[str] = Form(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    """Dirección aprueba la cotización; auto-avanza la autorización Fase D si aplica."""
+    user_id = context.get("user_db_id")
+    if not user_id:
+        raise HTTPException(status_code=401)
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
+    try:
+        aprobacion = await service.aprobar_cotizacion_direccion(
+            conn, cotizacion_id, user_id, user_role, rol_org, comentarios
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al aprobar cotización por Dirección")
+        raise HTTPException(status_code=500, detail="Error al aprobar la cotización.")
+
+    return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
+
+
+@compras_router.post("/cotizaciones/{cotizacion_id}/rechazar-direccion", include_in_schema=False)
+async def rechazar_cotizacion_direccion(
+    request: Request,
+    cotizacion_id: UUID,
+    motivo: str = Form(...),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    """Dirección rechaza la cotización; cancela en cascada la autorización Fase D."""
+    user_id = context.get("user_db_id")
+    if not user_id:
+        raise HTTPException(status_code=401)
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
+    try:
+        aprobacion = await service.rechazar_cotizacion_direccion(
+            conn, cotizacion_id, user_id, motivo, user_role, rol_org
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al rechazar cotización por Dirección")
+        raise HTTPException(status_code=500, detail="Error al rechazar la cotización.")
+
+    return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
 
 
 # ========================================

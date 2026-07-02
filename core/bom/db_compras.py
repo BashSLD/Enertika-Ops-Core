@@ -305,6 +305,91 @@ class BomComprasDBMixin:
         """, autorizacion_id, user_id, paso, motivo)
         return dict(row)
 
+    async def reabrir_autorizacion_db(
+        self, conn, autorizacion_id: UUID, monto_total, moneda: str,
+        tipo_cambio_snapshot, creado_por: UUID
+    ) -> Optional[dict]:
+        """Reabre una autorización RECHAZADA a PENDIENTE al re-seleccionar la cotización (nuevo ciclo)."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_autorizaciones
+            SET estatus = 'PENDIENTE',
+                monto_total = $2,
+                moneda = $3,
+                tipo_cambio_snapshot = $4,
+                creado_por = $5,
+                creado_en = NOW(),
+                aprobador_obra_id = NULL,
+                fecha_aprobacion_obra = NULL,
+                nota_obra = NULL,
+                aprobador_direccion_id = NULL,
+                fecha_aprobacion_direccion = NULL,
+                nota_direccion = NULL,
+                aprobador_finanzas_id = NULL,
+                fecha_aprobacion_finanzas = NULL,
+                nota_finanzas = NULL,
+                rechazado_en_paso = NULL,
+                rechazado_por = NULL,
+                motivo_rechazo = NULL,
+                fecha_rechazo = NULL
+            WHERE id = $1 AND estatus = 'RECHAZADO'
+            RETURNING *
+        """, autorizacion_id, monto_total, moneda, tipo_cambio_snapshot, creado_por)
+        return dict(row) if row else None
+
+    # ─── APROBACIONES DE COTIZACION (post-BOM) ──────────────
+
+    async def crear_cotizacion_aprobacion(
+        self, conn, cotizacion_id: UUID, bom_id: UUID, proyecto_id: UUID,
+        solicitado_por: UUID, comentarios_solicitud: Optional[str] = None
+    ) -> dict:
+        row = await conn.fetchrow("""
+            INSERT INTO tb_bom_cotizacion_aprobaciones
+                (cotizacion_id, bom_id, proyecto_id, solicitado_por, comentarios_solicitud)
+            VALUES ($1,$2,$3,$4,$5)
+            RETURNING *
+        """, cotizacion_id, bom_id, proyecto_id, solicitado_por, comentarios_solicitud)
+        return dict(row)
+
+    async def get_cotizacion_aprobacion_activa(self, conn, cotizacion_id: UUID) -> Optional[dict]:
+        """Aprobacion activa (pendiente o aprobada) de una cotizacion; maximo una por indice unico parcial."""
+        row = await conn.fetchrow("""
+            SELECT ap.*
+            FROM tb_bom_cotizacion_aprobaciones ap
+            WHERE ap.cotizacion_id = $1
+              AND ap.estatus IN ('PENDIENTE_DIRECCION', 'APROBADA')
+        """, cotizacion_id)
+        return dict(row) if row else None
+
+    async def aprobar_cotizacion_aprobacion_db(
+        self, conn, aprobacion_id: UUID, user_id: UUID, comentarios: Optional[str]
+    ) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_cotizacion_aprobaciones
+            SET estatus = 'APROBADA',
+                aprobado_por = $2,
+                aprobado_en = NOW(),
+                comentarios_direccion = $3,
+                updated_at = NOW()
+            WHERE id = $1 AND estatus = 'PENDIENTE_DIRECCION'
+            RETURNING *
+        """, aprobacion_id, user_id, comentarios)
+        return dict(row) if row else None
+
+    async def rechazar_cotizacion_aprobacion_db(
+        self, conn, aprobacion_id: UUID, user_id: UUID, motivo: str
+    ) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_cotizacion_aprobaciones
+            SET estatus = 'RECHAZADA',
+                rechazado_por = $2,
+                rechazado_en = NOW(),
+                motivo_rechazo = $3,
+                updated_at = NOW()
+            WHERE id = $1 AND estatus = 'PENDIENTE_DIRECCION'
+            RETURNING *
+        """, aprobacion_id, user_id, motivo)
+        return dict(row) if row else None
+
     # ─── TRAZABILIDAD BOM ↔ COMPRAS ─────────────────────────
 
     async def get_items_by_autorizacion(self, conn, autorizacion_id: UUID) -> List[dict]:

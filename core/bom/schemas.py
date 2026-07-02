@@ -261,6 +261,15 @@ class EstatusAutorizacion(str, Enum):
     RECHAZADO = "RECHAZADO"
 
 
+class EstatusCotizacionAprobacion(str, Enum):
+    """Estados de tb_bom_cotizacion_aprobaciones (mismo dominio que el CHECK de la migracion 137)."""
+    PENDIENTE_DIRECCION = "PENDIENTE_DIRECCION"
+    APROBADA = "APROBADA"
+    RECHAZADA = "RECHAZADA"
+    REEMPLAZADA = "REEMPLAZADA"
+    CANCELADA_PROVEEDOR = "CANCELADA_PROVEEDOR"
+
+
 class BomAutorizacionRead(BaseModel):
     id: UUID
     cotizacion_id: UUID

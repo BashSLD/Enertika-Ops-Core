@@ -27,7 +27,7 @@
             <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide">Cotizaciones</h3>
             <p class="text-xs text-gray-400 mt-0.5">{{ cotizaciones | length }} cotización{{ 'es' if cotizaciones | length != 1 else '' }} registrada{{ 's' if cotizaciones | length != 1 else '' }}</p>
         </div>
-        {% if es_compras_editor and bom.estatus == 'APROBADO_CONST' %}
+        {% if es_compras_editor and bom_cotizable %}
         <div class="flex items-center gap-2">
         <button hx-get="/bom/{{ bom.id_bom }}/cotizaciones/comparativa"
             hx-target="#tab-cotizaciones-content" hx-swap="innerHTML"
@@ -162,7 +162,7 @@
                 d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
         </svg>
         <p class="text-sm text-gray-500 font-medium">Sin cotizaciones registradas</p>
-        {% if es_compras_editor and bom.estatus == 'APROBADO_CONST' %}
+        {% if es_compras_editor and bom_cotizable %}
         <p class="text-xs text-gray-400 mt-1">Crea la primera cotización con el botón de arriba.</p>
         {% endif %}
     </div>
