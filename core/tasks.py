@@ -854,16 +854,16 @@ async def verificar_recordatorios_horas_extra_periodically(interval_seconds: int
                 configs = await ConfigService.get_global_configs_bulk(
                     conn,
                     {
-                        "ASISTENCIA_HE_RECORDATORIO_PRIMERAS_HORAS": 24,
-                        "ASISTENCIA_HE_RECORDATORIO_INTERVALO_HORAS": 48,
-                        "ASISTENCIA_HE_RECORDATORIO_MAX": 3,
-                        "ASISTENCIA_HE_RESUMEN_RH_DIAS": 7,
+                        "ASISTENCIA_HE_RECORDATORIO_PRIMERAS_HORAS": (24, int),
+                        "ASISTENCIA_HE_RECORDATORIO_INTERVALO_HORAS": (48, int),
+                        "ASISTENCIA_HE_RECORDATORIO_MAX": (3, int),
+                        "ASISTENCIA_HE_RESUMEN_RH_DIAS": (7, int),
                     },
                 )
-                primer_delay_horas = int(configs["ASISTENCIA_HE_RECORDATORIO_PRIMERAS_HORAS"])
-                intervalo_horas = int(configs["ASISTENCIA_HE_RECORDATORIO_INTERVALO_HORAS"])
-                max_recordatorios = int(configs["ASISTENCIA_HE_RECORDATORIO_MAX"])
-                resumen_rh_dias = int(configs["ASISTENCIA_HE_RESUMEN_RH_DIAS"])
+                primer_delay_horas = configs["ASISTENCIA_HE_RECORDATORIO_PRIMERAS_HORAS"]
+                intervalo_horas = configs["ASISTENCIA_HE_RECORDATORIO_INTERVALO_HORAS"]
+                max_recordatorios = configs["ASISTENCIA_HE_RECORDATORIO_MAX"]
+                resumen_rh_dias = configs["ASISTENCIA_HE_RESUMEN_RH_DIAS"]
 
                 rh_rows = await tasks_db.get_active_rh_contacts(conn)
                 rh_emails = {r["email"] for r in rh_rows if r["email"]}

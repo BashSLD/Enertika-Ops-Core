@@ -770,11 +770,11 @@ async def _get_config_manual_asistencia(conn) -> tuple[int, int]:
     configs = await ConfigService.get_global_configs_bulk(
         conn,
         {
-            "ASISTENCIA_MANUAL_DIAS_RETROACTIVO": 7,
-            "ASISTENCIA_MANUAL_MAX_HORAS": 16,
+            "ASISTENCIA_MANUAL_DIAS_RETROACTIVO": (7, int),
+            "ASISTENCIA_MANUAL_MAX_HORAS": (16, int),
         },
     )
-    return int(configs["ASISTENCIA_MANUAL_DIAS_RETROACTIVO"]), int(configs["ASISTENCIA_MANUAL_MAX_HORAS"])
+    return configs["ASISTENCIA_MANUAL_DIAS_RETROACTIVO"], configs["ASISTENCIA_MANUAL_MAX_HORAS"]
 
 
 def _parse_manual_datetime(fecha: date | None, hora: str | None) -> datetime:
