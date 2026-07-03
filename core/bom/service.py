@@ -371,6 +371,38 @@ class BomService(BomComprasServiceMixin):
         if items_sin_costo:
             raise ValueError(self._build_costos_pendientes_error(items_sin_costo))
 
+    async def refrescar_costos_catalogo(self, conn, id_bom: UUID, user_id: UUID) -> dict:
+        """Ingenieria sincroniza precio_unitario de items sin costo desde el catalogo
+        interno (precio_referencia o factura XML vinculada mas reciente). Solo en BORRADOR."""
+        bom = await self.get_bom(conn, id_bom)
+        await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
+        if EstatusBOM(bom['estatus']) != EstatusBOM.BORRADOR:
+            raise ValueError("Solo se pueden refrescar costos mientras el BOM esta en BORRADOR")
+
+        async with conn.transaction():
+            sincronizados = await self.db.sincronizar_costos_catalogo(conn, id_bom)
+            for item in sincronizados:
+                await self.db.registrar_historial(
+                    conn, id_bom, AccionHistorial.EDITADO,
+                    bom['version'], user_id,
+                    id_item=item['id_item'],
+                    campo_modificado=CAMPO_LABELS.get('precio_unitario', 'precio_unitario'),
+                    valor_anterior=(
+                        str(item['precio_anterior']) if item['precio_anterior'] is not None else None
+                    ),
+                    valor_nuevo=str(item['precio_resuelto']),
+                )
+                if item.get('origen_precio_anterior') != 'CATALOGO':
+                    await self.db.registrar_historial(
+                        conn, id_bom, AccionHistorial.EDITADO,
+                        bom['version'], user_id,
+                        id_item=item['id_item'],
+                        campo_modificado=CAMPO_LABELS.get('origen_precio', 'origen_precio'),
+                        valor_anterior=item.get('origen_precio_anterior'),
+                        valor_nuevo='CATALOGO',
+                    )
+        return {"sincronizados": len(sincronizados), "bom": bom}
+
     async def _get_aprobador_final_direccion_id(self, conn) -> UUID:
         aprobador_id = await self.db.get_aprobador_final_id(conn)
         if not aprobador_id:

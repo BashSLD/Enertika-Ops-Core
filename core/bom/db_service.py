@@ -293,6 +293,51 @@ class BomDBService(BomComprasDBMixin):
         """, id_bom)
         return [dict(r) for r in rows]
 
+    async def sincronizar_costos_catalogo(self, conn, id_bom: UUID) -> List[dict]:
+        """Sincroniza precio_unitario de items BASE sin costo desde el catalogo interno.
+
+        Precio resuelto por material: precio de la factura XML vinculada mas reciente
+        (tb_materiales_interno_xml + tb_materiales_historial) si existe, si no
+        precio_referencia del catalogo (tb_cat_materiales). Solo toca items con
+        id_material_interno asignado."""
+        rows = await conn.fetch("""
+            WITH resueltos AS (
+                SELECT c.id AS id_material_interno,
+                       COALESCE(
+                           (SELECT m.precio_unitario
+                            FROM tb_materiales_interno_xml v
+                            JOIN tb_materiales_historial m ON m.id = v.id_material_xml
+                            WHERE v.id_material_interno = c.id
+                            ORDER BY m.fecha_factura DESC NULLS LAST
+                            LIMIT 1),
+                           c.precio_referencia
+                       ) AS precio_resuelto
+                FROM tb_cat_materiales c
+                WHERE c.activo = TRUE
+            ),
+            candidatos AS (
+                SELECT i.id_item, i.descripcion, i.precio_unitario AS precio_anterior,
+                       i.origen_precio AS origen_precio_anterior,
+                       r.precio_resuelto
+                FROM tb_bom_items i
+                JOIN resueltos r ON r.id_material_interno = i.id_material_interno
+                WHERE i.id_bom = $1
+                  AND i.activo = TRUE
+                  AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
+                  AND (i.precio_unitario IS NULL OR i.precio_unitario <= 0)
+                  AND r.precio_resuelto IS NOT NULL
+                  AND r.precio_resuelto > 0
+            )
+            UPDATE tb_bom_items i
+            SET precio_unitario = c.precio_resuelto,
+                origen_precio = 'CATALOGO',
+                updated_at = now()
+            FROM candidatos c
+            WHERE i.id_item = c.id_item
+            RETURNING i.id_item, c.descripcion, c.precio_anterior, c.origen_precio_anterior, c.precio_resuelto
+        """, id_bom)
+        return [dict(r) for r in rows]
+
     async def get_item_by_id(self, conn, id_item: UUID) -> Optional[dict]:
         """Obtiene un item por ID con datos de BOM."""
         row = await conn.fetchrow("""

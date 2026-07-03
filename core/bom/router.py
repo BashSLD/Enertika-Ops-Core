@@ -897,6 +897,58 @@ async def restaurar_item(
         })
 
 
+@router.post("/{id_bom}/refrescar-costos", include_in_schema=False)
+async def refrescar_costos_catalogo(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria", "editor"),
+):
+    """Ingenieria sincroniza precio_unitario de items sin costo desde el catalogo interno."""
+    user_id = context.get("user_db_id")
+    try:
+        resultado = await service.refrescar_costos_catalogo(conn, id_bom, user_id)
+        bom = resultado["bom"]
+        items = await service.get_items(conn, id_bom)
+
+        n = resultado["sincronizados"]
+        pendientes_sin_costo = [i for i in items if service.item_sin_costo(i)]
+        if n and not pendientes_sin_costo:
+            toast = {
+                "message": f"{n} item(s) actualizados desde el catalogo. Ya puedes enviar el BOM a revision.",
+                "type": "success", "title": "Costos refrescados",
+            }
+        elif n:
+            toast = {
+                "message": f"{n} item(s) actualizados. Aun quedan {len(pendientes_sin_costo)} sin costo en el catalogo interno.",
+                "type": "warning", "title": "Costos refrescados",
+            }
+        else:
+            toast = {
+                "message": "Ningun item tiene un precio disponible en el catalogo interno todavia.",
+                "type": "warning", "title": "Sin cambios",
+            }
+
+        ctx = _build_bom_context(
+            request, context, bom,
+            items=items,
+            bulk_toast=toast,
+            estadisticas=await service.get_estadisticas(conn, id_bom),
+            oob_estadisticas=True,
+            puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
+                conn, bom['id_proyecto'], user_id
+            ),
+        )
+        return templates.TemplateResponse(request, "bom/partials/tabla_items.html", ctx)
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", "Error")
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al refrescar costos de catalogo en BOM")
+        return _toast_response(request, "Error interno al refrescar costos", "error", "Error")
+
+
 @router.get("/items/{id_item}/modal", include_in_schema=False)
 async def get_modal_editar_item(
     request: Request,

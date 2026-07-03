@@ -1,4 +1,9 @@
 {# Tabla de items del BOM (partial HTMX) #}
+{% if oob_estadisticas and estadisticas %}
+{% with oob=True %}
+{% include "bom/partials/estadisticas_grid.html" %}
+{% endwith %}
+{% endif %}
 {% if bulk_toast %}
 {% with message=bulk_toast.message, type=bulk_toast.type, title=bulk_toast.title %}
 {% include "shared/toast.html" %}

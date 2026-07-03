@@ -177,53 +177,15 @@
 
     {# Estadisticas #}
     {% if estadisticas %}
-    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
-        <div class="bg-white rounded-lg border p-3 text-center">
-            <div class="text-2xl font-bold text-gray-800">{{ estadisticas.total_items or 0 }}</div>
-            <div class="text-xs text-gray-500">Total Items</div>
-        </div>
-        <div class="bg-white rounded-lg border p-3 text-center">
-            <div class="text-2xl font-bold text-green-600">{{ estadisticas.entregados or 0 }}</div>
-            <div class="text-xs text-gray-500">Entregados</div>
-        </div>
-        <div class="bg-white rounded-lg border p-3 text-center">
-            <div class="text-2xl font-bold text-amber-600">{{ estadisticas.pendientes or 0 }}</div>
-            <div class="text-xs text-gray-500">Pendientes</div>
-        </div>
-        <div class="bg-white rounded-lg border p-3 text-center">
-            <div class="text-2xl font-bold text-blue-600">{{ estadisticas.con_proveedor or 0 }}</div>
-            <div class="text-xs text-gray-500">Con Proveedor</div>
-        </div>
-        <div class="bg-white rounded-lg border p-3 text-center">
-            <div class="text-2xl font-bold text-purple-600">{{ estadisticas.con_fecha_requerida or 0 }}</div>
-            <div class="text-xs text-gray-500">Con Fecha Req.</div>
-        </div>
-        <div class="bg-white rounded-lg border p-3 text-center">
-            <div class="text-2xl font-bold text-red-600">{{ estadisticas.atrasados or 0 }}</div>
-            <div class="text-xs text-gray-500">Atrasados</div>
-        </div>
-        <div class="bg-white rounded-lg border p-3 text-center border-emerald-200 bg-emerald-50">
-            <div class="text-lg font-bold text-emerald-700">
-                ${{ "{:,.2f}".format(estadisticas.costo_total_estimado|float) if estadisticas.costo_total_estimado else
-                '0.00' }}
-            </div>
-            <div class="text-xs text-emerald-600">
-                Costo Estimado
-                <span class="text-gray-400">({{ estadisticas.items_con_precio or 0 }}/{{ estadisticas.total_items or 0
-                    }})</span>
-                {% if estadisticas.items_sin_costo %}
-                <span class="ml-1 text-amber-600">{{ estadisticas.items_sin_costo }} sin presupuesto</span>
-                {% endif %}
-            </div>
-        </div>
-    </div>
+    {% include "bom/partials/estadisticas_grid.html" %}
     {% endif %}
 
     {# Boton agregar item — permitido en todos los estados menos CANCELADO y APROBADO_FINAL #}
     {% set puede_agregar_item = (area_editor == 'construccion' and bom.estatus in ['EN_REVISION_OBRA', 'EN_REVISION_CONST']) or (area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria) %}
     {% set puede_cotizar_seleccionados = es_compras_editor and bom.estatus == 'APROBADO_CONST' %}
     {% set puede_agregar_fuera_scope = (area_editor == 'construccion' or es_compras_editor) and bom.estatus == 'APROBADO_FINAL' %}
-    {% if bom and ((bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and (puede_agregar_item or puede_cotizar_seleccionados)) or puede_agregar_fuera_scope) %}
+    {% set puede_refrescar_costos = area_editor == 'ingenieria' and bom.estatus == 'BORRADOR' and estadisticas.items_sin_costo %}
+    {% if bom and ((bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and (puede_agregar_item or puede_cotizar_seleccionados)) or puede_agregar_fuera_scope or puede_refrescar_costos) %}
     <div class="mb-4 flex gap-2">
         {% if puede_agregar_item and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] %}
         <button type="button"
@@ -233,6 +195,19 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
             </svg>
             Agregar Item
+        </button>
+        {% endif %}
+        {% if puede_refrescar_costos %}
+        <button type="button"
+            hx-post="/bom/{{ bom.id_bom }}/refrescar-costos"
+            hx-target="#tabla-bom-items" hx-swap="innerHTML"
+            hx-confirm="¿Actualizar el presupuesto de los items sin costo con el precio actual del catalogo interno?"
+            class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 transition shadow-sm"
+            title="Actualiza items sin costo con el precio vigente del catalogo interno">
+            <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refrescar costos
         </button>
         {% endif %}
         {% if puede_agregar_fuera_scope %}
