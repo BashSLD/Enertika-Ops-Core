@@ -54,7 +54,9 @@ class MaterialsDBService:
                     p.razon_social as proveedor_nombre,
                     p.rfc as proveedor_rfc,
                     cat.nombre as categoria_nombre,
-                    pr.proyecto_id_estandar as proyecto_nombre
+                    pr.proyecto_id_estandar as proyecto_nombre,
+                    (SELECT COUNT(*) FROM tb_materiales_interno_xml v
+                     WHERE v.id_material_xml = m.id) AS vinculos_interno
                 FROM tb_materiales_historial m
                 LEFT JOIN tb_proveedores p ON m.id_proveedor = p.id_proveedor
                 LEFT JOIN tb_cat_categorias_compra cat ON m.id_categoria = cat.id
@@ -189,7 +191,9 @@ class MaterialsDBService:
                 p.razon_social as proveedor_nombre,
                 p.rfc as proveedor_rfc,
                 cat.nombre as categoria_nombre,
-                pr.proyecto_id_estandar as proyecto_nombre
+                pr.proyecto_id_estandar as proyecto_nombre,
+                (SELECT COUNT(*) FROM tb_materiales_interno_xml v
+                 WHERE v.id_material_xml = m.id) AS vinculos_interno
             FROM tb_materiales_historial m
             LEFT JOIN tb_proveedores p ON m.id_proveedor = p.id_proveedor
             LEFT JOIN tb_cat_categorias_compra cat ON m.id_categoria = cat.id
@@ -611,6 +615,60 @@ class MaterialsDBService:
         await conn.execute("""
             DELETE FROM tb_materiales_interno_xml
             WHERE id_material_interno = $1 AND id_material_xml = $2
+        """, id_interno, id_xml)
+
+    async def get_vinculos_interno_por_xml(self, conn, id_xml: UUID) -> list:
+        rows = await conn.fetch("""
+            SELECT
+                c.id AS id_interno,
+                c.descripcion_canonica,
+                u.codigo AS unidad,
+                c.precio_referencia,
+                cat.nombre AS categoria_nombre,
+                v.created_at AS vinculado_en
+            FROM tb_materiales_interno_xml v
+            JOIN tb_cat_materiales c ON c.id = v.id_material_interno
+            LEFT JOIN tb_cat_unidades_medida u ON u.id = c.id_unidad_medida
+            LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
+            WHERE v.id_material_xml = $1
+            ORDER BY v.created_at DESC
+        """, id_xml)
+        return [dict(r) for r in rows]
+
+    async def buscar_internos_para_vincular(self, conn, id_xml: UUID, q: str, limite: int = 20) -> list:
+        q_norm = normalizar_descripcion(q)
+        rows = await conn.fetch("""
+            SELECT
+                c.id,
+                c.descripcion_canonica,
+                u.codigo AS unidad,
+                c.precio_referencia,
+                cat.nombre AS categoria_nombre,
+                EXISTS(
+                    SELECT 1 FROM tb_materiales_interno_xml v
+                    WHERE v.id_material_xml = $1 AND v.id_material_interno = c.id
+                ) AS ya_vinculado
+            FROM tb_cat_materiales c
+            LEFT JOIN tb_cat_unidades_medida u ON u.id = c.id_unidad_medida
+            LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
+            WHERE c.activo = TRUE
+              AND (c.descripcion_norm ILIKE '%' || $2 || '%' OR c.descripcion_canonica ILIKE '%' || $2 || '%')
+            ORDER BY c.descripcion_canonica
+            LIMIT $3
+        """, id_xml, q_norm, limite)
+        return [dict(r) for r in rows]
+
+    async def vincular_interno_a_xml(self, conn, id_xml: UUID, id_interno: UUID) -> None:
+        """Vincula (o revincula) un registro XML a un item del catalogo interno.
+
+        Relacion 1:N forzada por uq_interno_xml_xml (mig 119): cada factura XML
+        pertenece a un solo item interno, por lo que un nuevo vinculo reemplaza
+        al anterior en vez de fallar por conflicto."""
+        await conn.execute("""
+            INSERT INTO tb_materiales_interno_xml (id_material_interno, id_material_xml)
+            VALUES ($1, $2)
+            ON CONFLICT (id_material_xml) DO UPDATE
+            SET id_material_interno = EXCLUDED.id_material_interno, created_at = now()
         """, id_interno, id_xml)
 
 

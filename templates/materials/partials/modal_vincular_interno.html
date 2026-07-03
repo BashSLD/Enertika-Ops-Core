@@ -3,7 +3,7 @@
     @click.self="$el.remove()">
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85dvh] flex flex-col">
         <div class="flex items-center justify-between px-6 py-4 border-b flex-shrink-0">
-            <h3 class="text-lg font-semibold text-[#123456]">Vínculos XML</h3>
+            <h3 class="text-lg font-semibold text-[#123456]">Vincular a catálogo interno</h3>
             <button @click="$el.closest('.fixed').remove()" class="text-gray-400 hover:text-gray-600">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -12,29 +12,29 @@
         </div>
 
         <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
-            <!-- Búsqueda XML -->
+            <!-- Busqueda catalogo interno -->
             <div>
-                <label class="block text-xs font-medium text-gray-700 mb-1">Buscar en historial XML para vincular</label>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Buscar en catálogo interno para vincular</label>
                 <input type="text" name="q" value="{{ q }}"
-                    hx-get="/materials/internos/{{ interno_id }}/vincular-xml"
-                    hx-target="#vincular-modal-content"
+                    hx-get="/materials/{{ material_id }}/vincular-interno"
+                    hx-target="#vincular-interno-modal-content"
                     hx-swap="innerHTML"
                     hx-trigger="input changed delay:350ms"
                     hx-include="[name='q']"
-                    placeholder="Descripción del proveedor (mín. 3 caracteres)..."
+                    placeholder="Descripción canónica (mín. 3 caracteres)..."
                     autocomplete="off"
                     class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
             </div>
 
-            <div id="vincular-modal-content">
-                {% include "materials/partials/vincular_xml_resultados.html" %}
+            <div id="vincular-interno-modal-content">
+                {% include "materials/partials/vincular_interno_resultados.html" %}
             </div>
 
             <!-- Vinculados actuales -->
             <div>
-                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Actualmente vinculados</p>
-                <div id="vinculos-list">
-                    {% include "materials/partials/vinculos_xml_list.html" %}
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Actualmente vinculado a</p>
+                <div id="vinculos-interno-list">
+                    {% include "materials/partials/vinculos_interno_list.html" %}
                 </div>
             </div>
         </div>

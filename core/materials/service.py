@@ -191,6 +191,31 @@ class MaterialsService:
     async def eliminar_vinculo_xml(self, conn, id_interno: UUID, id_xml: UUID) -> None:
         await self.db.eliminar_vinculo_xml(conn, id_interno, id_xml)
 
+    @staticmethod
+    def _precios_referencia_a_float(rows: list) -> list:
+        """Convierte precio_referencia de Decimal a float en una lista de filas."""
+        for r in rows:
+            if r.get('precio_referencia') and isinstance(r['precio_referencia'], Decimal):
+                r['precio_referencia'] = float(r['precio_referencia'])
+        return rows
+
+    async def get_vinculos_interno_por_xml(self, conn, id_xml: UUID) -> list:
+        rows = await self.db.get_vinculos_interno_por_xml(conn, id_xml)
+        return self._precios_referencia_a_float(rows)
+
+    async def buscar_internos_para_vincular(self, conn, id_xml: UUID, q: str) -> list:
+        rows = await self.db.buscar_internos_para_vincular(conn, id_xml, q)
+        return self._precios_referencia_a_float(rows)
+
+    async def vincular_interno_a_xml(self, conn, id_xml: UUID, id_interno: UUID) -> None:
+        await self.db.vincular_interno_a_xml(conn, id_xml, id_interno)
+
+    async def eliminar_vinculo_interno(self, conn, id_xml: UUID, id_interno: UUID) -> None:
+        """Quita el vinculo entre un registro XML y un item del catalogo interno.
+        Misma tabla que eliminar_vinculo_xml; se expone con este nombre para que la
+        direccion de los argumentos coincida con el flujo 'vincular-interno'."""
+        await self.db.eliminar_vinculo_xml(conn, id_interno, id_xml)
+
     # ====================================================================
     # CARGA MASIVA DE CATALOGO INTERNO (template + validar + cargar)
     # ====================================================================

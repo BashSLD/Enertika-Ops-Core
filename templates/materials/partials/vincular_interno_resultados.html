@@ -1,0 +1,35 @@
+{% if resultados %}
+<div class="space-y-1">
+    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Resultados ({{ resultados|length }})</p>
+    {% for r in resultados %}
+    <div class="flex items-center justify-between p-2 rounded-lg border border-gray-100 hover:bg-gray-50">
+        <div class="flex-1 min-w-0">
+            <div class="text-sm text-gray-800 truncate" title="{{ r.descripcion_canonica }}">
+                {{ r.descripcion_canonica }}
+            </div>
+            <div class="text-xs text-gray-500">
+                {{ r.categoria_nombre or '—' }} · {{ r.unidad or '—' }}
+                {% if r.precio_referencia %} · ${{ "{:,.2f}".format(r.precio_referencia) }}{% endif %}
+            </div>
+        </div>
+        {% if r.ya_vinculado %}
+        <span class="ml-3 text-xs text-green-600 font-medium flex-shrink-0">Ya vinculado</span>
+        {% else %}
+        <button
+            hx-post="/materials/{{ material_id }}/vincular-interno"
+            hx-vals='{"id_interno": "{{ r.id }}"}'
+            hx-target="#vinculos-interno-list"
+            hx-swap="innerHTML"
+            hx-confirm="Cada factura solo puede estar vinculada a un item del catálogo. Si ya tenía otro vínculo, será reemplazado. ¿Continuar?"
+            class="ml-3 flex-shrink-0 text-xs bg-[#00BABB] hover:bg-[#009999] text-white px-3 py-1 rounded-lg font-medium transition-colors">
+            Vincular
+        </button>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% elif q|length >= 3 %}
+<p class="text-sm text-gray-400 text-center py-3">Sin resultados para "{{ q }}"</p>
+{% else %}
+<p class="text-sm text-gray-400 text-center py-3">Escribe al menos 3 caracteres para buscar</p>
+{% endif %}

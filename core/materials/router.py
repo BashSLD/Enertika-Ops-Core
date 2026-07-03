@@ -612,6 +612,13 @@ async def modal_vincular_xml(
     _=Depends(require_materials_view_access),
 ):
     resultados = await service.buscar_xml_para_vincular(conn, interno_id, q) if len(q) >= 3 else []
+
+    if request.headers.get("hx-target") == "vincular-modal-content":
+        return templates.TemplateResponse(
+            request, "materials/partials/vincular_xml_resultados.html",
+            {"interno_id": str(interno_id), "resultados": resultados, "q": q}
+        )
+
     vinculos = await service.get_vinculos_xml(conn, interno_id)
     return templates.TemplateResponse(
         request, "materials/partials/modal_vincular_xml.html",
@@ -654,4 +661,66 @@ async def eliminar_vinculo_xml(
     return templates.TemplateResponse(
         request, "materials/partials/vinculos_xml_list.html",
         {"interno_id": str(interno_id), "vinculos": vinculos}
+    )
+
+
+@router.get("/{material_id}/vincular-interno", response_class=HTMLResponse)
+async def modal_vincular_interno(
+    request: Request,
+    material_id: UUID,
+    q: str = Query(default=""),
+    conn=Depends(get_db_connection),
+    service: MaterialsService = Depends(get_materials_service),
+    _=Depends(require_materials_view_access),
+):
+    resultados = await service.buscar_internos_para_vincular(conn, material_id, q) if len(q) >= 3 else []
+
+    if request.headers.get("hx-target") == "vincular-interno-modal-content":
+        return templates.TemplateResponse(
+            request, "materials/partials/vincular_interno_resultados.html",
+            {"material_id": str(material_id), "resultados": resultados, "q": q}
+        )
+
+    vinculos = await service.get_vinculos_interno_por_xml(conn, material_id)
+    return templates.TemplateResponse(
+        request, "materials/partials/modal_vincular_interno.html",
+        {"material_id": str(material_id), "resultados": resultados, "vinculos": vinculos, "q": q}
+    )
+
+
+@router.post("/{material_id}/vincular-interno", response_class=HTMLResponse)
+async def crear_vinculo_interno(
+    request: Request,
+    material_id: UUID,
+    conn=Depends(get_db_connection),
+    service: MaterialsService = Depends(get_materials_service),
+    _=require_materials_edit_access,
+):
+    form = await request.form()
+    try:
+        id_interno = UUID(str(form["id_interno"]))
+    except (KeyError, ValueError):
+        raise HTTPException(status_code=400, detail="id_interno inválido")
+    await service.vincular_interno_a_xml(conn, material_id, id_interno)
+    vinculos = await service.get_vinculos_interno_por_xml(conn, material_id)
+    return templates.TemplateResponse(
+        request, "materials/partials/vinculos_interno_list.html",
+        {"material_id": str(material_id), "vinculos": vinculos}
+    )
+
+
+@router.delete("/{material_id}/vincular-interno/{id_interno}", response_class=HTMLResponse)
+async def eliminar_vinculo_interno(
+    request: Request,
+    material_id: UUID,
+    id_interno: UUID,
+    conn=Depends(get_db_connection),
+    service: MaterialsService = Depends(get_materials_service),
+    _=require_materials_edit_access,
+):
+    await service.eliminar_vinculo_interno(conn, material_id, id_interno)
+    vinculos = await service.get_vinculos_interno_por_xml(conn, material_id)
+    return templates.TemplateResponse(
+        request, "materials/partials/vinculos_interno_list.html",
+        {"material_id": str(material_id), "vinculos": vinculos}
     )
