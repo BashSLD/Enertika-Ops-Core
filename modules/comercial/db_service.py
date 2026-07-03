@@ -276,19 +276,26 @@ QUERY_CHECK_GRUPO_BLOQUEADOR = """
         SELECT o.id_oportunidad, o.op_id_estandar,
                ce.nombre AS estado_op,
                ts.nombre AS tipo_solicitud,
-               o.id_estatus_global
+               o.id_estatus_global,
+               o.email_enviado,
+               o.fecha_creacion
         FROM tb_oportunidades o
         JOIN tb_cat_estatus_oportunidades ce ON ce.id = o.id_estatus_global
         JOIN tb_cat_tipos_solicitud ts ON ts.id = o.id_tipo_solicitud
         CROSS JOIN root
         WHERE o.id_oportunidad = root.id OR o.parent_id = root.id
+    ),
+    op_bloqueadores AS (
+        SELECT * FROM miembros
+        WHERE id_estatus_global NOT IN (SELECT id FROM t_op)
+          AND NOT (email_enviado = false AND fecha_creacion <= NOW() - INTERVAL '24 hours')
     )
     SELECT
         EXISTS(
             SELECT 1 FROM miembros WHERE LOWER(estado_op) = 'ganada'
         ) AS grupo_ganado,
         EXISTS(
-            SELECT 1 FROM miembros WHERE id_estatus_global NOT IN (SELECT id FROM t_op)
+            SELECT 1 FROM op_bloqueadores
         ) AS tiene_activo_op,
         EXISTS(
             SELECT 1
@@ -297,12 +304,10 @@ QUERY_CHECK_GRUPO_BLOQUEADOR = """
             JOIN tb_cat_estatus_levantamiento cel ON cel.id = l.id_estatus_global
             WHERE l.id_estatus_global NOT IN (SELECT id FROM t_lev)
         ) AS tiene_activo_lev,
-        (SELECT op_id_estandar FROM miembros
-         WHERE id_estatus_global NOT IN (SELECT id FROM t_op) LIMIT 1) AS bloqueador_op_id,
-        (SELECT estado_op FROM miembros
-         WHERE id_estatus_global NOT IN (SELECT id FROM t_op) LIMIT 1) AS bloqueador_op_estado,
-        (SELECT tipo_solicitud FROM miembros
-         WHERE id_estatus_global NOT IN (SELECT id FROM t_op) LIMIT 1) AS bloqueador_op_tipo,
+        (SELECT op_id_estandar FROM op_bloqueadores LIMIT 1) AS bloqueador_op_id,
+        (SELECT estado_op FROM op_bloqueadores LIMIT 1) AS bloqueador_op_estado,
+        (SELECT tipo_solicitud FROM op_bloqueadores LIMIT 1) AS bloqueador_op_tipo,
+        (SELECT NOT email_enviado FROM op_bloqueadores LIMIT 1) AS bloqueador_op_es_borrador,
         (SELECT m.op_id_estandar
          FROM miembros m
          JOIN tb_levantamientos l ON l.id_oportunidad = m.id_oportunidad

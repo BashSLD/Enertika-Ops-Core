@@ -1160,7 +1160,7 @@ class ComercialService:
         if tiene_activo:
             return {
                 "tipo": "activo",
-                "sim": {"op_id": r["bloqueador_op_id"], "estado": r["bloqueador_op_estado"], "tipo_solicitud": r["bloqueador_op_tipo"]} if r["tiene_activo_op"] else None,
+                "sim": {"op_id": r["bloqueador_op_id"], "estado": r["bloqueador_op_estado"], "tipo_solicitud": r["bloqueador_op_tipo"], "es_borrador": r["bloqueador_op_es_borrador"]} if r["tiene_activo_op"] else None,
                 "lev": {"op_id": r["bloqueador_lev_op_id"], "estado": r["bloqueador_lev_estado"]} if r["tiene_activo_lev"] else None,
             }
         return {"tipo": None}

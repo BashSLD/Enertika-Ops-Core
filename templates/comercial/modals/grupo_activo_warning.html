@@ -1,3 +1,4 @@
+{% set es_borrador_solo = sim and sim.es_borrador and not lev %}
 <div id="modal-backdrop-grupo-activo"
     class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-[10001] backdrop-blur-sm animate-fade-in">
 
@@ -13,7 +14,11 @@
             </div>
             <div>
                 <h3 class="text-lg font-bold text-red-800">Solicitud No Permitida</h3>
-                <p class="text-xs text-red-600">El grupo ya tiene una solicitud activa en proceso.</p>
+                {% if es_borrador_solo %}
+                <p class="text-xs text-red-600">Este hilo tiene un borrador sin completar.</p>
+                {% else %}
+                <p class="text-xs text-red-600">Este hilo ya tiene una solicitud activa en proceso.</p>
+                {% endif %}
             </div>
             <button @click="$el.closest('#modal-backdrop-grupo-activo').remove()"
                 class="ml-auto text-red-400 hover:text-red-600">
@@ -25,25 +30,45 @@
 
         <!-- Body -->
         <div class="p-6 space-y-3">
+            {% if es_borrador_solo %}
             <p class="text-sm text-gray-700">
-                No es posible crear un nuevo seguimiento porque el grupo ya tiene una o más solicitudes en proceso:
+                No es posible crear un nuevo seguimiento porque esta oportunidad tiene un borrador sin completar:
             </p>
+            {% else %}
+            <p class="text-sm text-gray-700">
+                No es posible crear un nuevo seguimiento porque este hilo ya tiene una o más solicitudes en proceso:
+            </p>
+            {% endif %}
 
             {% if sim %}
-            <div class="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-lg p-4">
-                <svg class="w-5 h-5 text-blue-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-                <div>
-                    <p class="text-xs font-bold text-blue-800 uppercase tracking-wide mb-1">Simulación en proceso</p>
-                    <p class="text-sm text-blue-900 font-mono font-bold">{{ sim.op_id }}</p>
-                    <p class="text-xs text-blue-700 mt-0.5">
-                        {{ sim.tipo_solicitud }} &middot;
-                        <span class="font-semibold">{{ sim.estado }}</span>
-                    </p>
+                {% if sim.es_borrador %}
+                <div class="flex items-start gap-3 bg-amber-50 border border-amber-100 rounded-lg p-4">
+                    <svg class="w-5 h-5 text-amber-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    <div>
+                        <p class="text-xs font-bold text-amber-800 uppercase tracking-wide mb-1">Borrador sin completar</p>
+                        <p class="text-sm text-amber-900 font-mono font-bold">{{ sim.op_id }}</p>
+                        <p class="text-xs text-amber-700 mt-0.5">{{ sim.tipo_solicitud }}</p>
+                    </div>
                 </div>
-            </div>
+                {% else %}
+                <div class="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-lg p-4">
+                    <svg class="w-5 h-5 text-blue-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <div>
+                        <p class="text-xs font-bold text-blue-800 uppercase tracking-wide mb-1">Simulación en proceso</p>
+                        <p class="text-sm text-blue-900 font-mono font-bold">{{ sim.op_id }}</p>
+                        <p class="text-xs text-blue-700 mt-0.5">
+                            {{ sim.tipo_solicitud }} &middot;
+                            <span class="font-semibold">{{ sim.estado }}</span>
+                        </p>
+                    </div>
+                </div>
+                {% endif %}
             {% endif %}
 
             {% if lev %}
@@ -60,9 +85,15 @@
             </div>
             {% endif %}
 
+            {% if es_borrador_solo %}
+            <p class="text-xs text-gray-500 pt-1">
+                Ve a la sección de Borradores en Comercial para continuarlo o eliminarlo antes de crear una nueva solicitud.
+            </p>
+            {% else %}
             <p class="text-xs text-gray-500 pt-1">
                 Dirígete al área correspondiente para dar seguimiento a la solicitud activa antes de crear una nueva.
             </p>
+            {% endif %}
         </div>
 
         <!-- Footer -->
