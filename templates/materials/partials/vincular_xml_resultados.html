@@ -1,6 +1,8 @@
 {% if resultados %}
 <div class="space-y-1">
-    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Resultados ({{ resultados|length }})</p>
+    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+        {% if q|length >= 3 %}Resultados ({{ resultados|length }}){% else %}Sugerencias ({{ resultados|length }}){% endif %}
+    </p>
     {% for r in resultados %}
     <div class="flex items-center justify-between p-2 rounded-lg border border-gray-100 hover:bg-gray-50">
         <div class="flex-1 min-w-0">
@@ -30,5 +32,5 @@
 {% elif q|length >= 3 %}
 <p class="text-sm text-gray-400 text-center py-3">Sin resultados para "{{ q }}"</p>
 {% else %}
-<p class="text-sm text-gray-400 text-center py-3">Escribe al menos 3 caracteres para buscar</p>
+<p class="text-sm text-gray-400 text-center py-3">Sin sugerencias — escribe para buscar</p>
 {% endif %}

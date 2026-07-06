@@ -102,6 +102,10 @@ class MaterialsService:
 
         return material, precios, precios_sat
 
+    async def get_material_by_id(self, conn, material_id: UUID) -> Optional[dict]:
+        """Obtiene un material del historial XML por id (con JOINs de proveedor/categoria)."""
+        return await self.db.get_material_by_id(conn, material_id)
+
     async def update_material(
         self, conn, material_id: UUID, updates: dict
     ) -> Optional[dict]:
@@ -150,6 +154,10 @@ class MaterialsService:
             internos.append(m)
         return internos, total
 
+    async def get_interno_by_id(self, conn, id: UUID) -> Optional[dict]:
+        m = await self.db.get_interno_by_id(conn, id)
+        return self._precios_referencia_a_float([m])[0] if m else None
+
     async def crear_interno(self, conn, data: dict) -> dict:
         return await self.db.crear_interno(conn, data)
 
@@ -173,20 +181,76 @@ class MaterialsService:
 
     async def get_vinculos_xml(self, conn, id_interno: UUID) -> list:
         rows = await self.db.get_vinculos_xml(conn, id_interno)
-        for r in rows:
-            if r.get('precio_unitario') and isinstance(r['precio_unitario'], Decimal):
-                r['precio_unitario'] = float(r['precio_unitario'])
-        return rows
+        return self._precio_unitario_a_float(rows)
 
     async def buscar_xml_para_vincular(self, conn, id_interno: UUID, q: str) -> list:
         rows = await self.db.buscar_xml_para_vincular(conn, id_interno, q)
-        for r in rows:
-            if r.get('precio_unitario') and isinstance(r['precio_unitario'], Decimal):
-                r['precio_unitario'] = float(r['precio_unitario'])
-        return rows
+        return self._precio_unitario_a_float(rows)
 
     async def crear_vinculo_xml(self, conn, id_interno: UUID, id_xml: UUID) -> None:
         await self.db.crear_vinculo_xml(conn, id_interno, id_xml)
+
+    async def sugerir_internos_para_vincular(self, conn, id_xml: UUID, descripcion_material: str) -> list:
+        """Sugerencias por similitud difusa cuando aun no hay texto de busqueda manual."""
+        rows = await self.db.sugerir_internos_por_similitud(conn, id_xml, descripcion_material)
+        return self._precios_referencia_a_float(rows)
+
+    async def sugerir_xml_para_vincular(self, conn, id_interno: UUID, descripcion_interno: str) -> list:
+        """Sugerencias por similitud difusa cuando aun no hay texto de busqueda manual."""
+        rows = await self.db.sugerir_xml_por_similitud(conn, id_interno, descripcion_interno)
+        return self._precio_unitario_a_float(rows)
+
+    async def resolver_internos_para_vincular(
+        self, conn, material_id: UUID, q: str, incluir_ancla: bool = True
+    ) -> Tuple[Optional[dict], list]:
+        """Busqueda textual (3+ caracteres) o sugerencias por similitud difusa (texto
+        corto) para vincular un material XML a un item del catalogo interno. Devuelve
+        (material, resultados). `incluir_ancla=False` evita re-consultar el material
+        cuando el llamador no lo necesita mostrar (ej. respuesta parcial de cada tecleo
+        con busqueda textual ya activa)."""
+        if len(q) >= 3:
+            resultados = await self.buscar_internos_para_vincular(conn, material_id, q)
+            material = await self.get_material_by_id(conn, material_id) if incluir_ancla else None
+            return material, resultados
+
+        if incluir_ancla:
+            material = await self.get_material_by_id(conn, material_id)
+            descripcion = material["descripcion_proveedor"] if material else None
+        else:
+            material = None
+            descripcion = await self.db.get_material_descripcion(conn, material_id)
+
+        resultados = (
+            await self.sugerir_internos_para_vincular(conn, material_id, descripcion)
+            if descripcion else []
+        )
+        return material, resultados
+
+    async def resolver_xml_para_vincular(
+        self, conn, interno_id: UUID, q: str, incluir_ancla: bool = True
+    ) -> Tuple[Optional[dict], list]:
+        """Busqueda textual (3+ caracteres) o sugerencias por similitud difusa (texto
+        corto) para vincular un item del catalogo interno a un registro XML. Devuelve
+        (interno, resultados). `incluir_ancla=False` evita re-consultar el item cuando
+        el llamador no lo necesita mostrar (ej. respuesta parcial de cada tecleo con
+        busqueda textual ya activa)."""
+        if len(q) >= 3:
+            resultados = await self.buscar_xml_para_vincular(conn, interno_id, q)
+            interno = await self.get_interno_by_id(conn, interno_id) if incluir_ancla else None
+            return interno, resultados
+
+        if incluir_ancla:
+            interno = await self.get_interno_by_id(conn, interno_id)
+            descripcion = interno["descripcion_canonica"] if interno else None
+        else:
+            interno = None
+            descripcion = await self.db.get_interno_descripcion(conn, interno_id)
+
+        resultados = (
+            await self.sugerir_xml_para_vincular(conn, interno_id, descripcion)
+            if descripcion else []
+        )
+        return interno, resultados
 
     async def eliminar_vinculo_xml(self, conn, id_interno: UUID, id_xml: UUID) -> None:
         await self.db.eliminar_vinculo_xml(conn, id_interno, id_xml)
@@ -197,6 +261,14 @@ class MaterialsService:
         for r in rows:
             if r.get('precio_referencia') and isinstance(r['precio_referencia'], Decimal):
                 r['precio_referencia'] = float(r['precio_referencia'])
+        return rows
+
+    @staticmethod
+    def _precio_unitario_a_float(rows: list) -> list:
+        """Convierte precio_unitario de Decimal a float en una lista de filas."""
+        for r in rows:
+            if r.get('precio_unitario') and isinstance(r['precio_unitario'], Decimal):
+                r['precio_unitario'] = float(r['precio_unitario'])
         return rows
 
     async def get_vinculos_interno_por_xml(self, conn, id_xml: UUID) -> list:

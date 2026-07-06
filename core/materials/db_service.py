@@ -183,6 +183,13 @@ class MaterialsDBService:
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
 
+    async def get_material_descripcion(self, conn, material_id: UUID) -> Optional[str]:
+        """Lookup liviano de solo la descripcion (sin JOINs), para armar sugerencias
+        difusas sin pagar el costo de get_material_by_id cuando no se va a mostrar."""
+        return await conn.fetchval(
+            "SELECT descripcion_proveedor FROM tb_materiales_historial WHERE id = $1", material_id
+        )
+
     async def get_material_by_id(self, conn, material_id: UUID) -> Optional[dict]:
         """Obtiene un material por ID con JOINs."""
         row = await conn.fetchrow("""
@@ -360,6 +367,13 @@ class MaterialsDBService:
         base += f" ORDER BY c.created_at DESC LIMIT ${idx} OFFSET ${idx + 1}"
         params.extend([per_page, (page - 1) * per_page])
         return await conn.fetch(base, *params)
+
+    async def get_interno_descripcion(self, conn, id: UUID) -> Optional[str]:
+        """Lookup liviano de solo la descripcion (sin JOINs), para armar sugerencias
+        difusas sin pagar el costo de get_interno_by_id cuando no se va a mostrar."""
+        return await conn.fetchval(
+            "SELECT descripcion_canonica FROM tb_cat_materiales WHERE id = $1", id
+        )
 
     async def get_interno_by_id(self, conn, id: UUID) -> Optional[dict]:
         row = await conn.fetchrow("""
@@ -583,6 +597,25 @@ class MaterialsDBService:
         """, id_interno)
         return [dict(r) for r in rows]
 
+    # SELECT base compartido por busqueda textual y sugerencia difusa del catalogo
+    # interno (vincular-interno): solo cambia el filtro y el ORDER BY.
+    _INTERNO_VINCULAR_SELECT = """
+        SELECT
+            c.id,
+            c.descripcion_canonica,
+            u.codigo AS unidad,
+            c.precio_referencia,
+            cat.nombre AS categoria_nombre,
+            EXISTS(
+                SELECT 1 FROM tb_materiales_interno_xml v
+                WHERE v.id_material_xml = $1 AND v.id_material_interno = c.id
+            ) AS ya_vinculado
+        FROM tb_cat_materiales c
+        LEFT JOIN tb_cat_unidades_medida u ON u.id = c.id_unidad_medida
+        LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
+        WHERE c.activo = TRUE
+    """
+
     async def buscar_xml_para_vincular(self, conn, id_interno: UUID, q: str, limite: int = 20) -> list:
         rows = await conn.fetch("""
             SELECT DISTINCT ON (m.descripcion_proveedor)
@@ -602,6 +635,66 @@ class MaterialsDBService:
             ORDER BY m.descripcion_proveedor, m.fecha_factura DESC
             LIMIT $3
         """, id_interno, q, limite)
+        return [dict(r) for r in rows]
+
+    async def sugerir_internos_por_similitud(
+        self, conn, id_xml: UUID, descripcion: str, limite: int = 5, umbral: float = 0.2
+    ) -> list:
+        """Sugiere items del catalogo interno por similitud difusa (word_similarity)
+        contra la descripcion de un registro XML, para prellenar el modal antes de
+        que el usuario escriba una busqueda manual."""
+        norm = normalizar_descripcion(descripcion)
+        query = self._INTERNO_VINCULAR_SELECT + """
+              AND word_similarity(c.descripcion_norm, $2) >= $4
+            ORDER BY word_similarity(c.descripcion_norm, $2) DESC
+            LIMIT $3
+        """
+        rows = await conn.fetch(query, id_xml, norm, limite, umbral)
+        return [dict(r) for r in rows]
+
+    async def sugerir_xml_por_similitud(
+        self, conn, id_interno: UUID, descripcion: str, limite: int = 5, umbral: float = 0.2
+    ) -> list:
+        """Sugiere registros XML del historial por similitud difusa (word_similarity)
+        contra la descripcion canonica de un item del catalogo interno. Deduplica por
+        descripcion_proveedor (mismo criterio que buscar_xml_para_vincular) y limpia
+        ruido comercial/saltos de linea antes de comparar -- tb_materiales_historial no
+        tiene una columna de descripcion normalizada precalculada como tb_cat_materiales,
+        por lo que la limpieza se hace inline (no incluye remocion de acentos: la
+        extension unaccent no esta instalada)."""
+        rows = await conn.fetch("""
+            WITH candidatos AS (
+                SELECT
+                    m.id,
+                    m.descripcion_proveedor,
+                    COALESCE(m.unidad_homologada, m.unidad) AS unidad,
+                    m.precio_unitario,
+                    p.razon_social AS proveedor_nombre,
+                    m.fecha_factura,
+                    EXISTS(
+                        SELECT 1 FROM tb_materiales_interno_xml v
+                        WHERE v.id_material_interno = $1 AND v.id_material_xml = m.id
+                    ) AS ya_vinculado,
+                    word_similarity(
+                        upper($2),
+                        upper(regexp_replace(
+                            regexp_replace(m.descripcion_proveedor, '\\*{2,}.*', '', 's'),
+                            '[\\r\\n\\t]+', ' ', 'g'
+                        ))
+                    ) AS score
+                FROM tb_materiales_historial m
+                LEFT JOIN tb_proveedores p ON p.id_proveedor = m.id_proveedor
+            ),
+            deduplicados AS (
+                SELECT DISTINCT ON (descripcion_proveedor) *
+                FROM candidatos
+                WHERE score >= $3
+                ORDER BY descripcion_proveedor, score DESC
+            )
+            SELECT * FROM deduplicados
+            ORDER BY score DESC
+            LIMIT $4
+        """, id_interno, descripcion, umbral, limite)
         return [dict(r) for r in rows]
 
     async def crear_vinculo_xml(self, conn, id_interno: UUID, id_xml: UUID) -> None:
@@ -637,25 +730,12 @@ class MaterialsDBService:
 
     async def buscar_internos_para_vincular(self, conn, id_xml: UUID, q: str, limite: int = 20) -> list:
         q_norm = normalizar_descripcion(q)
-        rows = await conn.fetch("""
-            SELECT
-                c.id,
-                c.descripcion_canonica,
-                u.codigo AS unidad,
-                c.precio_referencia,
-                cat.nombre AS categoria_nombre,
-                EXISTS(
-                    SELECT 1 FROM tb_materiales_interno_xml v
-                    WHERE v.id_material_xml = $1 AND v.id_material_interno = c.id
-                ) AS ya_vinculado
-            FROM tb_cat_materiales c
-            LEFT JOIN tb_cat_unidades_medida u ON u.id = c.id_unidad_medida
-            LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
-            WHERE c.activo = TRUE
+        query = self._INTERNO_VINCULAR_SELECT + """
               AND (c.descripcion_norm ILIKE '%' || $2 || '%' OR c.descripcion_canonica ILIKE '%' || $2 || '%')
             ORDER BY c.descripcion_canonica
             LIMIT $3
-        """, id_xml, q_norm, limite)
+        """
+        rows = await conn.fetch(query, id_xml, q_norm, limite)
         return [dict(r) for r in rows]
 
     async def vincular_interno_a_xml(self, conn, id_xml: UUID, id_interno: UUID) -> None:

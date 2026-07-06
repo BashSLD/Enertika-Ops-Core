@@ -611,9 +611,12 @@ async def modal_vincular_xml(
     service: MaterialsService = Depends(get_materials_service),
     _=Depends(require_materials_view_access),
 ):
-    resultados = await service.buscar_xml_para_vincular(conn, interno_id, q) if len(q) >= 3 else []
+    es_partial = request.headers.get("hx-target") == "vincular-modal-content"
+    interno, resultados = await service.resolver_xml_para_vincular(
+        conn, interno_id, q, incluir_ancla=not es_partial
+    )
 
-    if request.headers.get("hx-target") == "vincular-modal-content":
+    if es_partial:
         return templates.TemplateResponse(
             request, "materials/partials/vincular_xml_resultados.html",
             {"interno_id": str(interno_id), "resultados": resultados, "q": q}
@@ -622,7 +625,7 @@ async def modal_vincular_xml(
     vinculos = await service.get_vinculos_xml(conn, interno_id)
     return templates.TemplateResponse(
         request, "materials/partials/modal_vincular_xml.html",
-        {"interno_id": str(interno_id), "resultados": resultados, "vinculos": vinculos, "q": q}
+        {"interno_id": str(interno_id), "resultados": resultados, "vinculos": vinculos, "q": q, "interno": interno}
     )
 
 
@@ -673,9 +676,12 @@ async def modal_vincular_interno(
     service: MaterialsService = Depends(get_materials_service),
     _=Depends(require_materials_view_access),
 ):
-    resultados = await service.buscar_internos_para_vincular(conn, material_id, q) if len(q) >= 3 else []
+    es_partial = request.headers.get("hx-target") == "vincular-interno-modal-content"
+    material, resultados = await service.resolver_internos_para_vincular(
+        conn, material_id, q, incluir_ancla=not es_partial
+    )
 
-    if request.headers.get("hx-target") == "vincular-interno-modal-content":
+    if es_partial:
         return templates.TemplateResponse(
             request, "materials/partials/vincular_interno_resultados.html",
             {"material_id": str(material_id), "resultados": resultados, "q": q}
@@ -684,7 +690,7 @@ async def modal_vincular_interno(
     vinculos = await service.get_vinculos_interno_por_xml(conn, material_id)
     return templates.TemplateResponse(
         request, "materials/partials/modal_vincular_interno.html",
-        {"material_id": str(material_id), "resultados": resultados, "vinculos": vinculos, "q": q}
+        {"material_id": str(material_id), "resultados": resultados, "vinculos": vinculos, "q": q, "material": material}
     )
 
 
