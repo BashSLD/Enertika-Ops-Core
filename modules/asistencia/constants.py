@@ -45,6 +45,16 @@ ASISTENCIA_ESTADO_COLORES: dict[str, str] = {
     "sin_horario": "#e9d5ff",
 }
 
+ASISTENCIA_ESTADOS_SIN_HUECO_MANUAL = {
+    "asistencia",
+    "checada_en_vacaciones",
+    "checada_en_ausencia",
+    "en_curso",
+    "vacaciones",
+    "ausencia",
+    "sin_horario",
+}
+
 BIOTIME_CONFIG_KEYS = {
     "sync_activo": "BIOTIME_SYNC_ACTIVO",
     "base_url": "BIOTIME_BASE_URL",

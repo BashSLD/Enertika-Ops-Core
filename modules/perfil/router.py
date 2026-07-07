@@ -15,11 +15,15 @@ from core.database import get_db_connection
 from core.security import get_current_user_context
 from core.timezone import fmt_time_mx, today_mx
 from modules.asistencia import db_service as asistencia_db
-from modules.asistencia.constants import ASISTENCIA_ESTADO_COLORES, ASISTENCIA_ESTADO_LABELS
+from modules.asistencia.constants import (
+    ASISTENCIA_ESTADO_COLORES,
+    ASISTENCIA_ESTADO_LABELS,
+    ASISTENCIA_ESTADOS_SIN_HUECO_MANUAL,
+)
 from modules.asistencia.schemas import SolicitudManualIn
 from modules.asistencia.service import (
     crear_solicitud_manual_svc,
-    format_solicitudes_manuales,
+    get_dias_retroactivo_manual,
     omitir_horas_extra_propio_svc,
     preparar_solicitud_manual_svc,
 )
@@ -57,7 +61,24 @@ def _fmt_minutos(minutos: int | None) -> str:
     return f"{h}h" if h else f"{m}min"
 
 
-def _preparar_asistencia_rows(rows: list[dict]) -> list[dict]:
+_SOLICITUD_MANUAL_ESTADOS_BLOQUEAN = {"pendiente", "aprobado"}
+
+
+def _solicitudes_manuales_por_fecha(rows: list[dict]) -> dict[date, dict]:
+    por_fecha: dict[date, dict] = {}
+    for row in rows:
+        por_fecha.setdefault(row["fecha_laboral"], row)
+    return por_fecha
+
+
+def _preparar_asistencia_rows(
+    rows: list[dict],
+    *,
+    hoy: date,
+    fecha_minima: date,
+    solicitudes_por_fecha: dict[date, dict] | None = None,
+) -> list[dict]:
+    solicitudes_por_fecha = solicitudes_por_fecha or {}
     for row in rows:
         row["dia_semana"] = _DIAS_SEMANA[row["fecha_laboral"].weekday()]
         row["entrada_fmt"] = fmt_time_mx(row.get("primera_entrada"))
@@ -66,6 +87,14 @@ def _preparar_asistencia_rows(rows: list[dict]) -> list[dict]:
         row["extra_fmt"] = _fmt_minutos(row.get("minutos_extra"))
         row["estado_label"] = ASISTENCIA_ESTADO_LABELS.get(
             row.get("estado", ""), row.get("estado", "")
+        )
+        solicitud = solicitudes_por_fecha.get(row["fecha_laboral"])
+        row["solicitud_manual"] = solicitud
+        bloqueada = bool(solicitud and solicitud["estado"] in _SOLICITUD_MANUAL_ESTADOS_BLOQUEAN)
+        row["puede_solicitar_manual"] = (
+            row.get("estado") not in ASISTENCIA_ESTADOS_SIN_HUECO_MANUAL
+            and fecha_minima <= row["fecha_laboral"] <= hoy
+            and not bloqueada
         )
     return rows
 
@@ -300,12 +329,22 @@ async def guardar_firma_dibujada(
     )
 
 
-async def _fetch_asistencia(conn, usuario_id: UUID, offset: int) -> tuple[list[dict], bool]:
+async def _fetch_asistencia(
+    conn,
+    usuario_id: UUID,
+    offset: int,
+    *,
+    fecha_minima: date,
+    solicitudes_por_fecha: dict[date, dict] | None = None,
+) -> tuple[list[dict], bool]:
     hoy = today_mx()
     desde = hoy - timedelta(days=_ASISTENCIA_DIAS_VENTANA)
     rows = await perfil_db.get_mi_asistencia(conn, usuario_id, desde, hoy, limit=15, offset=offset)
     tiene_mas = len(rows) > 15
-    return _preparar_asistencia_rows(rows[:15]), tiene_mas
+    rows_preparados = _preparar_asistencia_rows(
+        rows[:15], hoy=hoy, fecha_minima=fecha_minima, solicitudes_por_fecha=solicitudes_por_fecha
+    )
+    return rows_preparados, tiene_mas
 
 
 async def _build_asistencia_tab_context(
@@ -319,9 +358,17 @@ async def _build_asistencia_tab_context(
 ) -> dict:
     hoy = today_mx()
     desde_heatmap = hoy - timedelta(days=_HEATMAP_DIAS_VENTANA)
-    rows, tiene_mas = await _fetch_asistencia(conn, usuario_id, offset=0)
+    dias_retroactivo = await get_dias_retroactivo_manual(conn)
+    mis_solicitudes = await asistencia_db.get_mis_solicitudes_manuales(conn, usuario_id, limit=45)
+    solicitudes_por_fecha = _solicitudes_manuales_por_fecha(mis_solicitudes)
+    rows, tiene_mas = await _fetch_asistencia(
+        conn,
+        usuario_id,
+        offset=0,
+        fecha_minima=hoy - timedelta(days=dias_retroactivo),
+        solicitudes_por_fecha=solicitudes_por_fecha,
+    )
     heatmap_raw = await perfil_db.get_mi_asistencia_heatmap(conn, usuario_id, desde_heatmap, hoy)
-    mis_solicitudes = await asistencia_db.get_mis_solicitudes_manuales(conn, usuario_id)
 
     return {
         "asistencia": rows,
@@ -330,7 +377,6 @@ async def _build_asistencia_tab_context(
         "context": context,
         "heatmap_semanas": _build_heatmap(heatmap_raw, hoy),
         "hoy_iso": hoy.isoformat(),
-        "mis_solicitudes_manuales": format_solicitudes_manuales(mis_solicitudes),
         "toast_type": toast_type,
         "toast_title": toast_title,
         "toast_message": toast_message,
@@ -369,6 +415,24 @@ async def nueva_solicitud_manual(
     )
 
 
+async def _modal_ctx_con_error(
+    conn, usuario_id: UUID, payload: SolicitudManualIn, mensaje: str
+) -> dict:
+    modal_ctx = await preparar_solicitud_manual_svc(conn, usuario_id, payload.fecha_laboral)
+    if not modal_ctx.get("bloqueado"):
+        if payload.fecha_entrada:
+            modal_ctx["fecha_entrada"] = payload.fecha_entrada
+        if payload.hora_entrada:
+            modal_ctx["hora_entrada"] = payload.hora_entrada
+        if payload.fecha_salida:
+            modal_ctx["fecha_salida"] = payload.fecha_salida
+        if payload.hora_salida:
+            modal_ctx["hora_salida"] = payload.hora_salida
+    modal_ctx["motivo"] = payload.motivo
+    modal_ctx["error_mensaje"] = mensaje
+    return modal_ctx
+
+
 @router.post("/asistencia/solicitudes-manuales")
 async def crear_solicitud_manual(
     request: Request,
@@ -393,26 +457,21 @@ async def crear_solicitud_manual(
     try:
         await crear_solicitud_manual_svc(conn, usuario_id, payload)
     except ValueError as exc:
-        ctx = await _build_asistencia_tab_context(
-            conn,
-            usuario_id,
-            context,
-            toast_type="error",
-            toast_title="No se pudo registrar",
-            toast_message=str(exc),
+        modal_ctx = await _modal_ctx_con_error(conn, usuario_id, payload, str(exc))
+        return templates.TemplateResponse(
+            request, "perfil/partials/modal_solicitud_manual.html", {**modal_ctx, "context": context}
         )
-        return templates.TemplateResponse(request, "perfil/partials/tab_asistencia.html", ctx)
     except asyncpg.PostgresError as exc:
         logger.error("Error BD creando solicitud manual: %s", exc)
-        ctx = await _build_asistencia_tab_context(
-            conn,
-            usuario_id,
-            context,
-            toast_type="error",
-            toast_title="Error",
-            toast_message="Error al guardar la solicitud",
+        modal_ctx = await _modal_ctx_con_error(
+            conn, usuario_id, payload, "Error al guardar la solicitud"
         )
-        return templates.TemplateResponse(request, "perfil/partials/tab_asistencia.html", ctx, status_code=500)
+        return templates.TemplateResponse(
+            request,
+            "perfil/partials/modal_solicitud_manual.html",
+            {**modal_ctx, "context": context},
+            status_code=500,
+        )
 
     ctx = await _build_asistencia_tab_context(
         conn,
@@ -422,7 +481,7 @@ async def crear_solicitud_manual(
         toast_title="Listo",
         toast_message="Solicitud enviada para revision.",
     )
-    return templates.TemplateResponse(request, "perfil/partials/tab_asistencia.html", ctx)
+    return templates.TemplateResponse(request, "perfil/partials/asistencia_manual_resultado.html", ctx)
 
 
 @router.get("/asistencia/mas")
@@ -433,7 +492,17 @@ async def mi_asistencia_mas(
     context=Depends(get_current_user_context),
 ):
     usuario_id = _get_usuario_id(context)
-    rows, tiene_mas = await _fetch_asistencia(conn, usuario_id, offset=offset)
+    hoy = today_mx()
+    dias_retroactivo = await get_dias_retroactivo_manual(conn)
+    mis_solicitudes = await asistencia_db.get_mis_solicitudes_manuales(conn, usuario_id, limit=45)
+    solicitudes_por_fecha = _solicitudes_manuales_por_fecha(mis_solicitudes)
+    rows, tiene_mas = await _fetch_asistencia(
+        conn,
+        usuario_id,
+        offset=offset,
+        fecha_minima=hoy - timedelta(days=dias_retroactivo),
+        solicitudes_por_fecha=solicitudes_por_fecha,
+    )
     return templates.TemplateResponse(
         request,
         "perfil/partials/tab_asistencia_rows.html",

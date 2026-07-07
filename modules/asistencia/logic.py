@@ -8,6 +8,7 @@ MX_TZ = ZoneInfo("America/Mexico_City")
 
 IN_STATES = {"0", "i", "in", "entrada", "check in"}
 OUT_STATES = {"1", "o", "out", "salida", "check out"}
+BREAK_STATES = {"inicio de descanso", "fin de descanso", "descanso", "break in", "break out"}
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,10 @@ def is_in_state(punch_state: str | None) -> bool:
 
 def is_out_state(punch_state: str | None) -> bool:
     return (punch_state or "").strip().lower() in OUT_STATES
+
+
+def is_break_state(punch_state: str | None) -> bool:
+    return (punch_state or "").strip().lower() in BREAK_STATES
 
 
 def calcular_resumen_dia(

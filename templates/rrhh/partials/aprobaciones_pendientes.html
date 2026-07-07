@@ -349,12 +349,25 @@
               <span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">Pendiente</span>
               <span class="text-xs text-gray-400">{{ solicitud.fecha_laboral_fmt }}</span>
             </div>
-            <p class="mt-1 text-xs text-gray-500">
-              {% if solicitud.solicita_entrada and solicitud.entrada_fmt %}Entrada: {{ solicitud.entrada_fmt }}{% endif %}
-              {% if solicitud.solicita_entrada and solicitud.solicita_salida %}<span class="text-gray-300"> | </span>{% endif %}
-              {% if solicitud.solicita_salida and solicitud.salida_fmt %}Salida: {{ solicitud.salida_fmt }}{% endif %}
-            </p>
-            <p class="mt-1 text-xs text-gray-500">{{ solicitud.motivo }}</p>
+            <div class="mt-2 grid grid-cols-1 gap-x-6 gap-y-3 lg:grid-cols-3">
+              <p class="text-xs text-gray-500">
+                <span class="block font-semibold text-gray-600">Tipo de registro:</span>
+                {% if solicitud.solicita_entrada and solicitud.solicita_salida %}Entrada y salida
+                {% elif solicitud.solicita_entrada %}Entrada
+                {% elif solicitud.solicita_salida %}Salida
+                {% endif %}
+              </p>
+              <p class="text-xs text-gray-500">
+                <span class="block font-semibold text-gray-600">Fecha y hora que solicita registrar:</span>
+                {% if solicitud.solicita_entrada and solicitud.entrada_fmt %}Entrada {{ solicitud.entrada_fmt }}{% endif %}
+                {% if solicitud.solicita_entrada and solicitud.solicita_salida %}<span class="text-gray-300"> | </span>{% endif %}
+                {% if solicitud.solicita_salida and solicitud.salida_fmt %}Salida {{ solicitud.salida_fmt }}{% endif %}
+              </p>
+              <p class="text-xs text-gray-500">
+                <span class="block font-semibold text-gray-600">Motivo de solicitud:</span>
+                {{ solicitud.motivo }}
+              </p>
+            </div>
           </div>
           {% if can_edit_rrhh %}
           <div class="flex flex-wrap gap-2">

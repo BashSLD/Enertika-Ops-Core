@@ -219,6 +219,53 @@ def test_clasificar_huecos_ambiguos_bloquea():
         )
 
 
+def test_clasificar_huecos_duplicado_solo_entrada_no_bloquea():
+    huecos = _clasificar_huecos_biotime([
+        {"check_time": _dt(2026, 6, 30, 7, 55), "punch_state": "Entrada", "es_manual": False},
+        {"check_time": _dt(2026, 6, 30, 8), "punch_state": "Entrada", "es_manual": False},
+        {"check_time": _dt(2026, 6, 30, 17), "punch_state": "Salida", "es_manual": False},
+    ])
+
+    assert huecos["bloqueado"] is False
+    assert huecos["entrada_real"] == _dt(2026, 6, 30, 7, 55)
+    assert huecos["salida_real"] == _dt(2026, 6, 30, 17)
+
+
+def test_clasificar_huecos_duplicado_solo_salida_no_bloquea():
+    huecos = _clasificar_huecos_biotime([
+        {"check_time": _dt(2026, 6, 30, 8), "punch_state": "Entrada", "es_manual": False},
+        {"check_time": _dt(2026, 6, 30, 17), "punch_state": "Salida", "es_manual": False},
+        {"check_time": _dt(2026, 6, 30, 17, 5), "punch_state": "Salida", "es_manual": False},
+    ])
+
+    assert huecos["bloqueado"] is False
+    assert huecos["entrada_real"] == _dt(2026, 6, 30, 8)
+    assert huecos["salida_real"] == _dt(2026, 6, 30, 17, 5)
+
+
+def test_clasificar_huecos_ambos_duplicados_bloquea():
+    huecos = _clasificar_huecos_biotime([
+        {"check_time": _dt(2026, 6, 30, 8), "punch_state": "Entrada", "es_manual": False},
+        {"check_time": _dt(2026, 6, 30, 9), "punch_state": "Entrada", "es_manual": False},
+        {"check_time": _dt(2026, 6, 30, 17), "punch_state": "Salida", "es_manual": False},
+        {"check_time": _dt(2026, 6, 30, 18), "punch_state": "Salida", "es_manual": False},
+    ])
+
+    assert huecos["bloqueado"] is True
+
+
+def test_clasificar_huecos_ignora_estado_de_descanso():
+    huecos = _clasificar_huecos_biotime([
+        {"check_time": _dt(2026, 6, 30, 8), "punch_state": "Entrada", "es_manual": False},
+        {"check_time": _dt(2026, 6, 30, 13), "punch_state": "Inicio de Descanso", "es_manual": False},
+        {"check_time": _dt(2026, 6, 30, 17), "punch_state": "Salida", "es_manual": False},
+    ])
+
+    assert huecos["bloqueado"] is False
+    assert huecos["entrada_real"] == _dt(2026, 6, 30, 8)
+    assert huecos["salida_real"] == _dt(2026, 6, 30, 17)
+
+
 @pytest.mark.asyncio
 async def test_get_equipo_ids_rrhh_viewer_sin_equipo_no_aprueba(monkeypatch):
     user_id = uuid4()

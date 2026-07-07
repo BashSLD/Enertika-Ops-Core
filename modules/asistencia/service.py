@@ -23,6 +23,7 @@ from modules.asistencia.logic import (
     build_labor_window,
     calcular_resumen_dia,
     ensure_mx,
+    is_break_state,
     is_in_state,
     is_out_state,
 )
@@ -777,6 +778,11 @@ async def _get_config_manual_asistencia(conn) -> tuple[int, int]:
     return configs["ASISTENCIA_MANUAL_DIAS_RETROACTIVO"], configs["ASISTENCIA_MANUAL_MAX_HORAS"]
 
 
+async def get_dias_retroactivo_manual(conn) -> int:
+    dias_retroactivo, _ = await _get_config_manual_asistencia(conn)
+    return dias_retroactivo
+
+
 def _parse_manual_datetime(fecha: date | None, hora: str | None) -> datetime:
     if not fecha or not hora:
         raise ValueError("Fecha y hora son obligatorias")
@@ -846,14 +852,15 @@ def _clasificar_huecos_biotime(checks: list[dict]) -> dict:
             "mensaje_bloqueo": None,
         }
 
-    entradas = [check for check in real_checks if is_in_state(check.get("punch_state"))]
-    salidas = [check for check in real_checks if is_out_state(check.get("punch_state"))]
+    relevantes = [check for check in real_checks if not is_break_state(check.get("punch_state"))]
+    entradas = [check for check in relevantes if is_in_state(check.get("punch_state"))]
+    salidas = [check for check in relevantes if is_out_state(check.get("punch_state"))]
     desconocidas = [
         check
-        for check in real_checks
+        for check in relevantes
         if not is_in_state(check.get("punch_state")) and not is_out_state(check.get("punch_state"))
     ]
-    if desconocidas or len(entradas) > 1 or len(salidas) > 1:
+    if desconocidas or (len(entradas) > 1 and len(salidas) > 1):
         return {
             "falta_entrada": False,
             "falta_salida": False,

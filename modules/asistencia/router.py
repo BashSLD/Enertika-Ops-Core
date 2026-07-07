@@ -368,7 +368,6 @@ async def aprobar_solicitud_manual(
             "new_count": new_count,
             "mensaje": f"Registro manual aprobado para {result['empleado_nombre']}",
         },
-        headers={"HX-Reswap": "none"},
     )
 
 
@@ -416,5 +415,4 @@ async def rechazar_solicitud_manual(
             "new_count": new_count,
             "mensaje": f"Registro manual rechazado para {result['empleado_nombre']}",
         },
-        headers={"HX-Reswap": "none"},
     )

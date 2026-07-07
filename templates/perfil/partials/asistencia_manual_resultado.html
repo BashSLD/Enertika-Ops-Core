@@ -1,0 +1,10 @@
+<div hx-swap-oob="innerHTML:#asistencia-rows">
+  {% include "perfil/partials/tab_asistencia_rows.html" %}
+</div>
+
+{% if toast_message %}
+  {% set type = toast_type or "info" %}
+  {% set title = toast_title or "" %}
+  {% set message = toast_message %}
+  {% include "shared/toast.html" %}
+{% endif %}
