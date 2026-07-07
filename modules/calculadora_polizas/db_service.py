@@ -254,7 +254,7 @@ class CalculadoraDBService:
     # ----------------------------------------
 
     async def get_usuarios_comercial(self, conn) -> list:
-        """Usuarios con acceso al módulo comercial (para dropdown de solicitante)."""
+        """Usuarios con acceso a Comercial o Simulación (para dropdown de solicitante)."""
         rows = await conn.fetch("""
             SELECT DISTINCT u.id_usuario AS id, u.nombre
             FROM tb_usuarios u
@@ -262,7 +262,7 @@ class CalculadoraDBService:
                OR EXISTS (
                     SELECT 1 FROM tb_permisos_modulos pm
                     WHERE pm.usuario_id = u.id_usuario
-                      AND pm.modulo_slug = 'comercial'
+                      AND pm.modulo_slug IN ('comercial', 'simulacion')
                 )
             ORDER BY u.nombre
         """)

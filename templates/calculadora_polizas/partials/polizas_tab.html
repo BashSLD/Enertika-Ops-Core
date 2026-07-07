@@ -1,9 +1,10 @@
-{# Macros de estatus #}
+{# Listado de polizas OyM, compartido entre modulos (Comercial y Simulacion). #}
+{# `modulo` decide el endpoint/contenedor; `editable` habilita la accion de aceptar/rechazar (solo Comercial). #}
 {% macro badge_cls(e) %}{{ 'bg-gray-100 text-gray-600' if e == 'CREADA' else 'bg-blue-100 text-blue-700' if e == 'ENVIADA' else 'bg-amber-100 text-amber-700' if e == 'EN_NEGOCIACION' else 'bg-green-100 text-green-700' if e == 'ACEPTADA' else 'bg-red-100 text-red-700' if e == 'RECHAZADA' else 'bg-stone-100 text-stone-500' if e == 'VENCIDA' else 'bg-gray-100 text-gray-600' }}{% endmacro %}
 {% macro badge_dot(e) %}{{ 'bg-gray-400' if e == 'CREADA' else 'bg-blue-500' if e == 'ENVIADA' else 'bg-amber-500' if e == 'EN_NEGOCIACION' else 'bg-green-500' if e == 'ACEPTADA' else 'bg-red-500' if e == 'RECHAZADA' else 'bg-stone-400' if e == 'VENCIDA' else 'bg-gray-400' }}{% endmacro %}
 {% macro badge_label(e) %}{{ 'Creada' if e == 'CREADA' else 'Enviada' if e == 'ENVIADA' else 'En Negociacion' if e == 'EN_NEGOCIACION' else 'Aceptada' if e == 'ACEPTADA' else 'Rechazada' if e == 'RECHAZADA' else 'Vencida' if e == 'VENCIDA' else e }}{% endmacro %}
 
-<div id="polizas-comercial-container" class="flex flex-col gap-4 animate-fade-in-down">
+<div id="polizas-{{ modulo }}-container" class="flex flex-col gap-4 animate-fade-in-down">
 
     {% if not cotizaciones %}
     {# Estado vacío #}
@@ -29,8 +30,8 @@
                           ('RECHAZADA', 'Rechazadas'), ('VENCIDA', 'Vencidas')] %}
         {% for val, label in filtros %}
         <a href="#"
-           hx-get="/oym/partials/polizas-comercial?page=1{% if val %}&amp;estatus_filter={{ val }}{% endif %}"
-           hx-target="#polizas-comercial-container"
+           hx-get="/oym/partials/polizas?modulo={{ modulo }}&amp;page=1{% if val %}&amp;estatus_filter={{ val }}{% endif %}"
+           hx-target="#polizas-{{ modulo }}-container"
            hx-swap="outerHTML"
            class="text-xs px-3 py-1 rounded-full border transition-colors
                {% if estatus_filter == val %}border-blue-500 bg-blue-50 text-blue-700 font-semibold{% else %}border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %}">
@@ -60,7 +61,7 @@
                 {% for c in cotizaciones %}
                 <tr class="hover:bg-gray-50 transition-colors">
                     <td class="px-4 py-3">
-                        {% if current_module_role in ('editor', 'admin') or role in ('ADMIN', 'MANAGER') %}
+                        {% if editable and (current_module_role in ('editor', 'admin') or role in ('ADMIN', 'MANAGER')) %}
                         <button type="button"
                                 hx-get="/oym/cotizaciones/{{ c.id }}/asignar-modal?page={{ page }}{% if estatus_filter %}&amp;estatus_filter={{ estatus_filter }}{% endif %}"
                                 hx-target="#modal-action-container" hx-swap="innerHTML"
@@ -116,14 +117,14 @@
             <p class="text-xs text-gray-400">{{ total }} polizas totales</p>
             <div class="flex gap-1">
                 {% if page > 1 %}
-                <a hx-get="/oym/partials/polizas-comercial?page={{ page - 1 }}{% if estatus_filter %}&amp;estatus_filter={{ estatus_filter }}{% endif %}"
-                   hx-target="#polizas-comercial-container" hx-swap="outerHTML"
+                <a hx-get="/oym/partials/polizas?modulo={{ modulo }}&amp;page={{ page - 1 }}{% if estatus_filter %}&amp;estatus_filter={{ estatus_filter }}{% endif %}"
+                   hx-target="#polizas-{{ modulo }}-container" hx-swap="outerHTML"
                    class="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50">Ant</a>
                 {% endif %}
                 <span class="px-2 py-1 text-xs text-gray-500">{{ page }}/{{ pages }}</span>
                 {% if page < pages %}
-                <a hx-get="/oym/partials/polizas-comercial?page={{ page + 1 }}{% if estatus_filter %}&amp;estatus_filter={{ estatus_filter }}{% endif %}"
-                   hx-target="#polizas-comercial-container" hx-swap="outerHTML"
+                <a hx-get="/oym/partials/polizas?modulo={{ modulo }}&amp;page={{ page + 1 }}{% if estatus_filter %}&amp;estatus_filter={{ estatus_filter }}{% endif %}"
+                   hx-target="#polizas-{{ modulo }}-container" hx-swap="outerHTML"
                    class="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50">Sig</a>
                 {% endif %}
             </div>

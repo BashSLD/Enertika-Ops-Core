@@ -50,7 +50,7 @@ from core.timezone import today_mx
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
-from core.permissions import require_module_access, require_manager_access, user_has_module_access
+from core.permissions import require_module_access, require_manager_access, require_any_module_access, user_has_module_access
 from core.config import settings
 from core.config_service import ConfigService
 
@@ -690,23 +690,34 @@ async def update_estatus_resumen(
 
 
 # ============================================================
-# PÓLIZAS PARA MÓDULO COMERCIAL
+# PÓLIZAS — listado compartido entre módulos (Comercial y Simulación)
+# El módulo que solicita se distingue vía `modulo`; aceptar/rechazar
+# sigue siendo decisión exclusiva de Comercial (ver asignar_modal/asignar_cotizacion).
 # ============================================================
 
-@oym_router.get("/partials/polizas-comercial", include_in_schema=False)
-async def polizas_comercial(
+_POLIZAS_MODULOS_VALIDOS = {"comercial", "simulacion"}
+
+
+@oym_router.get("/partials/polizas", include_in_schema=False)
+async def polizas_por_modulo(
     request: Request,
+    modulo: str = Query("comercial"),
     page: int = Query(1, ge=1),
     estatus_filter: Optional[str] = Query(None),
     context=Depends(get_current_user_context),
-    _=require_module_access("comercial"),
+    _=require_any_module_access(list(_POLIZAS_MODULOS_VALIDOS)),
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
+    if modulo not in _POLIZAS_MODULOS_VALIDOS:
+        raise HTTPException(400, "Módulo inválido")
+    if not user_has_module_access(modulo, context, "viewer"):
+        raise HTTPException(403, f"No tienes acceso al módulo {modulo}")
+
     role = context.get("role", "USER")
     user_id = context.get("user_db_id")
     es_admin_o_manager = role in ("ADMIN", "MANAGER")
-    es_admin_modulo = user_has_module_access("comercial", context, "admin")
+    es_admin_modulo = user_has_module_access(modulo, context, "admin")
     ver_todas = es_admin_o_manager or es_admin_modulo
 
     per_page = 50
@@ -721,11 +732,11 @@ async def polizas_comercial(
         conn, ver_todas=ver_todas, user_id=user_id, estatus_filter=ef,
     )
 
-    comercial_role = context.get("module_roles", {}).get("comercial", "viewer")
+    mod_role = context.get("module_roles", {}).get(modulo, "viewer")
     return templates.TemplateResponse(
-        request, "comercial/partials/polizas_tab.html",
+        request, f"{TPL}/partials/polizas_tab.html",
         {
-            **_base_ctx(context, comercial_role),
+            **_base_ctx(context, mod_role),
             "cotizaciones": cotizaciones,
             "total": total,
             "page": page,
@@ -733,6 +744,8 @@ async def polizas_comercial(
             "pages": max(1, -(-total // per_page)),
             "estatus_filter": estatus_filter or "",
             "ver_todas": ver_todas,
+            "modulo": modulo,
+            "editable": modulo == "comercial",
         },
     )
 
@@ -1171,12 +1184,9 @@ async def asignar_cotizacion(
 
     comercial_role = context.get("module_roles", {}).get("comercial", "viewer")
     return templates.TemplateResponse(
-        request, "comercial/partials/polizas_tab.html",
+        request, f"{TPL}/partials/polizas_tab.html",
         {
-            "user_name": context.get("user_name"),
-            "role": role,
-            "module_roles": context.get("module_roles", {}),
-            "current_module_role": comercial_role,
+            **_base_ctx(context, comercial_role),
             "cotizaciones": cotizaciones,
             "total": total,
             "page": page,
@@ -1184,6 +1194,8 @@ async def asignar_cotizacion(
             "pages": max(1, -(-total // per_page)),
             "estatus_filter": estatus_filter,
             "ver_todas": ver_todas,
+            "modulo": "comercial",
+            "editable": True,
         },
     )
 
