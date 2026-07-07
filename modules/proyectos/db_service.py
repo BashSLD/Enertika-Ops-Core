@@ -94,24 +94,25 @@ class ProyectosDBService:
         )
         return bool(exists)
 
-    async def get_asignacion_equipo_actual(
-        self, conn, id_proyecto: UUID, rol_proyecto: str, area: str
-    ) -> Optional[Dict[str, Any]]:
-        row = await conn.fetchrow(
+    async def get_asignaciones_activas_area(
+        self, conn, id_proyecto: UUID, area: str
+    ) -> List[Dict[str, Any]]:
+        """Todas las asignaciones activas del proyecto en un area (cualquier
+        rol_proyecto). Sirve tanto para ubicar la asignacion vigente de un rol
+        especifico como para detectar que un usuario ya tenga otro rol activo en
+        la misma area (uq_proyecto_usuario_area_activo)."""
+        rows = await conn.fetch(
             """
-            SELECT id_usuario, rol_proyecto, area
+            SELECT id_usuario, rol_proyecto
             FROM tb_proyecto_usuarios
             WHERE id_proyecto = $1
-              AND rol_proyecto = $2
-              AND area = $3
+              AND area = $2
               AND activo = TRUE
-            LIMIT 1
             """,
             id_proyecto,
-            rol_proyecto,
             area,
         )
-        return dict(row) if row else None
+        return [dict(r) for r in rows]
 
     async def desactivar_asignacion_equipo(
         self, conn, id_proyecto: UUID, rol_proyecto: str, area: str

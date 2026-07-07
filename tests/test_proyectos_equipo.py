@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import asyncpg
 import pytest
 
 from modules.proyectos.service import ProyectosService
@@ -24,13 +25,21 @@ class FakeConn:
 
 class FakeProyectosDB:
     def __init__(self, asignacion_actual=None, responsable=None, jefes=None,
-                 asignaciones_equipo=None, jefes_org=None, dept_users=None):
+                 asignaciones_equipo=None, jefes_org=None, dept_users=None,
+                 activas_area=None, error_insertar=None):
         self.asignacion_actual = asignacion_actual
         self.responsable = responsable  # id del RC/RI ya definido (o None)
         self.jefes = jefes or {}        # {id_usuario: rol_organizacional}
         self.asignaciones_equipo = asignaciones_equipo or []
         self.jefes_org = jefes_org or []
         self.dept_users = dept_users or []
+        # Lista completa de asignaciones activas del area (varios roles a la vez).
+        # Si no se especifica, se deriva de asignacion_actual para compatibilidad
+        # con los tests que solo simulan un unico rol activo.
+        self.activas_area = activas_area
+        # Excepcion a lanzar desde insertar_asignacion_equipo (simula la carrera
+        # check-then-insert sobre uq_proyecto_usuario_area_activo/uq_proyecto_rol_area_activo).
+        self.error_insertar = error_insertar
         self.desactivadas = []
         self.insertadas = []
 
@@ -46,8 +55,10 @@ class FakeProyectosDB:
     async def usuario_activo_en_departamento(self, conn, id_usuario, dept_slug):
         return True
 
-    async def get_asignacion_equipo_actual(self, conn, id_proyecto, rol_proyecto, area):
-        return self.asignacion_actual
+    async def get_asignaciones_activas_area(self, conn, id_proyecto, area):
+        if self.activas_area is not None:
+            return self.activas_area
+        return [self.asignacion_actual] if self.asignacion_actual else []
 
     async def desactivar_asignacion_equipo(self, conn, id_proyecto, rol_proyecto, area):
         self.desactivadas.append((id_proyecto, rol_proyecto, area))
@@ -55,6 +66,8 @@ class FakeProyectosDB:
     async def insertar_asignacion_equipo(
         self, conn, id_proyecto, id_usuario, rol_proyecto, area, asignado_por_id
     ):
+        if self.error_insertar is not None:
+            raise self.error_insertar
         self.insertadas.append(
             (id_proyecto, id_usuario, rol_proyecto, area, asignado_por_id)
         )
@@ -72,7 +85,9 @@ async def test_save_equipo_no_reinserta_si_el_usuario_no_cambia():
     id_usuario = uuid4()
     asignado_por_id = uuid4()
     service = ProyectosService()
-    fake_db = FakeProyectosDB(asignacion_actual={"id_usuario": id_usuario})
+    fake_db = FakeProyectosDB(
+        asignacion_actual={"id_usuario": id_usuario, "rol_proyecto": "ingeniero_asignado"}
+    )
     service.db = fake_db
 
     await service.save_equipo_proyecto(
@@ -105,7 +120,7 @@ async def test_save_equipo_desactiva_e_inserta_si_el_usuario_cambia():
     asignado_por_id = uuid4()
     service = ProyectosService()
     fake_db = FakeProyectosDB(
-        asignacion_actual={"id_usuario": id_usuario_anterior},
+        asignacion_actual={"id_usuario": id_usuario_anterior, "rol_proyecto": "ingeniero_asignado"},
         responsable=uuid4(),  # RC/RI ya existe -> _asegurar_responsable retorna temprano
     )
     service.db = fake_db
@@ -140,6 +155,101 @@ async def test_save_equipo_desactiva_e_inserta_si_el_usuario_cambia():
             asignado_por_id,
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_save_equipo_rechaza_usuario_con_otro_rol_activo_en_area():
+    id_proyecto = uuid4()
+    id_usuario = uuid4()
+    asignado_por_id = uuid4()
+    service = ProyectosService()
+    fake_db = FakeProyectosDB(
+        activas_area=[{"id_usuario": id_usuario, "rol_proyecto": "responsable_ingenieria"}],
+    )
+    service.db = fake_db
+
+    with pytest.raises(ValueError, match="Responsable de Ingeniería"):
+        await service.save_equipo_proyecto(
+            FakeConn(),
+            id_proyecto,
+            [
+                {
+                    "rol_proyecto": "ingeniero_asignado",
+                    "area": "INGENIERIA",
+                    "id_usuario": id_usuario,
+                }
+            ],
+            asignado_por_id,
+            {
+                "puede_asignar_ingenieria": True,
+                "puede_asignar_construccion": False,
+                "puede_asignar_oym": False,
+            },
+        )
+
+    assert fake_db.insertadas == []
+
+
+@pytest.mark.asyncio
+async def test_save_equipo_traduce_carrera_mismo_usuario_otro_rol():
+    id_proyecto = uuid4()
+    id_usuario = uuid4()
+    asignado_por_id = uuid4()
+    service = ProyectosService()
+    error = asyncpg.UniqueViolationError("duplicate key value")
+    error.constraint_name = "uq_proyecto_usuario_area_activo"
+    fake_db = FakeProyectosDB(error_insertar=error)
+    service.db = fake_db
+
+    with pytest.raises(ValueError, match="ya tiene un rol activo"):
+        await service.save_equipo_proyecto(
+            FakeConn(),
+            id_proyecto,
+            [
+                {
+                    "rol_proyecto": "ingeniero_asignado",
+                    "area": "INGENIERIA",
+                    "id_usuario": id_usuario,
+                }
+            ],
+            asignado_por_id,
+            {
+                "puede_asignar_ingenieria": True,
+                "puede_asignar_construccion": False,
+                "puede_asignar_oym": False,
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_save_equipo_traduce_carrera_mismo_rol_otro_usuario():
+    id_proyecto = uuid4()
+    id_usuario = uuid4()
+    asignado_por_id = uuid4()
+    service = ProyectosService()
+    error = asyncpg.UniqueViolationError("duplicate key value")
+    error.constraint_name = "uq_proyecto_rol_area_activo"
+    fake_db = FakeProyectosDB(error_insertar=error)
+    service.db = fake_db
+
+    with pytest.raises(ValueError, match="Otro usuario acaba de tomar este rol"):
+        await service.save_equipo_proyecto(
+            FakeConn(),
+            id_proyecto,
+            [
+                {
+                    "rol_proyecto": "ingeniero_asignado",
+                    "area": "INGENIERIA",
+                    "id_usuario": id_usuario,
+                }
+            ],
+            asignado_por_id,
+            {
+                "puede_asignar_ingenieria": True,
+                "puede_asignar_construccion": False,
+                "puede_asignar_oym": False,
+            },
+        )
 
 
 @pytest.mark.asyncio
@@ -180,7 +290,7 @@ async def test_no_cambia_rc_existente_al_rotar_coordinador(monkeypatch):
     id_rc_existente = uuid4()
     service = ProyectosService()
     service.db = FakeProyectosDB(
-        asignacion_actual={"id_usuario": uuid4()},
+        asignacion_actual={"id_usuario": uuid4(), "rol_proyecto": "coordinador_obra"},
         responsable=id_rc_existente,
         jefes={id_jefe_b: "jefe_construccion"},
     )

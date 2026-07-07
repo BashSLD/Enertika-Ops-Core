@@ -45,7 +45,19 @@
                 if (this.ri !== this.initRi) tareas.push(this.guardarResponsable('INGENIERIA', this.ri, 'Responsable de Ingenieria'));
                 if (this.rc !== this.initRc) tareas.push(this.guardarResponsable('CONSTRUCCION', this.rc, 'Responsable de Construccion'));
                 await Promise.all(tareas);
-                document.getElementById('form-equipo').requestSubmit();
+
+                const form = document.getElementById('form-equipo');
+                const resp = await fetch('/proyectos/equipo/{{ id_proyecto }}', {
+                    method: 'POST',
+                    body: new FormData(form)
+                });
+                const texto = await resp.text();
+                if (!resp.ok) {
+                    let msg = 'No se pudo guardar el equipo';
+                    try { msg = JSON.parse(texto).detail || msg; } catch (e) {}
+                    throw new Error(msg);
+                }
+                document.getElementById('modal-equipo').outerHTML = texto;
             } catch (e) {
                 this.guardando = false;
                 showToast({ title: 'Error', message: e.message, type: 'error' });
@@ -110,12 +122,7 @@
         </div>
         {% endif %}
 
-        <form id="form-equipo"
-            hx-post="/proyectos/equipo/{{ id_proyecto }}"
-            hx-target="#modal-equipo"
-            hx-swap="outerHTML"
-            @htmx:before-request="guardando = true"
-            @htmx:after-request="guardando = false">
+        <form id="form-equipo">
 
             <div class="px-5 py-4 space-y-2">
 

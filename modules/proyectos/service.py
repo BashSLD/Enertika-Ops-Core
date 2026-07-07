@@ -39,6 +39,46 @@ ROLES_EQUIPO_MAP = {(r["rol"], r["area"]): r for r in ROLES_EQUIPO}
 PERMISO_POR_ROL = {(r["rol"], r["area"]): r["permiso"] for r in ROLES_EQUIPO}
 DEPARTAMENTO_POR_ROL = {(r["rol"], r["area"]): r["departamento"] for r in ROLES_EQUIPO}
 
+# Nombres legibles por rol_proyecto, para mensajes de error claros. Incluye los
+# roles operativos (ROLES_EQUIPO) y los roles de responsable (RC/RI), que no
+# tienen entrada en ROLES_EQUIPO porque no son editables directamente en el modal.
+ROL_PROYECTO_LABELS = {
+    **{r["rol"]: r["label"] for r in ROLES_EQUIPO},
+    "responsable_ingenieria": "Responsable de Ingeniería (RI)",
+    "responsable_construccion": "Responsable de Construcción (RC)",
+}
+
+
+def _msg_rol_duplicado_area(area: str, rol_conflicto: str) -> str:
+    """Pre-check (uq_proyecto_usuario_area_activo): se conoce el rol existente
+    con el que choca el usuario."""
+    rol_label = ROL_PROYECTO_LABELS.get(rol_conflicto, rol_conflicto)
+    return (
+        f"Este usuario ya es {rol_label} en el área {area} de este proyecto y no "
+        "puede tener dos roles activos a la vez en la misma área."
+    )
+
+
+def _msg_usuario_ya_tiene_rol_activo(area: str, rol_nuevo: str) -> str:
+    """Carrera check-then-insert sobre uq_proyecto_usuario_area_activo: no se
+    conoce el rol existente en conflicto, solo el rol nuevo que se intentaba
+    asignar."""
+    rol_label = ROL_PROYECTO_LABELS.get(rol_nuevo, rol_nuevo)
+    return (
+        f"Este usuario ya tiene un rol activo en el área {area} de este "
+        f"proyecto; no puede asignarse también como {rol_label}."
+    )
+
+
+def _msg_rol_tomado_por_otro(area: str) -> str:
+    """Carrera check-then-insert sobre uq_proyecto_rol_area_activo: otro
+    usuario tomo el mismo rol+area casi al mismo tiempo (no es un conflicto
+    de dos roles del usuario que se esta asignando)."""
+    return (
+        f"Otro usuario acaba de tomar este rol en el área {area}; "
+        "actualiza la página e intenta de nuevo."
+    )
+
 # Rol editable que, al asignarse por primera vez, define el RC/RI del proyecto
 ROL_EDITABLE_DEFINE_RESPONSABLE = {
     (r["rol"], r["area"]): r["area"] for r in ROLES_EQUIPO if r["rol_jefe"]
@@ -186,6 +226,10 @@ class ProyectosService:
                 id_usuario = item.get("id_usuario")
 
                 if id_usuario:
+                    activas_area = await self.db.get_asignaciones_activas_area(
+                        conn, id_proyecto, key[1]
+                    )
+
                     dept_slug = DEPARTAMENTO_POR_ROL[key]
                     usuario_valido = await self.db.usuario_activo_en_departamento(
                         conn, id_usuario, dept_slug
@@ -193,11 +237,20 @@ class ProyectosService:
                     if not usuario_valido:
                         raise ValueError("El usuario seleccionado no pertenece al departamento requerido")
 
-                asignacion_actual = await self.db.get_asignacion_equipo_actual(
-                    conn, id_proyecto, key[0], key[1]
-                )
-                if asignacion_actual and id_usuario:
-                    if str(asignacion_actual["id_usuario"]) == str(id_usuario):
+                    conflicto = next(
+                        (a for a in activas_area
+                         if str(a["id_usuario"]) == str(id_usuario) and a["rol_proyecto"] != key[0]),
+                        None,
+                    )
+                    if conflicto:
+                        raise ValueError(
+                            _msg_rol_duplicado_area(key[1], conflicto["rol_proyecto"])
+                        )
+
+                    asignacion_actual = next(
+                        (a for a in activas_area if a["rol_proyecto"] == key[0]), None
+                    )
+                    if asignacion_actual and str(asignacion_actual["id_usuario"]) == str(id_usuario):
                         continue
 
                 await self.db.desactivar_asignacion_equipo(
@@ -205,9 +258,17 @@ class ProyectosService:
                 )
 
                 if id_usuario:
-                    await self.db.insertar_asignacion_equipo(
-                        conn, id_proyecto, id_usuario, key[0], key[1], asignado_por_id
-                    )
+                    try:
+                        await self.db.insertar_asignacion_equipo(
+                            conn, id_proyecto, id_usuario, key[0], key[1], asignado_por_id
+                        )
+                    except asyncpg.UniqueViolationError as e:
+                        # Carrera check-then-insert (doble click/concurrencia). Dos indices
+                        # distintos pueden dispararla: distinguir por constraint_name para no
+                        # acusar al usuario equivocado del conflicto de otro.
+                        if e.constraint_name == "uq_proyecto_rol_area_activo":
+                            raise ValueError(_msg_rol_tomado_por_otro(key[1]))
+                        raise ValueError(_msg_usuario_ya_tiene_rol_activo(key[1], key[0]))
                     if key in ROL_EDITABLE_DEFINE_RESPONSABLE:
                         await self._asegurar_responsable(
                             conn, id_proyecto, ROL_EDITABLE_DEFINE_RESPONSABLE[key],
