@@ -80,6 +80,24 @@ def _componente_kpi_from(where: str, componente: str) -> str:
                   AND {_NO_EXCLUIDA}"""
 
 
+def _agg_potencia_sql(group_cols: str) -> str:
+    """Suma potencia/capacidad de cierre desde el CTE `base`, deduplicando por
+    entidad (`entity_key`: id_oportunidad o simulación adicional) en vez de por
+    valor — `SUM(DISTINCT valor)` colapsaba entidades distintas que por
+    coincidencia comparten la misma potencia/capacidad, subestimando el total.
+    """
+    return f"""SELECT
+                    {group_cols},
+                    COALESCE(SUM(potencia_cierre_fv_kwp), 0) as potencia_total_kwp,
+                    COALESCE(SUM(capacidad_cierre_bess_kwh), 0) as capacidad_total_kwh
+                FROM (
+                    SELECT DISTINCT ON ({group_cols}, entity_key)
+                        {group_cols}, potencia_cierre_fv_kwp, capacidad_cierre_bess_kwh
+                    FROM base
+                    ORDER BY {group_cols}, entity_key
+                ) dedup_entidad"""
+
+
 class ReportDBService:
     """Queries de reporte de simulación. Stateless, instanciable sin args."""
 
@@ -242,7 +260,8 @@ class ReportDBService:
                 SELECT
                     o.id_tecnologia, s.id_oportunidad, s.id_sitio,
                     s.es_retrabajo, o.parent_id, o.clasificacion_solicitud, o.es_licitacion,
-                    o.id_tipo_solicitud, o.potencia_cierre_fv_kwp, o.capacidad_cierre_bess_kwh
+                    o.id_tipo_solicitud, o.potencia_cierre_fv_kwp, o.capacidad_cierre_bess_kwh,
+                    o.id_oportunidad::text as entity_key
                 FROM tb_sitios_oportunidad s
                 JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
                 JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
@@ -253,7 +272,8 @@ class ReportDBService:
                 SELECT
                     o.id_tecnologia, sa.id_oportunidad, sa.id AS id_sitio,
                     false AS es_retrabajo, o.parent_id, o.clasificacion_solicitud, o.es_licitacion,
-                    o.id_tipo_solicitud, sa.potencia_cierre_fv_kwp, sa.capacidad_cierre_bess_kwh
+                    o.id_tipo_solicitud, sa.potencia_cierre_fv_kwp, sa.capacidad_cierre_bess_kwh,
+                    ('sa_' || sa.id::text) as entity_key
                 FROM tb_simulaciones_adicionales sa
                 JOIN tb_oportunidades o ON sa.id_oportunidad = o.id_oportunidad
                 JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
@@ -267,10 +287,12 @@ class ReportDBService:
                     COUNT(DISTINCT id_oportunidad) FILTER (WHERE parent_id IS NOT NULL) as versiones,
                     COUNT(*) FILTER (WHERE es_retrabajo = TRUE) as retrabajos,
                     COUNT(DISTINCT COALESCE(parent_id, id_oportunidad)) FILTER (WHERE es_licitacion = TRUE) as licitaciones,
-                    COALESCE(SUM(DISTINCT potencia_cierre_fv_kwp), 0) as potencia_total_kwp,
-                    COALESCE(SUM(DISTINCT capacidad_cierre_bess_kwh), 0) as capacidad_total_kwh,
                     COUNT(id_sitio) as total_sitios
                 FROM base
+                GROUP BY id_tecnologia
+            ),
+            agg_potencia AS (
+                {_agg_potencia_sql("id_tecnologia")}
                 GROUP BY id_tecnologia
             ),
             agg_fv AS (
@@ -301,11 +323,12 @@ class ReportDBService:
                 COALESCE(ab.retrabajos, 0) as retrabajos,
                 COALESCE(ab.licitaciones, 0) as licitaciones,
                 tt.tiempo_promedio_horas,
-                COALESCE(ab.potencia_total_kwp, 0) as potencia_total_kwp,
-                COALESCE(ab.capacidad_total_kwh, 0) as capacidad_total_kwh,
+                COALESCE(ap.potencia_total_kwp, 0) as potencia_total_kwp,
+                COALESCE(ap.capacidad_total_kwh, 0) as capacidad_total_kwh,
                 COALESCE(ab.total_sitios, 0) as total_sitios
             FROM tb_cat_tecnologias t
             LEFT JOIN agg_base ab ON ab.id_tecnologia = t.id
+            LEFT JOIN agg_potencia ap ON ap.id_tecnologia = t.id
             LEFT JOIN agg_fv af ON af.id_tecnologia = t.id
             LEFT JOIN agg_tiempo tt ON tt.id_tecnologia = t.id
             WHERE t.activo = true
@@ -715,7 +738,8 @@ class ReportDBService:
                     o.responsable_simulacion_id, o.id_tecnologia,
                     s.id_oportunidad, s.id_sitio, s.es_retrabajo,
                     o.parent_id, o.clasificacion_solicitud, o.es_licitacion,
-                    o.id_tipo_solicitud, o.potencia_cierre_fv_kwp, o.capacidad_cierre_bess_kwh
+                    o.id_tipo_solicitud, o.potencia_cierre_fv_kwp, o.capacidad_cierre_bess_kwh,
+                    o.id_oportunidad::text as entity_key
                 FROM tb_sitios_oportunidad s
                 JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
                 JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
@@ -727,7 +751,8 @@ class ReportDBService:
                     o.responsable_simulacion_id, o.id_tecnologia,
                     sa.id_oportunidad, sa.id AS id_sitio, false AS es_retrabajo,
                     o.parent_id, o.clasificacion_solicitud, o.es_licitacion,
-                    o.id_tipo_solicitud, sa.potencia_cierre_fv_kwp, sa.capacidad_cierre_bess_kwh
+                    o.id_tipo_solicitud, sa.potencia_cierre_fv_kwp, sa.capacidad_cierre_bess_kwh,
+                    ('sa_' || sa.id::text) as entity_key
                 FROM tb_simulaciones_adicionales sa
                 JOIN tb_oportunidades o ON sa.id_oportunidad = o.id_oportunidad
                 JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
@@ -741,10 +766,12 @@ class ReportDBService:
                     COUNT(DISTINCT id_oportunidad) FILTER (WHERE parent_id IS NOT NULL) as versiones,
                     COUNT(*) FILTER (WHERE es_retrabajo = TRUE) as retrabajos,
                     COUNT(DISTINCT COALESCE(parent_id, id_oportunidad)) FILTER (WHERE es_licitacion = TRUE) as licitaciones,
-                    COALESCE(SUM(DISTINCT potencia_cierre_fv_kwp), 0) as potencia_total_kwp,
-                    COALESCE(SUM(DISTINCT capacidad_cierre_bess_kwh), 0) as capacidad_total_kwh,
                     COUNT(id_sitio) as total_sitios
                 FROM base
+                GROUP BY responsable_simulacion_id, id_tecnologia
+            ),
+            agg_potencia AS (
+                {_agg_potencia_sql("responsable_simulacion_id, id_tecnologia")}
                 GROUP BY responsable_simulacion_id, id_tecnologia
             ),
             agg_fv AS (
@@ -776,11 +803,14 @@ class ReportDBService:
                 COALESCE(ab.retrabajos, 0) as retrabajos,
                 COALESCE(ab.licitaciones, 0) as licitaciones,
                 tt.tiempo_promedio_horas,
-                COALESCE(ab.potencia_total_kwp, 0) as potencia_total_kwp,
-                COALESCE(ab.capacidad_total_kwh, 0) as capacidad_total_kwh,
+                COALESCE(ap.potencia_total_kwp, 0) as potencia_total_kwp,
+                COALESCE(ap.capacidad_total_kwh, 0) as capacidad_total_kwh,
                 COALESCE(ab.total_sitios, 0) as total_sitios
             FROM agg_base ab
             JOIN tb_cat_tecnologias t ON t.id = ab.id_tecnologia
+            LEFT JOIN agg_potencia ap
+                ON ap.responsable_simulacion_id = ab.responsable_simulacion_id
+               AND ap.id_tecnologia = ab.id_tecnologia
             LEFT JOIN agg_fv af
                 ON af.responsable_simulacion_id = ab.responsable_simulacion_id
                AND af.id_tecnologia = ab.id_tecnologia

@@ -1,6 +1,17 @@
 {# templates/simulacion/reportes/partials/tech_tables_duales.html #}
 {# Tablas de métricas por tecnología con KPIS DUALES (Interno vs Compromiso) #}
 
+{% macro tech_metric_info(tip) %}
+<span class="inline-flex align-middle text-gray-400 cursor-help ml-1" title="{{ tip }}">
+    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+</span>
+{% endmacro %}
+{% set potencia_tip = 'Suma la potencia FV de cierre de todas las oportunidades y simulaciones adicionales de esta tecnología. Cada oportunidad cuenta una sola vez, sin importar cuántos sitios tenga.' %}
+{% set capacidad_tip = 'Suma la capacidad BESS de cierre de todas las oportunidades y simulaciones adicionales de esta tecnología. Cada oportunidad cuenta una sola vez, sin importar cuántos sitios tenga.' %}
+
 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
     {% for tech in tecnologias %}
     {% if tech.total_solicitudes > 0 %}
@@ -99,15 +110,15 @@
                        BESS -> kWh; FV + BESS -> kWp y kWh; resto (FV/FV AISLADO/BOMBEO) -> kWp #}
                     {% if tech.nombre != 'BESS' and tech.potencia_total_kwp > 0 %}
                     <tr>
-                        <td class="py-2 text-gray-500 pl-1">Potencia Total</td>
-                        <td class="py-2 text-right font-medium text-gray-900">{{ tech.potencia_total_kwp|round(1) }} kWp
+                        <td class="py-2 text-gray-500 pl-1 flex items-center">Potencia Total{{ tech_metric_info(potencia_tip) }}</td>
+                        <td class="py-2 text-right font-medium text-gray-900">{{ "{:,.1f}".format(tech.potencia_total_kwp) }} kWp
                         </td>
                     </tr>
                     {% endif %}
                     {% if tech.nombre in ['BESS', 'FV + BESS'] and tech.capacidad_total_kwh > 0 %}
                     <tr>
-                        <td class="py-2 text-gray-500 pl-1">Capacidad Total</td>
-                        <td class="py-2 text-right font-medium text-gray-900">{{ tech.capacidad_total_kwh|round(1) }} kWh
+                        <td class="py-2 text-gray-500 pl-1 flex items-center">Capacidad Total{{ tech_metric_info(capacidad_tip) }}</td>
+                        <td class="py-2 text-right font-medium text-gray-900">{{ "{:,.1f}".format(tech.capacidad_total_kwh) }} kWh
                         </td>
                     </tr>
                     {% endif %}
