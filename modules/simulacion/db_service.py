@@ -913,12 +913,10 @@ class SimulacionDBService:
         
         # Filtro de Tabs
         if tab == "historial":
-             if subtab == "entregado":
-                  ids_historial = [status_map.get("entregado")]
-             elif subtab == "cancelado_perdido":
+             if subtab == "cancelado_perdido":
                   ids_historial = [status_map.get("cancelado"), status_map.get("perdido")]
              else:
-                  ids_historial = [status_map.get("entregado"), status_map.get("ganada")]
+                  ids_historial = [status_map.get("entregado")]
              
              ids_historial = [i for i in ids_historial if i is not None]
              
@@ -959,6 +957,12 @@ class SimulacionDBService:
              if id_ganada:
                  query += f" AND o.id_estatus_global = ${len(params) + 1}"
                  params.append(id_ganada)
+
+             # Excluir Levantamientos (misma convención que historial/levantamientos/monitoreo/activos)
+             id_levantamiento = await self.get_id_levantamiento(conn)
+             if id_levantamiento:
+                 query += f" AND o.id_tipo_solicitud != ${len(params) + 1}"
+                 params.append(id_levantamiento)
 
         elif tab == "monitoreo":
             id_monitoreo = status_map.get("monitoreo de cotización")
