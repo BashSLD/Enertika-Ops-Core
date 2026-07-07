@@ -112,6 +112,8 @@ CAMPO_LABELS = {
     'cantidad_recibida': 'Cantidad recibida',
     'estatus_ejecucion': 'Estatus ejecucion',
     'comentarios_operativos': 'Comentarios operativos',
+    'grupos_bom': 'Grupo',
+    'grupos_operativos': 'Grupo operativo',
 }
 
 BOM_COSTOS_EVENTO = "BOM_ITEMS_SIN_COSTO"
@@ -244,8 +246,6 @@ class BomService(BomComprasServiceMixin):
         jefe_const = await self.db.get_responsable_proyecto_o_global(
             conn, id_proyecto, "jefe_construccion"
         )
-        if not jefe_const:
-            raise ValueError("No hay jefe de Construccion activo configurado")
 
         ingeniero = await self.db.get_asignacion_proyecto(
             conn, id_proyecto, "ingeniero_asignado", "INGENIERIA"
@@ -272,7 +272,7 @@ class BomService(BomComprasServiceMixin):
         bom = await self.db.crear_bom(
             conn, id_proyecto, elaborado_por,
             responsable_ing=responsable["id_usuario"],
-            jefe_construccion=jefe_const["id_usuario"],
+            jefe_construccion=jefe_const["id_usuario"] if jefe_const else None,
             coordinador_obra=coordinador["id_usuario"] if coordinador else None,
             notas=notas,
             version=nueva_version
@@ -329,8 +329,8 @@ class BomService(BomComprasServiceMixin):
         if precio is None:
             return True
         try:
-            return float(precio) <= 0
-        except (TypeError, ValueError):
+            return Decimal(str(precio)) <= 0
+        except (InvalidOperation, TypeError, ValueError):
             return True
 
     @staticmethod
@@ -339,6 +339,10 @@ class BomService(BomComprasServiceMixin):
             "Item guardado sin presupuesto base. Ingenieria debe capturar el presupuesto "
             "antes de avanzar el BOM."
         )
+
+    @staticmethod
+    def mensaje_item_agregado(item: dict) -> str:
+        return f"'{item['descripcion']}' se agrego al BOM"
 
     @staticmethod
     def _format_template(template: str, context: dict) -> str:
@@ -380,27 +384,9 @@ class BomService(BomComprasServiceMixin):
             raise ValueError("Solo se pueden refrescar costos mientras el BOM esta en BORRADOR")
 
         async with conn.transaction():
+            # Sin historial: esta accion solo corre en BORRADOR (linea 379), y los
+            # cambios de item en BORRADOR ya no se auditan (solo interesa post-liberacion).
             sincronizados = await self.db.sincronizar_costos_catalogo(conn, id_bom)
-            for item in sincronizados:
-                await self.db.registrar_historial(
-                    conn, id_bom, AccionHistorial.EDITADO,
-                    bom['version'], user_id,
-                    id_item=item['id_item'],
-                    campo_modificado=CAMPO_LABELS.get('precio_unitario', 'precio_unitario'),
-                    valor_anterior=(
-                        str(item['precio_anterior']) if item['precio_anterior'] is not None else None
-                    ),
-                    valor_nuevo=str(item['precio_resuelto']),
-                )
-                if item.get('origen_precio_anterior') != 'CATALOGO':
-                    await self.db.registrar_historial(
-                        conn, id_bom, AccionHistorial.EDITADO,
-                        bom['version'], user_id,
-                        id_item=item['id_item'],
-                        campo_modificado=CAMPO_LABELS.get('origen_precio', 'origen_precio'),
-                        valor_anterior=item.get('origen_precio_anterior'),
-                        valor_nuevo='CATALOGO',
-                    )
         return {"sincronizados": len(sincronizados), "bom": bom}
 
     async def _get_aprobador_final_direccion_id(self, conn) -> UUID:
@@ -417,14 +403,15 @@ class BomService(BomComprasServiceMixin):
         await self.db.set_aprobador_final_id(conn, user_id)
 
     async def validar_responsables_workflow_bom(self, conn, bom: dict) -> None:
-        """Bloquea el primer envio si el workflow completo no tiene responsables."""
+        """Bloquea el primer envio si falta el responsable inmediato o el aprobador final.
+
+        Coordinador de Obra y Jefe de Construccion no se validan aqui: se resuelven
+        en vivo hasta el envio de Ingenieria a Obra (enviar_revision_obra), que es
+        cuando realmente se necesitan.
+        """
         problemas = []
         if not bom.get("responsable_ing"):
             problemas.append("falta responsable de Ingenieria")
-        if not bom.get("coordinador_obra"):
-            problemas.append("falta Coordinador de Obra")
-        if not bom.get("jefe_construccion"):
-            problemas.append("falta Jefe de Construccion")
         try:
             await self._get_aprobador_final_direccion_id(conn)
         except ValueError as exc:
@@ -496,13 +483,14 @@ class BomService(BomComprasServiceMixin):
             moneda=moneda
         )
 
-        await self.db.registrar_historial(
-            conn, id_bom, AccionHistorial.AGREGADO,
-            bom['version'], user_id,
-            id_item=item['id_item'],
-            campo_modificado='item',
-            valor_nuevo=descripcion
-        )
+        if estatus != EstatusBOM.BORRADOR:
+            await self.db.registrar_historial(
+                conn, id_bom, AccionHistorial.AGREGADO,
+                bom['version'], user_id,
+                id_item=item['id_item'],
+                campo_modificado='item',
+                valor_nuevo=descripcion
+            )
 
         return item
 
@@ -1409,17 +1397,18 @@ class BomService(BomComprasServiceMixin):
             (campo, ejecucion_public_keys.get(campo, campo), valor)
             for campo, valor in campos_ejecucion.items()
         )
-        for campo_hist, campo_actual, valor_nuevo in historial_campos:
-            valor_anterior = item.get(campo_actual)
-            if str(valor_anterior) != str(valor_nuevo):
-                await self.db.registrar_historial(
-                    conn, item['id_bom'], AccionHistorial.EDITADO,
-                    item['bom_version'], user_id,
-                    id_item=id_item,
-                    campo_modificado=CAMPO_LABELS.get(campo_hist, campo_hist),
-                    valor_anterior=str(valor_anterior) if valor_anterior is not None else None,
-                    valor_nuevo=str(valor_nuevo) if valor_nuevo is not None else None
-                )
+        if bom_estatus != EstatusBOM.BORRADOR:
+            for campo_hist, campo_actual, valor_nuevo in historial_campos:
+                valor_anterior = item.get(campo_actual)
+                if str(valor_anterior) != str(valor_nuevo):
+                    await self.db.registrar_historial(
+                        conn, item['id_bom'], AccionHistorial.EDITADO,
+                        item['bom_version'], user_id,
+                        id_item=id_item,
+                        campo_modificado=CAMPO_LABELS.get(campo_hist, campo_hist),
+                        valor_anterior=str(valor_anterior) if valor_anterior is not None else None,
+                        valor_nuevo=str(valor_nuevo) if valor_nuevo is not None else None
+                    )
 
         if campos_base:
             await self.db.update_item(conn, id_item, **campos_base)
@@ -1558,13 +1547,14 @@ class BomService(BomComprasServiceMixin):
 
         deleted = await self.db.soft_delete_item(conn, id_item)
 
-        await self.db.registrar_historial(
-            conn, item['id_bom'], AccionHistorial.ELIMINADO,
-            item['bom_version'], user_id,
-            id_item=id_item,
-            campo_modificado='item',
-            valor_anterior=item.get('descripcion')
-        )
+        if estatus != EstatusBOM.BORRADOR:
+            await self.db.registrar_historial(
+                conn, item['id_bom'], AccionHistorial.ELIMINADO,
+                item['bom_version'], user_id,
+                id_item=id_item,
+                campo_modificado='item',
+                valor_anterior=item.get('descripcion')
+            )
 
         return deleted
 
@@ -1602,7 +1592,7 @@ class BomService(BomComprasServiceMixin):
                 from core.tipo_cambio.db_service import TipoCambioDBService
                 tc_svc = TipoCambioDBService()
                 tasa = await tc_svc.get_tasa_mas_reciente(conn)
-                tc_banxico = float(tasa['tasa_mxn']) if tasa else None
+                tc_banxico = Decimal(str(tasa['tasa_mxn'])) if tasa else None
 
                 if not tc_banxico:
                     tc_promedio = await self.db.get_tasa_promedio(conn)
@@ -1623,7 +1613,7 @@ class BomService(BomComprasServiceMixin):
                 else:
                     tc = None
                 if tc:
-                    item['costo_mxn'] = round(float(item['precio_unitario']) * tc, 2)
+                    item['costo_mxn'] = round(Decimal(str(item['precio_unitario'])) * tc, 2)
             if moneda_real == 'USD' and item.get('precio_real'):
                 iid = str(item['id_item'])
                 if iid in tc_from_xml:
@@ -1635,7 +1625,7 @@ class BomService(BomComprasServiceMixin):
                 else:
                     tc = None
                 if tc:
-                    item['costo_real_mxn'] = round(float(item['precio_real']) * tc, 2)
+                    item['costo_real_mxn'] = round(Decimal(str(item['precio_real'])) * tc, 2)
 
         # Enriquecer con gasto real desde materiales vinculados
         all_ids = [item['id_item'] for item in items]
@@ -1657,16 +1647,16 @@ class BomService(BomComprasServiceMixin):
             from core.tipo_cambio.db_service import TipoCambioDBService
             tc_svc = TipoCambioDBService()
             tasa = await tc_svc.get_tasa_mas_reciente(conn)
-            tc = float(tasa['tasa_mxn']) if tasa else None
+            tc = Decimal(str(tasa['tasa_mxn'])) if tasa else None
             if tc:
-                item['costo_mxn'] = round(float(item['precio_unitario']) * tc, 2)
+                item['costo_mxn'] = round(Decimal(str(item['precio_unitario'])) * tc, 2)
         if item.get('moneda_real') == 'USD' and item.get('precio_real'):
             from core.tipo_cambio.db_service import TipoCambioDBService
             tc_svc = TipoCambioDBService()
             tasa = await tc_svc.get_tasa_mas_reciente(conn)
-            tc = float(tasa['tasa_mxn']) if tasa else None
+            tc = Decimal(str(tasa['tasa_mxn'])) if tasa else None
             if tc:
-                item['costo_real_mxn'] = round(float(item['precio_real']) * tc, 2)
+                item['costo_real_mxn'] = round(Decimal(str(item['precio_real'])) * tc, 2)
         # Enriquecer gasto_real
         gasto_map = await self.db.get_gasto_real_por_item(conn, [id_item])
         gasto = gasto_map.get(str(id_item))
@@ -1695,21 +1685,21 @@ class BomService(BomComprasServiceMixin):
                 "orden": int(f["grupo_orden"] or 999),
                 "categorias": [],
             })
-            facturado = float(f["facturado_confirmado_mxn"])
-            facturado_sugerido = float(f["facturado_sugerido_mxn"])
+            facturado = Decimal(str(f["facturado_confirmado_mxn"]))
+            facturado_sugerido = Decimal(str(f["facturado_sugerido_mxn"]))
             cat = {
                 "categoria_id": f["categoria_id"],
                 "categoria_nombre": f["categoria_nombre"],
-                "presupuesto": float(f["presupuesto_mxn"]),
-                "real": float(f.get("compra_real_mxn") or 0),
-                "real_base": float(f.get("compra_real_base_mxn") or 0),
-                "reemplazos": float(f.get("reemplazos_mxn") or 0),
-                "fuera_scope": float(f.get("fuera_scope_mxn") or 0),
-                "no_adquirido": float(f.get("no_adquirido_mxn") or 0),
+                "presupuesto": Decimal(str(f["presupuesto_mxn"])),
+                "real": Decimal(str(f.get("compra_real_mxn") or 0)),
+                "real_base": Decimal(str(f.get("compra_real_base_mxn") or 0)),
+                "reemplazos": Decimal(str(f.get("reemplazos_mxn") or 0)),
+                "fuera_scope": Decimal(str(f.get("fuera_scope_mxn") or 0)),
+                "no_adquirido": Decimal(str(f.get("no_adquirido_mxn") or 0)),
                 "facturado": facturado,
                 "facturado_sugerido": facturado_sugerido,
                 "facturado_total_potencial": facturado + facturado_sugerido,
-                "pagado": float(f["pagado_mxn"]),
+                "pagado": Decimal(str(f["pagado_mxn"])),
             }
             cat["dif_real"] = cat["presupuesto"] - cat["real"]
             cat["dif_facturado"] = cat["presupuesto"] - cat["facturado"]
@@ -1717,13 +1707,13 @@ class BomService(BomComprasServiceMixin):
             grupo["categorias"].append(cat)
 
         secciones = []
-        tot_presup = tot_fact = tot_pag = 0.0
-        tot_sugerido = 0.0
-        tot_real = 0.0
-        tot_real_base = 0.0
-        tot_reemplazos = 0.0
-        tot_fuera_scope = 0.0
-        tot_no_adquirido = 0.0
+        tot_presup = tot_fact = tot_pag = Decimal("0")
+        tot_sugerido = Decimal("0")
+        tot_real = Decimal("0")
+        tot_real_base = Decimal("0")
+        tot_reemplazos = Decimal("0")
+        tot_fuera_scope = Decimal("0")
+        tot_no_adquirido = Decimal("0")
 
         for grupo in sorted(por_grupo.values(), key=lambda g: (g["orden"], g["codigo"])):
             cats = grupo["categorias"]
@@ -1784,7 +1774,9 @@ class BomService(BomComprasServiceMixin):
         kwp = divisores["kwp"]
 
         def _por(divisor, valor):
-            return round(valor / divisor, 2) if divisor else None
+            if not divisor:
+                return None
+            return round(valor / Decimal(str(divisor)), 2)
 
         metricas = {
             "modulos_fv": modulos,
@@ -1996,9 +1988,37 @@ class BomService(BomComprasServiceMixin):
             raise ValueError("El BOM debe estar APROBADO_ING para enviar a obra")
         await self.validar_sin_costos_pendientes(conn, id_bom)
 
+        # Coordinador de Obra y Jefe de Construccion se resuelven en vivo aqui (no se
+        # confia en la foto tomada al crear el BOM) para detectar personal asignado
+        # despues de la creacion, y se autocorrige tb_bom si cambiaron.
+        coordinador = await self.db.get_asignacion_proyecto(
+            conn, bom['id_proyecto'], "coordinador_obra", "CONSTRUCCION"
+        )
+        jefe_const = await self.db.get_responsable_proyecto_o_global(
+            conn, bom['id_proyecto'], "jefe_construccion"
+        )
+        # Sin fallback a bom.get(...): si la asignacion en vivo no encuentra a nadie,
+        # es porque el responsable original ya no esta activo en el proyecto y debe
+        # bloquear, no reusar la foto obsoleta tomada al crear el BOM.
+        coordinador_obra_id = coordinador["id_usuario"] if coordinador else None
+        jefe_construccion_id = jefe_const["id_usuario"] if jefe_const else None
+
+        problemas = []
+        if not coordinador_obra_id:
+            problemas.append("falta Coordinador de Obra")
+        if not jefe_construccion_id:
+            problemas.append("falta Jefe de Construccion")
+        if problemas:
+            raise ValueError(
+                "No se puede enviar a Obra: " + "; ".join(problemas)
+                + ". Solicita al Jefe de Construccion que lo asigne."
+            )
+
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.EN_REVISION_OBRA,
-            fecha_envio_obra=now_mx()
+            fecha_envio_obra=now_mx(),
+            coordinador_obra=coordinador_obra_id,
+            jefe_construccion=jefe_construccion_id,
         )
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.ENVIO_REVISION_OBRA,
@@ -2233,9 +2253,11 @@ class BomService(BomComprasServiceMixin):
         if not item:
             raise ValueError("Item no encontrado")
         bom_estatus = EstatusBOM(item["bom_estatus"])
+        auditar = bom_estatus != EstatusBOM.BORRADOR
         if bom_estatus == EstatusBOM.APROBADO_FINAL:
             if area_editor != "construccion":
                 raise ValueError("Solo Construccion puede cambiar grupos operativos en aprobado final")
+            grupos_anteriores = await self.db.get_grupos_operativos_por_item(conn, id_item) if auditar else None
             await self.db.set_item_grupos_operativos(conn, id_item, grupo_ids, user_id)
             campo_modificado = "grupos_operativos"
         else:
@@ -2246,15 +2268,21 @@ class BomService(BomComprasServiceMixin):
                 and bom_estatus in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA
             ):
                 raise ValueError(self._mensaje_propuesta_requerida())
+            grupos_anteriores = await self.db.get_grupos_por_item(conn, id_item) if auditar else None
             await self.db.set_item_grupos(conn, id_item, grupo_ids)
             campo_modificado = "grupos_bom"
-        await self.db.registrar_historial(
-            conn, item['id_bom'], AccionHistorial.EDITADO,
-            item['bom_version'], user_id,
-            id_item=id_item,
-            campo_modificado=campo_modificado,
-            valor_nuevo=str(grupo_ids)
-        )
+        if auditar:
+            catalogo_grupos = await self.db.get_grupos_bom(conn)
+            codigos_por_id = {g['id']: g['codigo'] for g in catalogo_grupos}
+            grupos_nuevos = [codigos_por_id.get(gid, str(gid)) for gid in grupo_ids]
+            await self.db.registrar_historial(
+                conn, item['id_bom'], AccionHistorial.EDITADO,
+                item['bom_version'], user_id,
+                id_item=id_item,
+                campo_modificado=CAMPO_LABELS.get(campo_modificado, campo_modificado),
+                valor_anterior=", ".join(grupos_anteriores) if grupos_anteriores else None,
+                valor_nuevo=", ".join(grupos_nuevos)
+            )
 
     # ─── SUPLENCIAS ─────────────────────────────────────────
 
@@ -2616,7 +2644,7 @@ class BomService(BomComprasServiceMixin):
         from io import BytesIO
 
         bom = await self.get_bom(conn, id_bom)
-        items = await self.db.get_items_by_bom(conn, id_bom)
+        items = await self.get_items(conn, id_bom)
 
         wb = Workbook()
         ws = wb.active
@@ -2648,10 +2676,15 @@ class BomService(BomComprasServiceMixin):
         headers_row = 7
         headers = [
             "#", "Categoria", "Descripcion", "Cantidad", "Unidad",
-            "Precio Unitario", "Importe",
-            "Fecha Requerida", "Fecha Llegada Real", "Proveedor",
+            "Precio Unitario", "Importe", "Costo Real", "Estado",
+            "Fecha Requerida", "Fecha Llegada Real", "Recepcion", "Proveedor",
             "Tipo Entrega", "Fecha Estimada Entrega", "Comentarios", "Entregado"
         ]
+
+        ESTADO_LABELS = {
+            'FACTURADO': 'Facturado', 'PAGADO': 'Pagado',
+            'AUTORIZADO': 'Autorizado', 'COTIZADO': 'Cotizado',
+        }
 
         for col_num, header in enumerate(headers, 1):
             cell = ws.cell(row=headers_row, column=col_num, value=header)
@@ -2668,6 +2701,17 @@ class BomService(BomComprasServiceMixin):
             importe = cantidad * precio
             total_importe += importe
 
+            precio_real = item.get('precio_real')
+            if precio_real is not None:
+                importe_real = item.get('importe_real')
+                costo_real = float(importe_real) if importe_real is not None else float(precio_real) * cantidad
+            else:
+                gasto_real = item.get('gasto_real')
+                costo_real = float(gasto_real) if gasto_real is not None else None
+
+            cantidad_recibida = float(item.get('cantidad_recibida') or 0)
+            pct_recepcion = (cantidad_recibida / cantidad * 100) if cantidad else 0
+
             row_data = [
                 row_num - headers_row,
                 item.get('categoria_nombre', ''),
@@ -2676,8 +2720,11 @@ class BomService(BomComprasServiceMixin):
                 item.get('unidad_medida', ''),
                 float(precio) if precio else None,
                 importe if precio else None,
+                costo_real,
+                ESTADO_LABELS.get(item.get('estatus_compra'), 'Pendiente'),
                 item['fecha_requerida'].strftime("%d/%m/%Y") if item.get('fecha_requerida') else '',
                 item['fecha_llegada_real'].strftime("%d/%m/%Y") if item.get('fecha_llegada_real') else '',
+                f"{min(pct_recepcion, 100):.0f}%" if pct_recepcion > 0 else '',
                 item.get('proveedor_nombre', ''),
                 item.get('tipo_entrega', ''),
                 item['fecha_estimada_entrega'].strftime("%d/%m/%Y") if item.get('fecha_estimada_entrega') else '',
@@ -2691,7 +2738,7 @@ class BomService(BomComprasServiceMixin):
                 if col_num == 4:
                     cell.number_format = '#,##0.0000'
                     cell.alignment = Alignment(horizontal="right")
-                elif col_num in (6, 7):
+                elif col_num in (6, 7, 8):
                     cell.number_format = '$#,##0.00'
                     cell.alignment = Alignment(horizontal="right")
 
@@ -2708,7 +2755,7 @@ class BomService(BomComprasServiceMixin):
             cell_total.border = thin_border
 
         # Anchos de columna
-        column_widths = [5, 20, 40, 12, 10, 16, 16, 16, 16, 25, 16, 18, 30, 10]
+        column_widths = [5, 20, 40, 12, 10, 16, 16, 16, 14, 16, 16, 12, 25, 16, 18, 30, 10]
         for i, width in enumerate(column_widths, 1):
             ws.column_dimensions[get_column_letter(i)].width = width
 

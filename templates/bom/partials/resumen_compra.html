@@ -7,7 +7,7 @@
         <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
     </svg>
     <p class="mt-3 text-sm text-gray-500">Aun no hay datos de compra para este BOM.</p>
-    <p class="text-xs text-gray-400">El presupuesto aparecera al cargar items con grupo; el facturado y el pagado, conforme se compre.</p>
+    <p class="text-xs text-gray-400">El costo estimado aparecera al cargar items con grupo; el facturado y el pagado, conforme se compre.</p>
 </div>
 {% else %}
 
@@ -18,7 +18,7 @@
 
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
     <div class="rounded-lg border border-gray-200 bg-white p-3">
-        <p class="text-[11px] uppercase tracking-wide text-gray-400">Presupuesto / Modulo FV</p>
+        <p class="text-[11px] uppercase tracking-wide text-gray-400">Costo Estimado / Modulo FV</p>
         <p class="text-base font-bold text-gray-800">{% if m.presup_por_modulo is not none %}{{ money(m.presup_por_modulo) }}{% else %}-{% endif %}</p>
         <p class="text-[11px] text-gray-400">{% if m.modulos_fv %}{{ "{:,.0f}".format(m.modulos_fv) }} modulos{% else %}sin modulos{% endif %}</p>
     </div>
@@ -28,7 +28,7 @@
         <p class="text-[11px] text-gray-400">Compra registrada</p>
     </div>
     <div class="rounded-lg border border-gray-200 bg-white p-3">
-        <p class="text-[11px] uppercase tracking-wide text-gray-400">Presupuesto / kWp</p>
+        <p class="text-[11px] uppercase tracking-wide text-gray-400">Costo Estimado / kWp</p>
         <p class="text-base font-bold text-gray-800">{% if m.presup_por_kwp is not none %}{{ money(m.presup_por_kwp) }}{% else %}-{% endif %}</p>
         <p class="text-[11px] text-gray-400">{% if m.kwp %}{{ "{:,.2f}".format(m.kwp) }} kWp{% else %}sin kWp{% endif %}</p>
     </div>
@@ -60,12 +60,12 @@
     <div class="rounded-lg border border-gray-200 bg-white p-3">
         <p class="text-[11px] uppercase tracking-wide text-gray-400">No adquirido</p>
         <p class="text-base font-bold text-gray-700">{{ money(t.no_adquirido) }}</p>
-        <p class="text-[11px] text-gray-400">Presupuesto base cerrado</p>
+        <p class="text-[11px] text-gray-400">Costo estimado base cerrado</p>
     </div>
 </div>
 
 <div class="flex flex-wrap items-center gap-x-4 gap-y-1 mb-2 text-[11px] text-gray-500">
-    <span class="flex items-center gap-1"><span class="inline-block w-3 h-2 rounded-sm bg-blue-500"></span> Presupuesto</span>
+    <span class="flex items-center gap-1"><span class="inline-block w-3 h-2 rounded-sm bg-blue-500"></span> Costo Estimado</span>
     <span class="flex items-center gap-1"><span class="inline-block w-3 h-2 rounded-sm bg-green-500"></span> Costo real</span>
     <span class="flex items-center gap-1"><span class="inline-block w-3 h-2 rounded-sm bg-amber-500"></span> Facturado confirmado</span>
     <span class="flex items-center gap-1"><span class="inline-block w-3 h-2 rounded-sm bg-orange-300"></span> Sugerido</span>
@@ -77,7 +77,7 @@
         <thead>
             <tr class="bg-gray-50 text-gray-500 text-[11px] uppercase tracking-wide">
                 <th class="text-left font-medium px-3 py-2">Grupo / Categoria</th>
-                <th class="text-right font-medium px-3 py-2">Presupuesto</th>
+                <th class="text-right font-medium px-3 py-2" title="Costo estimado con base a los precios registrados en base de datos de cada item">Costo Estimado</th>
                 <th class="text-right font-medium px-3 py-2">Costo real</th>
                 <th class="text-right font-medium px-3 py-2">Base real</th>
                 <th class="text-right font-medium px-3 py-2">Reemplazos</th>
@@ -166,7 +166,7 @@
 </div>
 
 <p class="mt-2 text-[11px] text-gray-400">
-    Montos sin IVA y en MXN. Presupuesto solo incluye lineas base; reemplazos y fuera de alcance se separan como ejecucion real.
+    Montos sin IVA y en MXN. Costo Estimado solo incluye lineas base; reemplazos y fuera de alcance se separan como ejecucion real.
     Facturado cuenta conceptos confirmados y Sugerido muestra conceptos propuestos por el matcher.
 </p>
 {% endif %}

@@ -1,6 +1,6 @@
 {# Fila individual de un item del BOM #}
 {% if warning_message %}
-{% with message=warning_message, type='warning', title='Presupuesto pendiente' %}
+{% with message=warning_message, type='warning', title='Costo estimado pendiente' %}
 {% include "shared/toast.html" %}
 {% endwith %}
 {% endif %}
@@ -8,6 +8,9 @@
 {% set item_cerrado_compra = item.estatus_ejecucion in ['NO_ADQUIRIDO', 'REEMPLAZADO', 'CERRADO'] %}
 {% set item_compra_bloquea_adenda = item.estatus_compra in ['COTIZADO', 'AUTORIZADO', 'PAGADO', 'FACTURADO'] %}
 {% set grupos_filtro = item.grupos_operativos if item.grupos_operativos else item.grupos %}
+{% set puede_adenda_item = bom and bom.estatus == 'APROBADO_FINAL' and area_editor in ['construccion', 'compras'] and tipo_origen_item == 'BASE' and not item_cerrado_compra and not item_compra_bloquea_adenda and not item.bloqueado %}
+{% set puede_editar_item = bom and bom.estatus != 'CANCELADO' and (bom.estatus != 'APROBADO_FINAL' or area_editor in ['compras', 'construccion']) %}
+{% set puede_eliminar_item = bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and ((area_editor == 'construccion' and bom.estatus in ['EN_REVISION_OBRA', 'EN_REVISION_CONST']) or (area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria|default(false))) %}
 <tr id="item-{{ item.id_item }}"
     data-grupos="{{ grupos_filtro | join(',') if grupos_filtro else '' }}"
     data-tipo-partida="{{ item.tipo_partida or 'MATERIAL' }}"
@@ -28,12 +31,32 @@
     </td>
     <td class="px-3 py-2 text-xs text-gray-400 font-mono">{{ loop.index if loop is defined else item.orden }}</td>
     <td class="px-3 py-2">
-        {% if item.categoria_nombre %}
-        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
-            {{ item.categoria_nombre }}
-        </span>
+        {% if item.grupos %}
+        <div class="flex flex-wrap gap-0.5">
+            {% for codigo in item.grupos %}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold
+                {% if codigo == 'AC' %}bg-yellow-100 text-yellow-700
+                {% elif codigo == 'DC' %}bg-blue-100 text-blue-700
+                {% elif codigo == 'CM' %}bg-purple-100 text-purple-700
+                {% elif codigo == 'OC' %}bg-orange-100 text-orange-700
+                {% elif codigo == 'TE' %}bg-teal-100 text-teal-700
+                {% else %}bg-gray-100 text-gray-600{% endif %}">
+                {{ codigo }}
+            </span>
+            {% endfor %}
+        </div>
         {% else %}
         <span class="text-xs text-gray-400">--</span>
+        {% endif %}
+        {% if item.grupos_operativos %}
+        <div class="flex flex-wrap gap-0.5 mt-0.5">
+            {% for codigo in item.grupos_operativos %}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700"
+                title="Grupo operativo">
+                Op {{ codigo }}
+            </span>
+            {% endfor %}
+        </div>
         {% endif %}
         {% if item.tipo_partida and item.tipo_partida != 'MATERIAL' %}
         <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium mt-0.5
@@ -71,52 +94,81 @@
         {% endif %}
     </td>
     <td class="px-3 py-2 text-sm text-gray-800 max-w-xs">
-        <div class="truncate" title="{{ item.descripcion }}">{{ item.descripcion }}</div>
-        {% if item.grupos %}
-        <div class="flex flex-wrap gap-0.5 mt-0.5">
-            {% for codigo in item.grupos %}
-            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold
-                {% if codigo == 'AC' %}bg-yellow-100 text-yellow-700
-                {% elif codigo == 'DC' %}bg-blue-100 text-blue-700
-                {% elif codigo == 'CM' %}bg-purple-100 text-purple-700
-                {% elif codigo == 'OC' %}bg-orange-100 text-orange-700
-                {% elif codigo == 'TE' %}bg-teal-100 text-teal-700
-                {% else %}bg-gray-100 text-gray-600{% endif %}">
-                {{ codigo }}
-            </span>
-            {% endfor %}
+        <div class="flex items-start gap-1">
+            {% if puede_editar_item %}
+            <button type="button" hx-get="/bom/items/{{ item.id_item }}/modal" hx-target="#bom-modal-container" hx-swap="innerHTML"
+                class="truncate text-left flex-1 min-w-0 hover:text-blue-600 hover:underline transition-colors"
+                title="{{ item.descripcion }}">{{ item.descripcion }}</button>
+            {% else %}
+            <div class="truncate flex-1 min-w-0" title="{{ item.descripcion }}">{{ item.descripcion }}</div>
+            {% endif %}
+            {% if puede_adenda_item or puede_eliminar_item %}
+            <div class="relative shrink-0" x-data="{ openMenu: false }" @click.outside="openMenu = false" @keydown.escape.window="openMenu = false">
+                <button type="button" @click="openMenu = !openMenu"
+                    class="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition"
+                    title="Mas acciones">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z"/>
+                    </svg>
+                </button>
+                <div x-show="openMenu" x-cloak
+                    x-transition:enter="transition ease-out duration-100"
+                    x-transition:enter-start="opacity-0 -translate-y-1"
+                    x-transition:enter-end="opacity-100 translate-y-0"
+                    x-transition:leave="transition ease-in duration-75"
+                    x-transition:leave-start="opacity-100 translate-y-0"
+                    x-transition:leave-end="opacity-0 -translate-y-1"
+                    class="absolute left-0 mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-lg p-1.5 min-w-[10rem] whitespace-nowrap">
+                    {% if puede_adenda_item %}
+                    <button hx-get="/bom/items/{{ item.id_item }}/adenda-modal?accion=reemplazo"
+                        hx-target="#bom-modal-container" hx-swap="innerHTML" @click="openMenu = false"
+                        class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors font-medium">
+                        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M7 7h10M7 7l3-3M7 7l3 3m7 7H7m10 0l-3-3m3 3l-3 3" />
+                        </svg>
+                        Crear reemplazo
+                    </button>
+                    <button hx-get="/bom/items/{{ item.id_item }}/adenda-modal?accion=cerrar"
+                        hx-target="#bom-modal-container" hx-swap="innerHTML" @click="openMenu = false"
+                        class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-amber-50 hover:text-amber-700 transition-colors font-medium">
+                        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        Cerrar sin compra
+                    </button>
+                    {% endif %}
+                    {% if puede_eliminar_item %}
+                    <button hx-delete="/bom/items/{{ item.id_item }}" hx-target="#tabla-bom-items" hx-swap="innerHTML"
+                        hx-confirm="Eliminar este item del BOM?" @click="openMenu = false"
+                        class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors font-medium">
+                        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        Eliminar
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
         </div>
-        {% endif %}
-        {% if item.grupos_operativos %}
-        <div class="flex flex-wrap gap-0.5 mt-0.5">
-            {% for codigo in item.grupos_operativos %}
-            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700"
-                title="Grupo operativo">
-                Op {{ codigo }}
+        {% if item.categoria_nombre %}
+        <div class="mt-0.5">
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                {{ item.categoria_nombre }}
             </span>
-            {% endfor %}
         </div>
-        {% endif %}
-        {% if item.comentarios %}
-        <div class="text-xs text-gray-400 truncate mt-0.5" title="{{ item.comentarios }}">{{ item.comentarios }}</div>
+        {% else %}
+        <div class="text-[10px] text-gray-400 mt-0.5"
+            title="Este item no tiene una categoria asignada, ingresar a la seccion de items para actualizar">
+            Item sin categoria asignada
+        </div>
         {% endif %}
     </td>
     <td class="px-3 py-2 text-sm text-gray-800 text-right font-mono">{{ item.cantidad }}</td>
     <td class="px-3 py-2 text-xs text-gray-600">{{ item.unidad_medida or '--' }}</td>
-    <td class="px-3 py-2 text-sm text-gray-800 text-right font-mono">
-        {% if item.precio_unitario and item.precio_unitario|float > 0 %}
-        ${{ "{:,.2f}".format(item.precio_unitario|float) }}
-        {% if item.moneda == 'USD' %}
-        <span class="text-[10px] text-blue-500 font-medium ml-0.5">USD</span>
-        {% endif %}
-        {% if item.origen_precio == 'CATALOGO' %}
-        <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 ml-0.5" title="Desde catalogo"></span>
-        {% endif %}
-        {% else %}
-        <span class="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
-            title="Presupuesto pendiente">Sin presupuesto</span>
-        {% endif %}
-    </td>
     <td class="px-3 py-2 text-sm text-right font-mono">
         {% if item.importe and item.precio_unitario and item.precio_unitario|float > 0 %}
         ${{ "{:,.2f}".format(item.importe|float) }}
@@ -124,9 +176,11 @@
         <div class="text-[10px] text-gray-400 font-normal">≈ ${{ "{:,.2f}".format(item.costo_mxn|float) }} MXN</div>
         {% endif %}
         {% else %}
-        <span class="text-gray-400">--</span>
+        <span class="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+            title="Presupuesto pendiente">Sin presupuesto</span>
         {% endif %}
     </td>
+    {% if fase_compras %}
     <td class="px-3 py-2 text-sm text-right font-mono">
         {% set tiene_precio_real = item.precio_real is defined and item.precio_real is not none %}
         {% if tiene_precio_real %}
@@ -218,52 +272,12 @@
         <span class="text-gray-300">-</span>
         {% endif %}
     </td>
-    <td class="px-3 py-2 text-center">
-        <div class="flex items-center justify-center gap-1">
-            {% set puede_adenda_item = bom and bom.estatus == 'APROBADO_FINAL' and area_editor in ['construccion', 'compras'] and tipo_origen_item == 'BASE' and not item_cerrado_compra and not item_compra_bloquea_adenda and not item.bloqueado %}
-            {% if puede_adenda_item %}
-            <button hx-get="/bom/items/{{ item.id_item }}/adenda-modal?accion=reemplazo"
-                hx-target="#bom-modal-container" hx-swap="innerHTML"
-                class="p-1 rounded hover:bg-emerald-100 transition text-gray-400 hover:text-emerald-700"
-                title="Crear reemplazo">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M7 7h10M7 7l3-3M7 7l3 3m7 7H7m10 0l-3-3m3 3l-3 3" />
-                </svg>
-            </button>
-            <button hx-get="/bom/items/{{ item.id_item }}/adenda-modal?accion=cerrar"
-                hx-target="#bom-modal-container" hx-swap="innerHTML"
-                class="p-1 rounded hover:bg-amber-100 transition text-gray-400 hover:text-amber-700"
-                title="Cerrar sin compra">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M6 18L18 6M6 6l12 12" />
-                </svg>
-            </button>
-            {% endif %}
-            {# Boton editar #}
-            {% set puede_editar_item = bom and bom.estatus != 'CANCELADO' and (bom.estatus != 'APROBADO_FINAL' or area_editor in ['compras', 'construccion']) %}
-            {% if puede_editar_item %}
-            <button hx-get="/bom/items/{{ item.id_item }}/modal" hx-target="#bom-modal-container" hx-swap="innerHTML"
-                class="p-1 rounded hover:bg-gray-200 transition text-gray-500 hover:text-gray-700" title="Editar">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-            </button>
-            {% endif %}
-            {# Boton eliminar — permitido en todos los estados menos CANCELADO y APROBADO_FINAL para ing y construccion #}
-            {% set puede_eliminar_item = (area_editor == 'construccion' and bom.estatus in ['EN_REVISION_OBRA', 'EN_REVISION_CONST']) or (area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria|default(false)) %}
-            {% if bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and puede_eliminar_item %}
-            <button hx-delete="/bom/items/{{ item.id_item }}" hx-target="#tabla-bom-items" hx-swap="innerHTML"
-                hx-confirm="Eliminar este item del BOM?"
-                class="p-1 rounded hover:bg-red-100 transition text-gray-400 hover:text-red-600" title="Eliminar">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-            </button>
-            {% endif %}
-        </div>
+    {% endif %}
+    <td class="px-3 py-2 text-xs text-gray-500 max-w-[180px]">
+        {% if item.comentarios %}
+        <div class="truncate" title="{{ item.comentarios }}">{{ item.comentarios }}</div>
+        {% else %}
+        <span class="text-gray-300">--</span>
+        {% endif %}
     </td>
 </tr>

@@ -5,6 +5,7 @@ Mixin incluido en BomService; los metodos usan self.db, self.get_bom y self._bro
 
 import logging
 import re
+from decimal import Decimal
 from uuid import UUID
 from typing import Optional, List
 
@@ -87,7 +88,7 @@ class BomComprasServiceMixin:
             for it in cot_items_map.get(str(cot['id']), []):
                 bom_item = bom_items_map.get(str(it['bom_item_id']))
                 if bom_item and bom_item.get('precio_unitario') and it.get('precio_unitario'):
-                    if float(it['precio_unitario']) > float(bom_item['precio_unitario']):
+                    if Decimal(str(it['precio_unitario'])) > Decimal(str(bom_item['precio_unitario'])):
                         tiene_sobrecosto = True
                         break
             cot['tiene_sobrecosto'] = tiene_sobrecosto
@@ -129,18 +130,18 @@ class BomComprasServiceMixin:
 
         # RFQ: sin validación de precios
         tiene_precios = any(
-            float(i.get('precio_unitario') or 0) > 0 for i in items_data
+            Decimal(str(i.get('precio_unitario') or 0)) > 0 for i in items_data
         )
 
         if tiene_precios:
             sobrecostos = []
             for i in items_data:
-                pu = float(i.get('precio_unitario') or 0)
+                pu = Decimal(str(i.get('precio_unitario') or 0))
                 if pu <= 0:
                     continue
                 bom_item = bom_items_map_cot.get(str(i['bom_item_id']))
                 if bom_item and bom_item.get('precio_unitario'):
-                    precio_bom = float(bom_item['precio_unitario'])
+                    precio_bom = Decimal(str(bom_item['precio_unitario']))
                     if pu > precio_bom:
                         sobrecostos.append({
                             'item_id': str(i['bom_item_id']),
@@ -162,23 +163,26 @@ class BomComprasServiceMixin:
 
         # Calcular subtotal: suma de precios individuales o subtotal_externo
         if subtotal_externo is not None:
-            subtotal = round(subtotal_externo, 2)
+            subtotal = round(Decimal(str(subtotal_externo)), 2)
             # Distribuir proporcionalmente entre items
-            total_cantidad = sum(float(i.get('cantidad', 1)) for i in items_data)
+            total_cantidad = sum(Decimal(str(i.get('cantidad', 1))) for i in items_data)
             for i in items_data:
-                prop = float(i.get('cantidad', 1)) / total_cantidad if total_cantidad > 0 else 1.0 / len(items_data)
+                if total_cantidad > 0:
+                    prop = Decimal(str(i.get('cantidad', 1))) / total_cantidad
+                else:
+                    prop = Decimal("1") / len(items_data)
                 if 'precio_unitario' not in i or not i['precio_unitario']:
-                    cantidad_item = float(i.get('cantidad') or 1)
+                    cantidad_item = Decimal(str(i.get('cantidad') or 1))
                     i['precio_unitario'] = round(subtotal * prop / cantidad_item, 4)
         elif tiene_precios:
             subtotal = sum(
-                float(i.get('precio_unitario') or 0) * float(i.get('cantidad') or 0)
+                Decimal(str(i.get('precio_unitario') or 0)) * Decimal(str(i.get('cantidad') or 0))
                 for i in items_data
             )
         else:
-            subtotal = 0
+            subtotal = Decimal("0")
 
-        iva = round(subtotal * iva_pct / 100, 2)
+        iva = round(subtotal * Decimal(str(iva_pct)) / Decimal("100"), 2)
         total = round(subtotal + iva, 2)
 
         proveedor_nombre_db = nombre_proveedor
@@ -196,14 +200,14 @@ class BomComprasServiceMixin:
         # Preparar ítems con subtotal_linea
         items_insert = []
         for i in items_data:
-            pu = float(i.get('precio_unitario') or 0)
-            cant = float(i.get('cantidad') or 0)
+            pu = Decimal(str(i.get('precio_unitario') or 0))
+            cant = Decimal(str(i.get('cantidad') or 0))
             items_insert.append({
                 'bom_item_id': i['bom_item_id'],
                 'precio_unitario': pu if pu > 0 else None,
                 'cantidad': cant,
                 'moneda': moneda,
-                'subtotal_linea': round(pu * cant, 2) if pu > 0 else 0,
+                'subtotal_linea': round(pu * cant, 2) if pu > 0 else Decimal("0"),
             })
         await self.db.agregar_items_cotizacion(conn, cotizacion['id'], items_insert)
 
@@ -227,7 +231,7 @@ class BomComprasServiceMixin:
             raise ValueError(f"La cotización está en estatus {cotizacion['estatus']} y no puede seleccionarse.")
         if not cotizacion.get('pdf_url'):
             raise ValueError("La cotización no tiene PDF cargado. Sube el PDF antes de seleccionarla.")
-        if not cotizacion.get('total') or float(cotizacion['total']) <= 0:
+        if not cotizacion.get('total') or Decimal(str(cotizacion['total'])) <= 0:
             raise ValueError("La cotización no tiene un total válido.")
 
         bom = await self.db.get_bom_by_id(conn, cotizacion['bom_id'])
@@ -507,7 +511,7 @@ class BomComprasServiceMixin:
             raise ValueError("Las RFQ no participan del flujo de aprobación de Dirección.")
         if not cotizacion.get('pdf_url'):
             raise ValueError("La cotización no tiene PDF cargado. Sube el PDF antes de solicitar aprobación.")
-        if not cotizacion.get('total') or float(cotizacion['total']) <= 0:
+        if not cotizacion.get('total') or Decimal(str(cotizacion['total'])) <= 0:
             raise ValueError("La cotización no tiene un total válido.")
         if cotizacion['estatus'] != 'SELECCIONADA':
             raise ValueError("La cotización debe estar seleccionada antes de solicitar aprobación de Dirección.")

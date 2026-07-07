@@ -1,4 +1,5 @@
 {# Vista principal del BOM de un proyecto #}
+{% from "shared/partials/_spinner_overlay.html" import spinner_overlay %}
 <style>
 .bom-page button svg,
 .bom-page a svg {
@@ -832,9 +833,9 @@
         @htmx:after-request.window="if ($event.detail.target && $event.detail.target.id === 'resultados-materiales') { mostrarResultados = true; limpiarIndicadorBusqueda(); }"
         @htmx:response-error.window="if ($event.detail.target && $event.detail.target.id === 'resultados-materiales') { limpiarResultadosBusqueda(); }">
         <div class="flex min-h-screen items-center justify-center px-4">
-            <div class="fixed inset-0 bg-black bg-opacity-30"
-                @click="cerrar()"></div>
+            <div class="fixed inset-0 bg-black bg-opacity-30" @click="cerrar()"></div>
             <div class="relative bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 z-10">
+                {{ spinner_overlay('modal-agregar-item-overlay') }}
                 <div class="mb-4 flex items-center justify-between gap-3">
                     <h3 class="text-lg font-bold text-gray-800">Agregar Item al BOM</h3>
                     <button type="button"
@@ -876,6 +877,7 @@
 
                 <form x-ref="formAgregarItem"
                     hx-post="/bom/{{ id_proyecto }}/items" hx-target="#tabla-bom-items" hx-swap="innerHTML"
+                    hx-indicator="#modal-agregar-item-overlay"
                     hx-disabled-elt="#bom-agregar-item-submit"
                     hx-on::after-request="if(event.detail.successful && event.detail.elt === this) { cerrar(); }"
                     @submit.capture="validarSubmit($event)"

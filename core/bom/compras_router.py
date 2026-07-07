@@ -19,6 +19,7 @@ from core.permissions import require_module_access, require_any_module_access
 from core.config import settings
 from core.jinja_filters import register_timezone_filters
 from .compras_service import ESTATUS_COTIZABLE
+from .router import _toast_response
 from .schemas import EstatusBOM
 from .service import (
     BomService,
@@ -50,6 +51,25 @@ def _item_disponible_cotizacion(item: dict) -> bool:
     )
 
 
+def _item_cotizacion_json(item: dict) -> dict:
+    """Proyeccion minima y JSON-safe del item para el selector del modal de cotizacion.
+
+    El dict completo de tb_bom_items trae columnas Decimal/UUID/datetime que
+    `tojson` no puede serializar; el JS del modal (cotizacionesBom()) solo lee
+    estos 6 campos.
+    """
+    cantidad = item.get("cantidad")
+    precio_unitario = item.get("precio_unitario")
+    return {
+        "id_item": str(item["id_item"]),
+        "descripcion": item.get("descripcion"),
+        "categoria_nombre": item.get("categoria_nombre"),
+        "unidad_medida": item.get("unidad_medida"),
+        "cantidad": float(cantidad) if cantidad is not None else None,
+        "precio_unitario": float(precio_unitario) if precio_unitario is not None else None,
+    }
+
+
 # ========================================
 # COTIZACIONES (Fase C)
 # ========================================
@@ -76,7 +96,9 @@ async def _render_cotizaciones_tab(
         raise HTTPException(status_code=404, detail="BOM no encontrado")
     cotizaciones = await service.listar_cotizaciones(conn, bom_id)
     items = await service.get_items(conn, bom_id)
-    items_disponibles = [i for i in items if _item_disponible_cotizacion(i)]
+    items_disponibles = [
+        _item_cotizacion_json(i) for i in items if _item_disponible_cotizacion(i)
+    ]
     role = context.get("role")
     module_roles = context.get("module_roles", {})
     es_compras_editor = role == "ADMIN" or module_roles.get("compras") in ("editor", "admin")
@@ -184,11 +206,9 @@ async def crear_rfq_rapido(
     form = await request.form()
     raw_ids = form.getlist("item_ids")
     if not raw_ids:
-        return templates.TemplateResponse(
-            request, "shared/toast.html",
-            {"message": "Selecciona al menos un item para cotizar", "type": "error"},
+        return _toast_response(
+            request, "Selecciona al menos un item para cotizar", "error",
             status_code=400,
-            headers={"HX-Reswap": "none"},
         )
 
     try:
@@ -208,11 +228,9 @@ async def crear_rfq_rapido(
     ]
 
     if not items_data:
-        return templates.TemplateResponse(
-            request, "shared/toast.html",
-            {"message": "Todos los items seleccionados ya están autorizados o facturados", "type": "error"},
+        return _toast_response(
+            request, "Todos los items seleccionados ya están autorizados o facturados", "error",
             status_code=400,
-            headers={"HX-Reswap": "none"},
         )
 
     try:
@@ -223,20 +241,10 @@ async def crear_rfq_rapido(
             es_rfq=True,
         )
     except ValueError as e:
-        return templates.TemplateResponse(
-            request, "shared/toast.html",
-            {"message": str(e), "type": "error"},
-            status_code=400,
-            headers={"HX-Reswap": "none"},
-        )
+        return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
         logger.exception("Error de BD al crear RFQ rápido")
-        return templates.TemplateResponse(
-            request, "shared/toast.html",
-            {"message": "Error interno al crear el RFQ", "type": "error"},
-            status_code=500,
-            headers={"HX-Reswap": "none"},
-        )
+        return _toast_response(request, "Error interno al crear el RFQ", "error", status_code=500)
 
     return await _render_cotizaciones_tab(
         request, conn, service, context, id_bom,
@@ -619,7 +627,7 @@ async def aprobar_autorizacion_obra(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
+    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"]),
 ):
     user_id = context.get("user_db_id")
     user_role = context.get("role")
@@ -704,7 +712,7 @@ async def rechazar_autorizacion(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
+    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
 ):
     user_id = context.get("user_db_id")
     user_role = context.get("role")

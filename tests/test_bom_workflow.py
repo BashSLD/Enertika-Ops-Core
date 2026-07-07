@@ -60,6 +60,12 @@ class FakeWorkflowDB:
     async def get_items_sin_costo_bom(self, conn, id_bom):
         return list(self.items_sin_costo)
 
+    async def get_asignacion_proyecto(self, conn, id_proyecto, rol_proyecto, area):
+        return None
+
+    async def get_responsable_proyecto_o_global(self, conn, id_proyecto, rol_proyecto):
+        return None
+
     async def update_bom_estatus(self, conn, id_bom, estatus, **kwargs):
         self.updates.append((estatus, kwargs))
         self.bom["estatus"] = estatus.value if hasattr(estatus, "value") else estatus
@@ -117,18 +123,12 @@ def _service(db):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("field", "expected"),
-    [
-        ("responsable_ing", "falta responsable de Ingenieria"),
-        ("coordinador_obra", "falta Coordinador de Obra"),
-        ("jefe_construccion", "falta Jefe de Construccion"),
-    ],
-)
-async def test_enviar_revision_ing_bloquea_si_falta_responsable(field, expected):
+async def test_enviar_revision_ing_bloquea_si_falta_responsable():
+    """Coordinador de Obra y Jefe de Construccion ya no se validan aqui: se
+    resuelven en vivo hasta enviar_revision_obra (ver test correspondiente)."""
     user_id = uuid4()
     director_id = uuid4()
-    bom = _base_bom(**{field: None})
+    bom = _base_bom(responsable_ing=None)
     db = FakeWorkflowDB(
         bom,
         items=[{"id_item": uuid4(), "precio_unitario": 1}],
@@ -137,8 +137,32 @@ async def test_enviar_revision_ing_bloquea_si_falta_responsable(field, expected)
     )
     service = _service(db)
 
-    with pytest.raises(ValueError, match=expected):
+    with pytest.raises(ValueError, match="falta responsable de Ingenieria"):
         await service.enviar_revision_ing(FakeConn(), bom["id_bom"], user_id)
+
+    assert db.updates == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        ("coordinador_obra", "falta Coordinador de Obra"),
+        ("jefe_construccion", "falta Jefe de Construccion"),
+    ],
+)
+async def test_enviar_revision_obra_bloquea_si_falta_responsable(field, expected):
+    user_id = uuid4()
+    bom = _base_bom(estatus=EstatusBOM.APROBADO_ING.value, **{field: None})
+    db = FakeWorkflowDB(
+        bom,
+        items_sin_costo=[],
+        roles_by_user={user_id: "jefe_ingenieria"},
+    )
+    service = _service(db)
+
+    with pytest.raises(ValueError, match=expected):
+        await service.enviar_revision_obra(FakeConn(), bom["id_bom"], user_id)
 
     assert db.updates == []
 

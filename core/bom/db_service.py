@@ -5,6 +5,7 @@ Queries SQL puras con asyncpg. Recibe conn como parametro.
 
 import logging
 import json
+from decimal import Decimal
 from uuid import UUID
 from typing import Optional, List
 
@@ -234,6 +235,16 @@ class BomDBService(BomComprasDBMixin):
             id_material_interno, tipo_partida, moneda,
             tipo_origen_item, id_item_reemplazado, motivo_adenda, creado_en_adenda)
         return dict(row)
+
+    async def get_item_ids_by_bom(self, conn, id_bom: UUID) -> List[UUID]:
+        """Ids de items activos de un BOM en el orden de despliegue, para navegacion prev/next."""
+        rows = await conn.fetch("""
+            SELECT id_item
+            FROM tb_bom_items
+            WHERE id_bom = $1 AND activo = TRUE
+            ORDER BY orden ASC, created_at ASC
+        """, id_bom)
+        return [r['id_item'] for r in rows]
 
     async def get_items_by_bom(self, conn, id_bom: UUID, solo_activos: bool = True) -> List[dict]:
         """Lista items de un BOM con datos de categoria y proveedor."""
@@ -1563,10 +1574,10 @@ class BomDBService(BomComprasDBMixin):
         for r in rows:
             key = str(r['id_bom_item'])
             if key not in result:
-                result[key] = float(r['tipo_cambio_xml'])
+                result[key] = r['tipo_cambio_xml']
         return result
 
-    async def get_tasa_promedio(self, conn, days: int = 7) -> Optional[float]:
+    async def get_tasa_promedio(self, conn, days: int = 7) -> Optional[Decimal]:
         """Promedio de los ultimos N dias de tasa Banxico. Fallback si no hay TC reciente."""
         val = await conn.fetchval("""
             SELECT AVG(tasa_mxn)
@@ -1576,13 +1587,15 @@ class BomDBService(BomComprasDBMixin):
                 LIMIT $1
             ) sub
         """, days)
-        return float(val) if val else None
+        return val if val else None
 
     async def get_gasto_real_por_item(self, conn, item_ids: List[UUID]) -> dict:
         """Retorna {id_item: total_gastado} sumando importes del item actual y su item_origen.
 
         Agrupa por current_id (el ID del item actual) para que el gasto histórico de
         versiones anteriores se sume al item vigente, no se devuelva como clave separada.
+        Solo incluye items con al menos una factura vinculada (COUNT > 0): un item sin
+        compras registradas no debe distinguirse de uno con $0 de gasto real confirmado.
         """
         rows = await conn.fetch("""
             WITH expanded AS (
@@ -1593,9 +1606,9 @@ class BomDBService(BomComprasDBMixin):
                 FROM tb_bom_items bi
                 WHERE bi.id_item = ANY($1::uuid[]) AND bi.id_item_origen IS NOT NULL
             )
-            SELECT e.current_id, COALESCE(SUM(m.importe), 0) AS total_gastado
+            SELECT e.current_id, SUM(m.importe) AS total_gastado
             FROM expanded e
-            LEFT JOIN tb_materiales_historial m ON m.id_bom_item = e.target_id
+            JOIN tb_materiales_historial m ON m.id_bom_item = e.target_id
             GROUP BY e.current_id
         """, item_ids)
-        return {str(r['current_id']): float(r['total_gastado']) for r in rows}
+        return {str(r['current_id']): r['total_gastado'] for r in rows}
