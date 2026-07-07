@@ -15,10 +15,28 @@ class SimulacionDBService:
     Centraliza todas las consultas SQL para separar la lógica de acceso a datos.
     """
 
+    # Whitelist de tablas catalogo permitidas para busqueda dinamica por nombre.
+    # Vive aqui (no en el service) porque este metodo interpola el nombre de tabla
+    # directamente en el SQL (asyncpg no parametriza identificadores).
+    _ALLOWED_CATALOG_TABLES = frozenset({
+        "tb_cat_tecnologias",
+        "tb_cat_tipos_solicitud",
+        "tb_cat_estatus_oportunidades",
+        "tb_cat_motivos_cierre",
+        "tb_cat_motivos_retrabajo",
+    })
+
     async def get_oportunidad_by_id(self, conn, id_oportunidad: UUID) -> Optional[Dict[str, Any]]:
         """Obtiene una oportunidad por ID con todos sus campos raw."""
         row = await conn.fetchrow("SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
         return dict(row) if row else None
+
+    async def get_catalog_id_by_name(self, conn, table: str, name_value: str) -> Optional[int]:
+        """Busca el ID de un catálogo por nombre (case-insensitive, cacheado 30s vía ConfigService)."""
+        if table not in self._ALLOWED_CATALOG_TABLES:
+            raise ValueError(f"Tabla no permitida para busqueda de catalogo: {table}")
+        catalog_map = await ConfigService.get_catalog_map(conn, table, "nombre", "id")
+        return catalog_map.get(name_value.lower())
 
     async def get_estatus_simulacion_dropdown(self, conn, exclude_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """Obtiene opciones para el dropdown de estatus global, filtrando por módulo."""

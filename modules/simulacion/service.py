@@ -125,21 +125,9 @@ class SimulacionService:
     
     # --- MÉTODOS PRIVADOS DE RESOLUCIÓN (NO HARDCODING) ---
 
-    # Whitelist de tablas catalogo permitidas para busqueda dinamica
-    _ALLOWED_CATALOG_TABLES = frozenset({
-        "tb_cat_tecnologias",
-        "tb_cat_tipos_solicitud",
-        "tb_cat_estatus_oportunidades",
-        "tb_cat_motivos_cierre",
-        "tb_cat_motivos_retrabajo",
-    })
-
     async def _get_catalog_id_by_name(self, conn, table: str, name_value: str) -> int:
-        """Busca ID de catálogo por nombre. Valida tabla contra whitelist."""
-        if table not in self._ALLOWED_CATALOG_TABLES:
-            raise ValueError(f"Tabla no permitida para busqueda de catalogo: {table}")
-        query = f"SELECT id FROM {table} WHERE LOWER(nombre) = LOWER($1)"
-        id_val = await conn.fetchval(query, name_value)
+        """Busca ID de catálogo por nombre (whitelist de tablas validada en db_service)."""
+        id_val = await self.db.get_catalog_id_by_name(conn, table, name_value)
         if not id_val:
             logger.error(f"Configuracion faltante: No existe '{name_value}' en {table}")
             raise HTTPException(status_code=500, detail=f"Error Config: Falta '{name_value}' en BD.")

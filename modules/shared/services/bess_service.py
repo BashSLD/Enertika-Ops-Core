@@ -13,8 +13,9 @@ class BessService:
     @staticmethod
     async def create_bess_details(conn, id_oportunidad: UUID, bess_data) -> None:
         """
-        Inserta los detalles BESS para una oportunidad.
-        
+        Inserta los detalles BESS para una oportunidad, o actualiza si ya existen
+        (upsert por id_oportunidad, idempotente ante reintentos).
+
         Args:
             conn: Conexión BD
             id_oportunidad: UUID de la oportunidad padre
@@ -23,9 +24,18 @@ class BessService:
         query = """
             INSERT INTO tb_detalles_bess (
                 id_oportunidad, uso_sistema_json, cargas_criticas_kw, tiene_motores, potencia_motor_hp,
-                tiempo_autonomia, voltaje_operacion, cargas_separadas, 
+                tiempo_autonomia, voltaje_operacion, cargas_separadas,
                 tiene_planta_emergencia
             ) VALUES ($1, $2::jsonb, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (id_oportunidad) DO UPDATE SET
+                uso_sistema_json = EXCLUDED.uso_sistema_json,
+                cargas_criticas_kw = EXCLUDED.cargas_criticas_kw,
+                tiene_motores = EXCLUDED.tiene_motores,
+                potencia_motor_hp = EXCLUDED.potencia_motor_hp,
+                tiempo_autonomia = EXCLUDED.tiempo_autonomia,
+                voltaje_operacion = EXCLUDED.voltaje_operacion,
+                cargas_separadas = EXCLUDED.cargas_separadas,
+                tiene_planta_emergencia = EXCLUDED.tiene_planta_emergencia
         """
         
         # Manejo seguro de JSON
