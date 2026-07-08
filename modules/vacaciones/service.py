@@ -10,7 +10,13 @@ from core.config_service import ConfigService
 from core.permissions import user_has_module_access
 from core.timezone import fmt_time_mx, now_mx, today_mx
 from modules.asistencia import db_service as asistencia_db
-from modules.asistencia.service import recalcular_asistencia
+from modules.asistencia.service import (
+    attach_he_evidencias,
+    build_horas_extra_grupos,
+    get_he_bolsa_fecha_corte,
+    get_he_niveles_equipo_ctx,
+    recalcular_asistencia,
+)
 from modules.shared import signatures_db_service as signatures_db
 from modules.shared.utils import format_minutes
 from modules.vacaciones import db_service as db
@@ -201,6 +207,11 @@ async def crear_solicitud(
     solapadas = await db.get_solicitudes_activas_en_rango(conn, usuario_id, fecha_inicio, fecha_fin)
     if solapadas:
         raise ValueError("Ya existe una solicitud activa para ese rango de fechas")
+    compensatorios = await asistencia_db.get_he_compensatorio_activo_en_rango(
+        conn, usuario_id, fecha_inicio, fecha_fin
+    )
+    if compensatorios:
+        raise ValueError("Ya existe una solicitud activa de tiempo compensatorio en ese rango")
 
     balance_info = None
     if tipo["afecta_saldo"] and tipo["slug"] in VACACIONES_SLUGS:
@@ -301,6 +312,68 @@ async def rechazar_solicitud(
     from core.workflow.notification_service import get_notification_service
     notif = get_notification_service()
     await notif.notify_vacation_rejected(conn, rechazada, motivo_limpio)
+
+
+# ─────────────────────────────────────────────
+# Aprobaciones — contexto de vista (jefe/aprobador)
+# ─────────────────────────────────────────────
+
+_HISTORIAL_APROBACIONES_PAGE_SIZE = 10
+
+
+def puede_ver_he_niveles_equipo(context: dict) -> bool:
+    return context.get("rol_organizacional") != "director"
+
+
+async def get_historial_aprobaciones_pagina_svc(conn, usuario_id: UUID, pagina: int) -> tuple[list, bool]:
+    offset = (pagina - 1) * _HISTORIAL_APROBACIONES_PAGE_SIZE
+    fetch = _HISTORIAL_APROBACIONES_PAGE_SIZE + 1
+    rows = await db.get_historial_aprobaciones(
+        conn,
+        limit=fetch,
+        offset=offset,
+        aprobador_id=usuario_id,
+    )
+    tiene_siguiente = len(rows) > _HISTORIAL_APROBACIONES_PAGE_SIZE
+    return rows[:_HISTORIAL_APROBACIONES_PAGE_SIZE], tiene_siguiente
+
+
+async def get_aprobaciones_ctx_svc(conn, context: dict, **extra) -> dict:
+    usuario_id = UUID(str(context["user_db_id"]))
+    hoy = today_mx()
+    fecha_inicio = hoy - timedelta(days=30)
+    pendientes = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
+    ids_jefe = await db.get_empleados_donde_soy_jefe(conn, usuario_id)
+    ids_aprobador = await db.get_empleados_donde_soy_aprobador(conn, usuario_id)
+    equipo_ids = list({*ids_jefe, *ids_aprobador})
+    horas_extra_rows = await asistencia_db.get_horas_extra_equipo(
+        conn, equipo_ids, fecha_inicio, hoy
+    )
+    await attach_he_evidencias(conn, horas_extra_rows)
+    comp_pendientes = await asistencia_db.get_he_compensatorio_pendientes(conn, equipo_ids)
+    fecha_corte = await get_he_bolsa_fecha_corte(conn)
+    saldo_inicial_pendientes = await asistencia_db.get_saldo_inicial_pendientes(
+        conn, ids_jefe, fecha_corte=fecha_corte
+    )
+    he_niveles_equipo = []
+    if puede_ver_he_niveles_equipo(context):
+        he_niveles_equipo = await get_he_niveles_equipo_ctx(conn, equipo_ids)
+    horas_extra_grupos, horas_extra_json = build_horas_extra_grupos(horas_extra_rows)
+    historial, tiene_siguiente = await get_historial_aprobaciones_pagina_svc(conn, usuario_id, 1)
+    return {
+        "pendientes": pendientes,
+        "horas_extra_pendientes": horas_extra_rows,
+        "horas_extra_grupos": horas_extra_grupos,
+        "horas_extra_pendientes_json": horas_extra_json,
+        "comp_pendientes": comp_pendientes,
+        "saldo_inicial_pendientes": saldo_inicial_pendientes,
+        "he_niveles_equipo": he_niveles_equipo,
+        "historial": historial,
+        "historial_pagina": 1,
+        "historial_tiene_siguiente": tiene_siguiente,
+        "context": context,
+        **extra,
+    }
 
 
 # ─────────────────────────────────────────────

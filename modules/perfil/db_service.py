@@ -59,6 +59,8 @@ async def get_mi_asistencia(
             ad.estado,
             ad.tiene_ausencia_justificada,
             ad.horas_extra_estado,
+            ad.minutos_he_compensatorio,
+            ad.he_compensatorio_solicitud_id,
             ad.motivo_solicitud,
             ta.nombre AS tipo_ausencia_nombre,
             ta.abreviatura AS tipo_ausencia_abreviatura,

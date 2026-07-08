@@ -24,6 +24,7 @@ from modules.asistencia.schemas import SolicitudManualIn
 from modules.asistencia.service import (
     crear_solicitud_manual_svc,
     get_dias_retroactivo_manual,
+    get_he_bolsa_ctx,
     omitir_horas_extra_propio_svc,
     preparar_solicitud_manual_svc,
 )
@@ -85,6 +86,7 @@ def _preparar_asistencia_rows(
         row["salida_fmt"] = fmt_time_mx(row.get("ultima_salida"))
         row["trabajado_fmt"] = _fmt_minutos(row.get("minutos_trabajados"))
         row["extra_fmt"] = _fmt_minutos(row.get("minutos_extra"))
+        row["he_compensatorio_fmt"] = _fmt_minutos(row.get("minutos_he_compensatorio"))
         row["estado_label"] = ASISTENCIA_ESTADO_LABELS.get(
             row.get("estado", ""), row.get("estado", "")
         )
@@ -200,13 +202,15 @@ async def perfil_ui(
     fecha_inicio = hoy - timedelta(days=30)
     if es_jefe:
         pendientes_aprobacion = await vac_db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
-        equipo_ids = await vac_db.get_empleados_donde_soy_jefe(conn, usuario_id)
+        equipo_ids = await vac_db.get_equipo_ids_jefe_o_aprobador(conn, usuario_id)
         he_solicitadas = await asistencia_db.get_horas_extra_equipo(
             conn, equipo_ids, fecha_inicio, hoy, estados=("solicitado",)
         )
+        comp_pendientes = await asistencia_db.get_he_compensatorio_pendientes(conn, equipo_ids)
     else:
         pendientes_aprobacion = []
         he_solicitadas = []
+        comp_pendientes = []
     es_jefe_o_aprobador = es_jefe
     initial_tab, initial_endpoint = _resolve_initial_tab(
         tab,
@@ -224,7 +228,9 @@ async def perfil_ui(
         "tipos": tipos,
         "firma": firma,
         "es_jefe_o_aprobador": es_jefe_o_aprobador,
-        "pendientes_aprobaciones_count": len(pendientes_aprobacion) + len(he_solicitadas),
+        "pendientes_aprobaciones_count": (
+            len(pendientes_aprobacion) + len(he_solicitadas) + len(comp_pendientes)
+        ),
         "initial_tab": initial_tab,
         "initial_endpoint": initial_endpoint,
         "context": context_perfil,
@@ -369,9 +375,11 @@ async def _build_asistencia_tab_context(
         solicitudes_por_fecha=solicitudes_por_fecha,
     )
     heatmap_raw = await perfil_db.get_mi_asistencia_heatmap(conn, usuario_id, desde_heatmap, hoy)
+    bolsa = await get_he_bolsa_ctx(conn, usuario_id)
 
     return {
         "asistencia": rows,
+        "bolsa": bolsa,
         "tiene_mas": tiene_mas,
         "offset": 0,
         "context": context,

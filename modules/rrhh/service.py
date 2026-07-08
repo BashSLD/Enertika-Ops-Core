@@ -20,7 +20,10 @@ from core.config_service import ConfigService
 from core.timezone import today_mx
 from modules.asistencia import db_service as asistencia_db
 from modules.asistencia.service import (
+    attach_he_evidencias,
+    build_horas_extra_grupos,
     format_solicitudes_manuales,
+    get_he_bolsa_fecha_corte,
     recalcular_asistencia,
     recalcular_asistencia_reciente_usuario,
 )
@@ -53,6 +56,37 @@ FESTIVOS_ANIO_MAX = 2100
 async def get_solicitudes_manuales_pendientes_todas_svc(conn) -> list[dict]:
     solicitudes = await asistencia_db.get_solicitudes_manuales_pendientes_todas(conn)
     return format_solicitudes_manuales(solicitudes)
+
+
+async def get_aprobaciones_ctx_rrhh_svc(conn, context: dict, rrhh_perms: dict, **extra) -> dict:
+    hoy = today_mx()
+    pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
+    horas_extra = await asistencia_db.get_horas_extra_todas(conn, hoy - timedelta(days=30), hoy)
+    solicitudes_manuales = await get_solicitudes_manuales_pendientes_todas_svc(conn)
+    await attach_he_evidencias(conn, horas_extra)
+    horas_extra_grupos, horas_extra_json = build_horas_extra_grupos(horas_extra)
+    comp_pendientes = (
+        await asistencia_db.get_he_compensatorio_pendientes(conn)
+        if rrhh_perms["can_edit"]
+        else []
+    )
+    saldo_inicial_pendientes = (
+        await asistencia_db.get_saldo_inicial_pendientes(conn, fecha_corte=await get_he_bolsa_fecha_corte(conn))
+        if rrhh_perms["can_edit"]
+        else []
+    )
+    return {
+        "pendientes": pendientes,
+        "horas_extra_grupos": horas_extra_grupos,
+        "horas_extra_json": horas_extra_json,
+        "solicitudes_manuales_pendientes": solicitudes_manuales,
+        "comp_pendientes": comp_pendientes,
+        "saldo_inicial_pendientes": saldo_inicial_pendientes,
+        "can_manage_compensatorio": rrhh_perms["can_edit"],
+        "context": context,
+        "rrhh_perms": rrhh_perms,
+        **extra,
+    }
 
 
 async def get_dashboard_data(conn) -> dict:

@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta
-from io import BytesIO
 from typing import List, Optional
 from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
 from openpyxl.styles import Font, PatternFill
 
@@ -20,10 +18,10 @@ from modules.asistencia import db_service as asistencia_db
 from modules.asistencia.constants import ASISTENCIA_ESTADO_LABELS, ASISTENCIA_ESTADOS
 from modules.asistencia.logic import ensure_mx
 from modules.rrhh import service
-from modules.shared.utils import format_minutes, is_htmx, toast_error, toast_success
+from modules.shared.utils import excel_response, format_minutes, is_htmx, toast_error, toast_success
 from modules.vacaciones import db_service as vac_db
 from modules.vacaciones import service as vac_service
-from core.timezone import fmt_time_mx, today_mx
+from core.timezone import today_mx
 
 logger = logging.getLogger("rrhh.router")
 router = APIRouter(prefix="/rrhh", tags=["rrhh"])
@@ -198,17 +196,6 @@ def _format_estado_asistencia(estado: str | None) -> str:
     if not estado:
         return ""
     return ASISTENCIA_ESTADO_LABELS.get(estado, estado.replace("_", " "))
-
-
-def _excel_response(workbook, filename: str) -> StreamingResponse:
-    output = BytesIO()
-    workbook.save(output)
-    output.seek(0)
-    return StreamingResponse(
-        output,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
 
 
 def _style_sheet(worksheet, headers: list[str]) -> None:
@@ -421,49 +408,9 @@ async def aprobaciones_pendientes(
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
 ):
-    hoy = today_mx()
-    pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
-    horas_extra = await asistencia_db.get_horas_extra_todas(conn, hoy - timedelta(days=30), hoy)
-    solicitudes_manuales = await service.get_solicitudes_manuales_pendientes_todas_svc(conn)
-    grupos_map: dict[str, dict] = {}
-    horas_extra_json = []
-    for row in horas_extra:
-        row["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
-        row["entrada_fmt"] = fmt_time_mx(row.get("primera_entrada"))
-        row["salida_fmt"] = fmt_time_mx(row.get("ultima_salida"))
-        horas_extra_json.append({
-            "id": str(row["id"]),
-            "usuario_id": str(row["usuario_id"]),
-            "empleado_nombre": row["empleado_nombre"],
-            "fecha_fmt": row["fecha_laboral"].strftime("%d/%m/%Y"),
-            "minutos_extra": int(row.get("minutos_extra") or 0),
-            "horas_extra_estado": row.get("horas_extra_estado", "pendiente"),
-            "motivo_solicitud": row.get("motivo_solicitud"),
-            "entrada_fmt": row["entrada_fmt"],
-            "salida_fmt": row["salida_fmt"],
-        })
-        uid = str(row["usuario_id"])
-        if uid not in grupos_map:
-            grupos_map[uid] = {
-                "usuario_id": uid,
-                "empleado_nombre": row["empleado_nombre"],
-                "rows": [],
-                "tiene_solicitado": False,
-            }
-        grupos_map[uid]["rows"].append(row)
-        if row.get("horas_extra_estado") == "solicitado":
-            grupos_map[uid]["tiene_solicitado"] = True
-    return templates.TemplateResponse(
-        request, "rrhh/partials/aprobaciones_pendientes.html",
-        {
-            "pendientes": pendientes,
-            "horas_extra_grupos": list(grupos_map.values()),
-            "horas_extra_json": horas_extra_json,
-            "solicitudes_manuales_pendientes": solicitudes_manuales,
-            "context": context,
-            "rrhh_perms": _get_rrhh_permissions(context),
-        },
-    )
+    rrhh_perms = _get_rrhh_permissions(context)
+    ctx = await service.get_aprobaciones_ctx_rrhh_svc(conn, context, rrhh_perms)
+    return templates.TemplateResponse(request, "rrhh/partials/aprobaciones_pendientes.html", ctx)
 
 
 # ─────────────────────────────────────────────
@@ -512,7 +459,7 @@ async def empleados_exportar_excel(
         incluir_dados_de_baja=incluir_dados_de_baja,
     )
     workbook = _build_workbook("Vacaciones", headers, rows)
-    return _excel_response(workbook, filename)
+    return excel_response(workbook, filename)
 
 
 @router.get("/reportes")
@@ -577,7 +524,7 @@ async def reporte_asistencia_excel(
     _append_por_empleado_sheet(workbook, rows)
     _append_por_departamento_sheet(workbook, rows)
     filename = f"reporte_asistencia_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}.xlsx"
-    return _excel_response(workbook, filename)
+    return excel_response(workbook, filename)
 
 
 @router.get("/reportes/vacaciones.xlsx")
@@ -643,7 +590,7 @@ async def reporte_vacaciones_excel(
         ],
     )
     filename = f"reporte_vacaciones_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}.xlsx"
-    return _excel_response(workbook, filename)
+    return excel_response(workbook, filename)
 
 
 @router.get("/reportes/vacaciones-aprobadas.xlsx")
@@ -698,7 +645,7 @@ async def reporte_vacaciones_aprobadas_excel(
     )
     hoy = today_mx()
     filename = f"vacaciones_aprobadas_{hoy:%Y%m%d}.xlsx"
-    return _excel_response(workbook, filename)
+    return excel_response(workbook, filename)
 
 
 @router.get("/reportes/horas-extra.xlsx")
@@ -771,7 +718,7 @@ async def reporte_horas_extra_excel(
         ],
     )
     filename = f"reporte_horas_extra_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}.xlsx"
-    return _excel_response(workbook, filename)
+    return excel_response(workbook, filename)
 
 
 @router.get("/empleados/{usuario_id}/editar")
@@ -931,7 +878,7 @@ async def migracion_vacaciones_plantilla(
     _=require_manager_access("rrhh", "editor"),
 ):
     workbook = await service.generar_plantilla_migracion(conn)
-    return _excel_response(workbook, "plantilla_migracion_vacaciones.xlsx")
+    return excel_response(workbook, "plantilla_migracion_vacaciones.xlsx")
 
 
 @router.post("/migracion/importar")
@@ -1677,18 +1624,16 @@ async def aprobar_solicitud(
         await vac_service.aprobar_solicitud(conn, solicitud_id, context["user_db_id"], context)
     except ValueError as e:
         return toast_error(request, str(e))
-    pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
-    solicitudes_manuales = await service.get_solicitudes_manuales_pendientes_todas_svc(conn)
+    ctx = await service.get_aprobaciones_ctx_rrhh_svc(
+        conn,
+        context,
+        _get_rrhh_permissions(context),
+        toast_type="success",
+        toast_msg="Solicitud aprobada",
+    )
     return templates.TemplateResponse(
         request, "rrhh/partials/aprobaciones_pendientes.html",
-        {
-            "pendientes": pendientes,
-            "solicitudes_manuales_pendientes": solicitudes_manuales,
-            "context": context,
-            "rrhh_perms": _get_rrhh_permissions(context),
-            "toast_type": "success",
-            "toast_msg": "Solicitud aprobada",
-        },
+        ctx,
     )
 
 
@@ -1707,16 +1652,14 @@ async def rechazar_solicitud(
         )
     except ValueError as e:
         return toast_error(request, str(e))
-    pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
-    solicitudes_manuales = await service.get_solicitudes_manuales_pendientes_todas_svc(conn)
+    ctx = await service.get_aprobaciones_ctx_rrhh_svc(
+        conn,
+        context,
+        _get_rrhh_permissions(context),
+        toast_type="success",
+        toast_msg="Solicitud rechazada",
+    )
     return templates.TemplateResponse(
         request, "rrhh/partials/aprobaciones_pendientes.html",
-        {
-            "pendientes": pendientes,
-            "solicitudes_manuales_pendientes": solicitudes_manuales,
-            "context": context,
-            "rrhh_perms": _get_rrhh_permissions(context),
-            "toast_type": "success",
-            "toast_msg": "Solicitud rechazada",
-        },
+        ctx,
     )

@@ -448,6 +448,18 @@ async def get_empleados_donde_soy_aprobador(conn, aprobador_id: UUID) -> list[UU
     return [r["usuario_id"] for r in rows]
 
 
+async def get_equipo_ids_jefe_o_aprobador(conn, usuario_id: UUID) -> list[UUID]:
+    rows = await conn.fetch(
+        """
+        SELECT empleado_id AS usuario_id FROM tb_empleados_jefes WHERE jefe_id = $1
+        UNION
+        SELECT usuario_id FROM tb_empleados_datos WHERE id_aprobador_vacaciones = $1
+        """,
+        usuario_id,
+    )
+    return [r["usuario_id"] for r in rows]
+
+
 async def get_all_empleados_con_datos(
     conn,
     limit: int = 20,
@@ -903,16 +915,34 @@ async def completar_firma_solicitante(conn, solicitud_id: UUID) -> None:
 
 
 async def get_solicitudes_activas_en_rango(
-    conn, usuario_id: UUID, fecha_inicio: date, fecha_fin: date, excluir_id: Optional[UUID] = None
+    conn,
+    usuario_id: UUID,
+    fecha_inicio: date,
+    fecha_fin: date,
+    excluir_id: Optional[UUID] = None,
+    *,
+    solo_justificadas: bool = False,
 ) -> list[dict]:
-    rows = await conn.fetch(
+    justifica_filter = (
         """
-        SELECT id FROM tb_solicitudes_ausencia
-        WHERE usuario_id = $1
-          AND estado IN ('pendiente','aprobado')
-          AND COALESCE(es_migracion, false) = false
-          AND fecha_inicio <= $3 AND fecha_fin >= $2
-          AND ($4::uuid IS NULL OR id != $4)
+        AND EXISTS (
+            SELECT 1 FROM tb_cat_tipos_ausencia ta
+            WHERE ta.id = sa.tipo_ausencia_id
+              AND COALESCE(ta.justifica_asistencia_dia, false) = true
+        )
+        """
+        if solo_justificadas
+        else ""
+    )
+    rows = await conn.fetch(
+        f"""
+        SELECT sa.id FROM tb_solicitudes_ausencia sa
+        WHERE sa.usuario_id = $1
+          AND sa.estado IN ('pendiente','aprobado')
+          AND COALESCE(sa.es_migracion, false) = false
+          AND sa.fecha_inicio <= $3 AND sa.fecha_fin >= $2
+          AND ($4::uuid IS NULL OR sa.id != $4)
+          {justifica_filter}
         """,
         usuario_id, fecha_inicio, fecha_fin, excluir_id,
     )

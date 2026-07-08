@@ -394,81 +394,9 @@ async def descargar_pdf(
 # Aprobaciones
 # ─────────────────────────────────────────────
 
-_HISTORIAL_PAGE_SIZE = 10
-
-
-def _build_horas_extra_grupos(rows: list[dict]) -> tuple[list[dict], list[dict]]:
-    grupos_map: dict[str, dict] = {}
-    json_rows: list[dict] = []
-    for row in rows:
-        row["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
-        row["entrada_fmt"] = fmt_time_mx(row.pop("primera_entrada", None))
-        row["salida_fmt"] = fmt_time_mx(row.pop("ultima_salida", None))
-        json_rows.append({
-            "id": str(row["id"]),
-            "usuario_id": str(row["usuario_id"]),
-            "empleado_nombre": row["empleado_nombre"],
-            "fecha_fmt": row["fecha_laboral"].strftime("%d/%m/%Y"),
-            "minutos_extra": int(row.get("minutos_extra") or 0),
-            "horas_extra_estado": row.get("horas_extra_estado", "pendiente"),
-            "motivo_solicitud": row.get("motivo_solicitud"),
-            "entrada_fmt": row["entrada_fmt"],
-            "salida_fmt": row["salida_fmt"],
-        })
-        uid = str(row["usuario_id"])
-        if uid not in grupos_map:
-            grupos_map[uid] = {
-                "usuario_id": uid,
-                "empleado_nombre": row["empleado_nombre"],
-                "rows": [],
-                "tiene_solicitado": False,
-            }
-        grupos_map[uid]["rows"].append(row)
-        if row.get("horas_extra_estado") == "solicitado":
-            grupos_map[uid]["tiene_solicitado"] = True
-    return list(grupos_map.values()), json_rows
-
-
-
-async def _get_historial_pagina(conn, usuario_id: UUID, pagina: int) -> tuple[list, bool]:
-    offset = (pagina - 1) * _HISTORIAL_PAGE_SIZE
-    fetch = _HISTORIAL_PAGE_SIZE + 1
-    rows = await db.get_historial_aprobaciones(
-        conn,
-        limit=fetch,
-        offset=offset,
-        aprobador_id=usuario_id,
-    )
-    tiene_siguiente = len(rows) > _HISTORIAL_PAGE_SIZE
-    return rows[:_HISTORIAL_PAGE_SIZE], tiene_siguiente
-
-
 async def _render_aprobaciones(request: Request, conn, context: dict, **extra):
-    usuario_id = UUID(str(context["user_db_id"]))
-    hoy = today_mx()
-    fecha_inicio = hoy - timedelta(days=30)
-    pendientes = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
-    equipo_ids = await db.get_empleados_donde_soy_jefe(conn, usuario_id)
-    horas_extra_rows = await asistencia_db.get_horas_extra_equipo(
-        conn, equipo_ids, fecha_inicio, hoy
-    )
-    horas_extra_grupos, horas_extra_json = _build_horas_extra_grupos(horas_extra_rows)
-    historial, tiene_siguiente = await _get_historial_pagina(conn, usuario_id, 1)
-    return templates.TemplateResponse(
-        request,
-        "vacaciones/partials/aprobaciones.html",
-        {
-            "pendientes": pendientes,
-            "horas_extra_pendientes": horas_extra_rows,
-            "horas_extra_grupos": horas_extra_grupos,
-            "horas_extra_pendientes_json": horas_extra_json,
-            "historial": historial,
-            "historial_pagina": 1,
-            "historial_tiene_siguiente": tiene_siguiente,
-            "context": context,
-            **extra,
-        },
-    )
+    ctx = await service.get_aprobaciones_ctx_svc(conn, context, **extra)
+    return templates.TemplateResponse(request, "vacaciones/partials/aprobaciones.html", ctx)
 
 
 @router.get("/aprobaciones")
@@ -488,7 +416,7 @@ async def historial_aprobaciones_pagina(
     context=Depends(get_current_user_context),
 ):
     usuario_id = UUID(str(context["user_db_id"]))
-    historial, tiene_siguiente = await _get_historial_pagina(conn, usuario_id, pagina)
+    historial, tiene_siguiente = await service.get_historial_aprobaciones_pagina_svc(conn, usuario_id, pagina)
     return templates.TemplateResponse(
         request,
         "vacaciones/partials/historial_aprobaciones.html",
