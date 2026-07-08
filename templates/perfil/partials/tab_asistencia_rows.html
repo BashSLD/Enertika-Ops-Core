@@ -25,6 +25,9 @@
       {% if row.tiene_ausencia_justificada and row.tipo_ausencia_nombre %}
         <span class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-xs font-medium">{{ row.tipo_ausencia_nombre }}</span>
       {% endif %}
+      {% if row.minutos_he_compensatorio and row.minutos_he_compensatorio > 0 %}
+        <span class="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-medium">Horas extra tomadas &middot; {{ row.he_compensatorio_fmt }}</span>
+      {% endif %}
     </div>
 
     {% if row.entrada_fmt %}
@@ -37,45 +40,42 @@
 
   <!-- Horas extra + accion -->
   {% if row.minutos_extra and row.minutos_extra > 0 %}
-  <div x-data="{ f: false }" class="flex flex-col gap-1.5 flex-shrink-0">
+  <div x-data="{ descartando: false }" class="flex flex-col gap-1.5 flex-shrink-0">
 
-    {% if row.horas_extra_estado == 'pendiente' %}
+    {% if row.horas_extra_estado == 'feriado' %}
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold">
+        +{{ row.extra_fmt }} extra
+      </span>
+      <span class="px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold">Feriado - pago economico</span>
+    </div>
+    {% elif row.horas_extra_estado == 'pendiente' %}
     <div class="flex flex-wrap items-center gap-2">
       <span class="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
         +{{ row.extra_fmt }} extra
       </span>
-      <button x-show="!f" @click="f = true"
+      <button type="button"
+              hx-get="/asistencia/horas-extra/{{ row.id }}/form"
+              hx-target="#he-solicitud-modal"
+              hx-swap="innerHTML"
               class="px-3 py-1 rounded-lg text-xs font-medium text-white bg-[#00BABB] hover:bg-[#009899] transition-colors">
         Solicitar aprobación
       </button>
-      <button x-show="!f"
-              hx-post="/perfil/horas-extra/{{ row.id }}/omitir"
+      <button hx-post="/perfil/horas-extra/{{ row.id }}/omitir"
               hx-target="#he-row-mi-{{ row.id }}"
               hx-swap="outerHTML"
-              class="px-3 py-1 rounded-lg text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors">
-        Descartar
+              hx-on::before-request="descartando = true"
+              hx-on::after-request="descartando = false"
+              :disabled="descartando"
+              :class="descartando ? 'cursor-wait opacity-75' : ''"
+              class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors disabled:pointer-events-none">
+        <svg x-show="descartando" x-cloak class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+        </svg>
+        <span x-text="descartando ? 'Descartando...' : 'Descartar'">Descartar</span>
       </button>
     </div>
-    <form x-show="f" x-cloak
-          hx-post="/asistencia/api/horas-extra/{{ row.id }}/solicitar"
-          hx-ext="json-enc"
-          hx-target="#he-row-mi-{{ row.id }}"
-          hx-swap="outerHTML"
-          class="flex flex-col gap-1.5 w-full sm:w-72">
-      <textarea name="motivo" rows="2" required
-                placeholder="Motivo de las horas extra..."
-                class="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-[#00BABB]"></textarea>
-      <div class="flex gap-1.5 justify-end">
-        <button type="button" @click="f = false"
-                class="px-3 py-1 rounded-lg text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200">
-          Cancelar
-        </button>
-        <button type="submit"
-                class="px-3 py-1 rounded-lg text-xs font-medium text-white bg-[#00BABB] hover:bg-[#009899]">
-          Enviar
-        </button>
-      </div>
-    </form>
 
     {% else %}
     <div class="flex flex-wrap items-center gap-2">
