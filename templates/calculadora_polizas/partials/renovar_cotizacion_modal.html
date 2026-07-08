@@ -248,11 +248,17 @@
                             <input type="date" name="fecha_inicio_poliza"
                                    x-model="fecha_inicio"
                                    class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-500">
+                            <span x-show="fecha_inicio" x-text="fecha_inicio.split('-').reverse().join('/')" x-cloak
+                                  class="mt-1 block cursor-help text-xs text-gray-400"
+                                  title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-gray-500 mb-1">Fin de poliza</label>
-                            <input type="date" name="fecha_fin_poliza"
+                            <input type="date" name="fecha_fin_poliza" x-model="fecha_fin"
                                    class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-500">
+                            <span x-show="fecha_fin" x-text="fecha_fin.split('-').reverse().join('/')" x-cloak
+                                  class="mt-1 block cursor-help text-xs text-gray-400"
+                                  title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                         </div>
                     </div>
 
@@ -264,6 +270,9 @@
                         <input type="date" name="fecha_fin_poliza_anterior"
                                x-model="fecha_fin_anterior"
                                class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-500">
+                        <span x-show="fecha_fin_anterior" x-text="fecha_fin_anterior.split('-').reverse().join('/')" x-cloak
+                              class="mt-1 block cursor-help text-xs text-gray-400"
+                              title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                         <p class="text-xs text-gray-400 mt-1">
                             Si la renovacion ocurre dentro de los 6 meses posteriores y la planta
                             es instalacion Enertika, el PDF incluira la Garantia de produccion.
@@ -284,10 +293,6 @@
                 Se creara una nueva cotizacion. Los montos se calcularan con los precios y costos vigentes al momento de guardar.
             </p>
             <div class="flex items-center justify-end gap-2">
-                <button @click="cerrar()"
-                        class="btn-secondary text-sm px-4 py-2 rounded-lg">
-                    Cancelar
-                </button>
                 <button type="submit" form="form-renovar-cotizacion"
                         class="bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

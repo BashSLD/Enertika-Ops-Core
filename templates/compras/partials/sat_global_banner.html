@@ -1,13 +1,12 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
 {% if job and job.estado not in ['completado', 'error'] %}
 <div id="sat-global-banner"
      hx-get="/compras/sat/jobs/banner"
      hx-trigger="every 15s"
      hx-swap="outerHTML"
      class="fixed bottom-4 right-4 z-[100] bg-blue-600 text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 transition-all duration-300 transform translate-y-0 opacity-100 border border-blue-500">
-    <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-    </svg>
+    {{ spinner_icon('h-5 w-5', 'text-white') }}
     <div class="flex flex-col pr-2">
         <span class="text-sm font-semibold">Descargando SAT</span>
         {% if (job.total_esperado | default(0)) > 0 %}

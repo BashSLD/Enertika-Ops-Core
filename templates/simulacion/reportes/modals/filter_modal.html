@@ -4,8 +4,10 @@ Modal para configurar filtros y descargar reporte PDF.
 Se carga via HTMX desde el botón "Reporte PDF".
 #}
 
-<div x-data="{ 
+<div x-data="{
     showModal: true,
+    startDate: '',
+    endDate: '',
     closeModal() {
         this.showModal = false;
         setTimeout(() => $el.remove(), 300);
@@ -50,14 +52,20 @@ Se carga via HTMX desde el botón "Reporte PDF".
                 <label class="block text-sm font-medium text-gray-700 mb-1">Rango de Fechas</label>
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <input type="date" name="start_date" x-ref="start_date"
+                        <input type="date" name="start_date" x-ref="start_date" x-model="startDate"
                             class="w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] text-sm">
                         <span class="text-xs text-gray-500">Desde</span>
+                        <span x-show="startDate" x-text="startDate.split('-').reverse().join('/')" x-cloak
+                              class="block cursor-help text-xs text-gray-400"
+                              title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                     </div>
                     <div>
-                        <input type="date" name="end_date" x-ref="end_date"
+                        <input type="date" name="end_date" x-ref="end_date" x-model="endDate"
                             class="w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] text-sm">
                         <span class="text-xs text-gray-500">Hasta</span>
+                        <span x-show="endDate" x-text="endDate.split('-').reverse().join('/')" x-cloak
+                              class="block cursor-help text-xs text-gray-400"
+                              title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                     </div>
                 </div>
             </div>
@@ -119,17 +127,12 @@ Se carga via HTMX desde el botón "Reporte PDF".
             <!-- Actions -->
             <div class="flex justify-between items-center pt-4 border-t border-gray-100">
                 <button type="button"
-                    @click="$refs.start_date.value=''; $refs.end_date.value=''; $refs.tech_id.value=''; $refs.type_id.value=''; $refs.status_id.value=''; if($refs.user_id) $refs.user_id.value='';"
+                    @click="startDate=''; endDate=''; $refs.tech_id.value=''; $refs.type_id.value=''; $refs.status_id.value=''; if($refs.user_id) $refs.user_id.value='';"
                     class="text-xs text-gray-500 hover:text-red-500 underline decoration-dotted transition-colors">
                     Limpiar Filtros
                 </button>
 
                 <div class="flex gap-3">
-                    <button type="button" @click="closeModal()"
-                        class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium">
-                        Cancelar
-                    </button>
-
                     <!-- Ver Dashboard Interactivo -->
                     <a href="/simulacion/reportes/ui"
                         class="px-4 py-2 bg-[#123456] text-white rounded-lg hover:bg-[#0d2440] text-sm font-medium flex items-center gap-2">

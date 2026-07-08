@@ -1,3 +1,5 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
      x-data="{
        fechaMin: '',
@@ -83,10 +85,7 @@
         <button type="submit" :disabled="totalMinutos < 30 || enviando"
                 :class="(totalMinutos < 30 || enviando) ? 'cursor-not-allowed opacity-50' : ''"
                 class="inline-flex items-center gap-1.5 rounded-lg bg-[#00BABB] px-4 py-2 text-sm font-semibold text-white hover:bg-[#009899] disabled:pointer-events-none">
-          <svg x-show="enviando" x-cloak class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-          </svg>
+          {{ spinner_icon('h-4 w-4', '', '', 'x-show="enviando" x-cloak') }}
           <span x-text="enviando ? 'Enviando...' : 'Enviar'">Enviar</span>
         </button>
       </div>

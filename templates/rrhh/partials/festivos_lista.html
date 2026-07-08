@@ -107,6 +107,7 @@
       <div class="md:col-span-2">
         <label class="mb-1 block text-xs font-medium text-gray-600">Fecha</label>
         <input type="date" name="fecha" required
+               title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"
                class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
       </div>
       <div class="md:col-span-5">
@@ -140,6 +141,7 @@
             hx-swap="innerHTML"
             class="grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-12 md:items-center">
         <input type="date" name="fecha" value="{{ f.fecha.strftime('%Y-%m-%d') }}" required
+               title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"
                class="md:col-span-2 rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm">
         <input type="text" name="descripcion" value="{{ f.descripcion }}" required
                class="md:col-span-4 rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm">

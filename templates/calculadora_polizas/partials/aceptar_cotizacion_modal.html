@@ -1,6 +1,12 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
 <div id="modal-aceptar-cotizacion"
      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-     x-data="{ cerrar() { document.getElementById('modal-aceptar-cotizacion')?.remove(); } }"
+     x-data="{
+         fechaInicio: '{{ fecha_hoy }}',
+         fechaFin: '',
+         cerrar() { document.getElementById('modal-aceptar-cotizacion')?.remove(); }
+     }"
      @keydown.escape.window="cerrar()">
 
     <div
@@ -44,17 +50,24 @@
                             Inicio <span class="text-red-500">*</span>
                         </label>
                         <input type="date" name="fecha_inicio_poliza"
-                               value="{{ fecha_hoy }}"
+                               x-model="fechaInicio"
                                required
                                class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                        <span x-show="fechaInicio" x-text="fechaInicio.split('-').reverse().join('/')" x-cloak
+                              class="mt-1 block cursor-help text-xs text-gray-400"
+                              title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-gray-600 mb-1">
                             Fin <span class="text-red-500">*</span>
                         </label>
                         <input type="date" name="fecha_fin_poliza"
+                               x-model="fechaFin"
                                required
                                class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                        <span x-show="fechaFin" x-text="fechaFin.split('-').reverse().join('/')" x-cloak
+                              class="mt-1 block cursor-help text-xs text-gray-400"
+                              title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                     </div>
                 </div>
             </div>
@@ -84,17 +97,10 @@
 
         {# Footer #}
         <div class="px-5 py-4 border-t border-gray-200 flex items-center justify-end gap-2">
-            <button @click="cerrar()"
-                    class="btn-secondary text-sm px-4 py-2 rounded-lg">
-                Cancelar
-            </button>
             <button type="submit" form="form-aceptar-cotizacion"
                     class="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
                 <span class="htmx-indicator">
-                    <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                    </svg>
+                    {{ spinner_icon('h-4 w-4', 'text-white') }}
                 </span>
                 Confirmar
             </button>

@@ -80,12 +80,14 @@
     <div>
       <label class="block text-xs font-bold text-gray-700 mb-1">Fecha inicio</label>
       <input type="date" x-model="fechaInicio"
+        title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"
         :disabled="procesando"
         class="w-full rounded-lg border-gray-300 bg-white px-3 text-sm focus:ring-[#00BABB] focus:border-[#00BABB] disabled:opacity-50">
     </div>
     <div>
       <label class="block text-xs font-bold text-gray-700 mb-1">Fecha fin</label>
       <input type="date" x-model="fechaFin"
+        title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"
         :disabled="procesando"
         class="w-full rounded-lg border-gray-300 bg-white px-3 text-sm focus:ring-[#00BABB] focus:border-[#00BABB] disabled:opacity-50">
     </div>

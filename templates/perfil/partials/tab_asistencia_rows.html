@@ -1,3 +1,5 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
 {% for row in asistencia %}
 {% set estado = row.estado or 'sin_registro' %}
 <div id="he-row-mi-{{ row.id }}"
@@ -69,10 +71,7 @@
               :disabled="descartando"
               :class="descartando ? 'cursor-wait opacity-75' : ''"
               class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors disabled:pointer-events-none">
-        <svg x-show="descartando" x-cloak class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-        </svg>
+        {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="descartando" x-cloak') }}
         <span x-text="descartando ? 'Descartando...' : 'Descartar'">Descartar</span>
       </button>
     </div>

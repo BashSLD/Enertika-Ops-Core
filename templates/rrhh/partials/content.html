@@ -1,3 +1,5 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
 {% set current_tab = initial_tab | default('asistencia') %}
 {% set current_endpoint = initial_endpoint | default('/rrhh/asistencia') %}
 <div class="animate-fade-in-down px-4 pb-8"
@@ -163,10 +165,7 @@
 
   <div id="rrhh-content" hx-get="{{ current_endpoint }}" hx-trigger="load" hx-swap="innerHTML">
     <div class="flex items-center justify-center py-16 text-sm text-gray-400">
-      <svg class="animate-spin w-4 h-4 mr-2 text-[#00BABB]" fill="none" viewBox="0 0 24 24">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-      </svg>
+      {{ spinner_icon('w-4 h-4', 'text-[#00BABB]', 'mr-2') }}
       Cargando...
     </div>
   </div>

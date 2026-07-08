@@ -152,11 +152,6 @@
         <input type="hidden" name="comprobante_id" :value="selectedId">
         {% endif %}
         <input type="hidden" name="limit" value="{{ limit | default(50) }}">
-        <button type="button"
-          @click="open = false; setTimeout(() => document.getElementById('sat-match-modal-container').innerHTML = '', 250)"
-          class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
-          Cancelar
-        </button>
         <button type="submit"
           {% if not anticipo_preseleccionado %}:disabled="!selectedId"{% endif %}
           class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">

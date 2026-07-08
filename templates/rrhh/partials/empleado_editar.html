@@ -29,11 +29,14 @@
     </div>
   </div>
 
-  <div>
+  <div x-data="{ fechaContratacion: '{{ empleado.fecha_contratacion.strftime('%Y-%m-%d') if empleado and empleado.fecha_contratacion else '' }}' }">
     <label class="block text-xs font-medium text-gray-600 mb-1">Fecha de contratación</label>
     <input type="date" name="fecha_contratacion"
-      value="{{ empleado.fecha_contratacion.strftime('%Y-%m-%d') if empleado and empleado.fecha_contratacion else '' }}"
+      x-model="fechaContratacion"
       class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+    <span x-show="fechaContratacion" x-text="fechaContratacion.split('-').reverse().join('/')" x-cloak
+      class="mt-1 block cursor-help text-xs text-gray-400"
+      title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
   </div>
 
   <div class="grid grid-cols-2 gap-4">

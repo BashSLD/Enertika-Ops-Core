@@ -1,3 +1,5 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
 <div class="h-full flex flex-col animate-fade-in-down">
 
     {# DESKTOP: Header #}
@@ -271,12 +273,9 @@
                        class="w-4 h-4 rounded accent-amber-600">
                 <span class="text-sm text-gray-600">Planta externa (no instalada por Enertika)</span>
             </label>
-            <div class="flex gap-2 pt-2">
-                <button type="button"
-                        onclick="document.getElementById('modal-nueva-planta').classList.add('hidden')"
-                        class="flex-1 btn-secondary py-2 rounded-lg text-sm">Cancelar</button>
+            <div class="flex justify-end pt-2">
                 <button type="submit"
-                        class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg text-sm transition-colors">
+                        class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm transition-colors">
                     Guardar
                 </button>
             </div>
@@ -456,7 +455,7 @@ async function confirmarImportPlantasExcel() {
     const target = document.getElementById('main-content');
     target.innerHTML = `
         <div class="flex flex-col items-center justify-center py-32 h-full animate-fade-in-down w-full text-center">
-            <div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+            {{ spinner_icon('w-12 h-12', 'text-blue-600') }}
             <p class="mt-4 text-gray-600 font-medium text-lg">Importando plantas y políticas...</p>
             <p class="text-sm text-gray-400 mt-1">Este proceso puede demorar dependiendo de la cantidad de registros.</p>
         </div>

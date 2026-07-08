@@ -203,7 +203,6 @@
         </div>
 
         <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-slate-700">
-            <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
             <button type="submit" class="btn btn-primary" :disabled="seleccionados.length === 0">
                 <i class="fas fa-check-circle mr-1"></i> Confirmar y Crear Visita de Campo
             </button>
@@ -497,12 +496,11 @@
     </div>
 
     <!-- Botones normales del footer -->
-    <div x-show="!confirmandoEliminar" class="flex justify-between w-full">
+    <div x-show="!confirmandoEliminar" class="flex justify-start w-full">
         <button type="button" @click="confirmandoEliminar = true" class="btn btn-sm"
             style="font-size:0.75rem; padding:0.25rem 0.75rem; color:#f87171; background:transparent; border:1px solid rgba(239,68,68,0.3);">
             <i class="fas fa-trash-alt mr-1"></i> Eliminar Visita
         </button>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal()">Cerrar</button>
     </div>
 
     {% endif %}

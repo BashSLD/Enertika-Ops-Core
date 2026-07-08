@@ -53,6 +53,9 @@
                             </label>
                             <input type="date" name="start_date" x-model="fechaInicio"
                                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                            <span x-show="fechaInicio" x-text="fechaInicio.split('-').reverse().join('/')" x-cloak
+                                  class="mt-1 block cursor-help text-xs text-gray-400"
+                                  title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                         </div>
 
                         <div>
@@ -61,6 +64,9 @@
                             </label>
                             <input type="date" name="end_date" x-model="fechaFin"
                                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                            <span x-show="fechaFin" x-text="fechaFin.split('-').reverse().join('/')" x-cloak
+                                  class="mt-1 block cursor-help text-xs text-gray-400"
+                                  title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                         </div>
                     </div>
 
@@ -188,10 +194,6 @@
                     </button>
 
                     <div class="flex gap-3">
-                        <button type="button" onclick="closeModal('modal-filtros-analisis')"
-                            class="px-5 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors">
-                            Cancelar
-                        </button>
                         <button type="submit"
                             class="px-5 py-2 bg-[#00BABB] text-white rounded-md hover:bg-[#009fa0] transition-colors flex items-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

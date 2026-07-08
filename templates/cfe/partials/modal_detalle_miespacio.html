@@ -75,11 +75,7 @@
             </div>
         </div>
 
-        <div class="flex justify-between items-center px-6 py-4 border-t border-gray-100 flex-shrink-0">
-            <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
-                class="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                Cerrar
-            </button>
+        <div class="flex justify-end items-center px-6 py-4 border-t border-gray-100 flex-shrink-0">
             <button type="button"
                 hx-post="/cfe/servicios/{{ servicio.id }}/reintentar-alta{% if modulo %}?modulo={{ modulo }}{% endif %}"
                 hx-target="#cfe-lista"

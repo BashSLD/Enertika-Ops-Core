@@ -1,3 +1,5 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
 <div id="modal-editar-cotizacion"
      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
      x-data="{
@@ -301,12 +303,18 @@
                                 <input type="date" name="fecha_inicio_poliza"
                                        x-model="fecha_inicio"
                                        class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500">
+                                <span x-show="fecha_inicio" x-text="fecha_inicio.split('-').reverse().join('/')" x-cloak
+                                      class="mt-1 block cursor-help text-xs text-gray-400"
+                                      title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-gray-500 mb-1">Fin de poliza</label>
                                 <input type="date" name="fecha_fin_poliza"
                                        x-model="fecha_fin"
                                        class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500">
+                                <span x-show="fecha_fin" x-text="fecha_fin.split('-').reverse().join('/')" x-cloak
+                                      class="mt-1 block cursor-help text-xs text-gray-400"
+                                      title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                             </div>
                         </div>
 
@@ -322,6 +330,9 @@
                             <input type="date" name="fecha_fin_poliza_anterior"
                                    x-model="fecha_fin_anterior"
                                    class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-500">
+                            <span x-show="fecha_fin_anterior" x-text="fecha_fin_anterior.split('-').reverse().join('/')" x-cloak
+                                  class="mt-1 block cursor-help text-xs text-gray-400"
+                                  title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                         </div>
                     </div>
                 </div>
@@ -465,24 +476,15 @@
 
             {# Footer normal #}
             <div x-show="!mostrando_advertencia" class="flex items-center justify-end gap-2">
-                <button @click="cerrar()" class="btn-secondary text-sm px-4 py-2 rounded-lg">
-                    Cancelar
-                </button>
                 <button type="button"
                         @click="verificarYGuardar()"
                         :disabled="comprobando"
                         class="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
                     <span x-show="comprobando">
-                        <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                        </svg>
+                        {{ spinner_icon('h-4 w-4', 'text-white') }}
                     </span>
                     <span id="editar-spinner" class="htmx-indicator">
-                        <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                        </svg>
+                        {{ spinner_icon('h-4 w-4', 'text-white') }}
                     </span>
                     <span x-text="precio_cambiado ? 'Revisar cambios' : 'Actualizar'"></span>
                 </button>
@@ -492,17 +494,11 @@
             <div x-show="mostrando_advertencia" class="flex flex-col gap-3">
                 <p class="text-xs text-gray-500">Elige como guardar esta poliza:</p>
                 <div class="flex items-center justify-end gap-2">
-                    <button @click="cerrar()" class="btn-secondary text-sm px-4 py-2 rounded-lg">
-                        Cancelar
-                    </button>
                     <button type="button"
                             @click="usarSnapshotOriginal()"
                             class="border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5">
                         <span id="editar-spinner-snap" class="htmx-indicator">
-                            <svg class="animate-spin h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                            </svg>
+                            {{ spinner_icon('h-4 w-4', 'text-gray-500') }}
                         </span>
                         Mantener montos originales
                     </button>
@@ -510,10 +506,7 @@
                             @click="confirmarRecalculo()"
                             class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5">
                         <span class="htmx-indicator">
-                            <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                            </svg>
+                            {{ spinner_icon('h-4 w-4', 'text-white') }}
                         </span>
                         Recalcular con precios actuales
                     </button>

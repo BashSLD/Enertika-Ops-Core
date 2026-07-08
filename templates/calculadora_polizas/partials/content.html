@@ -1,3 +1,5 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
 <div class="h-full flex flex-col animate-fade-in-down"
      x-data="{
         plantas: [],
@@ -276,6 +278,8 @@
                         <label class="block text-xs font-medium text-gray-500 mb-1">Vencimiento de la poliza anterior</label>
                         <input type="date" x-model="fecha_fin_poliza_anterior"
                                class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                        <span class="block text-[11px] text-gray-400 mt-1"
+                              title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                         <p class="text-xs text-gray-400 mt-1">
                             Si la renovacion es dentro de 6 meses del vencimiento y la planta es instalacion Enertika,
                             se incluye la Garantia de produccion en el PDF.
@@ -290,10 +294,7 @@
                 <button type="submit"
                         class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2">
                     <span id="calc-spinner" class="htmx-indicator">
-                        <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                        </svg>
+                        {{ spinner_icon('h-4 w-4', 'text-white') }}
                     </span>
                     Calcular poliza
                 </button>

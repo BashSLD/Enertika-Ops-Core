@@ -76,13 +76,19 @@
                         <label class="mb-1 block text-sm font-medium text-gray-700">Periodo</label>
                         <input type="month" name="periodo" class="w-full rounded-lg border-gray-300 text-sm">
                     </div>
-                    <div>
+                    <div x-data="{ v: '' }">
                         <label class="mb-1 block text-sm font-medium text-gray-700">Fecha del documento</label>
-                        <input type="date" name="fecha_documento" class="w-full rounded-lg border-gray-300 text-sm">
+                        <input type="date" name="fecha_documento" x-model="v" class="w-full rounded-lg border-gray-300 text-sm">
+                        <span x-show="v" x-text="v.split('-').reverse().join('/')" x-cloak
+                              class="mt-1 block cursor-help text-xs text-gray-400"
+                              title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                     </div>
-                    <div>
+                    <div x-data="{ v: '' }">
                         <label class="mb-1 block text-sm font-medium text-gray-700">Fecha de vencimiento</label>
-                        <input type="date" name="fecha_vencimiento" class="w-full rounded-lg border-gray-300 text-sm">
+                        <input type="date" name="fecha_vencimiento" x-model="v" class="w-full rounded-lg border-gray-300 text-sm">
+                        <span x-show="v" x-text="v.split('-').reverse().join('/')" x-cloak
+                              class="mt-1 block cursor-help text-xs text-gray-400"
+                              title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                     </div>
                     <div x-show="tipo === 'otro'" x-cloak>
                         <label class="mb-1 block text-sm font-medium text-gray-700">Nombre del documento</label>

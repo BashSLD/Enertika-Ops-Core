@@ -1,3 +1,5 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
   <div class="w-full max-w-5xl bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
     <div class="flex items-center justify-between border-b px-6 py-4 bg-gray-50">
@@ -31,10 +33,7 @@
              class="fixed inset-0 z-[70] flex items-center justify-center bg-black/50"
              style="display:none">
           <div class="bg-white rounded-2xl p-8 flex items-center gap-5 shadow-2xl max-w-sm mx-4">
-            <svg class="animate-spin w-10 h-10 text-blue-600 flex-shrink-0" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
+            {{ spinner_icon('w-10 h-10', 'text-blue-600', 'flex-shrink-0') }}
             <div>
               <p class="font-semibold text-gray-900">Procesando coincidencias...</p>
               <p class="text-sm text-gray-500 mt-1">Descargando XMLs y actualizando comprobantes en SharePoint</p>
@@ -105,18 +104,13 @@
         </div>
         
         <div class="mt-6 flex justify-end gap-3 border-t pt-4">
-          <button type="button" onclick="document.getElementById('sat-match-modal-container').innerHTML = ''"
-            class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
-            Cancelar
-          </button>
-          <button type="submit" 
+          <button type="submit"
             class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center gap-2"
             hx-indicator="#auto-match-spinner">
             Confirmar Seleccionados
-            <svg id="auto-match-spinner" class="htmx-indicator inline-block w-4 h-4 animate-spin text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
+            <span id="auto-match-spinner" class="htmx-indicator inline-block">
+              {{ spinner_icon('w-4 h-4', 'text-white') }}
+            </span>
           </button>
         </div>
       </form>
@@ -128,12 +122,6 @@
         </svg>
         <h3 class="mt-2 text-sm font-medium text-gray-900">Sin coincidencias exactas</h3>
         <p class="mt-1 text-sm text-gray-500">No encontramos pares 1-a-1 entre las facturas y los pagos pendientes.<br>Esto puede ocurrir porque los montos no coinciden exactamente o hay facturas/pagos duplicados.</p>
-        <div class="mt-6">
-          <button type="button" onclick="document.getElementById('sat-match-modal-container').innerHTML = ''"
-            class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
-            Cerrar
-          </button>
-        </div>
       </div>
       {% endif %}
     </div>

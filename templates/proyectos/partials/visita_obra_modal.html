@@ -24,6 +24,12 @@
 
         get totalFotos() { return this.archivos.length; },
 
+        get fechaFmt() {
+            if (!this.form.fecha) return '';
+            const [y, m, d] = this.form.fecha.split('-');
+            return `${d}/${m}/${y}`;
+        },
+
         onFileChange(e) {
             const nuevos = Array.from(e.target.files);
             this.archivos = [...this.archivos, ...nuevos];
@@ -206,6 +212,9 @@
                         <label class="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
                         <input type="date" x-model="form.fecha" :max="new Date().toLocaleDateString('en-CA')"
                             class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB]">
+                        <span x-show="form.fecha" x-text="fechaFmt" x-cloak
+                              class="mt-1 block cursor-help text-xs text-gray-400"
+                              title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                         <p class="text-xs text-gray-400 mt-1">Opcional — se usa la fecha de hoy si se deja vacio</p>
                     </div>
 
@@ -350,10 +359,6 @@
 
         <!-- Footer -->
         <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 shrink-0">
-            <button type="button" @click="cerrar()"
-                class="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                Cancelar
-            </button>
             <button type="button" @click="generar()" :disabled="generando"
                 class="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-[#00BABB] rounded-lg hover:bg-[#009a9b] transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
                 <svg class="w-4 h-4" :class="{'animate-spin': generando}" fill="none" stroke="currentColor"

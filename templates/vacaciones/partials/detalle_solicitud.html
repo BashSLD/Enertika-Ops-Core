@@ -1,3 +1,5 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
 {% if toast_msg %}
 {% with type=toast_type, title="Aviso", message=toast_msg %}
 {% include "shared/toast.html" %}
@@ -166,10 +168,7 @@
       :disabled="aprobando"
       :class="aprobando ? 'cursor-wait opacity-75' : ''"
       class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:pointer-events-none transition-colors">
-      <svg x-show="aprobando" x-cloak class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-      </svg>
+      {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="aprobando" x-cloak') }}
       <span x-text="aprobando ? 'Aprobando...' : 'Aprobar y firmar'">Aprobar y firmar</span>
     </button>
 

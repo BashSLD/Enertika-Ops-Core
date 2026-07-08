@@ -669,7 +669,6 @@
 
         <!-- Footer -->
         <div x-show="!exito" class="px-6 py-4 border-t flex justify-end gap-3">
-          <button @click="cerrar()" type="button" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
           <button @click="confirmar()" type="button"
                   :disabled="!puedeConfirmar"
                   class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">

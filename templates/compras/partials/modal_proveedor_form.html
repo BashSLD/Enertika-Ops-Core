@@ -90,10 +90,6 @@
 
             {# Acciones #}
             <div class="flex justify-end gap-3 pt-2 border-t border-gray-100 mt-2">
-                <button type="button" onclick="cerrarModalProveedor()"
-                        class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                    Cancelar
-                </button>
                 <button type="submit" id="btn-guardar-proveedor"
                         class="px-5 py-2 text-sm font-semibold text-white bg-[#00BABB] hover:bg-[#009999] rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
                     {{ 'Guardar cambios' if es_edicion else 'Crear proveedor' }}

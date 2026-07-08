@@ -3,6 +3,7 @@
 {% endif %}
 
 {% block content %}
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 <div class="max-w-4xl mx-auto bg-white p-8 rounded-lg shadow-lg border-t-4 border-[#00BABB] animate-fade-in-down"
     x-data="{ 
         hasMotores: false, 
@@ -536,6 +537,7 @@
                     ¿Para cuándo lo requieres? *
                 </label>
                 <input type="date" name="fecha_ideal_usuario" required :min="minDate" x-model="val"
+                    title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"
                     class="w-full rounded-lg {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm">
             </div>
         </div>
@@ -850,13 +852,7 @@
 
             <!-- Spinner de carga (oculto por defecto) -->
             <div id="submit-indicator" class="htmx-indicator flex items-center gap-2 text-[#00BABB]">
-                <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                    </circle>
-                    <path class="opacity-75" fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                    </path>
-                </svg>
+                {{ spinner_icon('h-5 w-5') }}
                 <span class="font-medium">Guardando...</span>
             </div>
 

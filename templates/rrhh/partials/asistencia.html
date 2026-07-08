@@ -30,12 +30,8 @@
               :disabled="syncing"
               title="Sincronizar BioTime"
               class="flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-50">
-        <svg x-show="!syncing" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <svg class="w-4 h-4" :class="{'animate-spin': syncing}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-        </svg>
-        <svg x-show="syncing" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
         </svg>
       </button>
       {% if not error %}
@@ -71,11 +67,13 @@
         <div>
           <label class="block text-xs font-medium text-gray-500 mb-1">Desde</label>
           <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}"
+                 title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"
                  class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
         </div>
         <div>
           <label class="block text-xs font-medium text-gray-500 mb-1">Hasta</label>
           <input type="date" name="fecha_fin" value="{{ fecha_fin }}"
+                 title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"
                  class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
         </div>
 

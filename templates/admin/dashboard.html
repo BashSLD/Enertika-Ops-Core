@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 <div class="space-y-8 animate-fade-in-up">
 
 
@@ -111,10 +112,9 @@
                 hx-swap="none"
                 hx-indicator="#sync-ms-spinner"
                 class="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors shadow-sm flex-shrink-0 ml-4">
-                <svg id="sync-ms-spinner" class="htmx-indicator w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                </svg>
+                <span id="sync-ms-spinner" class="htmx-indicator">
+                    {{ spinner_icon('w-3.5 h-3.5') }}
+                </span>
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
@@ -866,7 +866,7 @@
         <!-- Overlay de carga -->
         <div id="perms-loading-overlay"
             class="hidden absolute inset-0 bg-white bg-opacity-90 z-10 flex flex-col items-center justify-center rounded-xl">
-            <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-[#00BABB] mb-3"></div>
+            {{ spinner_icon('h-10 w-10', 'text-[#00BABB]', 'mb-3') }}
             <span class="text-[#123456] font-bold">Guardando cambios...</span>
         </div>
 
@@ -1009,10 +1009,6 @@
         <div class="flex items-center justify-between px-6 py-4 border-t bg-gray-50 rounded-b-xl flex-shrink-0">
             <div id="perms-response-footer" class="flex-1 mr-4 min-w-0"></div>
             <div class="flex gap-3 flex-shrink-0">
-                <button type="button" onclick="closePermissionsModal()"
-                    class="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-100 transition-colors">
-                    Cancelar
-                </button>
                 <button type="button" onclick="savePermissions()"
                     class="px-5 py-2 bg-[#00BABB] text-white rounded-lg text-sm font-bold hover:bg-[#009999] transition-colors shadow-sm">
                     Guardar cambios

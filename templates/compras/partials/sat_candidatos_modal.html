@@ -132,11 +132,6 @@
     <div id="sat-confirm-exceso-banner" class="px-6"></div>
 
     <div class="px-6 py-4 border-t flex justify-end gap-3">
-      <button type="button"
-        onclick="document.getElementById('sat-candidatos-modal-container').innerHTML = ''"
-        class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
-        Cancelar
-      </button>
       <button type="submit"
         :disabled="selectedInboxIds.length === 0"
         class="px-4 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed">

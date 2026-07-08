@@ -1,3 +1,5 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
 <div id="modal-reasignar"
     class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-[10050] p-4"
     x-data="{ loading: false }"
@@ -57,16 +59,9 @@
             </p>
 
             <div class="flex justify-end gap-2 pt-1">
-                <button type="button" @click="$el.closest('#modal-reasignar').remove()"
-                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
-                    Cancelar
-                </button>
                 <button type="submit" :disabled="loading"
                     class="px-4 py-2 text-sm font-bold text-white bg-[#00BABB] rounded-lg hover:bg-[#009899] transition disabled:opacity-60 flex items-center gap-2">
-                    <svg x-show="loading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                    </svg>
+                    {{ spinner_icon('w-4 h-4', '', '', 'x-show="loading"') }}
                     <span x-text="loading ? 'Transfiriendo...' : 'Confirmar'"></span>
                 </button>
             </div>

@@ -1,3 +1,4 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 {# templates/cfe/partials/modal_buscar_periodos.html #}
 <div class="fixed inset-0 z-50 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
      id="cfe-busqueda-modal">
@@ -43,10 +44,7 @@
                     <button type="submit"
                             :disabled="enviando"
                             class="inline-flex min-w-[180px] items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#123456] hover:bg-gray-700 disabled:opacity-70 disabled:cursor-not-allowed rounded-lg transition-colors">
-                        <svg x-show="enviando" x-cloak class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                        </svg>
+                        {{ spinner_icon('h-4 w-4', '', '', 'x-show="enviando" x-cloak') }}
                         <span x-show="!enviando">Buscar y descargar</span>
                         <span x-show="enviando" x-cloak>Buscando periodos...</span>
                     </button>

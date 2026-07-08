@@ -1,4 +1,5 @@
 {% import "shared/partials/_he_evidencia_links.html" as he_evidencias %}
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 
 {% if toast_msg %}
 {% with type=toast_type, title="Aviso", message=toast_msg %}
@@ -67,10 +68,7 @@
             :disabled="aprobando"
             :class="aprobando ? 'cursor-wait opacity-75' : ''"
             class="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:pointer-events-none transition-colors">
-            <svg x-show="aprobando" x-cloak class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-            </svg>
+            {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="aprobando" x-cloak') }}
             <span x-text="aprobando ? 'Aprobando...' : 'Aprobar'">Aprobar</span>
           </button>
           <button @click="rechazandoId = '{{ sol.id }}'"
@@ -112,10 +110,7 @@
                  class="w-28 rounded-lg border border-gray-200 px-2 py-1.5 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
           <button type="submit" :disabled="confirmando" :class="confirmando ? 'cursor-wait opacity-75' : ''"
                   class="inline-flex items-center gap-1.5 rounded-lg bg-[#00BABB] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#009899] disabled:pointer-events-none">
-            <svg x-show="confirmando" x-cloak class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-            </svg>
+            {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="confirmando" x-cloak') }}
             <span x-text="confirmando ? 'Confirmando...' : 'Confirmar'">Confirmar</span>
           </button>
         </div>
@@ -152,10 +147,7 @@
                   :disabled="aprobando"
                   :class="aprobando ? 'cursor-wait opacity-75' : ''"
                   class="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:pointer-events-none">
-            <svg x-show="aprobando" x-cloak class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-            </svg>
+            {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="aprobando" x-cloak') }}
             <span x-text="aprobando ? 'Aprobando...' : 'Aprobar'">Aprobar</span>
           </button>
           <form hx-post="/asistencia/api/compensatorio/{{ sol.id }}/rechazar"
@@ -168,10 +160,7 @@
                    class="w-36 rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:border-[#00BABB] focus:ring-[#00BABB]">
             <button type="submit" :disabled="rechazando" :class="rechazando ? 'cursor-wait opacity-75' : ''"
                     class="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:pointer-events-none">
-              <svg x-show="rechazando" x-cloak class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-              </svg>
+              {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="rechazando" x-cloak') }}
               <span x-text="rechazando ? 'Rechazando...' : 'Rechazar'">Rechazar</span>
             </button>
           </form>
@@ -319,10 +308,9 @@
                     :disabled="omitiendoIds.includes('{{ row.id }}')"
                     :class="omitiendoIds.includes('{{ row.id }}') ? 'cursor-wait opacity-75' : ''"
                     class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-white bg-red-500 hover:bg-red-600 transition-colors flex items-center gap-1.5 disabled:pointer-events-none">
-              <svg x-show="omitiendoIds.includes('{{ row.id }}')" x-cloak class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-              </svg>
+              <span x-show="omitiendoIds.includes('{{ row.id }}')" x-cloak>
+                {{ spinner_icon('w-3.5 h-3.5') }}
+              </span>
               <svg x-show="!omitiendoIds.includes('{{ row.id }}')" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
               </svg>
@@ -381,10 +369,6 @@
           </div>
         </div>
         <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
-          <button @click="openModal = false"
-                  class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-300 hover:bg-gray-50">
-            Cancelar
-          </button>
           <button
             @click="
               confirmandoAprobacion = true;
@@ -407,10 +391,7 @@
             :disabled="confirmandoAprobacion || !modalComentario.trim() || modalMinutos < 30 || modalMinutos > modalMaxMinutos"
             :class="confirmandoAprobacion ? 'cursor-wait opacity-75' : ''"
             class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
-            <svg x-show="confirmandoAprobacion" x-cloak class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-            </svg>
+            {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="confirmandoAprobacion" x-cloak') }}
             <span x-text="confirmandoAprobacion ? 'Aprobando...' : 'Confirmar aprobación'">Confirmar aprobación</span>
           </button>
         </div>
@@ -487,10 +468,7 @@
                     :disabled="aprobando"
                     :class="aprobando ? 'cursor-wait opacity-75' : ''"
                     class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#00BABB] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#009899] disabled:pointer-events-none">
-              <svg x-show="aprobando" x-cloak class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-              </svg>
+              {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="aprobando" x-cloak') }}
               <span x-text="aprobando ? 'Aprobando...' : 'Aprobar'">Aprobar</span>
             </button>
             <button type="button"
@@ -523,10 +501,7 @@
             </button>
             <button type="submit" :disabled="rechazando" :class="rechazando ? 'cursor-wait opacity-75' : ''"
                     class="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-red-700 disabled:pointer-events-none">
-              <svg x-show="rechazando" x-cloak class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-              </svg>
+                {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="rechazando" x-cloak') }}
               <span x-text="rechazando ? 'Rechazando...' : 'Confirmar'">Confirmar</span>
             </button>
           </div>
@@ -578,10 +553,7 @@
           :disabled="rechazandoEnvio"
           :class="rechazandoEnvio ? 'cursor-wait opacity-75' : ''"
           class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-red-600 py-2.5 text-sm font-semibold text-white hover:bg-red-700 transition-colors disabled:pointer-events-none">
-          <svg x-show="rechazandoEnvio" x-cloak class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-          </svg>
+          {{ spinner_icon('h-4 w-4', '', '', 'x-show="rechazandoEnvio" x-cloak') }}
           <span x-text="rechazandoEnvio ? 'Rechazando...' : 'Confirmar rechazo'">Confirmar rechazo</span>
         </button>
       </div>

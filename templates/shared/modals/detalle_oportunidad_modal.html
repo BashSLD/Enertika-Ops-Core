@@ -2,6 +2,8 @@
 <!-- Uso: Desde módulos Comercial y Simulación -->
 <!-- Modo: Solo Lectura (View-Only) -->
 
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
 <div id="modal-backdrop-detalle"
     class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-[9999] animate-fade-in p-4">
 
@@ -260,10 +262,7 @@
                                     <button type="button" @click="onSubmit()" :disabled="loading || submitting || (totalSitios() > 0 && selectedSitios.length === 0)"
                                         class="px-4 py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition shadow-sm flex items-center gap-1 disabled:opacity-70 disabled:cursor-not-allowed">
                                         <!-- Spinner (loading) -->
-                                        <svg x-show="loading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                                        </svg>
+                                        {{ spinner_icon('w-4 h-4', '', '', 'x-show="loading"') }}
                                         <!-- Checkmark (idle) -->
                                         <svg x-show="!loading" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"

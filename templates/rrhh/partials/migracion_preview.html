@@ -1,3 +1,5 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
 {% if error %}
 <div class="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
   {{ error }}
@@ -20,10 +22,7 @@
         :disabled="confirmando"
         hx-confirm="¿Aplicar esta migracion historica?"
         class="inline-flex items-center gap-2 rounded-xl bg-[#00BABB] px-4 py-2 text-sm font-semibold text-white hover:bg-[#009A9B] transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-        <svg x-show="confirmando" class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-        </svg>
+        {{ spinner_icon('h-4 w-4', '', '', 'x-show="confirmando"') }}
         <span x-text="confirmando ? 'Aplicando...' : 'Confirmar migracion'"></span>
       </button>
     </form>

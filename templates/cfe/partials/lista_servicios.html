@@ -1,3 +1,4 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 {# templates/cfe/partials/lista_servicios.html #}
 {% if _toast is defined %}
 {% with message=_toast.message, type=_toast.type, title=_toast.title|default('Recibos CFE') %}
@@ -332,10 +333,7 @@
                     <p class="text-sm text-gray-500 mt-0.5 font-mono">{{ s.numero_servicio }}</p>
                     {% if s.miespacio_estatus in ['pendiente', 'registrando'] %}
                     <span class="mt-1 inline-flex items-center gap-1 text-xs text-amber-600 font-medium">
-                        <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                        </svg>
+                        {{ spinner_icon('h-3 w-3') }}
                         Registrando en MiEspacio…
                     </span>
                     {% elif s.miespacio_estatus == 'error' %}
@@ -369,20 +367,14 @@
                 <div class="flex items-center gap-2 flex-shrink-0">
                     {% if s.descarga_activa %}
                     <span class="flex items-center gap-1 text-xs text-yellow-700 bg-yellow-50 px-2 py-1 rounded">
-                        <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                        </svg>
+                        {{ spinner_icon('h-3 w-3') }}
                         Descarga en curso
                     </span>
                     {% endif %}
                     {% if s.busqueda_activa_id %}
                     <span class="flex items-center gap-1 text-xs {% if s.busqueda_activa_estatus == 'completado' %}text-blue-700 bg-blue-50{% else %}text-yellow-700 bg-yellow-50{% endif %} px-2 py-1 rounded">
                         {% if s.busqueda_activa_estatus in ['pendiente', 'descargando'] %}
-                        <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                        </svg>
+                        {{ spinner_icon('h-3 w-3') }}
                         Búsqueda en curso
                         {% else %}
                         Resultados listos

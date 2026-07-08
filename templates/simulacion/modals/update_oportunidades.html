@@ -363,6 +363,9 @@
                                 value="{{ op.deadline_negociado | time_mx("%Y-%m-%d") }}"
                                 {% if not can_edit_assignment_fields %}disabled{% elif not can_assign_others %}:disabled="responsable !== '{{ current_user_id }}'"{% endif %}
                                 class="w-full border border-gray-300 rounded-md shadow-sm focus:ring-1 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 text-sm transition-colors">
+                            <span x-show="deadline" x-text="deadline.split('-').reverse().join('/')" x-cloak
+                                  class="mt-1 block cursor-help text-xs text-gray-400"
+                                  title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                         </div>
                     </div>
 

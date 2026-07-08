@@ -1,5 +1,6 @@
 {% from "shared/partials/_buscador_lupa.html" import buscador_lupa %}
 {% from "shared/partials/_chip_kpi.html" import chip_info %}
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 <div class="h-full flex flex-col animate-fade-in-down"
      x-data="{ activeTab: '{{ active_tab }}' }">
 
@@ -350,10 +351,7 @@
         <div id="polizas-tab-content">
             {# Placeholder: reemplazado por HTMX al primer clic del tab #}
             <div class="flex items-center justify-center py-16 text-gray-400 gap-3">
-                <svg class="animate-spin w-5 h-5 opacity-40" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                </svg>
+                {{ spinner_icon('w-5 h-5', '', 'opacity-40') }}
                 <p class="text-sm">Cargando polizas...</p>
             </div>
         </div>
@@ -369,10 +367,7 @@
          {% endif %}>
         <div id="plantas-tab-content">
             <div class="flex items-center justify-center py-16 text-gray-400 gap-3">
-                <svg class="animate-spin w-5 h-5 opacity-40" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                </svg>
+                {{ spinner_icon('w-5 h-5', '', 'opacity-40') }}
                 <p class="text-sm">Cargando plantas...</p>
             </div>
         </div>
@@ -388,10 +383,7 @@
          {% endif %}>
         <div id="incidencias-tab-content">
             <div class="flex items-center justify-center py-16 text-gray-400 gap-3">
-                <svg class="animate-spin w-5 h-5 opacity-40" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                </svg>
+                {{ spinner_icon('w-5 h-5', '', 'opacity-40') }}
                 <p class="text-sm">Cargando incidencias...</p>
             </div>
         </div>
@@ -408,10 +400,7 @@
          {% endif %}>
         <div id="config-tab-content">
             <div class="flex items-center justify-center py-16 text-gray-400 gap-3">
-                <svg class="animate-spin w-5 h-5 opacity-40" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                </svg>
+                {{ spinner_icon('w-5 h-5', '', 'opacity-40') }}
                 <p class="text-sm">Cargando configuración...</p>
             </div>
         </div>

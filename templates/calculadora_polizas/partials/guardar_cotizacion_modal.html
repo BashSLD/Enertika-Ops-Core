@@ -1,3 +1,5 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
 <div id="modal-guardar-cotizacion"
      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
      x-data="{ cerrar() { document.getElementById('modal-guardar-cotizacion')?.remove(); } }"
@@ -94,17 +96,10 @@
 
         {# Footer #}
         <div class="px-5 py-4 border-t border-gray-200 flex items-center justify-end gap-2 flex-shrink-0">
-            <button @click="cerrar()"
-                    class="btn-secondary text-sm px-4 py-2 rounded-lg">
-                Cancelar
-            </button>
             <button type="submit" form="form-guardar-cotizacion"
                     class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
                 <span id="guardar-spinner" class="htmx-indicator">
-                    <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                    </svg>
+                    {{ spinner_icon('h-4 w-4', 'text-white') }}
                 </span>
                 Guardar cotizacion
             </button>

@@ -1,3 +1,4 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 <!-- Modal de Upload PDFs -->
 <div id="upload-modal"
     class="hidden fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
@@ -64,14 +65,7 @@
                 <!-- Loading indicator -->
                 <div id="upload-indicator" class="htmx-indicator mt-4">
                     <div class="flex items-center justify-center gap-2 text-[#00BABB]">
-                        <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none"
-                            viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                            </circle>
-                            <path class="opacity-75" fill="currentColor"
-                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                            </path>
-                        </svg>
+                        {{ spinner_icon('h-5 w-5') }}
                         <span>Procesando archivos...</span>
                     </div>
                 </div>
@@ -83,10 +77,6 @@
 
         <!-- Footer -->
         <div class="bg-gray-50 px-6 py-3 flex justify-end gap-3">
-            <button type="button" onclick="clearUploadModal()"
-                class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
-                Cancelar
-            </button>
             <button type="submit" form="upload-form" id="upload-submit-btn" disabled
                 class="px-4 py-2 text-sm font-medium text-white bg-[#00BABB] rounded-lg hover:bg-[#009999] disabled:opacity-50 disabled:cursor-not-allowed">
                 Cargar Comprobantes
