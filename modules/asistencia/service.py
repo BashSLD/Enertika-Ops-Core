@@ -2,17 +2,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import date, datetime, time, timedelta
 from typing import Any
 from uuid import UUID
 
 import asyncpg
 import httpx
+from fastapi import UploadFile
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
 
 from core.config_service import ConfigService
 from core.database import get_db_pool
+from core.integrations.sharepoint import SharePointService
+from core.microsoft import get_ms_auth
 from core.permissions import user_has_module_access
-from core.timezone import now_mx, today_mx
+from core.timezone import fmt_time_mx, now_mx, today_mx
 from modules.asistencia import db_service as db
 from modules.asistencia.biotime_client import BioTimeClient
 from modules.asistencia.constants import BIOTIME_CONFIG_KEYS
@@ -79,70 +85,27 @@ async def aprobar_horas_extra_svc(
         raise ValueError("Este registro ya fue procesado")
     if row["usuario_id"] not in equipo_ids:
         raise ValueError("Registro no encontrado")
+    if row["usuario_id"] == aprobador_id:
+        raise ValueError("No puedes aprobar tus propias horas extra")
+    if row.get("minutos_he_compensatorio"):
+        raise ValueError("Este dia ya tiene horas extra tomadas")
     validate_aprobacion(minutos_aprobados, row["minutos_extra"], comentario)
 
-    await db.aprobar_horas_extra(
-        conn,
-        asistencia_id=asistencia_id,
-        aprobador_id=aprobador_id,
-        minutos_aprobados=minutos_aprobados,
-        comentario=comentario,
-    )
+    async with conn.transaction():
+        acreditados = await db.aprobar_horas_extra(
+            conn,
+            asistencia_id=asistencia_id,
+            aprobador_id=aprobador_id,
+            minutos_aprobados=minutos_aprobados,
+            comentario=comentario,
+        )
+        if acreditados != 1:
+            raise ValueError("Este registro ya fue procesado o no aplica a bolsa")
     return {
         "empleado_nombre": row["empleado_nombre"],
+        "empleado_email": row.get("empleado_email"),
         "fecha_laboral": row["fecha_laboral"],
         "minutos_aprobados": minutos_aprobados,
-        "comentario": comentario,
-    }
-
-
-async def bulk_aprobar_horas_extra_svc(
-    conn,
-    *,
-    asistencia_ids: list[UUID],
-    aprobador_id: UUID,
-    minutos_aprobados: int,
-    comentario: str,
-    equipo_ids: list[UUID],
-) -> dict:
-    if not asistencia_ids:
-        raise ValueError("Lista de registros vacía")
-
-    rows = await db.bulk_get_asistencia_info(conn, asistencia_ids)
-    if len(rows) != len(asistencia_ids):
-        raise ValueError("Uno o más registros no encontrados")
-
-    usuario_ids_set = {row["usuario_id"] for row in rows}
-    if len(usuario_ids_set) != 1:
-        raise ValueError("Los registros seleccionados deben pertenecer al mismo empleado")
-
-    empleado_id = next(iter(usuario_ids_set))
-    if empleado_id not in equipo_ids:
-        raise ValueError("Registro no encontrado")
-
-    for row in rows:
-        if row["horas_extra_estado"] not in ("pendiente", "solicitado"):
-            fecha = row["fecha_laboral"].strftime("%d/%m/%Y")
-            raise ValueError(f"El registro del {fecha} ya fue procesado")
-        validate_aprobacion(minutos_aprobados, row["minutos_extra"], comentario)
-
-    await db.bulk_aprobar_horas_extra(
-        conn,
-        asistencia_ids=asistencia_ids,
-        aprobador_id=aprobador_id,
-        minutos_aprobados=minutos_aprobados,
-        comentario=comentario,
-    )
-
-    return {
-        "empleado_nombre": rows[0]["empleado_nombre"],
-        "dias_aprobados": [
-            {
-                "fecha": row["fecha_laboral"],
-                "minutos_aprobados": minutos_aprobados,
-            }
-            for row in rows
-        ],
         "comentario": comentario,
     }
 
@@ -559,6 +522,16 @@ async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[
         fecha_fin=fecha_fin,
     )
     festivos = await db.get_festivos_range(conn, fecha_inicio, fecha_fin)
+    compensatorios = await db.get_he_compensatorio_aprobado_por_fechas(
+        conn,
+        usuario_ids=usuario_ids,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
+    comp_by_user_date = {
+        (row["usuario_id"], row["fecha_descanso"]): row
+        for row in compensatorios
+    }
 
     broad_start = datetime.combine(fecha_inicio - timedelta(days=1), time.min, tzinfo=MX_TZ)
     broad_end = datetime.combine(fecha_fin + timedelta(days=2), time.min, tzinfo=MX_TZ)
@@ -595,6 +568,21 @@ async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[
             now=calculated_at,
             min_minutos_he=min_minutos_he,
         )
+        compensatorio = comp_by_user_date.get((usuario_id, fecha_laboral))
+        minutos_compensatorio_aprobado = int(compensatorio["minutos_solicitados"]) if compensatorio else 0
+        minutos_compensatorio = 0
+        if minutos_compensatorio_aprobado > 0 and not checks_dia:
+            minutos_compensatorio = minutos_compensatorio_aprobado
+            observaciones = [resumen.get("observaciones")] if resumen.get("observaciones") else []
+            observaciones.append("Horas extra tomadas")
+            if resumen.get("minutos_programados", 0) and minutos_compensatorio >= resumen["minutos_programados"]:
+                resumen["estado"] = "he_compensatorio"
+            resumen["minutos_extra"] = 0
+            resumen["observaciones"] = "; ".join(observaciones)
+
+        horas_extra_estado = "pendiente"
+        if fecha_laboral in festivos and resumen.get("minutos_extra", 0) > 0:
+            horas_extra_estado = "feriado"
         rows_to_save.append({
             "usuario_id": usuario_id,
             "sucursal_id": sucursal_by_user.get(usuario_id),
@@ -603,6 +591,9 @@ async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[
             "tiene_ausencia_justificada": tiene_ausencia_justificada,
             "solicitud_ausencia_id": solicitud_id,
             "calculated_at": calculated_at,
+            "horas_extra_estado": horas_extra_estado,
+            "minutos_he_compensatorio": minutos_compensatorio,
+            "he_compensatorio_solicitud_id": compensatorio["id"] if minutos_compensatorio > 0 else None,
             **resumen,
         })
 
@@ -706,6 +697,63 @@ async def recuperar_horas_extra_svc(
     return {"empleado_nombre": row["empleado_nombre"]}
 
 
+async def revertir_dia_horas_extra_svc(
+    conn,
+    *,
+    asistencia_id: UUID,
+    revertido_por: UUID,
+) -> dict:
+    """Correccion manual RH: reabre un dia 'feriado' o 'aprobado' congelado por BioTime.
+
+    Uso exclusivo RH (sin credito que revertir en 'feriado'; reversion de credito
+    en 'aprobado' via revertir_horas_extra_aprobado). Sin exposicion en UI todavia
+    — ver PENDIENTES_RH.md seccion 4.
+    """
+    row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
+    if not row:
+        raise ValueError("Registro no encontrado")
+
+    estado = row["horas_extra_estado"]
+    if estado == "feriado":
+        ok = await db.recuperar_dia_feriado(conn, asistencia_id)
+    elif estado == "aprobado":
+        ok = await db.revertir_horas_extra_aprobado(conn, asistencia_id, revertido_por)
+    else:
+        raise ValueError("Solo se puede corregir un registro en estado 'feriado' o 'aprobado'")
+
+    if not ok:
+        raise ValueError("El registro ya no esta en el estado esperado")
+    return {
+        "empleado_nombre": row["empleado_nombre"],
+        "fecha_laboral": row["fecha_laboral"],
+        "estado_anterior": estado,
+    }
+
+
+def _validar_registro_propio(row: dict | None, usuario_id: UUID, motivo: str) -> str:
+    if not row:
+        raise ValueError("Registro no encontrado")
+    if row["usuario_id"] != usuario_id:
+        raise ValueError("No tienes permiso para este registro")
+    if not motivo or not motivo.strip():
+        raise ValueError("El motivo es obligatorio")
+    return motivo.strip()
+
+
+async def _validar_solicitud_horas_extra(conn, row: dict, usuario_id: UUID, motivo: str) -> str:
+    motivo_limpio = _validar_registro_propio(row, usuario_id, motivo)
+    if row["horas_extra_estado"] == "feriado":
+        raise ValueError("Las horas trabajadas en feriado son pago economico y no van a bolsa")
+    festivos = await db.get_festivos_range(conn, row["fecha_laboral"], row["fecha_laboral"])
+    if row["fecha_laboral"] in festivos:
+        raise ValueError("Las horas trabajadas en feriado son pago economico y no van a bolsa")
+    if row["horas_extra_estado"] != "pendiente":
+        raise ValueError("Solo puedes solicitar aprobacion de registros pendientes")
+    if row.get("minutos_he_compensatorio"):
+        raise ValueError("Este dia ya tiene horas extra tomadas")
+    return motivo_limpio
+
+
 async def solicitar_aprobacion_svc(
     conn,
     *,
@@ -715,15 +763,7 @@ async def solicitar_aprobacion_svc(
     empleado_nombre: str | None = None,
 ) -> dict:
     row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
-    if not row:
-        raise ValueError("Registro no encontrado")
-    if row["usuario_id"] != usuario_id:
-        raise ValueError("No tienes permiso para este registro")
-    if row["horas_extra_estado"] != "pendiente":
-        raise ValueError("Solo puedes solicitar aprobacion de registros pendientes")
-    if not motivo or not motivo.strip():
-        raise ValueError("El motivo es obligatorio")
-    motivo_limpio = motivo.strip()
+    motivo_limpio = await _validar_solicitud_horas_extra(conn, row, usuario_id, motivo)
     await db.solicitar_aprobacion_horas_extra(conn, asistencia_id, usuario_id, motivo_limpio)
     if empleado_nombre:
         await _notificar_solicitud_horas_extra(
@@ -765,6 +805,566 @@ async def _notificar_solicitud_horas_extra(
         cc_emails=cc_emails,
         via_rh=not jefe_emails,
     )
+
+
+async def attach_he_evidencias(conn, rows: list[dict]) -> list[dict]:
+    evidencias = await db.get_he_evidencias_for_aprobador(conn, [row["id"] for row in rows])
+    for row in rows:
+        row["evidencias"] = evidencias.get(str(row["id"]), [])
+    return rows
+
+
+def build_horas_extra_grupos(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    grupos_map: dict[str, dict] = {}
+    json_rows: list[dict] = []
+    for row in rows:
+        row["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
+        row["entrada_fmt"] = fmt_time_mx(row.pop("primera_entrada", None))
+        row["salida_fmt"] = fmt_time_mx(row.pop("ultima_salida", None))
+        json_rows.append({
+            "id": str(row["id"]),
+            "usuario_id": str(row["usuario_id"]),
+            "empleado_nombre": row["empleado_nombre"],
+            "fecha_fmt": row["fecha_laboral"].strftime("%d/%m/%Y"),
+            "minutos_extra": int(row.get("minutos_extra") or 0),
+            "horas_extra_estado": row.get("horas_extra_estado", "pendiente"),
+            "motivo_solicitud": row.get("motivo_solicitud"),
+            "entrada_fmt": row["entrada_fmt"],
+            "salida_fmt": row["salida_fmt"],
+        })
+        uid = str(row["usuario_id"])
+        if uid not in grupos_map:
+            grupos_map[uid] = {
+                "usuario_id": uid,
+                "empleado_nombre": row["empleado_nombre"],
+                "rows": [],
+                "tiene_solicitado": False,
+            }
+        grupos_map[uid]["rows"].append(row)
+        if row.get("horas_extra_estado") == "solicitado":
+            grupos_map[uid]["tiene_solicitado"] = True
+    return list(grupos_map.values()), json_rows
+
+
+def _format_he_item(row: dict) -> dict:
+    item = dict(row)
+    item["minutos_fmt"] = format_minutes(item.get("minutos") or item.get("minutos_solicitados") or 0)
+    return item
+
+
+async def get_he_nivel_ctx(conn, usuario_id: UUID) -> dict | None:
+    nivel = await db.get_he_nivel_usuario(conn, usuario_id, today_mx().year)
+    return dict(nivel) if nivel else None
+
+
+async def get_he_niveles_equipo_ctx(conn, usuario_ids: list[UUID]) -> list[dict]:
+    return await db.get_he_niveles_equipo(conn, usuario_ids, today_mx().year)
+
+
+async def get_he_niveles_escalera_ctx(conn, usuario_id: UUID, nivel_actual: dict | None = None) -> dict:
+    catalogo = await db.get_he_niveles_catalogo(conn)
+    if nivel_actual is None:
+        nivel_actual = await get_he_nivel_ctx(conn, usuario_id)
+    horas_actuales = nivel_actual["horas_actuales"] if nivel_actual else 0
+    niveles = [
+        {
+            **fila,
+            "alcanzado": fila["umbral_horas"] <= horas_actuales,
+            "actual": bool(nivel_actual) and fila["nivel"] == nivel_actual["nivel"],
+        }
+        for fila in catalogo
+    ]
+    return {
+        "niveles": niveles,
+        "horas_actuales": horas_actuales,
+        "horas_faltantes": nivel_actual["horas_faltantes"] if nivel_actual else None,
+        "es_maximo": bool(nivel_actual) and nivel_actual["es_maximo"],
+    }
+
+
+async def get_he_bolsa_ctx(conn, usuario_id: UUID) -> dict:
+    saldo = await db.get_he_saldo_usuario(conn, usuario_id)
+    movimientos = await db.get_he_movimientos_usuario(conn, usuario_id)
+    solicitudes = await db.get_he_solicitudes_compensatorio_usuario(conn, usuario_id)
+    nivel_ctx = await get_he_nivel_ctx(conn, usuario_id)
+    return {
+        "saldo": saldo,
+        "saldo_fmt": {
+            "acumulado": format_minutes(saldo["minutos_acumulados"]),
+            "tomado": format_minutes(saldo["minutos_tomados"]),
+            "en_proceso": format_minutes(saldo["minutos_en_proceso"]),
+            "disponible": format_minutes(saldo["minutos_disponibles"]),
+        },
+        "movimientos": [_format_he_item(row) for row in movimientos],
+        "solicitudes": [_format_he_item(row) for row in solicitudes],
+        "nivel_ctx": nivel_ctx,
+        "niveles_ctx": await get_he_niveles_escalera_ctx(conn, usuario_id, nivel_actual=nivel_ctx),
+    }
+
+
+def validar_debito_compensatorio(saldo_disponible: int, minutos_solicitados: int) -> None:
+    if minutos_solicitados <= 0:
+        raise ValueError("Los minutos solicitados deben ser mayores a 0")
+    if saldo_disponible < minutos_solicitados:
+        raise ValueError("Saldo insuficiente en la bolsa de horas extra")
+
+
+def _build_he_bolsa_workbook(usuarios: list[dict], saldos: dict, movimientos: list[dict], feriados: list[dict]) -> Workbook:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Bolsa HE"
+    title_fill = PatternFill("solid", fgColor="00BABB")
+    header_fill = PatternFill("solid", fgColor="E5E7EB")
+    mov_by_user: dict[UUID, list[dict]] = {}
+    for row in movimientos:
+        mov_by_user.setdefault(row["usuario_id"], []).append(row)
+    fer_by_user: dict[UUID, list[dict]] = {}
+    for row in feriados:
+        fer_by_user.setdefault(row["usuario_id"], []).append(row)
+
+    headers = ["Fecha", "Concepto", "Horas", "Saldo despues"]
+    for usuario in usuarios:
+        uid = usuario["id_usuario"]
+        saldo = saldos.get(uid, {
+            "minutos_acumulados": 0,
+            "minutos_tomados": 0,
+            "minutos_disponibles": 0,
+        })
+        ws.append([usuario.get("nombre") or "", usuario.get("email") or "", usuario.get("jefes_nombres") or ""])
+        for cell in ws[ws.max_row]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = title_fill
+        ws.append([
+            "Horas acumuladas",
+            "Horas tomadas",
+            "Horas disponibles",
+        ])
+        ws.append([
+            round((saldo.get("minutos_acumulados") or 0) / 60, 2),
+            round((saldo.get("minutos_tomados") or 0) / 60, 2),
+            round((saldo.get("minutos_disponibles") or 0) / 60, 2),
+        ])
+        ws.append(headers)
+        for cell in ws[ws.max_row]:
+            cell.font = Font(bold=True)
+            cell.fill = header_fill
+        for mov in mov_by_user.get(uid, []):
+            horas = round((mov["minutos"] if mov["tipo"] == "CREDITO" else -mov["minutos"]) / 60, 2)
+            ws.append([
+                mov["fecha_referencia"],
+                mov["concepto"],
+                horas,
+                round((mov["saldo_despues"] or 0) / 60, 2),
+            ])
+        for feriado in fer_by_user.get(uid, []):
+            ws.append([
+                feriado["fecha_referencia"],
+                feriado["concepto"],
+                round((feriado["minutos_extra"] or 0) / 60, 2),
+                "",
+            ])
+        ws.append([])
+    for column_cells in ws.columns:
+        letter = column_cells[0].column_letter
+        ws.column_dimensions[letter].width = min(42, max(12, max(len(str(c.value or "")) for c in column_cells) + 2))
+    return wb
+
+
+async def generar_reporte_bolsa_he_svc(conn, *, scope: str, usuario_id: UUID, context: dict) -> Workbook:
+    if scope == "propio":
+        usuario_ids = [usuario_id]
+    elif scope == "equipo":
+        equipo = await get_equipo_ids(conn, usuario_id, context)
+        usuario_ids = equipo or [usuario_id]
+    else:
+        if not user_has_module_access("rrhh", context, "viewer"):
+            raise PermissionError("No tienes acceso a este reporte")
+        empleados = await vacaciones_db.get_all_empleados_con_datos(
+            conn, limit=10000, offset=0, incluir_dados_de_baja=False
+        )
+        usuario_ids = [row["id_usuario"] for row in empleados]
+
+    usuarios = await db.get_he_reporte_usuarios(conn, usuario_ids)
+    saldos = await db.get_he_saldo_reporte(conn, usuario_ids)
+    movimientos = await db.get_he_movimientos_reporte(conn, usuario_ids)
+    feriados = await db.get_he_feriados_reporte(conn, usuario_ids)
+    return _build_he_bolsa_workbook(usuarios, saldos, movimientos, feriados)
+
+
+async def _get_schedule_fecha(conn, usuario_id: UUID, fecha_descanso: date) -> ScheduleConfig | None:
+    rows = await db.get_attendance_contexts(conn, [usuario_id])
+    schedule_by_user_day, _ = _build_context_maps(rows)
+    return schedule_by_user_day.get((usuario_id, fecha_descanso.weekday()))
+
+
+async def _validar_fecha_compensatorio(conn, usuario_id: UUID, fecha_descanso: date) -> ScheduleConfig:
+    hoy = today_mx()
+    if fecha_descanso <= hoy:
+        raise ValueError("La fecha debe ser a partir de manana")
+    if fecha_descanso.weekday() >= 5:
+        raise ValueError("El tiempo compensatorio debe solicitarse en un dia laboral")
+    festivos = await db.get_festivos_range(conn, fecha_descanso, fecha_descanso)
+    if fecha_descanso in festivos:
+        raise ValueError("No se puede solicitar tiempo compensatorio en feriado")
+    schedule = await _get_schedule_fecha(conn, usuario_id, fecha_descanso)
+    if not schedule or not schedule.es_laboral or schedule.minutos_programados <= 0:
+        raise ValueError("No hay jornada laboral programada para esa fecha")
+    return schedule
+
+
+async def solicitar_compensatorio_svc(
+    conn,
+    *,
+    usuario_id: UUID,
+    fecha_descanso: date,
+    minutos_solicitados: int,
+    motivo: str,
+) -> dict:
+    motivo_limpio = (motivo or "").strip()
+    if not motivo_limpio:
+        raise ValueError("El motivo es obligatorio")
+
+    async with conn.transaction():
+        await db.lock_he_bolsa_usuario(conn, usuario_id)
+        schedule = await _validar_fecha_compensatorio(conn, usuario_id, fecha_descanso)
+        if minutos_solicitados < 30 or minutos_solicitados > min(1440, schedule.minutos_programados):
+            raise ValueError("Los minutos solicitados deben estar dentro de la jornada programada")
+
+        ausencias = await vacaciones_db.get_solicitudes_activas_en_rango(
+            conn, usuario_id, fecha_descanso, fecha_descanso, solo_justificadas=True
+        )
+        if ausencias:
+            raise ValueError("Ya existe una ausencia activa para esa fecha")
+
+        saldo = await db.get_he_saldo_usuario(conn, usuario_id)
+        validar_debito_compensatorio(saldo["minutos_disponibles"], minutos_solicitados)
+        try:
+            solicitud = await db.crear_he_solicitud_compensatorio(
+                conn,
+                usuario_id=usuario_id,
+                fecha_descanso=fecha_descanso,
+                minutos_solicitados=minutos_solicitados,
+                motivo=motivo_limpio,
+            )
+        except asyncpg.UniqueViolationError as exc:
+            raise ValueError("Ya existe una solicitud activa para esa fecha") from exc
+
+    await _notificar_compensatorio_solicitud(conn, solicitud)
+    return solicitud
+
+
+async def _notificar_compensatorio_solicitud(conn, solicitud: dict | None) -> None:
+    if not solicitud:
+        return
+    from core.workflow.notification_service import NotificationService
+
+    svc_notif = NotificationService()
+    jefes = await db.get_jefes_del_empleado(conn, solicitud["usuario_id"])
+    destinatarios = {j["email"] for j in jefes if j.get("email")}
+    via_rh = False
+    if not destinatarios:
+        destinatarios = await svc_notif._get_rh_emails_cc(conn)
+        via_rh = True
+    await svc_notif.notify_compensatorio_solicitud(
+        conn,
+        empleado_nombre=solicitud["empleado_nombre"],
+        fecha_descanso=solicitud["fecha_descanso"],
+        minutos_fmt=format_minutes(solicitud["minutos_solicitados"]),
+        motivo=solicitud["motivo"],
+        destinatarios=destinatarios,
+        via_rh=via_rh,
+    )
+
+
+def _validar_permiso_compensatorio(solicitud: dict, aprobador_id: UUID, equipo_ids: list[UUID]) -> None:
+    if solicitud["usuario_id"] not in equipo_ids:
+        raise ValueError("Solicitud no encontrada")
+    if solicitud["usuario_id"] == aprobador_id:
+        raise ValueError("No puedes aprobar o rechazar tu propia solicitud")
+
+
+async def _lock_solicitud_compensatorio_pendiente(
+    conn, solicitud_id: UUID, aprobador_id: UUID, equipo_ids: list[UUID]
+) -> dict:
+    solicitud = await db.get_he_compensatorio_by_id(conn, solicitud_id, for_update=True)
+    if not solicitud:
+        raise ValueError("Solicitud no encontrada")
+    if solicitud["estatus"] != "pendiente":
+        raise ValueError("La solicitud ya fue procesada")
+    _validar_permiso_compensatorio(solicitud, aprobador_id, equipo_ids)
+    return solicitud
+
+
+async def aprobar_compensatorio_svc(
+    conn,
+    *,
+    solicitud_id: UUID,
+    aprobador_id: UUID,
+    equipo_ids: list[UUID],
+    comentario: str | None = None,
+) -> dict:
+    async with conn.transaction():
+        solicitud = await _lock_solicitud_compensatorio_pendiente(
+            conn, solicitud_id, aprobador_id, equipo_ids
+        )
+        if solicitud["fecha_descanso"] < today_mx():
+            raise ValueError("La solicitud vencio; rechazala para liberar el saldo")
+
+        estado_dia = await db.get_horas_extra_estado_en_fecha(
+            conn, solicitud["usuario_id"], solicitud["fecha_descanso"]
+        )
+        if estado_dia in ("solicitado", "aprobado"):
+            raise ValueError(
+                "Ese dia ya tiene horas extra en proceso o aprobadas; no se puede aplicar como compensatorio"
+            )
+
+        await db.lock_he_bolsa_usuario(conn, solicitud["usuario_id"])
+        saldo = await db.get_he_saldo_usuario(
+            conn, solicitud["usuario_id"], excluir_solicitud_pendiente_id=solicitud_id
+        )
+        validar_debito_compensatorio(
+            saldo["minutos_disponibles"], solicitud["minutos_solicitados"]
+        )
+        updated = await db.aprobar_he_compensatorio(
+            conn,
+            solicitud_id=solicitud_id,
+            aprobador_id=aprobador_id,
+            comentario=(comentario or "").strip(),
+        )
+        if not updated:
+            raise ValueError("La solicitud ya fue procesada")
+        await recalcular_asistencia(conn, [(solicitud["usuario_id"], solicitud["fecha_descanso"])])
+
+    result = {**solicitud, **updated}
+    await _notificar_compensatorio_resuelto(conn, result, aprobado=True)
+    return result
+
+
+async def rechazar_compensatorio_svc(
+    conn,
+    *,
+    solicitud_id: UUID,
+    aprobador_id: UUID,
+    equipo_ids: list[UUID],
+    comentario: str,
+) -> dict:
+    comentario_limpio = (comentario or "").strip()
+    if not comentario_limpio:
+        raise ValueError("El comentario es obligatorio")
+    async with conn.transaction():
+        solicitud = await _lock_solicitud_compensatorio_pendiente(
+            conn, solicitud_id, aprobador_id, equipo_ids
+        )
+        updated = await db.rechazar_he_compensatorio(
+            conn,
+            solicitud_id=solicitud_id,
+            aprobador_id=aprobador_id,
+            comentario=comentario_limpio,
+        )
+        if not updated:
+            raise ValueError("La solicitud ya fue procesada")
+    result = {**solicitud, **updated}
+    await _notificar_compensatorio_resuelto(conn, result, aprobado=False)
+    return result
+
+
+async def cancelar_compensatorio_svc(conn, *, solicitud_id: UUID, usuario_id: UUID) -> dict:
+    async with conn.transaction():
+        updated = await db.cancelar_he_compensatorio(
+            conn,
+            solicitud_id=solicitud_id,
+            usuario_id=usuario_id,
+        )
+        if not updated:
+            raise ValueError("Solo puedes cancelar solicitudes pendientes propias")
+    return updated
+
+
+async def _notificar_compensatorio_resuelto(conn, solicitud: dict | None, *, aprobado: bool) -> None:
+    if not solicitud:
+        return
+    from core.workflow.notification_service import NotificationService
+
+    svc_notif = NotificationService()
+    await svc_notif.notify_compensatorio_resuelto(conn, solicitud, aprobado=aprobado)
+
+
+async def get_he_bolsa_fecha_corte(conn) -> date:
+    valor = await ConfigService.get_global_config(conn, "HE_BOLSA_FECHA_CORTE", "2026-07-07", str)
+    return date.fromisoformat(valor)
+
+
+async def confirmar_saldo_inicial_svc(
+    conn,
+    *,
+    usuario_id: UUID,
+    minutos: int,
+    confirmado_por: UUID,
+    context: dict,
+) -> dict:
+    if minutos < 0:
+        raise ValueError("El saldo inicial no puede ser negativo")
+    es_rrhh = user_has_module_access("rrhh", context, "editor")
+    ids_jefe = await vacaciones_db.get_empleados_donde_soy_jefe(conn, confirmado_por)
+    if not es_rrhh and usuario_id not in ids_jefe:
+        raise ValueError("Solo el jefe directo o RRHH pueden confirmar este saldo")
+    fecha_corte = await get_he_bolsa_fecha_corte(conn)
+    async with conn.transaction():
+        try:
+            return await db.confirmar_saldo_inicial(
+                conn,
+                usuario_id=usuario_id,
+                minutos=minutos,
+                confirmado_por=confirmado_por,
+                fecha_corte=fecha_corte,
+            )
+        except asyncpg.UniqueViolationError as exc:
+            raise ValueError("El saldo inicial ya fue confirmado") from exc
+
+
+async def ajuste_manual_svc(
+    conn,
+    *,
+    usuario_id: UUID,
+    tipo: str,
+    minutos: int,
+    concepto: str,
+    creado_por: UUID,
+) -> UUID:
+    tipo_limpio = (tipo or "").strip().upper()
+    concepto_limpio = (concepto or "").strip()
+    if tipo_limpio not in {"CREDITO", "DEBITO"}:
+        raise ValueError("Tipo de ajuste invalido")
+    if minutos <= 0:
+        raise ValueError("Los minutos deben ser mayores a 0")
+    if not concepto_limpio:
+        raise ValueError("El concepto es obligatorio")
+    async with conn.transaction():
+        await db.lock_he_bolsa_usuario(conn, usuario_id)
+        if tipo_limpio == "DEBITO":
+            saldo = await db.get_he_saldo_usuario(conn, usuario_id)
+            validar_debito_compensatorio(saldo["minutos_disponibles"], minutos)
+        return await db.crear_he_ajuste_manual(
+            conn,
+            usuario_id=usuario_id,
+            tipo=tipo_limpio,
+            minutos=minutos,
+            concepto=concepto_limpio,
+            fecha_referencia=today_mx(),
+            creado_por=creado_por,
+        )
+
+
+_HE_EVIDENCIA_ALLOWED_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/webp"}
+
+
+def _safe_filename(filename: str) -> str:
+    name = filename.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._") or "evidencia"
+
+
+async def _validate_he_evidencias(
+    conn, evidencias: list[UploadFile] | None
+) -> list[tuple[UploadFile, int]]:
+    files = [f for f in (evidencias or []) if f and f.filename]
+    configs = await ConfigService.get_global_configs_bulk(
+        conn,
+        {
+            "HE_EVIDENCIA_MAX_ARCHIVOS": (3, int),
+            "HE_EVIDENCIA_MAX_MB": (4, int),
+        },
+    )
+    max_archivos = configs["HE_EVIDENCIA_MAX_ARCHIVOS"]
+    max_mb = configs["HE_EVIDENCIA_MAX_MB"]
+    if len(files) > max_archivos:
+        raise ValueError(f"Solo puedes adjuntar hasta {max_archivos} archivos")
+    max_bytes = max_mb * 1024 * 1024
+    result: list[tuple[UploadFile, int]] = []
+    for file in files:
+        if file.content_type not in _HE_EVIDENCIA_ALLOWED_TYPES:
+            raise ValueError("Solo se aceptan PDF o imagenes como evidencia")
+        await file.seek(0)
+        content = await file.read()
+        await file.seek(0)
+        if len(content) > max_bytes:
+            raise ValueError(f"Cada evidencia debe pesar maximo {max_mb} MB")
+        result.append((file, len(content)))
+    return result
+
+
+async def subir_evidencias_he_y_solicitar_svc(
+    conn,
+    *,
+    asistencia_id: UUID,
+    usuario_id: UUID,
+    motivo: str,
+    empleado_nombre: str,
+    evidencias: list[UploadFile] | None,
+) -> dict:
+    row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
+    motivo_limpio = await _validar_solicitud_horas_extra(conn, row, usuario_id, motivo)
+    files_with_sizes = await _validate_he_evidencias(conn, evidencias)
+    upload_results: list[tuple[UploadFile, dict, int]] = []
+    config = None
+    sp_service = None
+    if files_with_sizes:
+        base_folder = await ConfigService.get_global_config(conn, "SHAREPOINT_BASE_FOLDER", "", str)
+        if not base_folder:
+            raise ValueError("Falta configurar SHAREPOINT_BASE_FOLDER")
+        token = await get_ms_auth().get_application_token()
+        if not token:
+            raise ValueError("No se pudo obtener token de aplicacion para SharePoint")
+        sp_service = SharePointService(token)
+        config = await sp_service._resolve_config(conn)
+        if not config.get("site_id") and not config.get("drive_id"):
+            raise ValueError("Falta configurar SharePoint para evidencias")
+        folder = f"{base_folder.strip('/')}/he_evidencia/{usuario_id}/{asistencia_id}"
+        timestamp = now_mx().strftime("%Y%m%d_%H%M%S")
+        for file, _size in files_with_sizes:
+            file.filename = f"{timestamp}_{_safe_filename(file.filename)}"
+
+        results = [
+            await sp_service.upload_file(conn, file, folder, _config=config)
+            for file, _size in files_with_sizes
+        ]
+        upload_results = [
+            (file, result, size)
+            for (file, size), result in zip(files_with_sizes, results)
+        ]
+
+    try:
+        async with conn.transaction():
+            await db.solicitar_aprobacion_horas_extra(conn, asistencia_id, usuario_id, motivo_limpio)
+            for file, result, size in upload_results:
+                await db.insertar_he_evidencia(
+                    conn,
+                    upload_result=result,
+                    usuario_id=usuario_id,
+                    asistencia_id=asistencia_id,
+                    subido_por_id=usuario_id,
+                    content_type=file.content_type or "application/octet-stream",
+                    tamano_bytes=size,
+                )
+    except (asyncpg.PostgresError, ValueError):
+        if sp_service and config:
+            for _, result, _ in upload_results:
+                item_id = result.get("id")
+                if item_id:
+                    try:
+                        await sp_service.delete_file_by_item_id(conn, item_id, _config=config)
+                    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+                        logger.warning("No se pudo limpiar evidencia HE huerfana: %s", exc)
+        raise
+
+    await _notificar_solicitud_horas_extra(
+        conn,
+        usuario_id=usuario_id,
+        empleado_nombre=empleado_nombre,
+        fecha_laboral=row["fecha_laboral"],
+        minutos_extra=row["minutos_extra"],
+        motivo=motivo_limpio,
+    )
+    return {"fecha_laboral": row["fecha_laboral"], "minutos_extra": row["minutos_extra"]}
 
 
 async def _get_config_manual_asistencia(conn) -> tuple[int, int]:

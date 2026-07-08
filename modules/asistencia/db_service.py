@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 
 async def get_last_transaction_id(conn) -> int | None:
@@ -480,21 +480,34 @@ async def upsert_asistencia_diaria_batch(conn, rows: list[dict]) -> None:
             (usuario_id, sucursal_id, fecha_laboral, primera_entrada, ultima_salida,
              minutos_trabajados, minutos_programados, minutos_extra, estado,
              tiene_vacaciones, tiene_ausencia_justificada, solicitud_ausencia_id, observaciones, calculated_at,
+             horas_extra_estado, minutos_he_compensatorio, he_compensatorio_solicitud_id,
              updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,now())
         ON CONFLICT (usuario_id, fecha_laboral) DO UPDATE SET
             sucursal_id = EXCLUDED.sucursal_id,
             primera_entrada = EXCLUDED.primera_entrada,
             ultima_salida = EXCLUDED.ultima_salida,
             minutos_trabajados = EXCLUDED.minutos_trabajados,
             minutos_programados = EXCLUDED.minutos_programados,
-            minutos_extra = EXCLUDED.minutos_extra,
+            minutos_extra = CASE
+                WHEN EXCLUDED.minutos_he_compensatorio > 0 THEN 0
+                WHEN tb_asistencia_diaria.horas_extra_estado IN ('solicitado', 'aprobado', 'omitido', 'feriado')
+                    THEN tb_asistencia_diaria.minutos_extra
+                ELSE EXCLUDED.minutos_extra
+            END,
             estado = EXCLUDED.estado,
             tiene_vacaciones = EXCLUDED.tiene_vacaciones,
             tiene_ausencia_justificada = EXCLUDED.tiene_ausencia_justificada,
             solicitud_ausencia_id = EXCLUDED.solicitud_ausencia_id,
             observaciones = EXCLUDED.observaciones,
             calculated_at = EXCLUDED.calculated_at,
+            horas_extra_estado = CASE
+                WHEN tb_asistencia_diaria.horas_extra_estado IN ('solicitado', 'aprobado', 'omitido', 'feriado')
+                    THEN tb_asistencia_diaria.horas_extra_estado
+                ELSE EXCLUDED.horas_extra_estado
+            END,
+            minutos_he_compensatorio = EXCLUDED.minutos_he_compensatorio,
+            he_compensatorio_solicitud_id = EXCLUDED.he_compensatorio_solicitud_id,
             updated_at = now()
         """,
         [
@@ -513,6 +526,9 @@ async def upsert_asistencia_diaria_batch(conn, rows: list[dict]) -> None:
                 row.get("solicitud_ausencia_id"),
                 row.get("observaciones"),
                 row["calculated_at"],
+                row.get("horas_extra_estado", "pendiente"),
+                row.get("minutos_he_compensatorio", 0),
+                row.get("he_compensatorio_solicitud_id"),
             )
             for row in rows
         ],
@@ -555,6 +571,8 @@ async def get_reporte_asistencia(
             ad.tiene_ausencia_justificada,
             ad.observaciones,
             ad.horas_extra_estado,
+            ad.minutos_he_compensatorio,
+            ad.he_compensatorio_solicitud_id,
             ad.motivo_solicitud,
             ta.nombre AS tipo_ausencia_nombre,
             ta.abreviatura AS tipo_ausencia_abreviatura,
@@ -595,6 +613,8 @@ async def get_reporte_asistencia(
             true AS tiene_ausencia_justificada,
             'Ausencia aprobada: ' || ta.nombre AS observaciones,
             NULL::text AS horas_extra_estado,
+            0::int AS minutos_he_compensatorio,
+            NULL::uuid AS he_compensatorio_solicitud_id,
             NULL::text AS motivo_solicitud,
             ta.nombre AS tipo_ausencia_nombre,
             ta.abreviatura AS tipo_ausencia_abreviatura,
@@ -797,7 +817,9 @@ async def get_asistencia_para_aprobar(conn, asistencia_id: UUID) -> dict | None:
             ad.fecha_laboral,
             ad.minutos_extra,
             ad.horas_extra_estado,
-            u.nombre AS empleado_nombre
+            ad.minutos_he_compensatorio,
+            u.nombre AS empleado_nombre,
+            u.email AS empleado_email
         FROM tb_asistencia_diaria ad
         JOIN tb_usuarios u ON u.id_usuario = ad.usuario_id
         WHERE ad.id = $1
@@ -814,45 +836,14 @@ async def aprobar_horas_extra(
     aprobador_id: UUID,
     minutos_aprobados: int,
     comentario: str,
-) -> None:
-    await conn.execute(
-        """
-        WITH ins AS (
-            INSERT INTO tb_horas_extra_aprobaciones
-                (asistencia_id, aprobador_id, minutos_aprobados, comentario)
-            VALUES ($1, $2, $3, $4)
-        )
-        UPDATE tb_asistencia_diaria
-        SET horas_extra_estado = 'aprobado',
-            horas_extra_resumen_rh_at = NULL
-        WHERE id = $1
-        """,
-        asistencia_id,
-        aprobador_id,
-        minutos_aprobados,
-        comentario,
+) -> int:
+    return await bulk_aprobar_horas_extra(
+        conn,
+        asistencia_ids=[asistencia_id],
+        aprobador_id=aprobador_id,
+        minutos_aprobados=minutos_aprobados,
+        comentario=comentario,
     )
-
-
-async def bulk_get_asistencia_info(
-    conn, asistencia_ids: list[UUID]
-) -> list[dict]:
-    rows = await conn.fetch(
-        """
-        SELECT
-            ad.id,
-            ad.usuario_id,
-            ad.fecha_laboral,
-            ad.minutos_extra,
-            ad.horas_extra_estado,
-            u.nombre AS empleado_nombre
-        FROM tb_asistencia_diaria ad
-        JOIN tb_usuarios u ON u.id_usuario = ad.usuario_id
-        WHERE ad.id = ANY($1::uuid[])
-        """,
-        asistencia_ids,
-    )
-    return [dict(row) for row in rows]
 
 
 async def bulk_aprobar_horas_extra(
@@ -862,25 +853,64 @@ async def bulk_aprobar_horas_extra(
     aprobador_id: UUID,
     minutos_aprobados: int,
     comentario: str,
-) -> None:
-    await conn.execute(
+) -> int:
+    return await conn.fetchval(
         """
-        WITH ins AS (
+        WITH target AS (
+            SELECT ad.id, ad.usuario_id, ad.fecha_laboral
+            FROM tb_asistencia_diaria ad
+            WHERE ad.id = ANY($1::uuid[])
+              AND ad.horas_extra_estado IN ('pendiente', 'solicitado')
+              AND ad.minutos_extra > 0
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM tb_cat_festivos f
+                  WHERE f.fecha = ad.fecha_laboral
+              )
+            FOR UPDATE
+        ),
+        ins AS (
             INSERT INTO tb_horas_extra_aprobaciones
                 (asistencia_id, aprobador_id, minutos_aprobados, comentario)
-            SELECT unnest($1::uuid[]), $2, $3, $4
+            SELECT id, $2, $3, $4
+            FROM target
             ON CONFLICT (asistencia_id) DO NOTHING
+            RETURNING id AS aprobacion_id, asistencia_id
+        ),
+        mov AS (
+            INSERT INTO tb_he_bolsa_movimientos
+                (usuario_id, tipo, minutos, concepto, fecha_referencia, aprobacion_id, creado_por)
+            SELECT t.usuario_id,
+                   'CREDITO',
+                   $3,
+                   'Horas extra aprobadas',
+                   t.fecha_laboral,
+                   i.aprobacion_id,
+                   $2
+            FROM ins i
+            JOIN target t ON t.id = i.asistencia_id
+            ON CONFLICT DO NOTHING
+            RETURNING aprobacion_id
+        ),
+        credited AS (
+            SELECT i.asistencia_id
+            FROM ins i
+            JOIN mov m ON m.aprobacion_id = i.aprobacion_id
+        ),
+        upd AS (
+            UPDATE tb_asistencia_diaria ad
+            SET horas_extra_estado = 'aprobado',
+                horas_extra_resumen_rh_at = NULL
+            WHERE ad.id IN (SELECT asistencia_id FROM credited)
+            RETURNING 1
         )
-        UPDATE tb_asistencia_diaria
-        SET horas_extra_estado = 'aprobado',
-            horas_extra_resumen_rh_at = NULL
-        WHERE id = ANY($1::uuid[])
+        SELECT COUNT(*)::int FROM upd
         """,
         asistencia_ids,
         aprobador_id,
         minutos_aprobados,
         comentario,
-    )
+    ) or 0
 
 
 async def count_horas_extra_pendientes(conn, usuario_ids: list[UUID]) -> int:
@@ -927,6 +957,79 @@ async def recuperar_horas_extra(conn, asistencia_id: UUID) -> None:
     )
 
 
+async def recuperar_dia_feriado(conn, asistencia_id: UUID) -> bool:
+    """Reabre un dia marcado 'feriado' para que el proximo recalculo de BioTime lo recompute.
+
+    'feriado' nunca pasa por aprobar_horas_extra (no genera credito en la bolsa ni
+    fila en tb_horas_extra_aprobaciones), por lo que no hay nada que revertir en el
+    ledger — a diferencia de 'aprobado', ver revertir_horas_extra_aprobado.
+    """
+    row = await conn.fetchrow(
+        """
+        UPDATE tb_asistencia_diaria
+        SET horas_extra_estado = 'pendiente',
+            horas_extra_resumen_rh_at = NULL
+        WHERE id = $1
+          AND horas_extra_estado = 'feriado'
+        RETURNING id
+        """,
+        asistencia_id,
+    )
+    return row is not None
+
+
+async def revertir_horas_extra_aprobado(conn, asistencia_id: UUID, revertido_por: UUID) -> bool:
+    """Corrige manualmente un dia ya 'aprobado' (p.ej. BioTime se corrigio despues del approve).
+
+    upsert_asistencia_diaria_batch congela minutos_extra/horas_extra_estado una vez
+    'aprobado' para proteger el credito ya hecho a tb_he_bolsa_movimientos de ser
+    sobreescrito silenciosamente por el recalculo periodico. Esta funcion es la
+    unica via de reconciliacion: reversa el credito con un DEBITO explicito, libera
+    la aprobacion (permite un nuevo approve tras el proximo recalculo) y regresa el
+    dia a 'pendiente'. Uso exclusivo de RH via API — sin boton en UI todavia.
+    """
+    async with conn.transaction():
+        row = await conn.fetchrow(
+            """
+            SELECT ad.usuario_id, ad.fecha_laboral, hea.id AS aprobacion_id, hea.minutos_aprobados
+            FROM tb_asistencia_diaria ad
+            JOIN tb_horas_extra_aprobaciones hea ON hea.asistencia_id = ad.id
+            WHERE ad.id = $1
+              AND ad.horas_extra_estado = 'aprobado'
+            FOR UPDATE OF ad
+            """,
+            asistencia_id,
+        )
+        if not row:
+            return False
+
+        await conn.execute(
+            "DELETE FROM tb_horas_extra_aprobaciones WHERE id = $1",
+            row["aprobacion_id"],
+        )
+        await conn.execute(
+            """
+            INSERT INTO tb_he_bolsa_movimientos
+                (usuario_id, tipo, minutos, concepto, fecha_referencia, creado_por)
+            VALUES ($1, 'DEBITO', $2, 'Reversion de horas extra aprobadas (correccion manual RH)', $3, $4)
+            """,
+            row["usuario_id"],
+            row["minutos_aprobados"],
+            row["fecha_laboral"],
+            revertido_por,
+        )
+        await conn.execute(
+            """
+            UPDATE tb_asistencia_diaria
+            SET horas_extra_estado = 'pendiente',
+                horas_extra_resumen_rh_at = NULL
+            WHERE id = $1
+            """,
+            asistencia_id,
+        )
+    return True
+
+
 async def solicitar_aprobacion_horas_extra(
     conn, asistencia_id: UUID, usuario_id: UUID, motivo: str
 ) -> None:
@@ -947,6 +1050,752 @@ async def solicitar_aprobacion_horas_extra(
         usuario_id,
         motivo,
     )
+
+
+async def lock_he_bolsa_usuario(conn, usuario_id: UUID) -> None:
+    await conn.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+        str(usuario_id),
+    )
+
+
+async def get_he_saldo_usuario(
+    conn, usuario_id: UUID, excluir_solicitud_pendiente_id: UUID | None = None
+) -> dict:
+    row = await conn.fetchrow(
+        """
+        WITH movimientos AS (
+            SELECT
+                COALESCE(SUM(minutos) FILTER (WHERE tipo = 'CREDITO'), 0)::int AS minutos_acumulados,
+                COALESCE(SUM(minutos) FILTER (WHERE tipo = 'DEBITO'), 0)::int AS minutos_tomados
+            FROM tb_he_bolsa_movimientos
+            WHERE usuario_id = $1
+        ),
+        pendientes AS (
+            SELECT COALESCE(SUM(minutos_solicitados), 0)::int AS minutos_en_proceso
+            FROM tb_he_solicitudes_compensatorio
+            WHERE usuario_id = $1
+              AND estatus = 'pendiente'
+              AND ($2::uuid IS NULL OR id <> $2)
+        )
+        SELECT
+            m.minutos_acumulados,
+            m.minutos_tomados,
+            p.minutos_en_proceso,
+            (m.minutos_acumulados - m.minutos_tomados - p.minutos_en_proceso)::int AS minutos_disponibles
+        FROM movimientos m
+        CROSS JOIN pendientes p
+        """,
+        usuario_id,
+        excluir_solicitud_pendiente_id,
+    )
+    if not row:
+        return {
+            "minutos_acumulados": 0,
+            "minutos_tomados": 0,
+            "minutos_en_proceso": 0,
+            "minutos_disponibles": 0,
+        }
+    return dict(row)
+
+
+async def get_he_movimientos_usuario(conn, usuario_id: UUID, limit: int = 10) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT
+            m.id,
+            m.usuario_id,
+            m.tipo,
+            m.minutos,
+            m.concepto,
+            m.fecha_referencia,
+            m.aprobacion_id,
+            m.solicitud_compensatorio_id,
+            m.creado_por,
+            m.created_at
+        FROM tb_he_bolsa_movimientos m
+        WHERE m.usuario_id = $1
+        ORDER BY m.fecha_referencia DESC, m.created_at DESC, m.id DESC
+        LIMIT $2
+        """,
+        usuario_id,
+        limit,
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_he_solicitudes_compensatorio_usuario(conn, usuario_id: UUID) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT
+            id,
+            usuario_id,
+            fecha_descanso,
+            minutos_solicitados,
+            motivo,
+            estatus,
+            aprobador_id,
+            comentario_aprobador,
+            movimiento_id,
+            fecha_solicitud,
+            fecha_resolucion
+        FROM tb_he_solicitudes_compensatorio
+        WHERE usuario_id = $1
+        ORDER BY fecha_descanso DESC, fecha_solicitud DESC
+        LIMIT 20
+        """,
+        usuario_id,
+    )
+    return [dict(row) for row in rows]
+
+
+async def crear_he_solicitud_compensatorio(
+    conn,
+    *,
+    usuario_id: UUID,
+    fecha_descanso: date,
+    minutos_solicitados: int,
+    motivo: str,
+) -> dict:
+    row = await conn.fetchrow(
+        """
+        WITH nueva AS (
+            INSERT INTO tb_he_solicitudes_compensatorio
+                (usuario_id, fecha_descanso, minutos_solicitados, motivo)
+            VALUES ($1, $2, $3, $4)
+            RETURNING *
+        )
+        SELECT
+            nueva.id,
+            nueva.usuario_id,
+            nueva.fecha_descanso,
+            nueva.minutos_solicitados,
+            nueva.motivo,
+            nueva.estatus,
+            nueva.aprobador_id,
+            nueva.comentario_aprobador,
+            nueva.movimiento_id,
+            nueva.fecha_solicitud,
+            nueva.fecha_resolucion,
+            u.nombre AS empleado_nombre,
+            u.email AS empleado_email
+        FROM nueva
+        JOIN tb_usuarios u ON u.id_usuario = nueva.usuario_id
+        """,
+        usuario_id,
+        fecha_descanso,
+        minutos_solicitados,
+        motivo,
+    )
+    return dict(row)
+
+
+async def get_he_compensatorio_by_id(
+    conn, solicitud_id: UUID, *, for_update: bool = False
+) -> dict | None:
+    row = await conn.fetchrow(
+        f"""
+        SELECT
+            s.id,
+            s.usuario_id,
+            s.fecha_descanso,
+            s.minutos_solicitados,
+            s.motivo,
+            s.estatus,
+            s.aprobador_id,
+            s.comentario_aprobador,
+            s.movimiento_id,
+            s.fecha_solicitud,
+            s.fecha_resolucion,
+            u.nombre AS empleado_nombre,
+            u.email AS empleado_email
+        FROM tb_he_solicitudes_compensatorio s
+        JOIN tb_usuarios u ON u.id_usuario = s.usuario_id
+        WHERE s.id = $1
+        {"FOR UPDATE OF s" if for_update else ""}
+        """,
+        solicitud_id,
+    )
+    return dict(row) if row else None
+
+
+async def aprobar_he_compensatorio(
+    conn,
+    *,
+    solicitud_id: UUID,
+    aprobador_id: UUID,
+    comentario: str | None,
+) -> dict | None:
+    row = await conn.fetchrow(
+        """
+        WITH solicitud AS (
+            SELECT id, usuario_id, fecha_descanso, minutos_solicitados
+            FROM tb_he_solicitudes_compensatorio
+            WHERE id = $1
+              AND estatus = 'pendiente'
+            FOR UPDATE
+        ),
+        mov AS (
+            INSERT INTO tb_he_bolsa_movimientos
+                (usuario_id, tipo, minutos, concepto, fecha_referencia, solicitud_compensatorio_id, creado_por)
+            SELECT usuario_id,
+                   'DEBITO',
+                   minutos_solicitados,
+                   'Tiempo compensatorio aprobado',
+                   fecha_descanso,
+                   id,
+                   $2
+            FROM solicitud
+            ON CONFLICT DO NOTHING
+            RETURNING id, solicitud_compensatorio_id
+        )
+        UPDATE tb_he_solicitudes_compensatorio s
+        SET estatus = 'aprobado',
+            aprobador_id = $2,
+            comentario_aprobador = NULLIF($3, ''),
+            fecha_resolucion = now(),
+            movimiento_id = mov.id,
+            updated_at = now()
+        FROM mov
+        WHERE s.id = mov.solicitud_compensatorio_id
+        RETURNING s.*
+        """,
+        solicitud_id,
+        aprobador_id,
+        comentario,
+    )
+    return dict(row) if row else None
+
+
+async def rechazar_he_compensatorio(
+    conn,
+    *,
+    solicitud_id: UUID,
+    aprobador_id: UUID,
+    comentario: str,
+) -> dict | None:
+    row = await conn.fetchrow(
+        """
+        UPDATE tb_he_solicitudes_compensatorio
+        SET estatus = 'rechazado',
+            aprobador_id = $2,
+            comentario_aprobador = $3,
+            fecha_resolucion = now(),
+            updated_at = now()
+        WHERE id = $1
+          AND estatus = 'pendiente'
+        RETURNING *
+        """,
+        solicitud_id,
+        aprobador_id,
+        comentario,
+    )
+    return dict(row) if row else None
+
+
+async def cancelar_he_compensatorio(
+    conn,
+    *,
+    solicitud_id: UUID,
+    usuario_id: UUID,
+) -> dict | None:
+    row = await conn.fetchrow(
+        """
+        UPDATE tb_he_solicitudes_compensatorio
+        SET estatus = 'cancelado',
+            fecha_resolucion = now(),
+            updated_at = now()
+        WHERE id = $1
+          AND usuario_id = $2
+          AND estatus = 'pendiente'
+        RETURNING *
+        """,
+        solicitud_id,
+        usuario_id,
+    )
+    return dict(row) if row else None
+
+
+async def get_he_compensatorio_pendientes(conn, usuario_ids: list[UUID] | None = None) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT
+            s.id,
+            s.usuario_id,
+            s.fecha_descanso,
+            s.minutos_solicitados,
+            s.motivo,
+            s.estatus,
+            s.fecha_solicitud,
+            u.nombre AS empleado_nombre,
+            u.email AS empleado_email
+        FROM tb_he_solicitudes_compensatorio s
+        JOIN tb_usuarios u ON u.id_usuario = s.usuario_id
+        WHERE s.estatus = 'pendiente'
+          AND ($1::uuid[] IS NULL OR s.usuario_id = ANY($1::uuid[]))
+        ORDER BY s.fecha_solicitud, u.nombre
+        """,
+        usuario_ids,
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_he_compensatorio_activo_en_rango(
+    conn,
+    usuario_id: UUID,
+    fecha_inicio: date,
+    fecha_fin: date,
+) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT id, usuario_id, fecha_descanso, minutos_solicitados, estatus
+        FROM tb_he_solicitudes_compensatorio
+        WHERE usuario_id = $1
+          AND fecha_descanso >= $2
+          AND fecha_descanso <= $3
+          AND estatus IN ('pendiente', 'aprobado')
+        ORDER BY fecha_descanso
+        """,
+        usuario_id,
+        fecha_inicio,
+        fecha_fin,
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_he_compensatorio_aprobado_por_fechas(
+    conn,
+    usuario_ids: list[UUID],
+    fecha_inicio: date,
+    fecha_fin: date,
+) -> list[dict]:
+    if not usuario_ids:
+        return []
+    rows = await conn.fetch(
+        """
+        SELECT id, usuario_id, fecha_descanso, minutos_solicitados
+        FROM tb_he_solicitudes_compensatorio
+        WHERE usuario_id = ANY($1::uuid[])
+          AND fecha_descanso >= $2
+          AND fecha_descanso <= $3
+          AND estatus = 'aprobado'
+        """,
+        usuario_ids,
+        fecha_inicio,
+        fecha_fin,
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_horas_extra_estado_en_fecha(
+    conn, usuario_id: UUID, fecha_laboral: date
+) -> str | None:
+    return await conn.fetchval(
+        """
+        SELECT horas_extra_estado
+        FROM tb_asistencia_diaria
+        WHERE usuario_id = $1
+          AND fecha_laboral = $2
+        """,
+        usuario_id,
+        fecha_laboral,
+    )
+
+
+async def get_saldo_inicial_pendientes(
+    conn, usuario_ids: list[UUID] | None = None, *, fecha_corte: date
+) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT
+            u.id_usuario,
+            u.nombre,
+            u.email,
+            ed.fecha_contratacion
+        FROM tb_usuarios u
+        LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = u.id_usuario
+        LEFT JOIN tb_he_saldo_inicial_confirmaciones c ON c.usuario_id = u.id_usuario
+        WHERE u.is_active = true
+          AND c.usuario_id IS NULL
+          AND ($1::uuid[] IS NULL OR u.id_usuario = ANY($1::uuid[]))
+          AND (ed.fecha_contratacion IS NULL OR ed.fecha_contratacion <= $2)
+        ORDER BY u.nombre
+        """,
+        usuario_ids,
+        fecha_corte,
+    )
+    return [dict(row) for row in rows]
+
+
+async def confirmar_saldo_inicial(
+    conn,
+    *,
+    usuario_id: UUID,
+    minutos: int,
+    confirmado_por: UUID,
+    fecha_corte: date,
+) -> dict:
+    row = await conn.fetchrow(
+        """
+        WITH conf AS (
+            INSERT INTO tb_he_saldo_inicial_confirmaciones
+                (usuario_id, minutos, confirmado_por)
+            VALUES ($1, $2, $3)
+            RETURNING id, usuario_id, minutos, confirmado_por
+        ),
+        mov AS (
+            INSERT INTO tb_he_bolsa_movimientos
+                (usuario_id, tipo, minutos, concepto, fecha_referencia, creado_por)
+            SELECT usuario_id,
+                   'CREDITO',
+                   minutos,
+                   'Saldo inicial',
+                   $4,
+                   confirmado_por
+            FROM conf
+            WHERE minutos > 0
+            RETURNING id
+        )
+        UPDATE tb_he_saldo_inicial_confirmaciones c
+        SET movimiento_id = (SELECT id FROM mov)
+        WHERE c.id = (SELECT id FROM conf)
+        RETURNING c.*
+        """,
+        usuario_id,
+        minutos,
+        confirmado_por,
+        fecha_corte,
+    )
+    return dict(row)
+
+
+async def crear_he_ajuste_manual(
+    conn,
+    *,
+    usuario_id: UUID,
+    tipo: str,
+    minutos: int,
+    concepto: str,
+    fecha_referencia: date,
+    creado_por: UUID,
+) -> UUID:
+    row = await conn.fetchrow(
+        """
+        INSERT INTO tb_he_bolsa_movimientos
+            (usuario_id, tipo, minutos, concepto, fecha_referencia, creado_por)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id
+        """,
+        usuario_id,
+        tipo,
+        minutos,
+        concepto,
+        fecha_referencia,
+        creado_por,
+    )
+    return row["id"]
+
+
+async def insertar_he_evidencia(
+    conn,
+    *,
+    upload_result: dict,
+    usuario_id: UUID,
+    asistencia_id: UUID,
+    subido_por_id: UUID,
+    content_type: str,
+    tamano_bytes: int,
+) -> UUID:
+    doc_id = uuid4()
+    parent_ref = upload_result.get("parentReference") or {}
+    metadata = {
+        "id_asistencia": str(asistencia_id),
+        "usuario_id": str(usuario_id),
+        "content_type": content_type,
+    }
+    await conn.execute(
+        """
+        INSERT INTO tb_documentos_attachments (
+            id_documento,
+            nombre_archivo,
+            url_sharepoint,
+            drive_item_id,
+            parent_drive_id,
+            tipo_contenido,
+            tamano_bytes,
+            subido_por_id,
+            origen_slug,
+            activo,
+            metadata
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'he_evidencia',true,$9::jsonb)
+        """,
+        doc_id,
+        upload_result.get("name", ""),
+        upload_result.get("webUrl", ""),
+        upload_result.get("id", ""),
+        parent_ref.get("driveId"),
+        content_type,
+        tamano_bytes,
+        subido_por_id,
+        json.dumps(metadata),
+    )
+    return doc_id
+
+
+async def get_he_evidencias_for_aprobador(conn, asistencia_ids: list[UUID]) -> dict[str, list[dict]]:
+    if not asistencia_ids:
+        return {}
+    ids_text = [str(item) for item in asistencia_ids]
+    rows = await conn.fetch(
+        """
+        SELECT id_documento, nombre_archivo, tipo_contenido, tamano_bytes, drive_item_id, metadata
+        FROM tb_documentos_attachments
+        WHERE origen_slug = 'he_evidencia'
+          AND activo = true
+          AND metadata->>'id_asistencia' = ANY($1::text[])
+        ORDER BY fecha_subida
+        """,
+        ids_text,
+    )
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        item = dict(row)
+        metadata = item.get("metadata") or {}
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except (json.JSONDecodeError, TypeError):
+                metadata = {}
+        grouped.setdefault(metadata.get("id_asistencia"), []).append(item)
+    return grouped
+
+
+async def get_he_evidencia_for_preview(conn, documento_id: UUID) -> dict | None:
+    row = await conn.fetchrow(
+        """
+        SELECT
+            d.id_documento,
+            d.nombre_archivo,
+            d.tipo_contenido,
+            d.tamano_bytes,
+            d.drive_item_id,
+            d.metadata,
+            (d.metadata->>'usuario_id')::uuid AS usuario_id,
+            (d.metadata->>'id_asistencia')::uuid AS asistencia_id
+        FROM tb_documentos_attachments d
+        WHERE d.id_documento = $1
+          AND d.origen_slug = 'he_evidencia'
+          AND d.activo = true
+        """,
+        documento_id,
+    )
+    return dict(row) if row else None
+
+
+async def get_he_reporte_usuarios(conn, usuario_ids: list[UUID]) -> list[dict]:
+    if not usuario_ids:
+        return []
+    rows = await conn.fetch(
+        """
+        SELECT
+            u.id_usuario,
+            u.nombre,
+            u.email,
+            jefes.jefes_nombres
+        FROM tb_usuarios u
+        LEFT JOIN LATERAL (
+            SELECT string_agg(j.nombre, ', ' ORDER BY j.nombre) AS jefes_nombres
+            FROM tb_empleados_jefes ej
+            JOIN tb_usuarios j ON j.id_usuario = ej.jefe_id
+            WHERE ej.empleado_id = u.id_usuario
+        ) jefes ON true
+        WHERE u.id_usuario = ANY($1::uuid[])
+        ORDER BY u.nombre
+        """,
+        usuario_ids,
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_he_saldo_reporte(conn, usuario_ids: list[UUID]) -> dict[UUID, dict]:
+    if not usuario_ids:
+        return {}
+    rows = await conn.fetch(
+        """
+        SELECT
+            usuario_id,
+            COALESCE(SUM(minutos) FILTER (WHERE tipo = 'CREDITO'), 0)::int AS minutos_acumulados,
+            COALESCE(SUM(minutos) FILTER (WHERE tipo = 'DEBITO'), 0)::int AS minutos_tomados
+        FROM tb_he_bolsa_movimientos
+        WHERE usuario_id = ANY($1::uuid[])
+        GROUP BY usuario_id
+        """,
+        usuario_ids,
+    )
+    result = {}
+    for row in rows:
+        item = dict(row)
+        item["minutos_disponibles"] = item["minutos_acumulados"] - item["minutos_tomados"]
+        result[item["usuario_id"]] = item
+    return result
+
+
+async def get_he_movimientos_reporte(conn, usuario_ids: list[UUID]) -> list[dict]:
+    if not usuario_ids:
+        return []
+    rows = await conn.fetch(
+        """
+        SELECT
+            id,
+            usuario_id,
+            tipo,
+            minutos,
+            concepto,
+            fecha_referencia,
+            created_at,
+            SUM(CASE WHEN tipo = 'CREDITO' THEN minutos ELSE -minutos END)
+                OVER (
+                    PARTITION BY usuario_id
+                    ORDER BY fecha_referencia, created_at, id
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                )::int AS saldo_despues
+        FROM tb_he_bolsa_movimientos
+        WHERE usuario_id = ANY($1::uuid[])
+        ORDER BY usuario_id, fecha_referencia, created_at, id
+        """,
+        usuario_ids,
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_he_feriados_reporte(conn, usuario_ids: list[UUID]) -> list[dict]:
+    if not usuario_ids:
+        return []
+    rows = await conn.fetch(
+        """
+        SELECT
+            ad.id,
+            ad.usuario_id,
+            ad.fecha_laboral AS fecha_referencia,
+            ad.minutos_extra,
+            'FERIADO PAGO ECONOMICO'::text AS concepto
+        FROM tb_asistencia_diaria ad
+        WHERE ad.usuario_id = ANY($1::uuid[])
+          AND ad.horas_extra_estado = 'feriado'
+          AND ad.minutos_extra > 0
+        ORDER BY ad.usuario_id, ad.fecha_laboral, ad.id
+        """,
+        usuario_ids,
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_he_nivel_usuario(conn, usuario_id: UUID, anio: int) -> dict | None:
+    row = await conn.fetchrow(
+        """
+        WITH total AS (
+            SELECT COALESCE(SUM(minutos), 0)::int AS minutos
+            FROM tb_he_bolsa_movimientos
+            WHERE usuario_id = $1
+              AND tipo = 'CREDITO'
+              AND aprobacion_id IS NOT NULL
+              AND EXTRACT(YEAR FROM fecha_referencia)::int = $2
+        ),
+        nivel_actual AS (
+            SELECT n.*, total.minutos
+            FROM total
+            JOIN tb_cat_he_niveles n ON n.umbral_horas <= FLOOR(total.minutos / 60.0)
+            WHERE total.minutos > 0
+              AND n.activo = true
+            ORDER BY n.umbral_horas DESC
+            LIMIT 1
+        ),
+        siguiente AS (
+            SELECT n.umbral_horas
+            FROM tb_cat_he_niveles n, nivel_actual a
+            WHERE n.umbral_horas > a.umbral_horas
+              AND n.activo = true
+            ORDER BY n.umbral_horas
+            LIMIT 1
+        )
+        SELECT
+            a.nivel,
+            a.nombre,
+            a.color_hex,
+            FLOOR(a.minutos / 60.0)::int AS horas_actuales,
+            GREATEST(0, COALESCE(s.umbral_horas, FLOOR(a.minutos / 60.0)::int) - FLOOR(a.minutos / 60.0)::int) AS horas_faltantes,
+            (s.umbral_horas IS NULL) AS es_maximo
+        FROM nivel_actual a
+        LEFT JOIN siguiente s ON true
+        """,
+        usuario_id,
+        anio,
+    )
+    return dict(row) if row else None
+
+
+async def get_he_niveles_equipo(conn, usuario_ids: list[UUID], anio: int) -> list[dict]:
+    if not usuario_ids:
+        return []
+    rows = await conn.fetch(
+        """
+        WITH total AS (
+            SELECT usuario_id, COALESCE(SUM(minutos), 0)::int AS minutos
+            FROM tb_he_bolsa_movimientos
+            WHERE usuario_id = ANY($1::uuid[])
+              AND tipo = 'CREDITO'
+              AND aprobacion_id IS NOT NULL
+              AND EXTRACT(YEAR FROM fecha_referencia)::int = $2
+            GROUP BY usuario_id
+            HAVING COALESCE(SUM(minutos), 0) > 0
+        ),
+        nivel_actual AS (
+            SELECT DISTINCT ON (t.usuario_id)
+                t.usuario_id,
+                u.nombre AS empleado_nombre,
+                n.nivel,
+                n.nombre,
+                n.color_hex,
+                FLOOR(t.minutos / 60.0)::int AS horas_actuales,
+                n.umbral_horas
+            FROM total t
+            JOIN tb_usuarios u ON u.id_usuario = t.usuario_id
+            JOIN tb_cat_he_niveles n ON n.umbral_horas <= FLOOR(t.minutos / 60.0)
+            WHERE n.activo = true
+            ORDER BY t.usuario_id, n.umbral_horas DESC
+        )
+        SELECT
+            a.*,
+            GREATEST(0, COALESCE(s.umbral_horas, a.horas_actuales) - a.horas_actuales) AS horas_faltantes,
+            (s.umbral_horas IS NULL) AS es_maximo
+        FROM nivel_actual a
+        LEFT JOIN LATERAL (
+            SELECT n.umbral_horas
+            FROM tb_cat_he_niveles n
+            WHERE n.umbral_horas > a.umbral_horas
+              AND n.activo = true
+            ORDER BY n.umbral_horas
+            LIMIT 1
+        ) s ON true
+        ORDER BY a.empleado_nombre
+        """,
+        usuario_ids,
+        anio,
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_he_niveles_catalogo(conn) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT nivel, nombre, umbral_horas, color_hex
+        FROM tb_cat_he_niveles
+        WHERE activo = true
+        ORDER BY umbral_horas
+        """
+    )
+    return [dict(row) for row in rows]
 
 
 async def get_jefes_del_empleado(conn, usuario_id: UUID) -> list[dict]:

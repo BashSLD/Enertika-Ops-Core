@@ -37,6 +37,66 @@ def _vacaciones_recordatorio_destinatarios(responsables, rh_emails: set[str], hi
     return responsables_emails | rh_emails, set()
 
 
+async def _procesar_recordatorios_pendientes(
+    conn,
+    rows: list[dict],
+    *,
+    rh_emails: set[str],
+    campo_contador: str,
+    notify_fn,
+    row_to_kwargs,
+    mark_fn,
+    log_tag: str,
+) -> None:
+    """
+    Orquesta el envio de recordatorios (horas-extra y compensatorio comparten
+    esta misma logica: solo difieren la query fuente, el notify_* y el mark_*).
+    """
+    for row in rows:
+        jefe_emails = {email for email in (row.get("jefe_emails") or []) if email}
+        destinatarios = jefe_emails or rh_emails
+        if not destinatarios:
+            logger.warning("[%s] Sin destinatarios para id=%s", log_tag, row["id"])
+            continue
+        cc_emails = rh_emails if row.get("tiene_director") and jefe_emails else set()
+        recordatorio_numero = int(row.get(campo_contador) or 0) + 1
+        enviado = await notify_fn(
+            conn,
+            destinatarios=destinatarios,
+            cc_emails=cc_emails,
+            via_rh=not jefe_emails,
+            es_recordatorio=True,
+            recordatorio_numero=recordatorio_numero,
+            **row_to_kwargs(row),
+        )
+        if enviado:
+            await mark_fn(conn, row["id"])
+            logger.info(
+                "[%s] Enviado id=%s recordatorio=%s TO=%d CC=%d",
+                log_tag, row["id"], recordatorio_numero, len(destinatarios), len(cc_emails),
+            )
+
+
+async def _enviar_resumen_rh_si_corresponde(
+    conn,
+    rows: list[dict],
+    *,
+    rh_emails: set[str],
+    row_to_extra_fields,
+    notify_fn,
+    mark_fn,
+    log_tag: str,
+) -> None:
+    """Contraparte del resumen semanal a RH — misma logica para horas-extra y compensatorio."""
+    if not rows or not rh_emails:
+        return
+    rows_email = [{**row, **row_to_extra_fields(row)} for row in rows]
+    enviado = await notify_fn(conn, rows=rows_email, rh_emails=rh_emails)
+    if enviado:
+        await mark_fn(conn, [row["id"] for row in rows])
+        logger.info("[%s] Resumen RH enviado: %d registros", log_tag, len(rows))
+
+
 async def cleanup_temp_uploads_periodically(interval_seconds: int = 3600, max_age_seconds: int = 3600):
     """
     Tarea en segundo plano que elimina archivos antiguos de la carpeta temp_uploads.
@@ -874,63 +934,79 @@ async def verificar_recordatorios_horas_extra_periodically(interval_seconds: int
                     intervalo_horas=intervalo_horas,
                     max_recordatorios=max_recordatorios,
                 )
+                await _procesar_recordatorios_pendientes(
+                    conn,
+                    recordatorios,
+                    rh_emails=rh_emails,
+                    campo_contador="horas_extra_recordatorios_enviados",
+                    notify_fn=notif.notify_horas_extra_solicitud,
+                    row_to_kwargs=lambda row: {
+                        "empleado_nombre": row["empleado_nombre"],
+                        "fecha_laboral": row["fecha_laboral"],
+                        "extra_fmt": format_minutes(row.get("minutos_extra") or 0),
+                        "motivo": row.get("motivo_solicitud") or "",
+                    },
+                    mark_fn=tasks_db.mark_horas_extra_recordatorio_enviado,
+                    log_tag="HE_RECORDATORIO",
+                )
 
-                for row in recordatorios:
-                    jefe_emails = {email for email in (row.get("jefe_emails") or []) if email}
-                    destinatarios = jefe_emails or rh_emails
-                    if not destinatarios:
-                        logger.warning(
-                            "[HE_RECORDATORIO] Sin destinatarios para asistencia=%s",
-                            row["id"],
-                        )
-                        continue
-                    cc_emails = rh_emails if row.get("tiene_director") and jefe_emails else set()
-                    recordatorio_numero = int(row.get("horas_extra_recordatorios_enviados") or 0) + 1
-                    enviado = await notif.notify_horas_extra_solicitud(
-                        conn,
-                        empleado_nombre=row["empleado_nombre"],
-                        fecha_laboral=row["fecha_laboral"],
-                        extra_fmt=format_minutes(row.get("minutos_extra") or 0),
-                        motivo=row.get("motivo_solicitud") or "",
-                        destinatarios=destinatarios,
-                        cc_emails=cc_emails,
-                        via_rh=not jefe_emails,
-                        es_recordatorio=True,
-                        recordatorio_numero=recordatorio_numero,
-                    )
-                    if enviado:
-                        await tasks_db.mark_horas_extra_recordatorio_enviado(conn, row["id"])
-                        logger.info(
-                            "[HE_RECORDATORIO] Enviado asistencia=%s recordatorio=%s TO=%d CC=%d",
-                            row["id"],
-                            recordatorio_numero,
-                            len(destinatarios),
-                            len(cc_emails),
-                        )
+                comp_recordatorios = await tasks_db.get_he_compensatorio_recordatorios_pendientes(
+                    conn,
+                    primer_delay_horas=primer_delay_horas,
+                    intervalo_horas=intervalo_horas,
+                    max_recordatorios=max_recordatorios,
+                )
+                await _procesar_recordatorios_pendientes(
+                    conn,
+                    comp_recordatorios,
+                    rh_emails=rh_emails,
+                    campo_contador="recordatorios_enviados",
+                    notify_fn=notif.notify_compensatorio_solicitud,
+                    row_to_kwargs=lambda row: {
+                        "empleado_nombre": row["empleado_nombre"],
+                        "fecha_descanso": row["fecha_descanso"],
+                        "minutos_fmt": format_minutes(row.get("minutos_solicitados") or 0),
+                        "motivo": row.get("motivo") or "",
+                    },
+                    mark_fn=tasks_db.mark_he_compensatorio_recordatorio_enviado,
+                    log_tag="HE_COMP_RECORDATORIO",
+                )
 
                 resumen_rows = await tasks_db.get_horas_extra_resumen_rh_pendiente(
                     conn,
                     max_recordatorios=max_recordatorios,
                     intervalo_dias=resumen_rh_dias,
                 )
-                if resumen_rows and rh_emails:
-                    rows_email = []
-                    for row in resumen_rows:
-                        formatted = dict(row)
-                        formatted["fecha_fmt"] = row["fecha_laboral"].strftime("%d/%m/%Y")
-                        formatted["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
-                        rows_email.append(formatted)
-                    enviado = await notif.notify_horas_extra_resumen_rh(
-                        conn,
-                        rows=rows_email,
-                        rh_emails=rh_emails,
-                    )
-                    if enviado:
-                        await tasks_db.mark_horas_extra_resumen_rh_enviado(
-                            conn,
-                            [row["id"] for row in resumen_rows],
-                        )
-                        logger.info("[HE_RECORDATORIO] Resumen RH enviado: %d registros", len(resumen_rows))
+                await _enviar_resumen_rh_si_corresponde(
+                    conn,
+                    resumen_rows,
+                    rh_emails=rh_emails,
+                    row_to_extra_fields=lambda row: {
+                        "fecha_fmt": row["fecha_laboral"].strftime("%d/%m/%Y"),
+                        "extra_fmt": format_minutes(row.get("minutos_extra") or 0),
+                    },
+                    notify_fn=notif.notify_horas_extra_resumen_rh,
+                    mark_fn=tasks_db.mark_horas_extra_resumen_rh_enviado,
+                    log_tag="HE_RECORDATORIO",
+                )
+
+                comp_resumen_rows = await tasks_db.get_he_compensatorio_resumen_rh_pendiente(
+                    conn,
+                    max_recordatorios=max_recordatorios,
+                    intervalo_dias=resumen_rh_dias,
+                )
+                await _enviar_resumen_rh_si_corresponde(
+                    conn,
+                    comp_resumen_rows,
+                    rh_emails=rh_emails,
+                    row_to_extra_fields=lambda row: {
+                        "fecha_fmt": row["fecha_descanso"].strftime("%d/%m/%Y"),
+                        "minutos_fmt": format_minutes(row.get("minutos_solicitados") or 0),
+                    },
+                    notify_fn=notif.notify_compensatorio_resumen_rh,
+                    mark_fn=tasks_db.mark_he_compensatorio_resumen_rh_enviado,
+                    log_tag="HE_COMP_RECORDATORIO",
+                )
 
         except asyncpg.PostgresError as e:
             logger.error("[HE_RECORDATORIO] Error de BD: %s", e)

@@ -1,6 +1,8 @@
 import re
+from io import BytesIO
 
 from fastapi import Request
+from fastapi.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 _templates = Jinja2Templates(directory="templates")
@@ -65,4 +67,15 @@ def toast_success(request: Request, message: str):
         "shared/toast.html",
         {"type": "success", "title": "Listo", "message": message},
         headers={"HX-Reswap": "none"},
+    )
+
+
+def excel_response(workbook, filename: str) -> StreamingResponse:
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

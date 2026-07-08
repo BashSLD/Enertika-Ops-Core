@@ -10,6 +10,7 @@ ASISTENCIA_ESTADOS = {
     "en_curso",
     "descanso",
     "feriado",
+    "he_compensatorio",
     "checada_en_vacaciones",
     "checada_en_ausencia",
     "sin_horario",
@@ -25,6 +26,7 @@ ASISTENCIA_ESTADO_LABELS = {
     "en_curso": "Entrada registrada",
     "descanso": "Descanso",
     "feriado": "Feriado",
+    "he_compensatorio": "Horas extra tomadas",
     "checada_en_vacaciones": "Checada en vacaciones",
     "checada_en_ausencia": "Checada en ausencia",
     "sin_horario": "Sin horario",
@@ -42,6 +44,7 @@ ASISTENCIA_ESTADO_COLORES: dict[str, str] = {
     "checada_en_ausencia": "#bae6fd",
     "descanso": "#d1d5db",
     "feriado": "#e5e7eb",
+    "he_compensatorio": "#c7d2fe",
     "sin_horario": "#e9d5ff",
 }
 
@@ -53,6 +56,7 @@ ASISTENCIA_ESTADOS_SIN_HUECO_MANUAL = {
     "vacaciones",
     "ausencia",
     "sin_horario",
+    "he_compensatorio",
 }
 
 BIOTIME_CONFIG_KEYS = {

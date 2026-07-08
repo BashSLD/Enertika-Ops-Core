@@ -116,7 +116,7 @@ class EmailRuleCreate(AdminBaseSchema):
     trigger_field: str
     # Ahora validamos que trigger_value no esté vacío
     trigger_value: str = Field(..., min_length=1)
-    email_to_add: str = Field(..., pattern=r"[^@]+@[^@]+\.[^@]+")
+    email_to_add: str = Field(..., pattern=r"^(\{EMPLEADO\}|[^@]+@[^@]+\.[^@]+)$")
     type: Literal['TO', 'CC', 'CCO']
 
 # -----------------------------------------

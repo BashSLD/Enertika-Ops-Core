@@ -7,6 +7,7 @@ Patrón recomendado por GUIA_MAESTRA: Service Layer con separación de responsab
 """
 from typing import Set, Optional
 from uuid import UUID
+from datetime import date
 import logging
 import asyncpg
 import httpx
@@ -30,6 +31,7 @@ OPPORTUNITY_WON_DIRECTOR_ROLE = "director"
 VACACIONES_EVENTO_APROBADA = "VACACIONES_SOLICITUD_APROBADA"
 VACACIONES_EVENTO_RECHAZADA = "VACACIONES_SOLICITUD_RECHAZADA"
 VACACIONES_REGLAS_MODULOS = {"GLOBAL", "RRHH"}
+PLACEHOLDER_EMPLEADO = "{EMPLEADO}"
 
 
 class NotificationService:
@@ -506,12 +508,17 @@ class NotificationService:
         *,
         aprobador_nombre: str,
         empleado_nombre: str,
+        empleado_email: str | None = None,
         dias_aprobados: list[dict],
         comentario: str,
     ) -> None:
         try:
-            to_emails = await self._get_emails_for_event(conn, "APROBACION_HORAS_EXTRA", "TO")
-            cc_emails = await self._get_emails_for_event(conn, "APROBACION_HORAS_EXTRA", "CC")
+            to_emails = await self._get_emails_for_event(
+                conn, "APROBACION_HORAS_EXTRA", "TO", empleado_email=empleado_email
+            )
+            cc_emails = await self._get_emails_for_event(
+                conn, "APROBACION_HORAS_EXTRA", "CC", empleado_email=empleado_email
+            )
 
             if not to_emails:
                 logger.info(
@@ -528,7 +535,7 @@ class NotificationService:
                     "comentario": comentario,
                 },
             )
-            subject = f"Horas extra aprobadas: {empleado_nombre}"
+            subject = f"Horas extra aprobadas y abonadas a bolsa: {empleado_nombre}"
             sender_config = await self._get_notification_sender(conn, "DEFAULT")
             await self._send_email(to_emails, cc_emails, subject, html, sender_config["email"])
 
@@ -538,6 +545,78 @@ class NotificationService:
             logger.error("[NOTIFY] Error red en APROBACION_HORAS_EXTRA: %s", exc, exc_info=True)
         except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as exc:
             logger.error("[NOTIFY] Error inesperado en APROBACION_HORAS_EXTRA: %s", exc, exc_info=True)
+
+    async def _notify_solicitud_pendiente(
+        self,
+        conn,
+        *,
+        template_path: str,
+        subject_pendiente: str,
+        subject_recordatorio: str,
+        titulo_notificacion: str,
+        mensaje_notificacion: str,
+        modulo_origen: str,
+        template_context: dict,
+        destinatarios: set[str],
+        cc_emails: set[str] | None = None,
+        via_rh: bool = False,
+        es_recordatorio: bool = False,
+        recordatorio_numero: int | None = None,
+        log_tag: str,
+    ) -> bool:
+        """
+        Orquestacion compartida por las solicitudes de horas-extra y compensatorio:
+        misma forma (render + envio + broadcast in-app), solo cambian el template,
+        el copy de asunto/notificacion y los campos propios de cada entidad.
+        """
+        try:
+            if not destinatarios:
+                logger.info("[NOTIFY] %s sin destinatarios — omitiendo", log_tag)
+                return False
+
+            cc_emails = cc_emails or set()
+            if via_rh:
+                url_aprobacion = f"{settings.APP_BASE_URL}/rrhh?tab=aprobaciones"
+                label_boton = "Revisar en RRHH"
+            else:
+                url_aprobacion = f"{settings.APP_BASE_URL}/perfil/ui?tab=equipo"
+                label_boton = "Revisar en Mi Equipo"
+
+            html = self._render_template(
+                template_path,
+                {
+                    **template_context,
+                    "url_aprobacion": url_aprobacion,
+                    "label_boton": label_boton,
+                    "es_recordatorio": es_recordatorio,
+                    "recordatorio_numero": recordatorio_numero,
+                },
+            )
+            subject = subject_recordatorio if es_recordatorio else subject_pendiente
+            sender_config = await self._get_notification_sender(conn, "DEFAULT")
+            enviado = await self._send_email(destinatarios, cc_emails, subject, html, sender_config["email"])
+            if not enviado:
+                return False
+
+            for email in destinatarios:
+                await self._save_and_broadcast(
+                    conn=conn,
+                    recipient_email=email,
+                    tipo="ASIGNACION",
+                    titulo=titulo_notificacion,
+                    mensaje=mensaje_notificacion,
+                    id_oportunidad=None,
+                    modulo_origen=modulo_origen,
+                )
+            return True
+
+        except asyncpg.PostgresError as exc:
+            logger.error("[NOTIFY] Error BD en %s: %s", log_tag, exc, exc_info=True)
+        except httpx.HTTPError as exc:
+            logger.error("[NOTIFY] Error red en %s: %s", log_tag, exc, exc_info=True)
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as exc:
+            logger.error("[NOTIFY] Error inesperado en %s: %s", log_tag, exc, exc_info=True)
+        return False
 
     async def notify_horas_extra_solicitud(
         self,
@@ -553,60 +632,89 @@ class NotificationService:
         es_recordatorio: bool = False,
         recordatorio_numero: int | None = None,
     ) -> bool:
+        fecha_str = fecha_laboral.strftime("%d/%m/%Y")
+        return await self._notify_solicitud_pendiente(
+            conn,
+            template_path="shared/emails/vacaciones/horas_extra_solicitud.html",
+            subject_pendiente=f"Solicitud de horas extra: {empleado_nombre}",
+            subject_recordatorio=f"Recordatorio de horas extra pendiente: {empleado_nombre}",
+            titulo_notificacion=f"Solicitud de horas extra — {empleado_nombre}",
+            mensaje_notificacion=f"{fecha_str} · {extra_fmt}",
+            modulo_origen="asistencia",
+            template_context={
+                "empleado_nombre": empleado_nombre,
+                "fecha": fecha_str,
+                "extra_fmt": extra_fmt,
+                "motivo": motivo,
+            },
+            destinatarios=destinatarios,
+            cc_emails=cc_emails,
+            via_rh=via_rh,
+            es_recordatorio=es_recordatorio,
+            recordatorio_numero=recordatorio_numero,
+            log_tag="SOLICITUD_HORAS_EXTRA",
+        )
+
+    async def notify_compensatorio_solicitud(
+        self,
+        conn,
+        *,
+        empleado_nombre: str,
+        fecha_descanso,
+        minutos_fmt: str,
+        motivo: str,
+        destinatarios: set[str],
+        cc_emails: set[str] | None = None,
+        via_rh: bool = False,
+        es_recordatorio: bool = False,
+        recordatorio_numero: int | None = None,
+    ) -> bool:
+        fecha_str = fecha_descanso.strftime("%d/%m/%Y")
+        return await self._notify_solicitud_pendiente(
+            conn,
+            template_path="shared/emails/vacaciones/compensatorio_solicitud.html",
+            subject_pendiente=f"Solicitud de tiempo compensatorio: {empleado_nombre}",
+            subject_recordatorio=f"Recordatorio de tiempo compensatorio pendiente: {empleado_nombre}",
+            titulo_notificacion=f"Solicitud de tiempo compensatorio - {empleado_nombre}",
+            mensaje_notificacion=f"{fecha_str} - {minutos_fmt}",
+            modulo_origen="asistencia",
+            template_context={
+                "empleado_nombre": empleado_nombre,
+                "fecha": fecha_str,
+                "minutos_fmt": minutos_fmt,
+                "motivo": motivo,
+            },
+            destinatarios=destinatarios,
+            cc_emails=cc_emails,
+            via_rh=via_rh,
+            es_recordatorio=es_recordatorio,
+            recordatorio_numero=recordatorio_numero,
+            log_tag="SOLICITUD_HE_COMP",
+        )
+
+    async def _notify_resumen_rh(
+        self,
+        conn,
+        *,
+        template_path: str,
+        subject: str,
+        rows: list[dict],
+        rh_emails: set[str],
+        log_tag: str,
+    ) -> bool:
         try:
-            if not destinatarios:
-                logger.info("[NOTIFY] SOLICITUD_HE sin destinatarios — omitiendo")
+            if not rows or not rh_emails:
+                logger.info("[NOTIFY] %s sin registros o destinatarios", log_tag)
                 return False
-
-            fecha_str = fecha_laboral.strftime("%d/%m/%Y")
-            cc_emails = cc_emails or set()
-            if via_rh:
-                url_aprobacion = f"{settings.APP_BASE_URL}/rrhh?tab=aprobaciones"
-                label_boton = "Revisar en RRHH"
-            else:
-                url_aprobacion = f"{settings.APP_BASE_URL}/perfil/ui?tab=equipo"
-                label_boton = "Revisar en Mi Equipo"
-            html = self._render_template(
-                "shared/emails/vacaciones/horas_extra_solicitud.html",
-                {
-                    "empleado_nombre": empleado_nombre,
-                    "fecha": fecha_str,
-                    "extra_fmt": extra_fmt,
-                    "motivo": motivo,
-                    "url_aprobacion": url_aprobacion,
-                    "label_boton": label_boton,
-                    "es_recordatorio": es_recordatorio,
-                    "recordatorio_numero": recordatorio_numero,
-                },
-            )
-            subject = (
-                f"Recordatorio de horas extra pendiente: {empleado_nombre}"
-                if es_recordatorio
-                else f"Solicitud de horas extra: {empleado_nombre}"
-            )
+            html = self._render_template(template_path, {"rows": rows})
             sender_config = await self._get_notification_sender(conn, "DEFAULT")
-            enviado = await self._send_email(destinatarios, cc_emails, subject, html, sender_config["email"])
-            if not enviado:
-                return False
-
-            for email in destinatarios:
-                await self._save_and_broadcast(
-                    conn=conn,
-                    recipient_email=email,
-                    tipo="ASIGNACION",
-                    titulo=f"Solicitud de horas extra — {empleado_nombre}",
-                    mensaje=f"{fecha_str} · {extra_fmt}",
-                    id_oportunidad=None,
-                    modulo_origen="asistencia",
-                )
-            return True
-
+            return await self._send_email(rh_emails, set(), subject, html, sender_config["email"])
         except asyncpg.PostgresError as exc:
-            logger.error("[NOTIFY] Error BD en SOLICITUD_HORAS_EXTRA: %s", exc, exc_info=True)
+            logger.error("[NOTIFY] Error BD en %s: %s", log_tag, exc, exc_info=True)
         except httpx.HTTPError as exc:
-            logger.error("[NOTIFY] Error red en SOLICITUD_HORAS_EXTRA: %s", exc, exc_info=True)
+            logger.error("[NOTIFY] Error red en %s: %s", log_tag, exc, exc_info=True)
         except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as exc:
-            logger.error("[NOTIFY] Error inesperado en SOLICITUD_HORAS_EXTRA: %s", exc, exc_info=True)
+            logger.error("[NOTIFY] Error inesperado en %s: %s", log_tag, exc, exc_info=True)
         return False
 
     async def notify_horas_extra_resumen_rh(
@@ -616,23 +724,147 @@ class NotificationService:
         rows: list[dict],
         rh_emails: set[str],
     ) -> bool:
+        return await self._notify_resumen_rh(
+            conn,
+            template_path="shared/emails/vacaciones/horas_extra_resumen_rh.html",
+            subject="Resumen semanal: horas extra pendientes de resolver",
+            rows=rows,
+            rh_emails=rh_emails,
+            log_tag="RESUMEN_HE_RH",
+        )
+
+    async def notify_compensatorio_resumen_rh(
+        self,
+        conn,
+        *,
+        rows: list[dict],
+        rh_emails: set[str],
+    ) -> bool:
+        return await self._notify_resumen_rh(
+            conn,
+            template_path="shared/emails/vacaciones/compensatorio_resumen_rh.html",
+            subject="Resumen semanal: tiempo compensatorio pendiente",
+            rows=rows,
+            rh_emails=rh_emails,
+            log_tag="RESUMEN_HE_COMP_RH",
+        )
+
+    async def notify_compensatorio_resuelto(
+        self,
+        conn,
+        solicitud: dict,
+        *,
+        aprobado: bool,
+    ) -> bool:
         try:
-            if not rows or not rh_emails:
-                logger.info("[NOTIFY] RESUMEN_HE_RH sin registros o destinatarios")
+            empleado_email = solicitud.get("empleado_email")
+            if not empleado_email:
+                logger.info("[NOTIFY] HE_COMP_RESUELTO sin email de empleado: %s", solicitud.get("id"))
                 return False
+
+            estado_label = "aprobado" if aprobado else "rechazado"
             html = self._render_template(
-                "shared/emails/vacaciones/horas_extra_resumen_rh.html",
-                {"rows": rows},
+                "shared/emails/vacaciones/compensatorio_resuelto.html",
+                {
+                    "empleado_nombre": solicitud["empleado_nombre"],
+                    "fecha": solicitud["fecha_descanso"].strftime("%d/%m/%Y"),
+                    "minutos": solicitud["minutos_solicitados"],
+                    "estado_label": estado_label,
+                    "comentario": solicitud.get("comentario_aprobador") or "",
+                },
             )
-            subject = "Resumen semanal: horas extra pendientes de resolver"
+            subject = f"Tiempo compensatorio {estado_label}: {solicitud['fecha_descanso'].strftime('%d/%m/%Y')}"
+            cc_emails = await self._get_emails_for_event(conn, "APROBACION_COMPENSATORIO", "CC")
             sender_config = await self._get_notification_sender(conn, "DEFAULT")
-            return await self._send_email(rh_emails, set(), subject, html, sender_config["email"])
+            return await self._send_email({empleado_email}, cc_emails, subject, html, sender_config["email"])
+
         except asyncpg.PostgresError as exc:
-            logger.error("[NOTIFY] Error BD en RESUMEN_HE_RH: %s", exc, exc_info=True)
+            logger.error("[NOTIFY] Error BD en HE_COMP_RESUELTO: %s", exc, exc_info=True)
         except httpx.HTTPError as exc:
-            logger.error("[NOTIFY] Error red en RESUMEN_HE_RH: %s", exc, exc_info=True)
+            logger.error("[NOTIFY] Error red en HE_COMP_RESUELTO: %s", exc, exc_info=True)
         except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as exc:
-            logger.error("[NOTIFY] Error inesperado en RESUMEN_HE_RH: %s", exc, exc_info=True)
+            logger.error("[NOTIFY] Error inesperado en HE_COMP_RESUELTO: %s", exc, exc_info=True)
+        return False
+
+    async def notify_he_saldo_inicial_arranque(self, conn) -> bool:
+        try:
+            fecha_corte_str = await ConfigService.get_global_config(
+                conn, "HE_BOLSA_FECHA_CORTE", "2026-07-07", str
+            )
+            fecha_corte = date.fromisoformat(fecha_corte_str)
+            rows = await conn.fetch(
+                """
+                SELECT
+                    u.id_usuario,
+                    u.nombre AS empleado_nombre,
+                    COALESCE(jefes.emails, ARRAY[]::text[]) AS jefe_emails
+                FROM tb_usuarios u
+                JOIN tb_empleados_datos ed ON ed.usuario_id = u.id_usuario
+                LEFT JOIN tb_he_saldo_inicial_confirmaciones c
+                    ON c.usuario_id = u.id_usuario
+                LEFT JOIN LATERAL (
+                    SELECT ARRAY_AGG(DISTINCT j.email) FILTER (WHERE j.email IS NOT NULL) AS emails
+                    FROM tb_empleados_jefes ej
+                    JOIN tb_usuarios j ON j.id_usuario = ej.jefe_id AND j.is_active = true
+                    WHERE ej.empleado_id = u.id_usuario
+                ) jefes ON true
+                WHERE u.is_active = true
+                  AND c.id IS NULL
+                  AND (ed.fecha_contratacion IS NULL OR ed.fecha_contratacion <= $1)
+                ORDER BY u.nombre
+                """,
+                fecha_corte,
+            )
+            if not rows:
+                logger.info("[NOTIFY] HE_SALDO_INICIAL sin pendientes")
+                return False
+
+            rh_emails = await self._get_rh_emails_cc(conn)
+            por_destinatario: dict[str, list[dict]] = {}
+            for row in rows:
+                jefe_emails = {email for email in (row.get("jefe_emails") or []) if email}
+                destinatarios = jefe_emails or rh_emails
+                for email in destinatarios:
+                    por_destinatario.setdefault(email, []).append(dict(row))
+
+            if not por_destinatario:
+                logger.info("[NOTIFY] HE_SALDO_INICIAL sin destinatarios")
+                return False
+
+            sender_config = await self._get_notification_sender(conn, "DEFAULT")
+            enviados = 0
+            for email, empleados in por_destinatario.items():
+                url_aprobacion = (
+                    f"{settings.APP_BASE_URL}/rrhh?tab=aprobaciones"
+                    if email in rh_emails
+                    else f"{settings.APP_BASE_URL}/perfil/ui?tab=equipo"
+                )
+                html = self._render_template(
+                    "shared/emails/vacaciones/saldo_inicial_arranque.html",
+                    {
+                        "empleados": empleados,
+                        "url_aprobacion": url_aprobacion,
+                    },
+                )
+                cc_emails = rh_emails if email not in rh_emails else set()
+                enviado = await self._send_email(
+                    {email},
+                    cc_emails,
+                    "Confirmacion de saldo inicial de bolsa HE",
+                    html,
+                    sender_config["email"],
+                )
+                if enviado:
+                    enviados += 1
+
+            return enviados > 0
+
+        except asyncpg.PostgresError as exc:
+            logger.error("[NOTIFY] Error BD en HE_SALDO_INICIAL: %s", exc, exc_info=True)
+        except httpx.HTTPError as exc:
+            logger.error("[NOTIFY] Error red en HE_SALDO_INICIAL: %s", exc, exc_info=True)
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as exc:
+            logger.error("[NOTIFY] Error inesperado en HE_SALDO_INICIAL: %s", exc, exc_info=True)
         return False
 
     # ===== MÉTODOS PRIVADOS =====
@@ -751,19 +983,31 @@ class NotificationService:
         trigger_value: str,
         type_filter: str,
         modulos: Optional[Set[str]] = None,
+        *,
+        empleado_email: str | None = None,
     ) -> Set[str]:
         """
         Obtiene emails TO, CC o CCO desde tb_config_emails para un evento dado.
+
+        Si RH configuró el placeholder dinámico PLACEHOLDER_EMPLEADO ("{EMPLEADO}")
+        para el evento, se resuelve al email pasado en `empleado_email`; si no hay
+        email disponible, el placeholder se descarta sin sustituto.
 
         Args:
             conn: Conexión a base de datos
             trigger_value: Valor del trigger (ej. 'OPORTUNIDAD_GANADA', 'NUEVO_COMENTARIO')
             type_filter: 'TO', 'CC' o 'CCO'
+            empleado_email: email del empleado destinatario dinámico, si aplica
 
         Returns:
             Set[str]: Conjunto de emails configurados
         """
-        return await self.db.get_emails_for_event(conn, trigger_value, type_filter, modulos)
+        emails = await self.db.get_emails_for_event(conn, trigger_value, type_filter, modulos)
+        if PLACEHOLDER_EMPLEADO in emails:
+            emails = emails - {PLACEHOLDER_EMPLEADO}
+            if empleado_email:
+                emails = emails | {empleado_email}
+        return emails
     
     async def _get_notification_sender(self, conn, departamento: str = 'DEFAULT') -> dict:
         """

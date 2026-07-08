@@ -1,6 +1,24 @@
 from uuid import UUID
 
 
+def _jefe_emails_lateral_join(empleado_id_expr: str) -> str:
+    """Fragmento SQL compartido: emails de jefes activos + si alguno es director.
+
+    `empleado_id_expr` es siempre un literal de codigo (columna correlacionada,
+    ej. "ad.usuario_id"), nunca input de usuario.
+    """
+    return f"""
+            LEFT JOIN LATERAL (
+                SELECT
+                    ARRAY_AGG(DISTINCT j.email) FILTER (WHERE j.email IS NOT NULL) AS emails,
+                    BOOL_OR(LOWER(COALESCE(j.rol_organizacional, '')) = 'director') AS tiene_director
+                FROM tb_empleados_jefes ej
+                JOIN tb_usuarios j ON j.id_usuario = ej.jefe_id AND j.is_active = true
+                WHERE ej.empleado_id = {empleado_id_expr}
+            ) jefes ON true
+    """
+
+
 class TasksDBService:
     """Queries SQL puras para tareas periodicas del worker."""
 
@@ -599,7 +617,7 @@ class TasksDBService:
         limit: int = 50,
     ) -> list[dict]:
         rows = await conn.fetch(
-            """
+            f"""
             SELECT
                 ad.id,
                 ad.usuario_id,
@@ -613,14 +631,7 @@ class TasksDBService:
                 COALESCE(jefes.tiene_director, false) AS tiene_director
             FROM tb_asistencia_diaria ad
             JOIN tb_usuarios u ON u.id_usuario = ad.usuario_id
-            LEFT JOIN LATERAL (
-                SELECT
-                    ARRAY_AGG(DISTINCT j.email) FILTER (WHERE j.email IS NOT NULL) AS emails,
-                    BOOL_OR(LOWER(COALESCE(j.rol_organizacional, '')) = 'director') AS tiene_director
-                FROM tb_empleados_jefes ej
-                JOIN tb_usuarios j ON j.id_usuario = ej.jefe_id AND j.is_active = true
-                WHERE ej.empleado_id = ad.usuario_id
-            ) jefes ON true
+            {_jefe_emails_lateral_join("ad.usuario_id")}
             WHERE ad.horas_extra_estado = 'solicitado'
               AND ad.minutos_extra > 0
               AND COALESCE(ad.horas_extra_recordatorios_enviados, 0) < $3
@@ -712,6 +723,123 @@ class TasksDBService:
               AND horas_extra_estado = 'solicitado'
             """,
             asistencia_ids,
+        )
+
+    async def get_he_compensatorio_recordatorios_pendientes(
+        self,
+        conn,
+        *,
+        primer_delay_horas: int,
+        intervalo_horas: int,
+        max_recordatorios: int,
+        limit: int = 50,
+    ) -> list[dict]:
+        rows = await conn.fetch(
+            f"""
+            SELECT
+                s.id,
+                s.usuario_id,
+                s.fecha_descanso,
+                s.minutos_solicitados,
+                s.motivo,
+                s.recordatorios_enviados,
+                u.nombre AS empleado_nombre,
+                u.email AS empleado_email,
+                COALESCE(jefes.emails, ARRAY[]::text[]) AS jefe_emails,
+                COALESCE(jefes.tiene_director, false) AS tiene_director
+            FROM tb_he_solicitudes_compensatorio s
+            JOIN tb_usuarios u ON u.id_usuario = s.usuario_id
+            {_jefe_emails_lateral_join("s.usuario_id")}
+            WHERE s.estatus = 'pendiente'
+              AND COALESCE(s.recordatorios_enviados, 0) < $3
+              AND (
+                  (
+                      COALESCE(s.recordatorios_enviados, 0) = 0
+                      AND s.fecha_solicitud <= now() - ($1::int * INTERVAL '1 hour')
+                  )
+                  OR
+                  (
+                      COALESCE(s.recordatorios_enviados, 0) > 0
+                      AND s.ultimo_recordatorio_at IS NOT NULL
+                      AND s.ultimo_recordatorio_at <= now() - ($2::int * INTERVAL '1 hour')
+                  )
+              )
+            ORDER BY COALESCE(s.ultimo_recordatorio_at, s.fecha_solicitud),
+                     s.fecha_descanso,
+                     u.nombre
+            LIMIT $4
+            """,
+            primer_delay_horas,
+            intervalo_horas,
+            max_recordatorios,
+            limit,
+        )
+        return [dict(row) for row in rows]
+
+    async def mark_he_compensatorio_recordatorio_enviado(self, conn, solicitud_id: UUID) -> None:
+        await conn.execute(
+            """
+            UPDATE tb_he_solicitudes_compensatorio
+            SET ultimo_recordatorio_at = now(),
+                recordatorios_enviados = COALESCE(recordatorios_enviados, 0) + 1,
+                updated_at = now()
+            WHERE id = $1
+              AND estatus = 'pendiente'
+            """,
+            solicitud_id,
+        )
+
+    async def get_he_compensatorio_resumen_rh_pendiente(
+        self,
+        conn,
+        *,
+        max_recordatorios: int,
+        intervalo_dias: int,
+        limit: int = 100,
+    ) -> list[dict]:
+        rows = await conn.fetch(
+            """
+            SELECT
+                s.id,
+                s.usuario_id,
+                s.fecha_descanso,
+                s.minutos_solicitados,
+                s.motivo,
+                s.recordatorios_enviados,
+                s.ultimo_recordatorio_at,
+                u.nombre AS empleado_nombre,
+                u.email AS empleado_email
+            FROM tb_he_solicitudes_compensatorio s
+            JOIN tb_usuarios u ON u.id_usuario = s.usuario_id
+            WHERE s.estatus = 'pendiente'
+              AND COALESCE(s.recordatorios_enviados, 0) >= $1
+              AND s.ultimo_recordatorio_at IS NOT NULL
+              AND s.ultimo_recordatorio_at <= now() - ($2::int * INTERVAL '1 day')
+              AND (
+                  s.resumen_rh_at IS NULL
+                  OR s.resumen_rh_at <= now() - ($2::int * INTERVAL '1 day')
+              )
+            ORDER BY s.ultimo_recordatorio_at, s.fecha_descanso, u.nombre
+            LIMIT $3
+            """,
+            max_recordatorios,
+            intervalo_dias,
+            limit,
+        )
+        return [dict(row) for row in rows]
+
+    async def mark_he_compensatorio_resumen_rh_enviado(self, conn, solicitud_ids: list[UUID]) -> None:
+        if not solicitud_ids:
+            return
+        await conn.execute(
+            """
+            UPDATE tb_he_solicitudes_compensatorio
+            SET resumen_rh_at = now(),
+                updated_at = now()
+            WHERE id = ANY($1::uuid[])
+              AND estatus = 'pendiente'
+            """,
+            solicitud_ids,
         )
 
 
