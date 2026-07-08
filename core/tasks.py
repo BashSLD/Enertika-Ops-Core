@@ -1113,32 +1113,35 @@ async def verificar_periodos_por_expirar_periodically(interval_seconds: int = 86
                                 f"periodo_expirar:{emp['id_usuario']}:"
                                 f"{periodo['num_periodo']}:{dias_exp}"
                             )
-                            registrado = await try_register_worker_notification(
-                                conn,
-                                clave=clave,
-                                tipo="PERIODO_POR_EXPIRAR",
-                                usuario_id=emp["id_usuario"],
-                                num_periodo=periodo["num_periodo"],
-                                fecha_objetivo=periodo.get("fecha_expiracion_efectiva", periodo["fecha_expiracion"]),
-                                metadata={
-                                    "dias_para_expiracion": dias_exp,
-                                    "dias_restantes": periodo["dias_restantes"],
-                                },
-                            )
-                            if not registrado:
-                                continue
+                            async with conn.transaction():
+                                registrado = await try_register_worker_notification(
+                                    conn,
+                                    clave=clave,
+                                    tipo="PERIODO_POR_EXPIRAR",
+                                    usuario_id=emp["id_usuario"],
+                                    num_periodo=periodo["num_periodo"],
+                                    fecha_objetivo=periodo.get(
+                                        "fecha_expiracion_efectiva", periodo["fecha_expiracion"]
+                                    ),
+                                    metadata={
+                                        "dias_para_expiracion": dias_exp,
+                                        "dias_restantes": periodo["dias_restantes"],
+                                    },
+                                )
+                                if not registrado:
+                                    continue
 
-                            notification_data = await notif_svc.create_notification(
-                                conn=conn,
-                                usuario_id=emp["id_usuario"],
-                                tipo="VACACIONES_POR_EXPIRAR",
-                                titulo=f"Período {periodo['num_periodo']} por vencer",
-                                mensaje=(
-                                    f"Tienes {periodo['dias_restantes']} días hábiles "
-                                    f"que vencen en {dias_exp} días"
-                                ),
-                                modulo_origen="vacaciones",
-                            )
+                                notification_data = await notif_svc.create_notification(
+                                    conn=conn,
+                                    usuario_id=emp["id_usuario"],
+                                    tipo="VACACIONES_POR_EXPIRAR",
+                                    titulo=f"Período {periodo['num_periodo']} por vencer",
+                                    mensaje=(
+                                        f"Tienes {periodo['dias_restantes']} días hábiles "
+                                        f"que vencen en {dias_exp} días"
+                                    ),
+                                    modulo_origen="vacaciones",
+                                )
                             await notif_svc.broadcast_to_user(conn, emp["id_usuario"], notification_data)
                             await email_svc.notify_periodo_expira(conn, dict(emp), periodo)
                             logger.info(
@@ -1191,21 +1194,6 @@ async def verificar_solicitudes_vencidas_periodically(interval_seconds: int = 86
                 rh_emails = {r["email"] for r in rh_rows if r["email"]}
 
                 for sol in solicitudes:
-                    clave = f"solicitud_vencida:{sol['id']}:{hoy.isoformat()}"
-                    registrado = await try_register_worker_notification(
-                        conn,
-                        clave=clave,
-                        tipo="SOLICITUD_VENCIDA",
-                        solicitud_id=sol["id"],
-                        fecha_objetivo=hoy,
-                        metadata={
-                            "fecha_inicio": sol["fecha_inicio"].isoformat(),
-                            "tipo_nombre": sol["tipo_nombre"],
-                        },
-                    )
-                    if not registrado:
-                        continue
-
                     mensaje = (
                         f"{sol['solicitante_nombre']} · {sol['tipo_nombre']} · "
                         f"inicio {sol['fecha_inicio'].strftime('%d/%m/%Y')}"
@@ -1216,15 +1204,35 @@ async def verificar_solicitudes_vencidas_periodically(interval_seconds: int = 86
                     if sol["aprobador_id"]:
                         destinatarios.add(sol["aprobador_id"])
 
-                    for uid in destinatarios:
-                        notification_data = await notif_svc.create_notification(
-                            conn=conn,
-                            usuario_id=uid,
-                            tipo="VACACIONES_VENCIDAS",
-                            titulo=titulo,
-                            mensaje=mensaje,
-                            modulo_origen="vacaciones",
+                    notifications_data = []
+                    clave = f"solicitud_vencida:{sol['id']}:{hoy.isoformat()}"
+                    async with conn.transaction():
+                        registrado = await try_register_worker_notification(
+                            conn,
+                            clave=clave,
+                            tipo="SOLICITUD_VENCIDA",
+                            solicitud_id=sol["id"],
+                            fecha_objetivo=hoy,
+                            metadata={
+                                "fecha_inicio": sol["fecha_inicio"].isoformat(),
+                                "tipo_nombre": sol["tipo_nombre"],
+                            },
                         )
+                        if not registrado:
+                            continue
+
+                        for uid in destinatarios:
+                            notification_data = await notif_svc.create_notification(
+                                conn=conn,
+                                usuario_id=uid,
+                                tipo="VACACIONES_VENCIDAS",
+                                titulo=titulo,
+                                mensaje=mensaje,
+                                modulo_origen="vacaciones",
+                            )
+                            notifications_data.append((uid, notification_data))
+
+                    for uid, notification_data in notifications_data:
                         await notif_svc.broadcast_to_user(conn, uid, notification_data)
 
                     to_emails = {sol["aprobador_email"]} if sol["aprobador_email"] else set(rh_emails)
