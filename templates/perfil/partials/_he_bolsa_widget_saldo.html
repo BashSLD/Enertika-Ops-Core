@@ -1,0 +1,18 @@
+<div id="he-bolsa-saldo"{% if he_bolsa_oob %} hx-swap-oob="outerHTML"{% endif %} class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+  <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+    <p class="text-[11px] font-medium text-gray-500">Acumuladas</p>
+    <p class="text-sm font-semibold text-gray-800">{{ bolsa.saldo_fmt.acumulado }}</p>
+  </div>
+  <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+    <p class="text-[11px] font-medium text-gray-500">Tomadas</p>
+    <p class="text-sm font-semibold text-gray-800">{{ bolsa.saldo_fmt.tomado }}</p>
+  </div>
+  <div class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+    <p class="text-[11px] font-medium text-gray-500">En proceso</p>
+    <p class="text-sm font-semibold text-gray-800">{{ bolsa.saldo_fmt.en_proceso }}</p>
+  </div>
+  <div class="rounded-lg border border-[#00BABB]/20 bg-[#00BABB]/10 px-3 py-2">
+    <p class="text-[11px] font-medium text-[#007C7D]">Disponibles</p>
+    <p class="text-sm font-semibold text-[#007C7D]">{{ bolsa.saldo_fmt.disponible }}</p>
+  </div>
+</div>

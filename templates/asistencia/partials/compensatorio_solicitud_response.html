@@ -1,0 +1,8 @@
+<div></div>
+
+{% set he_bolsa_oob = true %}
+{% include "perfil/partials/_he_bolsa_widget_saldo.html" %}
+
+{% with type="success", title="Listo", message=mensaje %}
+  {% include "shared/toast.html" %}
+{% endwith %}

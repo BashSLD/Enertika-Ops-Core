@@ -1,0 +1,33 @@
+<div class="space-y-2">
+  <div class="flex flex-wrap gap-2">
+    {% for n in niveles %}
+    {% if n.actual %}
+    <div class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-600">
+      <span class="relative inline-flex h-2.5 w-2.5">
+        <span class="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" style="background: {{ n.color_hex }};"></span>
+        <span class="relative inline-flex h-2.5 w-2.5 rounded-full" style="background: {{ n.color_hex }};"></span>
+      </span>
+      <svg class="h-3.5 w-3.5 animate-pulse" viewBox="0 0 24 24" fill="{{ n.color_hex }}">
+        <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/>
+      </svg>
+      {{ n.nombre }}
+    </div>
+    {% elif n.alcanzado %}
+    <div class="rounded-lg border bg-white px-2.5 py-1.5 text-xs font-semibold" style="border-color: {{ n.color_hex }}; color: {{ n.color_hex }};">
+      {{ n.nombre }}
+    </div>
+    {% else %}
+    <div class="rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs font-semibold text-gray-400">
+      {{ n.nombre }}
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  <p class="text-xs text-gray-600">
+    {% if es_maximo %}
+      Tu nivel es Megawatt. Nivel máximo alcanzado.
+    {% else %}
+      Te faltan {{ horas_faltantes }} horas de puntos de experiencia para el siguiente nivel.
+    {% endif %}
+  </p>
+</div>

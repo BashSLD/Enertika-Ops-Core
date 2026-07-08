@@ -1,10 +1,15 @@
+{% import "shared/partials/_he_evidencia_links.html" as he_evidencias %}
+
 {% if toast_msg %}
 {% with type=toast_type, title="Aviso", message=toast_msg %}
 {% include "shared/toast.html" %}
 {% endwith %}
 {% endif %}
 
-{% set total_pendientes = (pendientes | length) + (horas_extra_pendientes | length) %}
+{% set comp_pendientes = comp_pendientes | default([]) %}
+{% set saldo_inicial_pendientes = saldo_inicial_pendientes | default([]) %}
+{% set he_niveles_equipo = he_niveles_equipo | default([]) %}
+{% set total_pendientes = (pendientes | length) + (horas_extra_pendientes | length) + (comp_pendientes | length) %}
 <span id="perfil-aprobaciones-badge" hx-swap-oob="true" class="ml-1.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-xs font-bold text-white {% if not total_pendientes %}hidden{% endif %}">{% if total_pendientes %}{{ total_pendientes }}{% endif %}</span>
 
 <div class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
@@ -86,11 +91,93 @@
   {% endif %}
 </div>
 
+{% if saldo_inicial_pendientes %}
+<section class="mt-4 overflow-hidden rounded-2xl border border-amber-100 bg-white shadow-sm">
+  <div class="border-b border-amber-100 bg-amber-50 px-5 py-3">
+    <h3 class="text-sm font-semibold text-amber-800">Saldo inicial de bolsa HE pendiente</h3>
+    <p class="text-xs text-amber-700">Confirma el saldo inicial de tus colaboradores directos, incluso si es 0.</p>
+  </div>
+  <div class="divide-y divide-amber-50">
+    {% for emp in saldo_inicial_pendientes %}
+    <form class="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between"
+          hx-post="/asistencia/api/saldo-inicial/{{ emp.id_usuario }}/confirmar"
+          hx-swap="none">
+      <div>
+        <p class="text-sm font-semibold text-gray-800">{{ emp.nombre }}</p>
+        <p class="text-xs text-gray-400">{{ emp.email or '' }}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <input type="number" name="minutos" min="0" step="30" value="0"
+               class="w-28 rounded-lg border border-gray-200 px-2 py-1.5 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+        <button type="submit"
+                class="rounded-lg bg-[#00BABB] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#009899]">
+          Confirmar
+        </button>
+      </div>
+    </form>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if comp_pendientes %}
+<section class="mt-4 overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm">
+  <div class="border-b border-teal-100 bg-teal-50 px-5 py-3">
+    <h3 class="text-sm font-semibold text-teal-800">Aprobaciones tiempo x tiempo</h3>
+    <p class="text-xs text-teal-700">Solicitudes para tomar horas extra como descanso.</p>
+  </div>
+  <div class="divide-y divide-gray-50">
+    {% for sol in comp_pendientes %}
+    <div id="comp-row-{{ sol.id }}" x-data="{ aprobando: false, rechazando: false }" class="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold text-gray-800">{{ sol.empleado_nombre }}</p>
+        <p class="text-xs text-gray-500">{{ sol.fecha_descanso.strftime('%d/%m/%Y') }} &middot; {{ sol.minutos_solicitados }} min</p>
+        <p class="mt-1 text-xs text-gray-400">{{ sol.motivo }}</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button type="button"
+                hx-post="/asistencia/api/compensatorio/{{ sol.id }}/aprobar"
+                hx-target="#comp-row-{{ sol.id }}"
+                hx-swap="outerHTML"
+                @htmx:before-request="aprobando = true"
+                @htmx:after-request="aprobando = false"
+                :disabled="aprobando"
+                :class="aprobando ? 'cursor-wait opacity-75' : ''"
+                class="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:pointer-events-none">
+          <svg x-show="aprobando" x-cloak class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+          </svg>
+          <span x-text="aprobando ? 'Aprobando...' : 'Aprobar'">Aprobar</span>
+        </button>
+        <form hx-post="/asistencia/api/compensatorio/{{ sol.id }}/rechazar"
+              hx-target="#comp-row-{{ sol.id }}"
+              hx-swap="outerHTML"
+              @htmx:before-request="rechazando = true"
+              @htmx:after-request="rechazando = false"
+              class="flex items-center gap-2">
+          <input type="text" name="comentario" required placeholder="Motivo" :disabled="rechazando"
+                 class="w-36 rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:border-[#00BABB] focus:ring-[#00BABB]">
+          <button type="submit" :disabled="rechazando" :class="rechazando ? 'cursor-wait opacity-75' : ''"
+                  class="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:pointer-events-none">
+            <svg x-show="rechazando" x-cloak class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+            </svg>
+            <span x-text="rechazando ? 'Rechazando...' : 'Rechazar'">Rechazar</span>
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
 {% if horas_extra_grupos %}
 <section
   data-rows='{{ horas_extra_pendientes_json | tojson }}'
   x-data="{
-    selected: [],
     openModal: false,
     modalId: '',
     modalNombre: '',
@@ -99,31 +186,11 @@
     modalMaxMinutos: 60,
     modalMinutos: 60,
     modalComentario: '',
-    bulkMinutos: 60,
-    bulkComentario: '',
     rows: [],
     gruposAbiertos: {},
     init() {
       this.rows = JSON.parse(this.$el.dataset.rows || '[]');
       this.rows = this.rows.map(r => ({...r, id: String(r.id)}));
-      this.$watch('selected', () => {
-        if (this.bulkMinutos > this.bulkMaxMinutos) this.bulkMinutos = this.bulkMaxMinutos;
-      });
-    },
-    toggle(id) {
-      const idx = this.selected.indexOf(id);
-      if (idx >= 0) this.selected.splice(idx, 1);
-      else this.selected.push(id);
-    },
-    isSelected(id) { return this.selected.includes(String(id)); },
-    clearSelected() { this.selected = []; this.bulkMinutos = 60; this.bulkComentario = ''; },
-    get selectedRows() { return this.rows.filter(r => this.selected.includes(r.id)); },
-    get bulkMaxMinutos() {
-      const mins = this.selectedRows.map(r => r.minutos_extra);
-      return mins.length ? Math.min(...mins) : 480;
-    },
-    get bulkEmpleadosCount() {
-      return new Set(this.selectedRows.map(r => r.usuario_id)).size;
     },
     openAprobar(id) {
       const row = this.rows.find(r => r.id === String(id));
@@ -140,36 +207,29 @@
     },
     onAprobacionDone() {
       this.rows = this.rows.filter(r => r.id !== this.modalId);
-      this.selected = this.selected.filter(id => id !== this.modalId);
       this.openModal = false;
-    },
-    onBulkDone() {
-      const ids = [...this.selected];
-      this.rows = this.rows.filter(r => !ids.includes(r.id));
-      this.clearSelected();
     },
     omitirRow(id) {
       htmx.ajax('POST', '/asistencia/api/horas-extra/' + id + '/omitir', { swap: 'none' })
         .then(() => {
           if (!document.getElementById('he-row-' + id)) {
             this.rows = this.rows.filter(r => r.id !== id);
-            this.selected = this.selected.filter(s => s !== id);
           }
         });
     }
   }"
-  class="mt-4 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+  class="mt-4 bg-white rounded-2xl shadow-sm border border-blue-100 overflow-hidden">
 
-  <div class="px-5 py-3 border-b border-gray-100">
+  <div class="px-5 py-3 border-b border-blue-100 bg-blue-50">
     <div class="flex items-center gap-2">
-      <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+      <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 6.75v5.5l3.25 2M12 3.75a8.25 8.25 0 1 1 0 16.5 8.25 8.25 0 0 1 0-16.5Z"/>
         </svg>
       </span>
-      <h3 class="text-sm font-semibold text-gray-800">Horas extra pendientes de aprobacion</h3>
+      <h3 class="text-sm font-semibold text-blue-800">Horas extra pendientes de aprobacion</h3>
     </div>
-    <p class="text-xs text-gray-400">Registros de los últimos 30 días pendientes o solicitados.</p>
+    <p class="text-xs text-blue-700">Registros de los últimos 30 días pendientes o solicitados.</p>
   </div>
 
 
@@ -219,6 +279,7 @@
           {% if row.motivo_solicitud %}
           <p class="text-xs text-blue-600 mt-0.5 italic">"{{ row.motivo_solicitud }}"</p>
           {% endif %}
+          {{ he_evidencias.he_evidencia_links(row.evidencias) }}
         </div>
 
         <div class="flex items-center gap-2 flex-shrink-0">
@@ -334,15 +395,15 @@
   </div>
 </section>
 {% else %}
-<div class="mt-4 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-  <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+<div class="mt-4 overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
+  <div class="flex items-center justify-between border-b border-blue-100 bg-blue-50 px-5 py-3">
     <div class="flex items-center gap-2">
-      <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+      <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 6.75v5.5l3.25 2M12 3.75a8.25 8.25 0 1 1 0 16.5 8.25 8.25 0 0 1 0-16.5Z"/>
         </svg>
       </span>
-      <h2 class="text-sm font-semibold text-gray-700">Horas extra pendientes de aprobacion</h2>
+      <h2 class="text-sm font-semibold text-blue-800">Horas extra pendientes de aprobacion</h2>
     </div>
     {% if horas_extra_pendientes %}
     <span class="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">{{ horas_extra_pendientes | length }}</span>

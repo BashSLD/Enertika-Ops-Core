@@ -298,8 +298,10 @@
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
                     <div>
                         <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Email a Agregar</label>
-                        <input type="email" name="email_to_add" placeholder="usuario@enertika.mx" required
+                        <input type="text" name="email_to_add" placeholder="usuario@enertika.mx o {EMPLEADO}" required
+                            pattern="^(\{EMPLEADO\}|[^@]+@[^@]+\.[^@]+)$"
                             class="w-full rounded-lg border-gray-300 focus:ring-[#00BABB] focus:border-[#00BABB]">
+                        <p class="text-xs text-gray-400 mt-1">Usa <code>{EMPLEADO}</code> para enviar dinámicamente al empleado involucrado en el evento (si aplica).</p>
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Tipo</label>

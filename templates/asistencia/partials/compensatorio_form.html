@@ -1,0 +1,95 @@
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+     x-data="{
+       fechaMin: '',
+       fechaDescanso: '',
+       horas: 0,
+       minutos: 0,
+       enviando: false,
+       get fechaDescansoFmt() {
+         if (!this.fechaDescanso) return '';
+         const [y, m, d] = this.fechaDescanso.split('-');
+         return `${d}/${m}/${y}`;
+       },
+       get totalMinutos() { return (parseInt(this.horas) || 0) * 60 + (parseInt(this.minutos) || 0); },
+       get totalFmt() {
+         const h = Math.floor(this.totalMinutos / 60);
+         const m = this.totalMinutos % 60;
+         if (h && m) return `${h}h ${String(m).padStart(2, '0')}m`;
+         if (h) return `${h}h`;
+         return `${m}m`;
+       },
+       init() {
+         const toLocalISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+         const manana = new Date();
+         manana.setDate(manana.getDate() + 1);
+         this.fechaMin = toLocalISO(manana);
+       }
+     }"
+     @keydown.escape.window="$el.remove()">
+  <div class="w-full max-w-md rounded-2xl bg-white shadow-xl">
+    <div class="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+      <h3 class="text-sm font-semibold text-gray-800">Solicitar Tiempo x Tiempo</h3>
+      <button type="button" class="text-gray-400 hover:text-gray-600" @click="$root.remove()">
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <form hx-post="/asistencia/api/compensatorio/solicitar"
+          hx-target="#he-compensatorio-modal"
+          hx-swap="innerHTML"
+          @htmx:before-request="enviando = true"
+          @htmx:after-request="enviando = false"
+          class="space-y-4 px-5 py-4">
+      <div class="rounded-lg border border-[#00BABB]/20 bg-[#00BABB]/10 px-3 py-2 text-xs text-[#007C7D]">
+        Saldo disponible: <strong>{{ bolsa.saldo_fmt.disponible }}</strong>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-semibold text-gray-600">Fecha de descanso</label>
+        <input type="date" name="fecha_descanso" required :min="fechaMin" :disabled="enviando"
+               x-model="fechaDescanso"
+               class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+        <span x-show="fechaDescanso" x-text="fechaDescansoFmt" x-cloak
+              class="mt-1 block cursor-help text-xs text-gray-400"
+              title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-semibold text-gray-600">Tiempo a tomar</label>
+        <div class="flex items-center gap-2">
+          <div class="flex-1">
+            <input type="number" x-model.number="horas" min="0" step="1" :disabled="enviando"
+                   class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]"
+                   placeholder="Horas">
+          </div>
+          <select x-model.number="minutos" :disabled="enviando"
+                  class="w-24 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+            <option value="0">00 min</option>
+            <option value="15">15 min</option>
+            <option value="30">30 min</option>
+            <option value="45">45 min</option>
+          </select>
+        </div>
+        <input type="hidden" name="minutos_solicitados" :value="totalMinutos">
+        <p class="mt-1 text-xs text-gray-400">
+          Equivale a <strong x-text="totalFmt"></strong>. No puede exceder tu jornada programada del dia.
+        </p>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs font-semibold text-gray-600">Motivo</label>
+        <textarea name="motivo" rows="3" required :disabled="enviando"
+                  class="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]"></textarea>
+      </div>
+      <div class="flex justify-end border-t border-gray-100 pt-4">
+        <button type="submit" :disabled="totalMinutos < 30 || enviando"
+                :class="(totalMinutos < 30 || enviando) ? 'cursor-not-allowed opacity-50' : ''"
+                class="inline-flex items-center gap-1.5 rounded-lg bg-[#00BABB] px-4 py-2 text-sm font-semibold text-white hover:bg-[#009899] disabled:pointer-events-none">
+          <svg x-show="enviando" x-cloak class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+          </svg>
+          <span x-text="enviando ? 'Enviando...' : 'Enviar'">Enviar</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

@@ -3,8 +3,8 @@
         hx-post="/perfil/asistencia/solicitudes-manuales"
         hx-target="#asistencia-manual-modal"
         hx-swap="innerHTML"
-        hx-on::before-request="enviando = true"
-        hx-on::after-request="enviando = false"
+        @htmx:before-request="enviando = true"
+        @htmx:after-request="enviando = false"
         class="w-full max-w-lg max-h-[90dvh] overflow-hidden rounded-2xl bg-white shadow-xl flex flex-col">
     <div class="flex items-center justify-between border-b border-gray-100 px-5 py-4">
       <div>

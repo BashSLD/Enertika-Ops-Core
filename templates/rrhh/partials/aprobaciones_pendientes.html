@@ -1,3 +1,5 @@
+{% import "shared/partials/_he_evidencia_links.html" as he_evidencias %}
+
 {% if toast_msg %}
 {% with type=toast_type, title="Aviso", message=toast_msg %}
 {% include "shared/toast.html" %}
@@ -123,17 +125,17 @@
   </section>
   {% endif %}
 
-  <section class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-    <div class="border-b border-gray-100 px-5 py-3">
-      <h3 class="text-sm font-semibold text-gray-800">Tiempo compensatorio pendiente</h3>
-      <p class="text-xs text-gray-400">Solicitudes de descanso con cargo a bolsa HE.</p>
+  <section class="overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm">
+    <div class="border-b border-teal-100 bg-teal-50 px-5 py-3">
+      <h3 class="text-sm font-semibold text-teal-800">Aprobaciones tiempo x tiempo</h3>
+      <p class="text-xs text-teal-700">Solicitudes de descanso con cargo a bolsa HE.</p>
     </div>
     {% if not comp_pendientes %}
     <div class="px-5 py-8 text-center text-sm text-gray-400">Sin solicitudes de tiempo compensatorio.</div>
     {% else %}
     <div class="divide-y divide-gray-50">
       {% for sol in comp_pendientes %}
-      <div id="rrhh-comp-row-{{ sol.id }}" x-data="{ aprobando: false, rechazando: false }" class="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-start sm:justify-between">
+      <div id="comp-row-{{ sol.id }}" x-data="{ aprobando: false, rechazando: false }" class="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p class="text-sm font-semibold text-gray-800">{{ sol.empleado_nombre }}</p>
           <p class="text-xs text-gray-500">{{ sol.fecha_descanso.strftime('%d/%m/%Y') }} &middot; {{ sol.minutos_solicitados }} min</p>
@@ -143,9 +145,10 @@
         <div class="flex flex-wrap gap-2">
           <button type="button"
                   hx-post="/asistencia/api/compensatorio/{{ sol.id }}/aprobar"
-                  hx-swap="none"
-                  hx-on::before-request="aprobando = true"
-                  hx-on::after-request="aprobando = false; if (event.detail.successful) document.getElementById('rrhh-comp-row-{{ sol.id }}')?.remove()"
+                  hx-target="#comp-row-{{ sol.id }}"
+                  hx-swap="outerHTML"
+                  @htmx:before-request="aprobando = true"
+                  @htmx:after-request="aprobando = false"
                   :disabled="aprobando"
                   :class="aprobando ? 'cursor-wait opacity-75' : ''"
                   class="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:pointer-events-none">
@@ -156,9 +159,10 @@
             <span x-text="aprobando ? 'Aprobando...' : 'Aprobar'">Aprobar</span>
           </button>
           <form hx-post="/asistencia/api/compensatorio/{{ sol.id }}/rechazar"
-                hx-swap="none"
-                hx-on::before-request="rechazando = true"
-                hx-on::after-request="rechazando = false; if (event.detail.successful) document.getElementById('rrhh-comp-row-{{ sol.id }}')?.remove()"
+                hx-target="#comp-row-{{ sol.id }}"
+                hx-swap="outerHTML"
+                @htmx:before-request="rechazando = true"
+                @htmx:after-request="rechazando = false"
                 class="flex items-center gap-2">
             <input type="text" name="comentario" required placeholder="Motivo" :disabled="rechazando"
                    class="w-36 rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:border-[#00BABB] focus:ring-[#00BABB]">
@@ -182,7 +186,6 @@
   <section
     data-rows='{{ horas_extra_json | tojson }}'
     x-data="{
-      selected: [],
       openModal: false,
       modalId: '',
       modalNombre: '',
@@ -191,32 +194,13 @@
       modalMaxMinutos: 60,
       modalMinutos: 60,
       modalComentario: '',
-      bulkMinutos: 60,
-      bulkComentario: '',
       confirmandoAprobacion: false,
       omitiendoIds: [],
       rows: [],
       gruposAbiertos: {},
-      evidenciaUrl: '',
-      evidenciaAbierta: false,
       init() {
         this.rows = JSON.parse(this.$el.dataset.rows || '[]');
         this.rows = this.rows.map(r => ({...r, id: String(r.id)}));
-      },
-      toggle(id) {
-        const idx = this.selected.indexOf(id);
-        if (idx >= 0) this.selected.splice(idx, 1);
-        else this.selected.push(id);
-      },
-      isSelected(id) { return this.selected.includes(String(id)); },
-      clearSelected() { this.selected = []; this.bulkMinutos = 60; this.bulkComentario = ''; },
-      get selectedRows() { return this.rows.filter(r => this.selected.includes(r.id)); },
-      get bulkMaxMinutos() {
-        const mins = this.selectedRows.map(r => r.minutos_extra);
-        return mins.length ? Math.min(...mins) : 480;
-      },
-      get bulkEmpleadosCount() {
-        return new Set(this.selectedRows.map(r => r.usuario_id)).size;
       },
       openAprobar(id) {
         const row = this.rows.find(r => r.id === String(id));
@@ -233,13 +217,7 @@
       },
       onAprobacionDone() {
         this.rows = this.rows.filter(r => r.id !== this.modalId);
-        this.selected = this.selected.filter(id => id !== this.modalId);
         this.openModal = false;
-      },
-      onBulkDone() {
-        const ids = [...this.selected];
-        this.rows = this.rows.filter(r => !ids.includes(r.id));
-        this.clearSelected();
       },
       omitirRow(id, evt) {
         this.omitiendoIds.push(id);
@@ -249,25 +227,24 @@
           this.omitiendoIds = this.omitiendoIds.filter(x => x !== id);
           if (e.detail.successful) {
             this.rows = this.rows.filter(r => r.id !== id);
-            this.selected = this.selected.filter(s => s !== id);
           }
         };
         source.addEventListener('htmx:afterRequest', onAfterRequest);
         htmx.ajax('POST', '/asistencia/api/horas-extra/' + id + '/omitir', { source, swap: 'none' });
       }
     }"
-    class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+    class="bg-white rounded-2xl shadow-sm border border-blue-100 overflow-hidden">
 
-    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <div class="px-5 py-3 border-b border-blue-100 bg-blue-50 flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+        <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 6.75v5.5l3.25 2M12 3.75a8.25 8.25 0 1 1 0 16.5 8.25 8.25 0 0 1 0-16.5Z"/>
           </svg>
         </span>
         <div>
-          <h3 class="text-sm font-semibold text-gray-800">Horas extra pendientes</h3>
-          <p class="text-xs text-gray-400">Últimos 30 días — todos los empleados.</p>
+          <h3 class="text-sm font-semibold text-blue-800">Horas extra pendientes</h3>
+          <p class="text-xs text-blue-700">Últimos 30 días — todos los empleados.</p>
         </div>
       </div>
       {% if horas_extra_grupos %}
@@ -329,20 +306,7 @@
             {% if row.motivo_solicitud %}
             <p class="text-xs text-blue-600 mt-0.5 italic">"{{ row.motivo_solicitud }}"</p>
             {% endif %}
-            {% if row.evidencias %}
-            <div class="mt-1 flex flex-wrap gap-1.5">
-              {% for ev in row.evidencias %}
-              <button type="button"
-                      @click="evidenciaUrl = '/asistencia/evidencias/{{ ev.id_documento }}/preview'; evidenciaAbierta = true"
-                      class="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1 text-xs font-semibold text-gray-600 hover:border-[#00BABB] hover:bg-[#00BABB]/5 hover:text-[#007C7D] transition-colors">
-                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.485 8.486L20.5 13"/>
-                </svg>
-                Evidencia {{ loop.index }}
-              </button>
-              {% endfor %}
-            </div>
-            {% endif %}
+            {{ he_evidencias.he_evidencia_links(row.evidencias) }}
           </div>
           {% if can_manage_horas_extra %}
           <div class="flex items-center gap-2 flex-shrink-0">
@@ -453,44 +417,19 @@
       </div>
     </div>
     {% endif %}
-
-    <div x-show="evidenciaAbierta" x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
-         x-transition:leave="transition ease-in duration-150"
-         x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
-         class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-         @keydown.escape.window="evidenciaAbierta = false"
-         x-cloak>
-      <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl h-[85dvh] flex flex-col" @click.stop>
-        <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
-          <h3 class="text-sm font-semibold text-gray-800">Evidencia</h3>
-          <div class="flex items-center gap-4">
-            <a :href="evidenciaUrl" target="_blank" class="text-xs font-semibold text-[#007C7D] hover:underline">Abrir en pestaña nueva</a>
-            <button @click="evidenciaAbierta = false" class="text-gray-400 hover:text-gray-600">
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div class="flex-1 min-h-0 bg-gray-50">
-          <iframe :src="evidenciaAbierta ? evidenciaUrl : ''" class="w-full h-full" title="Evidencia"></iframe>
-        </div>
-      </div>
-    </div>
   </section>
 
-  <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+  <div class="bg-white rounded-2xl shadow-sm border border-violet-100 overflow-hidden">
+    <div class="px-5 py-3 border-b border-violet-100 bg-violet-50 flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[#00BABB]/10 text-[#007C7D]">
+        <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-violet-100 text-violet-600">
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 8v4l3 2M12 3.75a8.25 8.25 0 1 1 0 16.5 8.25 8.25 0 0 1 0-16.5Z"/>
           </svg>
         </span>
         <div>
-          <h3 class="text-sm font-semibold text-gray-800">Registros manuales pendientes</h3>
-          <p class="text-xs text-gray-400">Solicitudes de checada manual — todos los empleados.</p>
+          <h3 class="text-sm font-semibold text-violet-800">Registros manuales pendientes</h3>
+          <p class="text-xs text-violet-700">Solicitudes de checada manual — todos los empleados.</p>
         </div>
       </div>
       {% if solicitudes_manuales_pendientes %}
