@@ -57,6 +57,7 @@ logger = logging.getLogger("CfeService")
 
 _scrape_lock = asyncio.Semaphore(1)
 CFE_ZIP_MAX_DOWNLOAD_ATTEMPTS = 3
+_RE_ERROR_NO_REGISTRADO = re.compile(r"no\s+(esta\s+)?registrado\s+en\s+miespacio")
 
 _MESES_ZIP_SIMULACION = {
     1: "ENE",
@@ -278,9 +279,71 @@ class CfeService:
         m = mensaje.lower()
         return "expir" in m and "sesi" in m
 
+    @staticmethod
+    def _es_error_no_registrado(mensaje: Optional[str]) -> bool:
+        """True si el mensaje indica que CFE ya no reconoce el servicio como registrado
+        en MiEspacio (lo dio de baja de su lado), pese a que nuestra BD lo marcaba
+        'registrado'. Cubre los dos formatos que emite el scraper (el mensaje generico
+        _MSG_SERVICIO_NO_REGISTRADO y el de MiEspacioServiceNotFound, que interpola el
+        numero de servicio) sin acoplarse al texto exacto de ninguno de los dos."""
+        if not mensaje:
+            return False
+        return bool(_RE_ERROR_NO_REGISTRADO.search(mensaje.lower()))
+
     async def _marcar_sesion_invalida(self, conn: asyncpg.Connection) -> None:
         await self._admin_db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_invalida"], "1")
         ConfigService.invalidar_cache()
+
+    async def _forzar_alta_perdida(self, conn: asyncpg.Connection, servicio: dict) -> bool:
+        """Fuerza el alta del servicio de vuelta a 'pendiente' porque CFE dejo de
+        reconocerlo (usado por ambos flujos de auto-recuperacion: descarga puntual
+        y busqueda masiva de periodos). Devuelve True si quedo encolada."""
+        alta_reencolada = await self.db.marcar_alta_miespacio_pendiente(conn, servicio["id"], forzar=True)
+        logger.warning(
+            "[CFE] Servicio %s ya no esta registrado en MiEspacio; alta %s",
+            servicio["numero_servicio"],
+            "reencolada automaticamente" if alta_reencolada else "ya estaba en curso",
+        )
+        return alta_reencolada
+
+    async def _recuperar_servicio_perdido(
+        self, conn: asyncpg.Connection, *, servicio: dict, periodo: str, tipo: str,
+        usuario_id: Optional[UUID], tipo_recibo: Optional[str],
+    ) -> None:
+        """CFE dejo de reconocer el servicio como registrado: reencola el alta (el
+        worker la retoma en su siguiente ciclo) y reencola esa descarga puntual
+        (PDF o XML, segun cual haya fallado) para que se retome sola en cuanto el
+        alta se recupere."""
+        await self._forzar_alta_perdida(conn, servicio)
+        await self.db.upsert_descarga(
+            conn, servicio_id=servicio["id"], periodo=periodo, tipo=tipo,
+            estatus="pendiente", descargado_por=usuario_id, tipo_recibo=tipo_recibo,
+        )
+        logger.warning(
+            "[CFE] Descarga %s (periodo=%s) del servicio %s reencolada automaticamente",
+            tipo.upper(), periodo, servicio["numero_servicio"],
+        )
+
+    async def _registrar_error_descarga(
+        self, conn: asyncpg.Connection, *, servicio: dict, periodo: str, tipo: str,
+        error_mensaje: str, usuario_id: Optional[UUID], tipo_recibo: Optional[str],
+    ) -> None:
+        """Registra el error de un intento de descarga (PDF o XML). Si el error indica
+        que CFE dejo de reconocer el servicio como registrado, dispara la
+        auto-recuperacion en vez de dejarlo como error permanente."""
+        if self._es_error_no_registrado(error_mensaje):
+            await self._recuperar_servicio_perdido(
+                conn, servicio=servicio, periodo=periodo, tipo=tipo,
+                usuario_id=usuario_id, tipo_recibo=tipo_recibo,
+            )
+            return
+        await self.db.upsert_descarga(
+            conn, servicio_id=servicio["id"], periodo=periodo,
+            tipo=tipo, estatus="error", error_mensaje=error_mensaje,
+            descargado_por=usuario_id, tipo_recibo=tipo_recibo,
+        )
+        if self._es_error_sesion(error_mensaje):
+            await self._marcar_sesion_invalida(conn)
 
     def _build_scraper_config(self, servicio: dict, cfg_global: dict) -> CfeScraperConfig:
         return CfeScraperConfig(
@@ -912,6 +975,22 @@ class CfeService:
             async with pool.acquire() as conn:
                 await self._marcar_sesion_invalida(conn)
 
+        periodos_perdidos = [
+            r.periodo for r in resultado.periodos if self._es_error_no_registrado(r.pdf_error)
+        ]
+        if periodos_perdidos:
+            async with pool.acquire() as conn:
+                await self._forzar_alta_perdida(conn, servicio)
+                for periodo_perdido in periodos_perdidos:
+                    await self.db.upsert_descarga(
+                        conn, servicio_id=servicio["id"], periodo=periodo_perdido, tipo="pdf",
+                        estatus="pendiente", descargado_por=busqueda["solicitado_por"], tipo_recibo=None,
+                    )
+            logger.warning(
+                "[CFE] %d descarga(s) PDF del servicio %s reencoladas automaticamente",
+                len(periodos_perdidos), servicio["numero_servicio"],
+            )
+
         resultados = resultado.periodos
         if not resultados:
             async with pool.acquire() as conn:
@@ -1131,6 +1210,19 @@ class CfeService:
                     result.periodo or "desconocido",
                     result.error,
                 )
+                if self._es_error_no_registrado(result.error):
+                    # Aqui el periodo aun no se conocia (fallo antes de listar Otras
+                    # Facturas): no hay un periodo puntual que reencolar, asi que se
+                    # reencola el job de "ultimo recibo" completo con el mismo
+                    # placeholder periodo='pendiente' que ya ocupaba esta fila
+                    # (reclamar_trabajo la dejo en 'descargando'). NO se debe llamar
+                    # borrar_descarga_pendiente despues de esto: borraria la fila que
+                    # se acaba de re-encolar.
+                    await self._recuperar_servicio_perdido(
+                        conn, servicio=servicio, periodo="pendiente", tipo="xml",
+                        usuario_id=usuario_id, tipo_recibo=None,
+                    )
+                    return
                 await self.db.upsert_descarga(
                     conn, servicio_id=servicio["id"], periodo=result.periodo or "desconocido",
                     tipo="xml", estatus="error", error_mensaje=result.error,
@@ -1201,13 +1293,10 @@ class CfeService:
                     result.periodo,
                     result.pdf_error,
                 )
-                await self.db.upsert_descarga(
-                    conn, servicio_id=servicio["id"], periodo=result.periodo,
-                    tipo="pdf", estatus="error", error_mensaje=result.pdf_error,
-                    descargado_por=usuario_id, tipo_recibo=tipo_recibo,
+                await self._registrar_error_descarga(
+                    conn, servicio=servicio, periodo=result.periodo, tipo="pdf",
+                    error_mensaje=result.pdf_error, usuario_id=usuario_id, tipo_recibo=tipo_recibo,
                 )
-                if self._es_error_sesion(result.pdf_error):
-                    await self._marcar_sesion_invalida(conn)
 
             await self.db.borrar_descarga_pendiente(conn, servicio["id"])
 
@@ -1245,13 +1334,10 @@ class CfeService:
             tipo_recibo = xml_row.get("tipo_recibo") if xml_row else None
             error_mensaje = result.error or result.pdf_error
             if error_mensaje:
-                await self.db.upsert_descarga(
-                    conn, servicio_id=servicio["id"], periodo=periodo,
-                    tipo="pdf", estatus="error", error_mensaje=error_mensaje,
-                    descargado_por=usuario_id, tipo_recibo=tipo_recibo,
+                await self._registrar_error_descarga(
+                    conn, servicio=servicio, periodo=periodo, tipo="pdf",
+                    error_mensaje=error_mensaje, usuario_id=usuario_id, tipo_recibo=tipo_recibo,
                 )
-                if self._es_error_sesion(error_mensaje):
-                    await self._marcar_sesion_invalida(conn)
             elif result.pdf_content:
                 pdf_sp_url = await self._upload_to_sharepoint(
                     conn, content=result.pdf_content, filename=result.pdf_filename,
@@ -1308,13 +1394,10 @@ class CfeService:
         async with pool.acquire() as conn:
             error_mensaje = result.error
             if error_mensaje:
-                await self.db.upsert_descarga(
-                    conn, servicio_id=servicio["id"], periodo=periodo,
-                    tipo="xml", estatus="error", error_mensaje=error_mensaje,
-                    descargado_por=usuario_id,
+                await self._registrar_error_descarga(
+                    conn, servicio=servicio, periodo=periodo, tipo="xml",
+                    error_mensaje=error_mensaje, usuario_id=usuario_id, tipo_recibo=None,
                 )
-                if self._es_error_sesion(error_mensaje):
-                    await self._marcar_sesion_invalida(conn)
             elif result.xml_content:
                 rpu_error = self._rpu_no_coincide(
                     result.xml_content, result.xml_filename, servicio["numero_servicio"]

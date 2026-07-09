@@ -7,7 +7,11 @@ from uuid import UUID
 
 import asyncpg
 
-from .constants import CFE_BUSQUEDA_TIMEOUT_MIN_SEGUNDOS, CFE_BUSQUEDA_TIMEOUT_SEGUNDOS_POR_PERIODO
+from .constants import (
+    CFE_BUSQUEDA_TIMEOUT_MIN_SEGUNDOS,
+    CFE_BUSQUEDA_TIMEOUT_SEGUNDOS_POR_PERIODO,
+    CFE_MARCADOR_RECUPERANDO_MIESPACIO,
+)
 
 logger = logging.getLogger("CfeDBService")
 
@@ -40,7 +44,10 @@ class CfeDBService:
             f"""
             SELECT s.id, s.numero_servicio, s.nombre, s.alias, s.lada, s.telefono,
                    s.email, s.activo, s.creado_en, s.modulos,
-                   s.miespacio_estatus, s.miespacio_error,
+                   s.miespacio_estatus,
+                   CASE WHEN s.miespacio_error = '{CFE_MARCADOR_RECUPERANDO_MIESPACIO}'
+                        THEN NULL ELSE s.miespacio_error END AS miespacio_error,
+                   (s.miespacio_error = '{CFE_MARCADOR_RECUPERANDO_MIESPACIO}') AS recuperando_registro,
                    COUNT(DISTINCT d.periodo) FILTER (
                        WHERE d.estatus = 'completado'
                          AND d.tipo = 'xml'
@@ -182,19 +189,31 @@ class CfeDBService:
     # ── Alta en MiEspacio (job del worker, independiente de la descarga) ──────
 
     async def marcar_alta_miespacio_pendiente(
-        self, conn: asyncpg.Connection, servicio_id: UUID
+        self, conn: asyncpg.Connection, servicio_id: UUID, *, forzar: bool = False
     ) -> bool:
         """Encola el alta del servicio en MiEspacio. Idempotente: no reencola si ya
-        esta registrado o en proceso. Devuelve True si quedo encolado."""
+        esta en proceso ('registrando'/'pendiente'). Por defecto tampoco reencola si
+        ya esta 'registrado'; forzar=True lo hace de todos modos — usado cuando un
+        intento real de descarga revela que CFE dejo de reconocerlo de su lado pese
+        a que nuestra BD lo marcaba 'registrado'. En ese caso sella miespacio_error
+        con CFE_MARCADOR_RECUPERANDO_MIESPACIO (nunca se muestra al usuario en este
+        estatus) para que get_all_servicios pueda distinguir una recuperacion real
+        de una primera alta — miespacio_verificado_en no sirve para eso porque el
+        reaper lo sella en cada intento, exitoso o no. Devuelve True si quedo
+        encolado."""
+        estatus_bloqueantes = (
+            ("registrando", "pendiente") if forzar else ("registrado", "registrando", "pendiente")
+        )
+        miespacio_error = CFE_MARCADOR_RECUPERANDO_MIESPACIO if forzar else None
         row = await conn.fetchrow(
             """
             UPDATE tb_cfe_servicios
-            SET miespacio_estatus = 'pendiente', miespacio_error = NULL
+            SET miespacio_estatus = 'pendiente', miespacio_error = $3
             WHERE id = $1
-              AND miespacio_estatus NOT IN ('registrado', 'registrando', 'pendiente')
+              AND miespacio_estatus != ALL($2::text[])
             RETURNING id
             """,
-            servicio_id,
+            servicio_id, list(estatus_bloqueantes), miespacio_error,
         )
         return row is not None
 

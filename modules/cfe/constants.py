@@ -29,3 +29,11 @@ CFE_MODULE_SLUGS = ["oym", "simulacion"]
 # como el reaper SQL que rescata busquedas colgadas — deben coincidir.
 CFE_BUSQUEDA_TIMEOUT_MIN_SEGUNDOS = 300
 CFE_BUSQUEDA_TIMEOUT_SEGUNDOS_POR_PERIODO = 90
+
+# Marcador interno guardado en miespacio_error mientras un servicio esta en
+# 'pendiente'/'registrando' por auto-recuperacion (CFE dejo de reconocerlo).
+# Nunca se muestra al usuario (ese estatus no expone miespacio_error en la UI);
+# permite distinguir en get_all_servicios una recuperacion real de una primera
+# alta normal, sin depender de miespacio_verificado_en (que el reaper tambien
+# sella en cada intento, exitoso o no).
+CFE_MARCADOR_RECUPERANDO_MIESPACIO = "__cfe_recuperando_registro_miespacio__"

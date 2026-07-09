@@ -336,6 +336,9 @@
                         {{ spinner_icon('h-3 w-3') }}
                         Registrando en MiEspacio…
                     </span>
+                    {% if s.recuperando_registro %}
+                    <p class="text-xs text-amber-500 mt-0.5">CFE dejó de reconocer el servicio como registrado; se está re-registrando automáticamente. Esto puede demorar unos minutos más de lo normal.</p>
+                    {% endif %}
                     {% elif s.miespacio_estatus == 'error' %}
                     <div class="mt-1">
                         <div class="flex items-center gap-2">
