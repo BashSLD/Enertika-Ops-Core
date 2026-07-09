@@ -471,6 +471,78 @@
                 </div>
             </div>
 
+            {% if historial_responsables is defined and historial_responsables %}
+            <details class="bg-white rounded-lg p-4 border border-gray-200 shadow-sm group">
+                <summary class="list-none cursor-pointer flex items-center justify-between gap-3">
+                    <span class="text-sm font-bold text-[#123456] uppercase tracking-wide flex items-center gap-2">
+                        <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Historial Comercial
+                    </span>
+                    <svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none"
+                        stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </summary>
+
+                <div class="mt-4 space-y-3">
+                    {% for evento in historial_responsables %}
+                    <div class="flex gap-3">
+                        <div class="flex flex-col items-center">
+                            <span class="w-2.5 h-2.5 rounded-full mt-1
+                                {% if evento.tipo_evento == 'transferencia' %}bg-[#00BABB]{% else %}bg-gray-400{% endif %}">
+                            </span>
+                            {% if not loop.last %}
+                            <span class="w-px flex-1 bg-gray-200 mt-1"></span>
+                            {% endif %}
+                        </div>
+                        <div class="min-w-0 flex-1 pb-1">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <p class="text-sm font-semibold text-gray-800">
+                                    {% if evento.tipo_evento == 'transferencia' %}
+                                    Transferencia de responsable
+                                    {% else %}
+                                    Creación de oportunidad
+                                    {% endif %}
+                                </p>
+                                {% if evento.op_id_estandar %}
+                                <span class="text-[11px] font-mono text-gray-500 bg-gray-100 rounded px-1.5 py-0.5">
+                                    {{ evento.op_id_estandar }}
+                                </span>
+                                {% endif %}
+                            </div>
+                            <p class="text-xs text-gray-500 mt-0.5">
+                                {{ evento.fecha_evento | time_mx("%d/%m/%Y %H:%M") if evento.fecha_evento else 'Fecha no disponible' }}
+                            </p>
+                            {% if evento.tipo_evento == 'transferencia' %}
+                            <p class="text-sm text-gray-700 mt-1">
+                                {{ evento.actor_nombre or evento.actor_email or 'Usuario sin nombre' }}
+                                transfirió de
+                                <span class="font-semibold">{{ evento.responsable_anterior_nombre or evento.responsable_anterior_email or 'Sin responsable' }}</span>
+                                a
+                                <span class="font-semibold">{{ evento.responsable_nuevo_nombre or evento.responsable_nuevo_email or 'Sin responsable' }}</span>.
+                            </p>
+                            {% if evento.motivo %}
+                            <p class="text-xs text-gray-500 mt-1 bg-gray-50 border border-gray-100 rounded-md px-2 py-1">
+                                Motivo: {{ evento.motivo }}
+                            </p>
+                            {% endif %}
+                            {% else %}
+                            <p class="text-sm text-gray-700 mt-1">
+                                {{ evento.actor_nombre or evento.actor_email or 'Usuario sin nombre' }} creó la oportunidad.
+                                Responsable efectivo:
+                                <span class="font-semibold">{{ evento.responsable_nuevo_nombre or evento.responsable_nuevo_email or 'Sin responsable' }}</span>.
+                            </p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </details>
+            {% endif %}
+
             <!-- Sección: Estado y Seguimiento -->
             <div
                 class="bg-white rounded-lg p-4 border border-gray-200 shadow-sm hover-lift transition-all duration-300">

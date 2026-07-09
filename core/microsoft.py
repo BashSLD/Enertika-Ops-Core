@@ -5,6 +5,7 @@ import base64
 import urllib.parse
 import re
 import logging
+import html
 from .config import settings 
 
 logger = logging.getLogger("MicrosoftGraph") 
@@ -202,6 +203,217 @@ class MicrosoftAuth:
         except MICROSOFT_GRAPH_ERRORS as e:
             logger.error(f"Excepción buscando hilos candidatos: {e}")
             return []
+
+    @staticmethod
+    def _recipient_addresses(recipients: list) -> list:
+        emails = []
+        for recipient in recipients or []:
+            address = (
+                recipient.get("emailAddress", {}).get("address")
+                if isinstance(recipient, dict)
+                else None
+            )
+            if address and address.strip():
+                emails.append(address.strip())
+        return emails
+
+    @staticmethod
+    def _merge_recipients(*groups) -> list:
+        result = []
+        seen = set()
+        for group in groups:
+            for email in group or []:
+                clean = (email or "").strip()
+                key = clean.lower()
+                if clean and key not in seen:
+                    result.append(clean)
+                    seen.add(key)
+        return result
+
+    @staticmethod
+    def _text_to_html_body(body_text: str) -> str:
+        escaped = html.escape(body_text or "").replace("\n", "<br>")
+        return (
+            "<!-- ENERTIKA_TRANSFER_BODY_START -->"
+            f"{escaped}"
+            "<!-- ENERTIKA_TRANSFER_BODY_END -->"
+        )
+
+    async def get_message_recipients(self, access_token: str, from_email: str, message_id: str) -> dict:
+        """Lee asunto y destinatarios de un mensaje encontrado en el buzón del ejecutor."""
+        if not access_token or not from_email or not message_id:
+            return {}
+
+        headers = self.get_headers(access_token)
+        url = (
+            f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{message_id}"
+            "?$select=subject,from,toRecipients,ccRecipients,receivedDateTime"
+        )
+
+        try:
+            resp = await self._http_client.get(url, headers=headers)
+            if resp.status_code != 200:
+                logger.warning("No se pudo leer destinatarios del hilo %s: %s - %s", message_id, resp.status_code, resp.text)
+                return {}
+
+            data = resp.json()
+            from_address = data.get("from", {}).get("emailAddress", {}).get("address")
+            return {
+                "id": message_id,
+                "subject": data.get("subject") or "",
+                "from": from_address,
+                "to": self._recipient_addresses(data.get("toRecipients", [])),
+                "cc": self._recipient_addresses(data.get("ccRecipients", [])),
+                "receivedDateTime": data.get("receivedDateTime"),
+            }
+        except MICROSOFT_GRAPH_ERRORS as e:
+            logger.warning("Excepción leyendo destinatarios del hilo %s: %s", message_id, e)
+            return {}
+
+    async def create_draft_reply(
+        self,
+        access_token: str,
+        from_email: str,
+        thread_id: str,
+        body_text: str,
+        additional_cc: list,
+        importance: str = "normal",
+    ):
+        """Crea un borrador de respuesta dentro del hilo sin enviarlo."""
+        if not access_token:
+            return False, None, "No hay sesión activa"
+        if not from_email:
+            return False, None, "Usuario sin email configurado"
+
+        headers = self.get_headers(access_token)
+        url_reply = f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{thread_id}/createReply"
+
+        try:
+            resp_reply = await self._http_client.post(url_reply, headers=headers)
+            if resp_reply.status_code != 201:
+                return False, None, f"Error creando respuesta: {resp_reply.text}"
+
+            draft = resp_reply.json()
+            draft_id = draft["id"]
+            original_history_html = draft.get("body", {}).get("content", "")
+            len_history = len(original_history_html or "")
+            if not original_history_html or len_history < 50:
+                logger.error("Microsoft retorno un borrador de traspaso sin historial HTML.")
+                await self._http_client.delete(
+                    f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{draft_id}",
+                    headers=headers,
+                )
+                return False, None, "Microsoft retorno un borrador sin historial. Intenta nuevamente."
+
+            to_recipients = self._recipient_addresses(draft.get("toRecipients", []))
+            cc_recipients = self._merge_recipients(
+                self._recipient_addresses(draft.get("ccRecipients", [])),
+                additional_cc,
+            )
+            to_keys = {email.lower() for email in to_recipients}
+            cc_recipients = [email for email in cc_recipients if email.lower() not in to_keys]
+            body_html = f"{self._text_to_html_body(body_text)}<br><br>{original_history_html}"
+
+            final_subject = draft.get("subject") or ""
+            if final_subject and not final_subject.upper().startswith("RE:"):
+                final_subject = f"Re: {final_subject}"
+
+            patch_payload = {
+                "importance": importance,
+                "body": {"contentType": "HTML", "content": body_html},
+                "toRecipients": [{"emailAddress": {"address": e}} for e in to_recipients],
+                "ccRecipients": [{"emailAddress": {"address": e}} for e in cc_recipients],
+            }
+            if final_subject:
+                patch_payload["subject"] = final_subject
+
+            resp_patch = await self._http_client.patch(
+                f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{draft_id}",
+                headers=headers,
+                json=patch_payload,
+            )
+            if resp_patch.status_code != 200:
+                await self._http_client.delete(
+                    f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{draft_id}",
+                    headers=headers,
+                )
+                return False, None, f"Error actualizando borrador: {resp_patch.text}"
+
+            return True, {
+                "draft_id": draft_id,
+                "thread_id": thread_id,
+                "subject": final_subject,
+                "body_text": body_text,
+                "to": to_recipients,
+                "cc": cc_recipients,
+            }, "Borrador creado"
+        except MICROSOFT_GRAPH_ERRORS as e:
+            logger.error("Error creando borrador de traspaso: %s", e, exc_info=True)
+            return False, None, str(e)
+
+    async def send_draft(self, access_token: str, from_email: str, draft_id: str, subject: str = None, body_text: str = None):
+        """Actualiza el borrador editable y lo envía."""
+        if not access_token:
+            return False, "No hay sesión activa"
+        if not from_email:
+            return False, "Usuario sin email configurado"
+        if not draft_id:
+            return False, "Borrador no especificado"
+
+        headers = self.get_headers(access_token)
+        draft_url = f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{draft_id}"
+
+        try:
+            if subject is not None or body_text is not None:
+                current = await self._http_client.get(f"{draft_url}?$select=subject,body", headers=headers)
+                if current.status_code != 200:
+                    return False, f"Error leyendo borrador: {current.text}"
+
+                current_data = current.json()
+                patch_payload = {}
+                if subject is not None and subject.strip():
+                    patch_payload["subject"] = subject.strip()
+
+                if body_text is not None:
+                    current_html = current_data.get("body", {}).get("content", "")
+                    new_body = self._text_to_html_body(body_text)
+                    start = "<!-- ENERTIKA_TRANSFER_BODY_START -->"
+                    end = "<!-- ENERTIKA_TRANSFER_BODY_END -->"
+                    if start in current_html and end in current_html:
+                        pattern = f"{re.escape(start)}.*?{re.escape(end)}"
+                        updated_html = re.sub(pattern, lambda _m: new_body, current_html, flags=re.DOTALL)
+                    else:
+                        updated_html = f"{new_body}<br><br>{current_html}"
+                    patch_payload["body"] = {"contentType": "HTML", "content": updated_html}
+
+                if patch_payload:
+                    patched = await self._http_client.patch(draft_url, headers=headers, json=patch_payload)
+                    if patched.status_code != 200:
+                        return False, f"Error actualizando borrador: {patched.text}"
+
+            sent = await self._http_client.post(f"{draft_url}/send", headers=headers)
+            if sent.status_code == 202:
+                return True, "Borrador enviado"
+            return False, f"Error enviando borrador: {sent.status_code} - {sent.text}"
+        except MICROSOFT_GRAPH_ERRORS as e:
+            logger.error("Error enviando borrador de traspaso: %s", e, exc_info=True)
+            return False, str(e)
+
+    async def delete_draft(self, access_token: str, from_email: str, draft_id: str):
+        """Elimina un borrador de Graph si sigue disponible."""
+        if not access_token or not from_email or not draft_id:
+            return False, "Datos insuficientes para eliminar borrador"
+
+        headers = self.get_headers(access_token)
+        url = f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{draft_id}"
+        try:
+            resp = await self._http_client.delete(url, headers=headers)
+            if resp.status_code in (204, 404):
+                return True, "Borrador eliminado"
+            return False, f"Error eliminando borrador: {resp.status_code} - {resp.text}"
+        except MICROSOFT_GRAPH_ERRORS as e:
+            logger.warning("Error eliminando borrador %s: %s", draft_id, e)
+            return False, str(e)
 
     async def reply_with_new_subject(self, access_token, from_email, thread_id, new_subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments):
         """

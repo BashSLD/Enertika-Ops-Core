@@ -1,6 +1,15 @@
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+# CTE compartida para resolver la raiz de la cadena hilo/parent de una oportunidad.
+# Reutilizada tambien por modules/comercial/db_service.py (QUERY_GET_HILO_EMAIL_ANCHOR) -
+# no duplicar este fragmento.
+CTE_ROOT_OPORTUNIDAD = """root AS (
+        SELECT COALESCE(parent_id, id_oportunidad) AS root_id
+        FROM tb_oportunidades
+        WHERE id_oportunidad = $1
+    )"""
+
 
 class WorkflowDBService:
     """Queries SQL puras para workflow compartido."""
@@ -141,6 +150,73 @@ class WorkflowDBService:
             id_oportunidad,
         )
         return dict(row) if row else None
+
+    async def get_historial_responsables(
+        self,
+        conn,
+        id_oportunidad: UUID,
+    ) -> List[dict]:
+        rows = await conn.fetch(
+            f"""
+            WITH {CTE_ROOT_OPORTUNIDAD},
+            cadena AS (
+                SELECT o.*
+                FROM tb_oportunidades o
+                CROSS JOIN root
+                WHERE o.id_oportunidad = root.root_id
+                   OR o.parent_id = root.root_id
+            ),
+            creaciones AS (
+                SELECT
+                    'creacion'::text AS tipo_evento,
+                    1 AS orden_evento,
+                    o.id_oportunidad,
+                    o.op_id_estandar,
+                    o.titulo_proyecto,
+                    COALESCE(o.fecha_solicitud, o.fecha_creacion) AS fecha_evento,
+                    u_creador.nombre AS actor_nombre,
+                    u_creador.email AS actor_email,
+                    NULL::text AS responsable_anterior_nombre,
+                    NULL::text AS responsable_anterior_email,
+                    COALESCE(u_resp.nombre, u_creador.nombre) AS responsable_nuevo_nombre,
+                    COALESCE(u_resp.email, u_creador.email) AS responsable_nuevo_email,
+                    NULL::text AS motivo
+                FROM cadena o
+                LEFT JOIN tb_usuarios u_creador ON u_creador.id_usuario = o.creado_por_id
+                LEFT JOIN tb_usuarios u_resp ON u_resp.id_usuario = o.responsable_comercial_id
+            ),
+            transferencias AS (
+                SELECT
+                    'transferencia'::text AS tipo_evento,
+                    2 AS orden_evento,
+                    o.id_oportunidad,
+                    o.op_id_estandar,
+                    o.titulo_proyecto,
+                    t.fecha_transferencia AS fecha_evento,
+                    u_actor.nombre AS actor_nombre,
+                    u_actor.email AS actor_email,
+                    u_anterior.nombre AS responsable_anterior_nombre,
+                    u_anterior.email AS responsable_anterior_email,
+                    u_nuevo.nombre AS responsable_nuevo_nombre,
+                    u_nuevo.email AS responsable_nuevo_email,
+                    t.motivo
+                FROM tb_oportunidades_transferencias t
+                JOIN cadena o ON o.id_oportunidad = t.id_oportunidad
+                LEFT JOIN tb_usuarios u_actor ON u_actor.id_usuario = t.transferido_por_id
+                LEFT JOIN tb_usuarios u_anterior ON u_anterior.id_usuario = t.responsable_anterior_id
+                LEFT JOIN tb_usuarios u_nuevo ON u_nuevo.id_usuario = t.responsable_nuevo_id
+            )
+            SELECT *
+            FROM (
+                SELECT * FROM creaciones
+                UNION ALL
+                SELECT * FROM transferencias
+            ) eventos
+            ORDER BY fecha_evento ASC NULLS LAST, orden_evento ASC, op_id_estandar ASC
+            """,
+            id_oportunidad,
+        )
+        return [dict(row) for row in rows]
 
     async def get_oportunidad_basic_info(
         self,

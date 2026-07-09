@@ -45,6 +45,10 @@ class NotificationService:
             search_key = legacy_search_term
             modo = "HOMOLOGACIÓN"
             log = f"MODO HOMOLOGACIÓN: '{search_key}'"
+        elif row.get('hilo_search_key'):
+            search_key = row['hilo_search_key']
+            modo = "SEGUIMIENTO"
+            log = f"SEGUIMIENTO: '{search_key}'"
         elif row.get('parent_id'):
             search_key = await self.get_parent_titulo(conn, row['parent_id'])
             modo = "SEGUIMIENTO"
@@ -134,7 +138,9 @@ class NotificationService:
         """Envía notificación extraordinaria."""
         reglas_emails = await self.email_rules.get_emails_by_event(conn, 'COMERCIAL', 'EXTRAORDINARIA')
         
-        if not reglas_emails['to'] and not reglas_emails['cc']: return
+        if not reglas_emails['to'] and not reglas_emails['cc']:
+            logger.warning("Notificación extraordinaria omitida: sin destinatarios configurados.")
+            return False
 
         op_data = await conn.fetchrow("""
             SELECT o.op_id_estandar, o.cliente_nombre, o.solicitado_por,
@@ -142,7 +148,9 @@ class NotificationService:
             FROM tb_oportunidades o WHERE o.id_oportunidad = $1
         """, id_oportunidad)
         
-        if not op_data: return
+        if not op_data:
+            logger.warning("Notificación extraordinaria omitida: oportunidad %s no encontrada.", id_oportunidad)
+            return False
 
         recipients = reglas_emails['to']
         cc_list = reglas_emails['cc']
@@ -151,8 +159,12 @@ class NotificationService:
         html_body = template.render({"op": op_data, "dashboard_url": f"{base_url}/comercial/ui"})
 
         subject = f"Nueva Solicitud Extraordinaria: {op_data['op_id_estandar']} - {op_data['cliente_nombre']}"
-        await ms_auth.send_email_with_attachments(
+        ok, msg = await ms_auth.send_email_with_attachments(
             access_token=token, from_email=user_email, subject=subject,
             body=html_body, recipients=recipients, cc_recipients=cc_list, importance="high"
         )
+        if not ok:
+            logger.warning("No se pudo enviar notificación extraordinaria %s: %s", op_data['op_id_estandar'], msg)
+            return False
         logger.info(f"Notificación extraordinaria enviada: {op_data['op_id_estandar']}")
+        return True

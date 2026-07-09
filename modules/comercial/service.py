@@ -46,7 +46,9 @@ from .db_service import (
     QUERY_GET_SITIOS_SIMPLE,
     QUERY_INSERT_SITIO_UNICO,
     QUERY_UPDATE_EMAIL_ENVIADO,
+    QUERY_UPDATE_FECHA_ENVIO_EMAIL,
     QUERY_GET_ULTIMO_MOVIMIENTO_HILO,
+    QUERY_GET_HILO_EMAIL_ANCHOR,
     QUERY_UPDATE_PRIORIDAD,
     QUERY_DELETE_OPORTUNIDAD,
     QUERY_DELETE_COMENTARIOS_WF,
@@ -1042,10 +1044,10 @@ class ComercialService:
         rows = await conn.fetch(QUERY_GET_USUARIOS_CON_ACCESO_COMERCIAL)
         return [dict(r) for r in rows]
 
-    async def transferir_responsable_comercial(
+    async def validar_transferencia_comercial(
         self, conn, id_oportunidad: UUID, new_owner_id: UUID, motivo: Optional[str], user_context: dict
-    ) -> bool:
-        """Transfiere responsabilidad operativa. Retorna True si el caller es admin/manager."""
+    ) -> dict:
+        """Valida una transferencia comercial sin modificar datos."""
         role = user_context.get("role")
         com_role = user_context.get("module_roles", {}).get("comercial", "")
         user_id = UUID(str(user_context.get("user_db_id")))
@@ -1076,12 +1078,34 @@ class ComercialService:
 
         anterior = await conn.fetchrow(QUERY_GET_USUARIO_NOMBRE_EMAIL, responsable_actual)
 
+        return {
+            "is_admin_or_manager": is_admin_or_manager,
+            "user_id": user_id,
+            "responsable_actual": responsable_actual,
+            "nuevo": dict(nuevo),
+            "anterior": dict(anterior) if anterior else None,
+        }
+
+    async def _aplicar_transferencia_comercial(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        new_owner_id: UUID,
+        motivo: Optional[str],
+        user_context: dict,
+        transfer_context: dict,
+    ) -> bool:
+        user_id = transfer_context["user_id"]
+        responsable_actual = transfer_context["responsable_actual"]
+        nuevo = transfer_context["nuevo"]
+        anterior = transfer_context["anterior"]
+
         async with conn.transaction():
             await conn.execute(QUERY_UPDATE_RESPONSABLE_COMERCIAL, new_owner_id, id_oportunidad)
             await conn.execute(QUERY_INSERT_TRANSFERENCIA, id_oportunidad, responsable_actual, new_owner_id, user_id, motivo if motivo else None)
 
         caller_nombre = user_context.get("user_name") or ""
-        caller_email = user_context.get("email") or ""
+        caller_email = user_context.get("user_email") or user_context.get("email") or ""
         anterior_nombre = anterior["nombre"] if anterior else str(responsable_actual)
 
         texto = (
@@ -1105,7 +1129,163 @@ class ComercialService:
         })
 
         logger.info(f"Oportunidad {id_oportunidad} transferida a {new_owner_id} por {user_id}")
-        return is_admin_or_manager
+        return transfer_context["is_admin_or_manager"]
+
+    async def get_hilo_email_anchor(self, conn, id_oportunidad: UUID) -> Optional[dict]:
+        row = await conn.fetchrow(QUERY_GET_HILO_EMAIL_ANCHOR, id_oportunidad)
+        return dict(row) if row else None
+
+    @staticmethod
+    def _normalizar_email(email: Optional[str]) -> str:
+        return (email or "").strip().lower()
+
+    @classmethod
+    def _email_en_destinatarios_hilo(cls, message_data: dict, email: str) -> bool:
+        target = cls._normalizar_email(email)
+        if not target:
+            return False
+
+        for key in ("to", "cc"):
+            for recipient in message_data.get(key, []):
+                if cls._normalizar_email(recipient) == target:
+                    return True
+        return False
+
+    @staticmethod
+    def build_transferencia_email_body(transfer_context: dict, anchor: dict) -> str:
+        nuevo = transfer_context["nuevo"]
+        anterior = transfer_context["anterior"] or {}
+        nuevo_nombre = nuevo.get("nombre") or nuevo.get("email") or "el nuevo responsable"
+        anterior_nombre = anterior.get("nombre") or "el responsable anterior"
+        op_id = anchor.get("op_id_estandar") or "esta oportunidad"
+
+        return (
+            "Buen dia,\n\n"
+            f"A partir de este momento, {nuevo_nombre} queda en copia y dara seguimiento a {op_id} "
+            f"en sustitucion de {anterior_nombre}.\n\n"
+            "Por favor consideren a la persona copiada para las siguientes respuestas de este hilo.\n\n"
+            "Saludos."
+        )
+
+    async def preparar_transferencia_email_preview(
+        self,
+        conn,
+        ms_auth,
+        access_token: str,
+        user_email: str,
+        id_oportunidad: UUID,
+        new_owner_id: UUID,
+        motivo: Optional[str],
+        user_context: dict,
+    ) -> dict:
+        transfer_context = await self.validar_transferencia_comercial(
+            conn, id_oportunidad, new_owner_id, motivo, user_context
+        )
+
+        nuevo_email = transfer_context["nuevo"].get("email")
+        if not nuevo_email:
+            return {
+                "requires_preview": False,
+                "transfer_context": transfer_context,
+                "notice_type": "warning",
+                "notice_title": "Transferencia sin correo",
+                "notice_message": "El nuevo responsable no tiene correo configurado. La transferencia se realizara sin agregarlo al hilo de correo.",
+            }
+
+        anchor = await self.get_hilo_email_anchor(conn, id_oportunidad)
+        if not anchor:
+            return {
+                "requires_preview": False,
+                "transfer_context": transfer_context,
+                "notice_type": "warning",
+                "notice_title": "Transferencia sin correo",
+                "notice_message": "No se encontro un hilo enviado para esta oportunidad. La transferencia se realizara sin agregar al nuevo responsable al correo.",
+            }
+
+        candidate_ids = await ms_auth.find_thread_candidates(access_token, anchor.get("titulo_proyecto"))
+        if not candidate_ids:
+            return {
+                "requires_preview": False,
+                "transfer_context": transfer_context,
+                "notice_type": "warning",
+                "notice_title": "Transferencia sin correo",
+                "notice_message": "No se encontro el hilo en el buzon del usuario que ejecuta el traspaso. La transferencia se realizara sin accion de correo.",
+            }
+
+        errors = []
+        body_text = self.build_transferencia_email_body(transfer_context, anchor)
+
+        async def _buscar_hilo_y_preparar_borrador():
+            for thread_id in candidate_ids:
+                message_data = await ms_auth.get_message_recipients(access_token, user_email, thread_id)
+                if not message_data:
+                    errors.append(f"No se pudo leer el hilo candidato {thread_id}.")
+                    continue
+
+                if self._email_en_destinatarios_hilo(message_data, nuevo_email):
+                    return {
+                        "requires_preview": False,
+                        "transfer_context": transfer_context,
+                        "notice_type": "success",
+                        "notice_title": "Transferencia exitosa",
+                        "notice_message": "El nuevo responsable ya estaba en To/CC del hilo. No se envio un correo adicional.",
+                    }
+
+                ok, draft_data, msg = await ms_auth.create_draft_reply(
+                    access_token=access_token,
+                    from_email=user_email,
+                    thread_id=thread_id,
+                    body_text=body_text,
+                    additional_cc=[nuevo_email],
+                    importance="normal",
+                )
+                if ok:
+                    draft_data["anchor"] = anchor
+                    draft_data["nuevo"] = transfer_context["nuevo"]
+                    return {
+                        "requires_preview": True,
+                        "draft": draft_data,
+                        "motivo": motivo or "",
+                    }
+                errors.append(msg)
+            return None
+
+        # Acota el barrido de candidatos (hasta 50) para no retener la conexion
+        # asyncpg del pool indefinidamente si Graph esta lento/degradado.
+        try:
+            resultado = await asyncio.wait_for(_buscar_hilo_y_preparar_borrador(), timeout=45)
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=502,
+                detail="Microsoft Graph tardo demasiado en responder al buscar el hilo de correo.",
+            )
+        if resultado is not None:
+            return resultado
+
+        error_detail = "; ".join(errors) if errors else "No se pudo preparar el borrador de traspaso."
+        raise HTTPException(status_code=502, detail=f"No se pudo preparar el correo de traspaso. {error_detail}")
+
+    async def confirmar_transferencia_con_contexto(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        new_owner_id: UUID,
+        motivo: Optional[str],
+        user_context: dict,
+        transfer_context: Optional[dict] = None,
+    ) -> bool:
+        if transfer_context is None:
+            transfer_context = await self.validar_transferencia_comercial(
+                conn, id_oportunidad, new_owner_id, motivo, user_context
+            )
+        return await self._aplicar_transferencia_comercial(
+            conn,
+            id_oportunidad,
+            new_owner_id,
+            motivo,
+            user_context,
+            transfer_context,
+        )
 
     async def is_responsable_para_seguimiento(self, conn, id_oportunidad: UUID, user_context: dict) -> bool:
         """Retorna True si el usuario puede crear seguimientos en esta oportunidad."""
@@ -1176,6 +1356,9 @@ class ComercialService:
         if not parent:
             raise HTTPException(status_code=404, detail="Oportunidad original no encontrada")
 
+        responsable_origen_id = parent["responsable_comercial_id"] or parent["creado_por_id"]
+        hilo_search_key = parent["titulo_proyecto"] or None
+
         # Resolver raíz del hilo: si el registro clickeado ya tiene padre, usar ese padre.
         # Garantiza que todos los seguimientos sean hijos directos de la raíz, independiente
         # de desde qué registro del hilo el usuario haya clickeado "Solicitar Actualización".
@@ -1233,7 +1416,9 @@ class ComercialService:
             parent['es_licitacion'], # Parámetro $24 (Herencia)
             (now_mx + timedelta(days=7)), # Parámetro $25 (Default +7 dias para seguimiento)
             bool(sitios_json_pendiente),  # Parámetro $26 (conversion_pendiente)
-            sitios_json_pendiente          # Parámetro $27 (sitios_json_pendiente)
+            sitios_json_pendiente,         # Parámetro $27 (sitios_json_pendiente)
+            responsable_origen_id,         # Parámetro $28 (responsable heredado del eslabón clickeado)
+            hilo_search_key                # Parámetro $29 (título del eslabón clickeado para threading)
         )
 
         # Clonar sitios (Heredan id_tipo_solicitud del NUEVO tipo)
@@ -1701,7 +1886,11 @@ class ComercialService:
     # Helper para inyección de dependencias
     # --- MÉTODO DE NOTIFICACIÓN ---
     async def enviar_notificacion_extraordinaria(self, conn, ms_auth, token: str, id_oportunidad: UUID, base_url: str, user_email: str):
-        await self.notification_service.enviar_notificacion_extraordinaria(conn, ms_auth, token, id_oportunidad, base_url, user_email)
+        sent = await self.notification_service.enviar_notificacion_extraordinaria(conn, ms_auth, token, id_oportunidad, base_url, user_email)
+        if sent:
+            fecha_envio = await self.get_current_datetime_mx(conn)
+            await conn.execute(QUERY_UPDATE_FECHA_ENVIO_EMAIL, id_oportunidad, fecha_envio)
+        return sent
 
     async def buscar_clientes(self, conn, query: str) -> List[dict]:
         """

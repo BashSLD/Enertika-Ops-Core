@@ -869,13 +869,64 @@ async def reasignar_oportunidad(
     new_owner_id: UUID = Form(...),
     motivo: Optional[str] = Form(None),
     service: ComercialService = Depends(get_comercial_service),
+    ms_auth = Depends(get_ms_auth),
     conn = Depends(get_db_connection),
     user_context = Depends(get_current_user_context),
     _auth = require_module_access("comercial", "editor")
 ):
+    # Sin sesión de Graph activa: la transferencia en BD no depende de correo,
+    # así que no se bloquea por esto — solo se omite la búsqueda de hilo.
+    access_token = await get_valid_graph_token(request)
+
     try:
-        is_manager = await service.transferir_responsable_comercial(
-            conn, id_oportunidad, new_owner_id, motivo, user_context
+        if access_token:
+            preview_context = await service.preparar_transferencia_email_preview(
+                conn=conn,
+                ms_auth=ms_auth,
+                access_token=access_token,
+                user_email=user_context.get("user_email") or user_context.get("email"),
+                id_oportunidad=id_oportunidad,
+                new_owner_id=new_owner_id,
+                motivo=motivo,
+                user_context=user_context,
+            )
+        else:
+            transfer_context = await service.validar_transferencia_comercial(
+                conn, id_oportunidad, new_owner_id, motivo, user_context
+            )
+            preview_context = {
+                "requires_preview": False,
+                "transfer_context": transfer_context,
+                "notice_type": "warning",
+                "notice_title": "Transferencia sin correo",
+                "notice_message": "No hay sesión de Microsoft activa. La transferencia se realizará sin acción de correo.",
+            }
+    except HTTPException as exc:
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "type": "error",
+            "title": "No se pudo transferir",
+            "message": exc.detail,
+        }, headers={"HX-Reswap": "none", "X-Transfer-Error": "1"})
+    except asyncpg.PostgresError as exc:
+        logger.exception("[REASIGNAR] Error de base de datos preparando transferencia")
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "type": "error",
+            "title": "No se pudo transferir",
+            "message": "Error de base de datos al preparar la transferencia.",
+        }, headers={"HX-Reswap": "none", "X-Transfer-Error": "1"})
+
+    if preview_context.get("requires_preview"):
+        return templates.TemplateResponse(request, "comercial/modals/reasignar_email_preview.html", {
+            "id_oportunidad": id_oportunidad,
+            "new_owner_id": new_owner_id,
+            "motivo": motivo or "",
+            "draft": preview_context["draft"],
+        })
+
+    try:
+        is_manager = await service.confirmar_transferencia_con_contexto(
+            conn, id_oportunidad, new_owner_id, motivo, user_context,
+            transfer_context=preview_context.get("transfer_context"),
         )
     except HTTPException as exc:
         return templates.TemplateResponse(request, "shared/toast.html", {
@@ -883,13 +934,127 @@ async def reasignar_oportunidad(
             "title": "No se pudo transferir",
             "message": exc.detail,
         }, headers={"HX-Reswap": "none", "X-Transfer-Error": "1"})
+    except asyncpg.PostgresError as exc:
+        logger.exception("[REASIGNAR] Error de base de datos confirmando transferencia")
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "type": "error",
+            "title": "No se pudo transferir",
+            "message": "Error de base de datos al actualizar el responsable.",
+        }, headers={"HX-Reswap": "none", "X-Transfer-Error": "1"})
 
+    toast_context = {
+        "type": preview_context.get("notice_type", "success"),
+        "title": preview_context.get("notice_title", "Transferencia exitosa"),
+        "message": preview_context.get("notice_message", "Responsable comercial actualizado."),
+    }
     if not is_manager:
-        return Response(status_code=200, headers={"HX-Redirect": "/comercial/ui"})
-    return templates.TemplateResponse(request, "shared/toast.html", {
+        toast_context["redirect_url"] = "/comercial/ui"
+    return templates.TemplateResponse(request, "shared/toast.html", toast_context)
+
+
+@router.post("/reasignar/{id_oportunidad}/confirmar-correo")
+async def confirmar_reasignacion_correo(
+    request: Request,
+    id_oportunidad: UUID,
+    draft_id: str = Form(...),
+    new_owner_id: UUID = Form(...),
+    motivo: Optional[str] = Form(None),
+    subject: str = Form(...),
+    body_text: str = Form(...),
+    service: ComercialService = Depends(get_comercial_service),
+    ms_auth = Depends(get_ms_auth),
+    conn = Depends(get_db_connection),
+    user_context = Depends(get_current_user_context),
+    _auth = require_module_access("comercial", "editor"),
+):
+    access_token = await get_valid_graph_token(request)
+    if not access_token:
+        return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
+
+    email_sent = False
+    try:
+        await service.validar_transferencia_comercial(
+            conn, id_oportunidad, new_owner_id, motivo, user_context
+        )
+        ok, msg = await ms_auth.send_draft(
+            access_token=access_token,
+            from_email=user_context.get("user_email") or user_context.get("email"),
+            draft_id=draft_id,
+            subject=subject,
+            body_text=body_text,
+        )
+        if not ok:
+            return templates.TemplateResponse(request, "shared/toast.html", {
+                "type": "error",
+                "title": "No se pudo enviar el correo",
+                "message": msg,
+            }, headers={"HX-Reswap": "none", "X-Transfer-Error": "1"})
+
+        email_sent = True
+        is_manager = await service.confirmar_transferencia_con_contexto(
+            conn, id_oportunidad, new_owner_id, motivo, user_context
+        )
+    except HTTPException as exc:
+        title = "Correo enviado, transferencia pendiente" if email_sent else "No se pudo transferir"
+        if email_sent:
+            logger.error(
+                "[REASIGNAR] Correo de traspaso enviado (borrador %s, oportunidad %s) pero la "
+                "actualización de responsable_comercial_id NO se aplicó: %s. Requiere revisión manual.",
+                draft_id, id_oportunidad, exc.detail,
+            )
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "type": "error",
+            "title": title,
+            "message": exc.detail,
+        }, headers={"HX-Reswap": "none", "X-Transfer-Error": "1"})
+    except asyncpg.PostgresError as exc:
+        logger.exception("[REASIGNAR] Error de base de datos tras enviar correo de transferencia")
+        title = "Correo enviado, transferencia pendiente" if email_sent else "No se pudo transferir"
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "type": "error",
+            "title": title,
+            "message": "Error de base de datos al actualizar el responsable.",
+        }, headers={"HX-Reswap": "none", "X-Transfer-Error": "1"})
+
+    toast_context = {
         "type": "success",
         "title": "Transferencia exitosa",
-        "message": "Responsable comercial actualizado.",
+        "message": "Correo enviado y responsable comercial actualizado.",
+    }
+    if not is_manager:
+        toast_context["redirect_url"] = "/comercial/ui"
+    return templates.TemplateResponse(request, "shared/toast.html", toast_context)
+
+
+@router.post("/reasignar/{id_oportunidad}/cancelar-correo")
+async def cancelar_reasignacion_correo(
+    request: Request,
+    id_oportunidad: UUID,
+    draft_id: str = Form(...),
+    ms_auth = Depends(get_ms_auth),
+    user_context = Depends(get_current_user_context),
+    _auth = require_module_access("comercial", "editor"),
+):
+    access_token = await get_valid_graph_token(request)
+    if not access_token:
+        return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
+
+    ok, msg = await ms_auth.delete_draft(
+        access_token=access_token,
+        from_email=user_context.get("user_email") or user_context.get("email"),
+        draft_id=draft_id,
+    )
+    if not ok:
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "type": "error",
+            "title": "No se pudo cancelar",
+            "message": msg,
+        }, headers={"HX-Reswap": "none", "X-Transfer-Error": "1"})
+
+    return templates.TemplateResponse(request, "shared/toast.html", {
+        "type": "warning",
+        "title": "Transferencia cancelada",
+        "message": "Se elimino el borrador de correo y no se cambio el responsable.",
     })
 
 

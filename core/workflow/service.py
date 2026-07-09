@@ -306,19 +306,25 @@ class WorkflowService:
         id_oportunidad: UUID,
         source_module: str,
         user_context: dict,
+        read_only: bool = False,
     ) -> dict:
         op = await self.get_detalle_oportunidad(conn, id_oportunidad)
         if not op:
             raise LookupError("Oportunidad no encontrada")
 
-        can_edit_comercial = user_has_module_access("comercial", user_context, min_role="editor")
-        can_close_sale = self._can_close_sale(user_context)
+        if read_only:
+            can_edit_comercial = False
+            can_close_sale = False
+            can_reassign = False
+        else:
+            can_edit_comercial = user_has_module_access("comercial", user_context, min_role="editor")
+            can_close_sale = self._can_close_sale(user_context)
 
-        user_id = user_context.get("user_db_id")
-        responsable_id = op.get("responsable_comercial_id") or op.get("creado_por_id")
-        is_owner = str(responsable_id or "") == str(user_id or "")
-        _status = (op.get("status_global") or "").lower()
-        can_reassign = (is_owner or can_close_sale) and _status not in ("ganada", "cancelado", "perdido")
+            user_id = user_context.get("user_db_id")
+            responsable_id = op.get("responsable_comercial_id") or op.get("creado_por_id")
+            is_owner = str(responsable_id or "") == str(user_id or "")
+            _status = (op.get("status_global") or "").lower()
+            can_reassign = (is_owner or can_close_sale) and _status not in ("ganada", "cancelado", "perdido")
 
         sitios = []
         if can_close_sale and op.get("cantidad_sitios", 1) > 1:
@@ -331,6 +337,9 @@ class WorkflowService:
         sitios_ganados_total = len(sitios_ganados_detalle)
         sitios_con_proyecto_total = sum(
             1 for sitio in sitios_ganados_detalle if sitio["tiene_proyecto"]
+        )
+        historial_responsables = (
+            [] if read_only else await self.db.get_historial_responsables(conn, id_oportunidad)
         )
 
         return {
@@ -349,6 +358,7 @@ class WorkflowService:
             "sitios_con_proyecto_total": sitios_con_proyecto_total,
             "sitios_ganados_detalle": sitios_ganados_detalle,
             "notificacion_ganada_at": op.get("notificacion_ganada_at"),
+            "historial_responsables": historial_responsables,
         }
 
     @staticmethod

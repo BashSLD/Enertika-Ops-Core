@@ -614,29 +614,32 @@ async def get_sitios_partial(
 async def get_detalle_modal(
     request: Request,
     id_oportunidad: UUID,
-    db_service: SimulacionDBService = Depends(get_db_service),
+    workflow_service = Depends(get_workflow_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
-    _ = require_module_access("simulacion", "editor")
+    _ = require_module_access("simulacion", "viewer")
 ):
     """Modal de detalle (solo lectura) usando template compartido."""
-    
-    # 1. Obtener datos
-    op = await db_service.get_oportunidad_by_id(conn, id_oportunidad)
-    if not op:
-         return JSONResponse(status_code=404, content={"message": "Oportunidad no encontrada"})
+    try:
+        template_context = await workflow_service.build_detalle_oportunidad_context(
+            conn,
+            id_oportunidad,
+            "simulacion",
+            context,
+            read_only=True,
+        )
+    except LookupError:
+        return JSONResponse(status_code=404, content={"message": "Oportunidad no encontrada"})
+    except asyncpg.PostgresError:
+        logger.exception("[SIMULACION DETALLE] Error de base de datos")
+        return JSONResponse(status_code=500, content={"message": "Error al cargar detalle"})
 
-    # 2. Logic flags (Simulacion usually readonly for comercial actions)
-    # But we follow the template requirements
-    can_edit_comercial = False 
-    can_close_sale = False
-    
-    return templates.TemplateResponse(request, "shared/modals/detalle_oportunidad_modal.html", {"op": dict(op),
-        "can_edit_comercial": can_edit_comercial,
-        "can_close_sale": can_close_sale,
-        "context": context,
-        "puede_crear_proyecto": check_puede_crear_proyecto(context),
-    })
+    template_context["puede_crear_proyecto"] = check_puede_crear_proyecto(context)
+    return templates.TemplateResponse(
+        request,
+        "shared/modals/detalle_oportunidad_modal.html",
+        template_context,
+    )
 
 # --- ENDPOINTS DE GESTIÓN (MODALES Y UPDATES) ---
 

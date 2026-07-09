@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 
 from core.database import get_db_connection
 from core.jinja_filters import register_timezone_filters
+from core.permissions import require_any_module_access
 from core.security import get_current_user_context, get_valid_graph_token
 from core.workflow.service import get_workflow_service
 from core.projects.router import check_puede_crear_proyecto
@@ -142,6 +143,7 @@ async def get_detalle_oportunidad_modal(
     workflow_service=Depends(get_workflow_service),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _auth=require_any_module_access(["comercial", "simulacion"], min_role="viewer"),
 ):
     """Renderiza el modal de detalle de oportunidad."""
     try:
@@ -150,6 +152,7 @@ async def get_detalle_oportunidad_modal(
             id_oportunidad,
             source_module,
             context,
+            read_only=(source_module != "comercial"),
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

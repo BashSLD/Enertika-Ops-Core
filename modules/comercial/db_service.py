@@ -1,6 +1,8 @@
 
 # SQL Queries for Commercial Module
 
+from core.workflow.db_service import CTE_ROOT_OPORTUNIDAD
+
 def build_usuario_comercial_filter_sql(param_ref: str, opportunity_alias: str = "o") -> str:
     return f"COALESCE({opportunity_alias}.responsable_comercial_id, {opportunity_alias}.creado_por_id) = {param_ref}"
 
@@ -122,7 +124,9 @@ QUERY_INSERT_FOLLOWUP = """
         es_licitacion,         -- HEREDADO
         fecha_ideal_usuario,
         conversion_pendiente,  -- $26
-        sitios_json_pendiente  -- $27
+        sitios_json_pendiente, -- $27
+        responsable_comercial_id, -- $28
+        hilo_search_key        -- $29
     ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 
         $22,  -- ID Estatus (Ya no es 1 fijo)
@@ -132,7 +136,9 @@ QUERY_INSERT_FOLLOWUP = """
         $24,   -- es_licitacion
         $25,   -- fecha_ideal_usuario (heredada o default)
         $26,   -- conversion_pendiente
-        $27    -- sitios_json_pendiente
+        $27,   -- sitios_json_pendiente
+        $28,   -- responsable_comercial_id
+        $29    -- hilo_search_key
     ) RETURNING id_oportunidad
 """
 
@@ -242,21 +248,28 @@ QUERY_INSERT_SITIO_UNICO = """
     VALUES ($1, $2, $3, $4, $5, $6, $7)
 """
 
-QUERY_GET_ULTIMO_MOVIMIENTO_HILO = """
-    WITH root AS (
-        SELECT COALESCE(parent_id, id_oportunidad) AS root_id
-        FROM tb_oportunidades
-        WHERE id_oportunidad = $1
-    )
-    SELECT o.id_oportunidad, o.op_id_estandar, ts.nombre AS tipo_solicitud
+# Base compartida: el eslabon mas reciente del hilo con email_enviado=true.
+# Ordena por COALESCE(fecha_envio_email, fecha_creacion) porque las extraordinarias
+# marcan email_enviado=true sin garantia de fecha_envio_email poblada (solo se llena
+# tras confirmar el envio real) - sin el fallback, esas filas quedarian ordenadas
+# como si fueran mas viejas que hermanas con fecha_envio_email real, sin importar
+# que tan reciente sea su fecha_creacion.
+QUERY_GET_HILO_EMAIL_ANCHOR = f"""
+    WITH {CTE_ROOT_OPORTUNIDAD}
+    SELECT o.id_oportunidad, o.op_id_estandar, o.titulo_proyecto, ts.nombre AS tipo_solicitud
     FROM tb_oportunidades o
     JOIN tb_cat_tipos_solicitud ts ON ts.id = o.id_tipo_solicitud
     CROSS JOIN root
     WHERE (o.id_oportunidad = root.root_id OR o.parent_id = root.root_id)
       AND o.email_enviado = TRUE
-    ORDER BY o.fecha_creacion DESC
+      AND o.titulo_proyecto IS NOT NULL
+    ORDER BY COALESCE(o.fecha_envio_email, o.fecha_creacion) DESC
     LIMIT 1
 """
+
+# Alias: misma query, usada por get_ultimo_movimiento_hilo (que post-filtra en Python
+# excluyendo la fila actual). No duplicar el SQL - ver QUERY_GET_HILO_EMAIL_ANCHOR.
+QUERY_GET_ULTIMO_MOVIMIENTO_HILO = QUERY_GET_HILO_EMAIL_ANCHOR
 
 QUERY_CHECK_GRUPO_BLOQUEADOR = """
     WITH root AS (
@@ -323,6 +336,7 @@ QUERY_CHECK_GRUPO_BLOQUEADOR = """
 
 # Updates
 QUERY_UPDATE_EMAIL_ENVIADO = "UPDATE tb_oportunidades SET email_enviado = TRUE WHERE id_oportunidad = $1"
+QUERY_UPDATE_FECHA_ENVIO_EMAIL = "UPDATE tb_oportunidades SET fecha_envio_email = $2 WHERE id_oportunidad = $1"
 QUERY_UPDATE_PRIORIDAD = "UPDATE tb_oportunidades SET prioridad = $1 WHERE id_oportunidad = $2"
 QUERY_GET_RESPONSABLE_EFECTIVO = """
     SELECT COALESCE(responsable_comercial_id, creado_por_id) AS responsable_id
@@ -362,6 +376,7 @@ QUERY_PUBLISH_BORRADOR = """
     UPDATE tb_oportunidades
     SET email_enviado    = TRUE,
         fecha_solicitud  = $2,
+        fecha_envio_email = $2,
         es_fuera_horario = $3,
         deadline_calculado = $4
     WHERE id_oportunidad = $1
