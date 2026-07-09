@@ -8,7 +8,7 @@
 {% set tipo_label = tipo_labels.get(tipo_solicitud, tipo_solicitud) %}
 
 <div id="modal-confirmar-seguimiento"
-    class="fixed inset-0 flex items-center justify-center z-[10001] transition-all duration-300 bg-gray-900 bg-opacity-50 backdrop-blur-sm"
+    class="modal-overlay-layer fixed inset-0 flex items-center justify-center z-[10001] transition-all duration-300 bg-gray-900 bg-opacity-50 backdrop-blur-sm"
     x-data="{ expandido: false, cargando: false }" x-init="$nextTick(() => $el.querySelector('[autofocus]')?.focus())">
 
     <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden border border-gray-200 max-h-[90dvh] flex flex-col">

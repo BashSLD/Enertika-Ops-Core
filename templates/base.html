@@ -1031,6 +1031,47 @@
             }
         });
 
+        // === NORMALIZADOR DE STACKING DE MODALES ===
+        // Cuando un modal se abre sobre otro (contenedores globales hermanos o
+        // x-teleport a body), ambos backdrops quedan montados y sus opacidades/blurs
+        // se acumulan visualmente. Este observer oculta el PINTADO (visibility) de los
+        // backdrops que no son el de mayor z-index, sin tocar el DOM ni el estado de
+        // Alpine — el backdrop de arriba ya cubre 100% del viewport, así que el
+        // bloqueo de clics de los de abajo no se pierde.
+        (function () {
+            function normalizeModalStacking() {
+                const layers = [];
+                document.querySelectorAll('.modal-overlay-layer').forEach(el => {
+                    const cs = getComputedStyle(el);
+                    if (cs.display !== 'none') {
+                        layers.push({ el, zIndex: parseInt(cs.zIndex, 10) || 0 });
+                    }
+                });
+
+                if (layers.length === 0) return;
+
+                // >= (no >): en un empate de z-index, CSS pinta arriba al último en el DOM.
+                const top = layers.reduce((hi, l) => l.zIndex >= hi.zIndex ? l : hi).el;
+
+                // Solo escribe si el valor cambia: una escritura sin cambios igual dispara
+                // el MutationObserver (attributeFilter: ['style']), causando un loop.
+                layers.forEach(({ el }) => {
+                    const desired = (el === top) ? '' : 'hidden';
+                    if (el.style.visibility !== desired) el.style.visibility = desired;
+                });
+            }
+
+            const observer = new MutationObserver(normalizeModalStacking);
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['style']
+            });
+
+            normalizeModalStacking();
+        })();
+
         // === HEARTBEAT ===
         setInterval(() => {
             fetch('/auth/session').then(res => {
