@@ -1,3 +1,4 @@
+import asyncpg
 import pytest
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -54,15 +55,50 @@ async def test_resolver_admin_sistema_ve_todo(mock_conn, admin_context):
     assert (creado_por_ids, servicio_ids) == (None, None)
 
 
+class FakeConnTx:
+    """Conn minimo: solo necesita soportar `async with conn.transaction()`.
+    Registra si se entro al context manager para poder afirmarlo en el test
+    (un AsyncMock() plano no deja verificar esto de forma confiable)."""
+    def __init__(self):
+        self.transaction_entered = False
+    def transaction(self):
+        return self
+    async def __aenter__(self):
+        self.transaction_entered = True
+        return self
+    async def __aexit__(self, *exc):
+        return False
+
+
 @pytest.mark.asyncio
-async def test_crear_servicio_simulacion_reregistro_otorga_visibilidad(mock_conn):
+async def test_crear_servicio_nuevo_usa_transaccion_atomica():
+    svc = _svc_con_db()
+    svc.db.get_servicio_by_numero = AsyncMock(return_value=None)
+    creado = {"id": uuid4(), "nombre": "CLIENTE X", "modulos": ["simulacion"]}
+    svc.db.crear_servicio = AsyncMock(return_value=creado)
+    svc.db.agregar_registrador = AsyncMock(return_value=True)
+    svc.db.marcar_alta_miespacio_pendiente = AsyncMock()
+
+    conn = FakeConnTx()
+    await svc.crear_servicio(
+        conn, numero_servicio="123", nombre="cliente x", alias=None,
+        lada="55", telefono="1", email="a@b.com", usuario_id=uuid4(), modulo="simulacion",
+    )
+
+    assert conn.transaction_entered is True, "crear_servicio debe envolver el alta en conn.transaction()"
+    svc.db.crear_servicio.assert_awaited_once()
+    svc.db.agregar_registrador.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_crear_servicio_simulacion_reregistro_otorga_visibilidad():
     svc = _svc_con_db()
     existente = {"id": uuid4(), "nombre": "CLIENTE X", "modulos": ["simulacion"]}
     svc.db.get_servicio_by_numero = AsyncMock(return_value=existente)
     svc.db.agregar_registrador = AsyncMock(return_value=True)
 
     servicio, estado = await svc.crear_servicio(
-        mock_conn, numero_servicio="123", nombre="cliente x", alias=None,
+        FakeConnTx(), numero_servicio="123", nombre="cliente x", alias=None,
         lada="55", telefono="1", email="a@b.com", usuario_id=uuid4(), modulo="simulacion",
     )
 
@@ -72,7 +108,7 @@ async def test_crear_servicio_simulacion_reregistro_otorga_visibilidad(mock_conn
 
 
 @pytest.mark.asyncio
-async def test_crear_servicio_oym_existente_sigue_lanzando_error(mock_conn):
+async def test_crear_servicio_oym_existente_sigue_lanzando_error():
     svc = _svc_con_db()
     svc.db.get_servicio_by_numero = AsyncMock(
         return_value={"id": uuid4(), "nombre": "CLIENTE X", "modulos": ["oym"]}
@@ -80,6 +116,31 @@ async def test_crear_servicio_oym_existente_sigue_lanzando_error(mock_conn):
 
     with pytest.raises(ValueError, match="ya está registrado"):
         await svc.crear_servicio(
-            mock_conn, numero_servicio="123", nombre="cliente x", alias=None,
+            FakeConnTx(), numero_servicio="123", nombre="cliente x", alias=None,
             lada="55", telefono="1", email="a@b.com", usuario_id=uuid4(), modulo="oym",
         )
+
+
+@pytest.mark.asyncio
+async def test_crear_servicio_falla_en_registrador_no_swallowed(mock_conn):
+    # Si agregar_registrador falla a mitad de la transaccion, la excepcion debe
+    # propagarse (no ser atrapada dentro del `async with conn.transaction()`) —
+    # es justo esa propagacion la que hace que asyncpg dispare el rollback real
+    # y evita que quede un servicio sin su fila de registrador (Tarea 0).
+    svc = _svc_con_db()
+    svc.db.get_servicio_by_numero = AsyncMock(return_value=None)
+    creado = {"id": uuid4(), "nombre": "CLIENTE X", "modulos": ["simulacion"]}
+    svc.db.crear_servicio = AsyncMock(return_value=creado)
+    svc.db.agregar_registrador = AsyncMock(side_effect=asyncpg.PostgresError("boom"))
+    svc.db.marcar_alta_miespacio_pendiente = AsyncMock()
+
+    conn = FakeConnTx()
+    with pytest.raises(asyncpg.PostgresError):
+        await svc.crear_servicio(
+            conn, numero_servicio="123", nombre="cliente x", alias=None,
+            lada="55", telefono="1", email="a@b.com", usuario_id=uuid4(), modulo="simulacion",
+        )
+
+    assert conn.transaction_entered is True
+    svc.db.crear_servicio.assert_awaited_once()
+    svc.db.marcar_alta_miespacio_pendiente.assert_not_awaited()

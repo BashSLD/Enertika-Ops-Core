@@ -428,38 +428,45 @@ class CfeService:
         'modulo_agregado'     -> el modulo se sumo a un servicio existente
         'visibilidad_otorgada'-> simulacion: ya existia en el modulo, se otorgo visibilidad
         'ya_visible'          -> simulacion: ya existia y el usuario ya era registrador
-        Para oym, un servicio ya existente en el modulo sigue lanzando ValueError."""
+        Para oym, un servicio ya existente en el modulo sigue lanzando ValueError.
+
+        Todo el alta (INSERT/UPDATE del servicio + registrador + encolado de
+        alta MiEspacio) corre en una sola transaccion: si la peticion se
+        interrumpe a mitad (deploy, timeout), no debe quedar un servicio sin
+        su fila de registrador — ese hueco dejo huerfanos a 2 servicios de un
+        usuario real (ver Tarea 0, PLAN_CFE_OCULTAR_SERVICIOS_Y_FIX_VISIBILIDAD.md)."""
         nombre = self._normalizar_nombre_servicio(nombre)
 
-        existing = await self.db.get_servicio_by_numero(conn, numero_servicio)
-        if existing:
-            if modulo in (existing.get("modulos") or []):
-                if modulo == "simulacion":
-                    otorgado = await self.db.agregar_registrador(
-                        conn, existing["id"], usuario_id, "simulacion"
+        async with conn.transaction():
+            existing = await self.db.get_servicio_by_numero(conn, numero_servicio)
+            if existing:
+                if modulo in (existing.get("modulos") or []):
+                    if modulo == "simulacion":
+                        otorgado = await self.db.agregar_registrador(
+                            conn, existing["id"], usuario_id, "simulacion"
+                        )
+                        return existing, ("visibilidad_otorgada" if otorgado else "ya_visible")
+                    raise ValueError(
+                        f"El número de servicio {numero_servicio} ya está registrado "
+                        f"como '{existing['nombre']}'."
                     )
-                    return existing, ("visibilidad_otorgada" if otorgado else "ya_visible")
-                raise ValueError(
-                    f"El número de servicio {numero_servicio} ya está registrado "
-                    f"como '{existing['nombre']}'."
-                )
-            # El servicio existe en otro módulo: agregar este módulo al array
-            await self.db.agregar_modulo_a_servicio(conn, existing["id"], modulo)
+                # El servicio existe en otro módulo: agregar este módulo al array
+                await self.db.agregar_modulo_a_servicio(conn, existing["id"], modulo)
+                if modulo == "simulacion":
+                    await self.db.agregar_registrador(conn, existing["id"], usuario_id, "simulacion")
+                # Verifica/registra en MiEspacio si aun no esta (idempotente).
+                await self.db.marcar_alta_miespacio_pendiente(conn, existing["id"])
+                return existing, "modulo_agregado"
+            nuevo = await self.db.crear_servicio(
+                conn, numero_servicio=numero_servicio, nombre=nombre, alias=alias,
+                lada=lada, telefono=telefono, email=email, creado_por=usuario_id,
+                modulos=[modulo],
+            )
             if modulo == "simulacion":
-                await self.db.agregar_registrador(conn, existing["id"], usuario_id, "simulacion")
-            # Verifica/registra en MiEspacio si aun no esta (idempotente).
-            await self.db.marcar_alta_miespacio_pendiente(conn, existing["id"])
-            return existing, "modulo_agregado"
-        nuevo = await self.db.crear_servicio(
-            conn, numero_servicio=numero_servicio, nombre=nombre, alias=alias,
-            lada=lada, telefono=telefono, email=email, creado_por=usuario_id,
-            modulos=[modulo],
-        )
-        if modulo == "simulacion":
-            await self.db.agregar_registrador(conn, nuevo["id"], usuario_id, "simulacion")
-        # Encola el alta en MiEspacio (job del worker, independiente de la descarga).
-        await self.db.marcar_alta_miespacio_pendiente(conn, nuevo["id"])
-        return nuevo, "creado"
+                await self.db.agregar_registrador(conn, nuevo["id"], usuario_id, "simulacion")
+            # Encola el alta en MiEspacio (job del worker, independiente de la descarga).
+            await self.db.marcar_alta_miespacio_pendiente(conn, nuevo["id"])
+            return nuevo, "creado"
 
     async def editar_servicio(
         self, conn: asyncpg.Connection, servicio_id: UUID, *,
