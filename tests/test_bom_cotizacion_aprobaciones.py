@@ -1,6 +1,6 @@
 """
 Tests unitarios de aprobaciones post-BOM de cotizaciones (Fase 1 del plan
-MD/2026-06-29-aprobaciones-cotizaciones-post-bom.md): solicitar/aprobar/rechazar
+_Planes_Activos/2026-06-29-aprobaciones-cotizaciones-post-bom.md): solicitar/aprobar/rechazar
 en tb_bom_cotizacion_aprobaciones, auto-avance de Fase D via aprobar_direccion()
 y cancelacion en cascada con paso RECHAZO_COTIZACION.
 """

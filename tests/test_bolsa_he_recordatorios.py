@@ -1,6 +1,6 @@
 """
 Integracion: recordatorios y resumen RH de compensatorio pendiente
-(Fase 6 del plan MD/2026-06-29-bolsa-horas-extra.md), sobre las
+(Fase 6 del plan _Planes_Activos/Planes_Anteriores_Ejecutados/2026-06-29-bolsa-horas-extra.md), sobre las
 columnas de tracking de tb_he_solicitudes_compensatorio (migracion
 139). Requiere BD real con rollback automatico por test.
 """

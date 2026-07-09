@@ -1,6 +1,6 @@
 """
 Tests unitarios de evidencias HE (Fase 3/4 del plan
-MD/2026-06-29-bolsa-horas-extra.md): validacion de MIME/tamano/cantidad
+_Planes_Activos/Planes_Anteriores_Ejecutados/2026-06-29-bolsa-horas-extra.md): validacion de MIME/tamano/cantidad
 y cleanup best-effort en SharePoint si falla la transaccion DB. Mocks
 sobre modules.asistencia.service - no requieren BD ni SharePoint reales.
 """

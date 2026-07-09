@@ -1,6 +1,6 @@
 """
 Integracion: easter egg de niveles de bolsa HE (Fase 8 del plan
-MD/2026-06-29-bolsa-horas-extra.md). Requiere BD real con la migracion
+_Planes_Activos/Planes_Anteriores_Ejecutados/2026-06-29-bolsa-horas-extra.md). Requiere BD real con la migracion
 139 aplicada (tb_cat_he_niveles, tb_he_bolsa_movimientos). Cada test
 corre dentro de una transaccion que se revierte al terminar.
 """

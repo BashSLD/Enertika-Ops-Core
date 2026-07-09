@@ -1,6 +1,6 @@
 """
 Tests unitarios del reporte Excel de bolsa HE (Fase 7 del plan
-MD/2026-06-29-bolsa-horas-extra.md): armado del workbook
+_Planes_Activos/Planes_Anteriores_Ejecutados/2026-06-29-bolsa-horas-extra.md): armado del workbook
 _build_he_bolsa_workbook. No requieren BD.
 
 Las aserciones usan _visible_rows (filtra filas 100% vacias) para no

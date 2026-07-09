@@ -1,6 +1,6 @@
 """
 Tests unitarios criticos de la bolsa de horas extra y compensatorio
-(MD/2026-06-29-bolsa-horas-extra.md, seccion 6). Usan mocks/monkeypatch
+(_Planes_Activos/Planes_Anteriores_Ejecutados/2026-06-29-bolsa-horas-extra.md, seccion 6). Usan mocks/monkeypatch
 sobre modules.asistencia.service - no requieren BD real ni la migracion
 139 aplicada.
 """
