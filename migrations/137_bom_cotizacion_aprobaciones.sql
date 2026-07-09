@@ -1,5 +1,5 @@
 -- 137: Aprobaciones post-BOM de cotizaciones por Direccion (Fase 1 del plan
--- MD/2026-06-29-aprobaciones-cotizaciones-post-bom.md). Tabla separada de
+-- _Planes_Activos/2026-06-29-aprobaciones-cotizaciones-post-bom.md). Tabla separada de
 -- tb_bom_aprobaciones (workflow inicial del BOM): audita solicitud, aprobacion,
 -- rechazo y reemplazo de cotizaciones despues de APROBADO_FINAL.
 
