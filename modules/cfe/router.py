@@ -95,14 +95,8 @@ async def cfe_ui(
 ):
     svc = get_cfe_service()
     modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
-    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
     await svc.limpiar_errores_invalidos(conn)
-    servicios = await svc.listar_servicios(
-        conn,
-        modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
-        creado_por_ids=creado_por_ids,
-        servicio_ids=servicio_ids,
-    )
+    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
     estado_sesion = await svc.get_estado_sesion(conn)
     is_htmx = request.headers.get("hx-request")
     is_restore = request.headers.get("hx-history-restore-request")
@@ -115,6 +109,7 @@ async def cfe_ui(
         "user_name": user.get("user_name"),
         "role": user.get("role"),
         "module_roles": user.get("module_roles", {}),
+        "ocultos_count": ocultos_count,
     }
     template = "cfe/partials/lista_servicios.html" if (is_htmx and not is_restore) else "cfe/index.html"
     return templates.TemplateResponse(request, template, ctx)
@@ -297,11 +292,7 @@ async def crear_servicio(
         toast_msg = "Error interno al registrar el servicio."
         toast_type = "error"
         status_code = 500
-    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
-    servicios = await svc.listar_servicios(
-        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
-        creado_por_ids=creado_por_ids, servicio_ids=servicio_ids,
-    )
+    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
         {
@@ -310,6 +301,7 @@ async def crear_servicio(
             "modulos_accesibles": modulos_accesibles,
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
+            "ocultos_count": ocultos_count,
         },
         status_code=status_code,
     )
@@ -373,11 +365,7 @@ async def crear_servicios_bulk(
             resultados.append({"numero": numero, "nombre": nombre, "ok": False, "error": "Error interno al registrar."})
 
     total_ok = sum(1 for r in resultados if r["ok"])
-    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
-    servicios = await svc.listar_servicios(
-        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
-        creado_por_ids=creado_por_ids, servicio_ids=servicio_ids,
-    )
+    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
     estado_sesion = await svc.get_estado_sesion(conn)
     return templates.TemplateResponse(
         request,
@@ -393,6 +381,100 @@ async def crear_servicios_bulk(
             "user_name": user.get("user_name"),
             "role": user.get("role"),
             "module_roles": user.get("module_roles", {}),
+            "ocultos_count": ocultos_count,
+        },
+    )
+
+
+# ── Ocultos (preferencia personal, no borra nada) ──────────────────────────────
+
+@router.post("/servicios/{servicio_id}/ocultar", response_class=HTMLResponse)
+async def ocultar_servicio(
+    request: Request,
+    servicio_id: UUID,
+    modulo: str | None = Query(default=None),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_viewer,
+):
+    svc = get_cfe_service()
+    modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
+    servicio = await _get_servicio_accesible(svc, conn, servicio_id, user)
+    toast_type = "success"
+    toast_msg = ""
+    status_code = 200
+    try:
+        await svc.ocultar_servicio(
+            conn, servicio, user["user_db_id"],
+            modulos_usuario=[modulo_activo] if modulo_activo else modulos_accesibles,
+        )
+        toast_msg = "Servicio ocultado de tu lista. Puedes mostrarlo de nuevo desde \"Servicios ocultos\"."
+    except ValueError as exc:
+        toast_msg = str(exc)
+        toast_type = "error"
+        status_code = 400
+    except asyncpg.PostgresError as exc:
+        logger.error("Error de BD ocultando servicio CFE %s: %s", servicio_id, exc)
+        toast_msg = "Error interno al ocultar el servicio."
+        toast_type = "error"
+        status_code = 500
+    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
+    return templates.TemplateResponse(
+        request, "cfe/partials/lista_servicios.html",
+        {
+            "servicios": servicios, "modulo": modulo_activo, "modulos_accesibles": modulos_accesibles,
+            "user": user, "_toast": {"message": toast_msg, "type": toast_type},
+            "ocultos_count": ocultos_count,
+        },
+        status_code=status_code,
+    )
+
+
+@router.get("/ui/modal-ocultos", response_class=HTMLResponse)
+async def modal_ocultos(
+    request: Request,
+    modulo: str | None = Query(default=None),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_viewer,
+):
+    svc = get_cfe_service()
+    modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
+    modulos_ctx = [modulo_activo] if modulo_activo else modulos_accesibles
+    ocultos = await svc.listar_servicios_ocultos(conn, user["user_db_id"], modulos_ctx)
+    return templates.TemplateResponse(
+        request, "cfe/partials/modal_ocultos.html",
+        {"ocultos": ocultos, "modulo": modulo_activo, "user": user},
+    )
+
+
+@router.post("/servicios/{servicio_id}/mostrar", response_class=HTMLResponse)
+async def mostrar_servicio(
+    request: Request,
+    servicio_id: UUID,
+    modulo: str | None = Query(default=None),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_viewer,
+):
+    svc = get_cfe_service()
+    modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
+    modulos_ctx = [modulo_activo] if modulo_activo else modulos_accesibles
+    try:
+        await svc.mostrar_servicio(conn, servicio_id, user["user_db_id"], modulos_ctx)
+    except asyncpg.PostgresError as exc:
+        logger.error("Error de BD restaurando servicio CFE %s: %s", servicio_id, exc)
+        raise HTTPException(status_code=500, detail="Error interno al restaurar el servicio.")
+
+    ocultos = await svc.listar_servicios_ocultos(conn, user["user_db_id"], modulos_ctx)
+    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
+    return templates.TemplateResponse(
+        request, "cfe/partials/modal_ocultos.html",
+        {
+            "ocultos": ocultos, "modulo": modulo_activo, "user": user,
+            "_toast": {"message": "Servicio visible de nuevo.", "type": "success"},
+            "servicios": servicios, "modulos_accesibles": modulos_accesibles,
+            "ocultos_count": ocultos_count,
         },
     )
 
@@ -449,11 +531,7 @@ async def editar_servicio(
         toast_msg = "Error interno al editar el servicio."
         toast_type = "error"
         status_code = 500
-    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
-    servicios = await svc.listar_servicios(
-        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
-        creado_por_ids=creado_por_ids, servicio_ids=servicio_ids,
-    )
+    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
         {
@@ -462,6 +540,7 @@ async def editar_servicio(
             "modulos_accesibles": modulos_accesibles,
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
+            "ocultos_count": ocultos_count,
         },
         status_code=status_code,
     )
@@ -513,11 +592,7 @@ async def registrar_manual(
         toast_msg = "Error interno al encolar el registro."
         toast_type = "error"
         status_code = 500
-    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
-    servicios = await svc.listar_servicios(
-        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
-        creado_por_ids=creado_por_ids, servicio_ids=servicio_ids,
-    )
+    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
         {
@@ -526,6 +601,7 @@ async def registrar_manual(
             "modulos_accesibles": modulos_accesibles,
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
+            "ocultos_count": ocultos_count,
         },
         status_code=status_code,
     )
@@ -557,11 +633,7 @@ async def reintentar_alta_miespacio(
         toast_msg = "Error interno al reencolar el registro."
         toast_type = "error"
         status_code = 500
-    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
-    servicios = await svc.listar_servicios(
-        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles,
-        creado_por_ids=creado_por_ids, servicio_ids=servicio_ids,
-    )
+    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
         {
@@ -570,6 +642,7 @@ async def reintentar_alta_miespacio(
             "modulos_accesibles": modulos_accesibles,
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
+            "ocultos_count": ocultos_count,
         },
         status_code=status_code,
     )
@@ -699,8 +772,10 @@ async def descargar_todos(
         toast_msg = "Error interno al encolar las descargas."
         toast_type = "error"
         status_code = 500
+    excluir_ids = await svc.resolver_ocultos(conn, user, modulos)
     servicios = await svc.listar_servicios(
-        conn, modulos=modulos, creado_por_ids=creado_por_ids, servicio_ids=servicio_ids
+        conn, modulos=modulos, creado_por_ids=creado_por_ids, servicio_ids=servicio_ids,
+        excluir_ids=excluir_ids,
     )
     estado_sesion = await svc.get_estado_sesion(conn)
     return templates.TemplateResponse(
@@ -712,6 +787,7 @@ async def descargar_todos(
             "modulos_accesibles": modulos_accesibles,
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
+            "ocultos_count": len(excluir_ids or []),
         },
         status_code=status_code,
     )

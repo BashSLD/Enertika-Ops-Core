@@ -400,10 +400,69 @@ class CfeService:
         modulos: list[str] | None = None,
         creado_por_ids: list[UUID] | None = None,
         servicio_ids: list[UUID] | None = None,
+        excluir_ids: list[UUID] | None = None,
     ) -> list[dict]:
         return await self.db.get_all_servicios(
-            conn, modulos=modulos, creado_por_ids=creado_por_ids, servicio_ids=servicio_ids
+            conn, modulos=modulos, creado_por_ids=creado_por_ids,
+            servicio_ids=servicio_ids, excluir_ids=excluir_ids,
         )
+
+    async def ocultar_servicio(
+        self, conn: asyncpg.Connection, servicio: dict, usuario_id: UUID,
+        modulos_usuario: list[str],
+    ) -> None:
+        """Oculta el servicio para este usuario en los modulos donde lo ve
+        actualmente (interseccion con lo que el usuario puede acceder). Recibe
+        el dict ya validado por _get_servicio_accesible en el router — no
+        vuelve a resolver acceso aqui: reimplementar esa logica (en particular
+        el chequeo de registrador de simulacion) duplicaba la consulta y
+        arriesgaba desincronizarse con un criterio mas laxo."""
+        modulos_aplicables = list(set(servicio.get("modulos") or []) & set(modulos_usuario))
+        if not modulos_aplicables:
+            raise ValueError("No tienes acceso a este servicio.")
+        await self.db.ocultar_servicio(conn, servicio["id"], usuario_id, modulos_aplicables)
+
+    async def mostrar_servicio(
+        self, conn: asyncpg.Connection, servicio_id: UUID, usuario_id: UUID,
+        modulos: list[str],
+    ) -> None:
+        """Solo restaura los modulos que el usuario ve actualmente — simetrico
+        con ocultar_servicio. Si oculto el mismo servicio en dos modulos por
+        separado, mostrarlo desde uno no afecta al otro."""
+        await self.db.mostrar_servicio(conn, servicio_id, usuario_id, modulos)
+
+    async def listar_servicios_ocultos(
+        self, conn: asyncpg.Connection, usuario_id: UUID, modulos: list[str]
+    ) -> list[dict]:
+        return await self.db.get_servicios_ocultos(conn, usuario_id, modulos)
+
+    async def resolver_ocultos(
+        self, conn: asyncpg.Connection, user: dict, modulos: list[str]
+    ) -> list[UUID] | None:
+        usuario_id = user.get("user_db_id")
+        if not usuario_id:
+            return None
+        ocultos = await self.db.get_servicio_ids_ocultos(conn, usuario_id, modulos)
+        return ocultos or None
+
+    async def listar_servicios_visibles(
+        self, conn: asyncpg.Connection, user: dict, modulo_activo: str | None,
+        modulos_accesibles: list[str],
+    ) -> tuple[list[dict], int]:
+        """Resuelve visibilidad + ocultos y arma (servicios, ocultos_count) para
+        un usuario. Centraliza el patron repetido en los endpoints que
+        re-renderizan lista_servicios.html tras una accion. No usar en
+        endpoints que ya necesitan creado_por_ids/servicio_ids antes de listar
+        (ej. descargar_todos, que los pasa a iniciar_descarga_masiva) — ahi
+        resolver_filtro_visibilidad se llama aparte para evitar resolverlo dos veces."""
+        modulos = [modulo_activo] if modulo_activo else modulos_accesibles
+        creado_por_ids, servicio_ids = await self.resolver_filtro_visibilidad(conn, user, modulo_activo)
+        excluir_ids = await self.resolver_ocultos(conn, user, modulos)
+        servicios = await self.listar_servicios(
+            conn, modulos=modulos, creado_por_ids=creado_por_ids,
+            servicio_ids=servicio_ids, excluir_ids=excluir_ids,
+        )
+        return servicios, len(excluir_ids or [])
 
     async def limpiar_errores_invalidos(
         self, conn: asyncpg.Connection, servicio_id: Optional[UUID] = None

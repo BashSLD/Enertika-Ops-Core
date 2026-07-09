@@ -144,3 +144,30 @@ async def test_crear_servicio_falla_en_registrador_no_swallowed(mock_conn):
     assert conn.transaction_entered is True
     svc.db.crear_servicio.assert_awaited_once()
     svc.db.marcar_alta_miespacio_pendiente.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ocultar_servicio_solo_en_modulos_del_usuario(mock_conn):
+    svc = _svc_con_db()
+    servicio = {"id": uuid4(), "modulos": ["simulacion"]}
+    svc.db.ocultar_servicio = AsyncMock()
+
+    await svc.ocultar_servicio(mock_conn, servicio, uuid4(), modulos_usuario=["oym", "simulacion"])
+
+    svc.db.ocultar_servicio.assert_awaited_once()
+    assert svc.db.ocultar_servicio.await_args.args[-1] == ["simulacion"]
+
+
+@pytest.mark.asyncio
+async def test_ocultar_servicio_sin_acceso_lanza_error(mock_conn):
+    svc = _svc_con_db()
+    servicio = {"id": uuid4(), "modulos": ["oym"]}
+
+    with pytest.raises(ValueError, match="No tienes acceso"):
+        await svc.ocultar_servicio(mock_conn, servicio, uuid4(), modulos_usuario=["simulacion"])
+
+
+@pytest.mark.asyncio
+async def test_resolver_ocultos_sin_usuario_no_filtra(mock_conn):
+    svc = _svc_con_db()
+    assert await svc.resolver_ocultos(mock_conn, {}, ["oym"]) is None

@@ -39,6 +39,7 @@ class CfeDBService:
         modulos: list[str] | None = None,
         creado_por_ids: list[UUID] | None = None,
         servicio_ids: list[UUID] | None = None,
+        excluir_ids: list[UUID] | None = None,
     ) -> list[dict]:
         rows = await conn.fetch(
             f"""
@@ -74,12 +75,14 @@ class CfeDBService:
               AND ($1::text[] IS NULL OR s.modulos && $1::text[])
               AND ($2::uuid[] IS NULL OR s.creado_por = ANY($2::uuid[]))
               AND ($3::uuid[] IS NULL OR s.id = ANY($3::uuid[]))
+              AND ($4::uuid[] IS NULL OR s.id != ALL($4::uuid[]))
             GROUP BY s.id, ba.id, ba.estatus, ba.max_periodos
             ORDER BY (s.miespacio_estatus = 'error'), s.nombre
             """,
             modulos or None,
             creado_por_ids or None,
             servicio_ids,
+            excluir_ids or None,
         )
         return [dict(r) for r in rows]
 
@@ -183,6 +186,69 @@ class CfeDBService:
             WHERE usuario_id = $1 AND modulo = $2
             """,
             usuario_id, modulo,
+        )
+        return [r["servicio_id"] for r in rows]
+
+    # ── Ocultos (preferencia personal, no borra nada) ──────────────────────
+
+    async def ocultar_servicio(
+        self, conn: asyncpg.Connection, servicio_id: UUID, usuario_id: UUID, modulos: list[str]
+    ) -> None:
+        """Oculta el servicio para este usuario en cada modulo dado. Idempotente."""
+        await conn.executemany(
+            """
+            INSERT INTO tb_cfe_servicio_ocultos (servicio_id, usuario_id, modulo)
+            VALUES ($1, $2, $3)
+            ON CONFLICT DO NOTHING
+            """,
+            [(servicio_id, usuario_id, modulo) for modulo in modulos],
+        )
+
+    async def mostrar_servicio(
+        self, conn: asyncpg.Connection, servicio_id: UUID, usuario_id: UUID, modulos: list[str]
+    ) -> None:
+        """Quita el ocultamiento de este usuario solo en los modulos dados —
+        simetrico con ocultar_servicio (que tambien es por-modulo)."""
+        await conn.execute(
+            """
+            DELETE FROM tb_cfe_servicio_ocultos
+            WHERE servicio_id = $1 AND usuario_id = $2 AND modulo = ANY($3::text[])
+            """,
+            servicio_id, usuario_id, modulos,
+        )
+
+    async def get_servicios_ocultos(
+        self, conn: asyncpg.Connection, usuario_id: UUID, modulos: list[str]
+    ) -> list[dict]:
+        """Solo lo oculto en los modulos que el usuario puede acceder hoy — si
+        perdio acceso a un modulo, lo que oculto ahi deja de listarse aqui
+        (sigue en la tabla, por si recupera el acceso mas adelante)."""
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT s.id, s.numero_servicio, s.nombre, s.alias, s.modulos, o.ocultado_en
+            FROM tb_cfe_servicio_ocultos o
+            JOIN tb_cfe_servicios s ON s.id = o.servicio_id
+            WHERE o.usuario_id = $1 AND o.modulo = ANY($2::text[]) AND s.activo = true
+            ORDER BY o.ocultado_en DESC
+            """,
+            usuario_id, modulos,
+        )
+        return [dict(r) for r in rows]
+
+    async def get_servicio_ids_ocultos(
+        self, conn: asyncpg.Connection, usuario_id: UUID, modulos: list[str]
+    ) -> list[UUID]:
+        """Mismo filtro s.activo = true que get_servicios_ocultos, para que el
+        conteo (ocultos_count) nunca quede por encima de lo que realmente se
+        lista en el modal."""
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT o.servicio_id
+            FROM tb_cfe_servicio_ocultos o
+            JOIN tb_cfe_servicios s ON s.id = o.servicio_id
+            WHERE o.usuario_id = $1 AND o.modulo = ANY($2::text[]) AND s.activo = true
+            """,
+            usuario_id, modulos,
         )
         return [r["servicio_id"] for r in rows]
 

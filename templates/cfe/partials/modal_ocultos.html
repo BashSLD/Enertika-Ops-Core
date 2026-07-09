@@ -1,0 +1,49 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+{# templates/cfe/partials/modal_ocultos.html #}
+<div class="fixed inset-0 z-50 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+     id="cfe-ocultos-modal">
+    <div class="w-full max-w-lg bg-white rounded-xl shadow-2xl max-h-[90dvh] flex flex-col">
+        <div class="bg-slate-700 px-6 py-4 rounded-t-xl flex items-center justify-between flex-shrink-0">
+            <h3 class="text-lg font-bold text-white">Servicios ocultos</h3>
+            <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
+                class="text-white/80 hover:text-white p-1 rounded">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div class="p-6 flex-1 min-h-0 overflow-y-auto space-y-2" id="cfe-ocultos-lista">
+            {% if _toast is defined %}
+            {% with message=_toast.message, type=_toast.type, title="Recibos CFE" %}
+            {% include "shared/toast.html" %}
+            {% endwith %}
+            {% endif %}
+            {% if not ocultos %}
+            <p class="text-sm text-gray-500 text-center py-8">No tienes servicios ocultos.</p>
+            {% else %}
+            {% for o in ocultos %}
+            <div class="flex items-center justify-between gap-3 rounded-lg border border-gray-100 px-4 py-2.5">
+                <div class="min-w-0">
+                    <p class="text-sm font-medium text-gray-900 truncate">{{ o.nombre }}</p>
+                    <p class="text-xs text-gray-500 font-mono">{{ o.numero_servicio }}</p>
+                </div>
+                <button type="button"
+                    hx-post="/cfe/servicios/{{ o.id }}/mostrar{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                    hx-target="#cfe-ocultos-modal"
+                    hx-swap="outerHTML"
+                    class="inline-flex items-center gap-1.5 text-xs bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors flex-shrink-0">
+                    <span class="htmx-indicator">{{ spinner_icon('h-3.5 w-3.5') }}</span>
+                    Mostrar de nuevo
+                </button>
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% if servicios is defined %}
+{% with _oob=true %}
+{% include "cfe/partials/lista_servicios.html" %}
+{% endwith %}
+{% endif %}

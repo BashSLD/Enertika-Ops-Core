@@ -1,18 +1,20 @@
 {% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 {# templates/cfe/partials/lista_servicios.html #}
-{% if _toast is defined %}
-{% with message=_toast.message, type=_toast.type, title=_toast.title|default('Recibos CFE') %}
-{% include "shared/toast.html" %}
-{% endwith %}
-{% endif %}
 
-<div id="cfe-lista" {% if _oob %}hx-swap-oob="outerHTML"{% endif %} class="p-6 space-y-4">
+{# El cuerpo (badges + banner de busquedas + polling + grid) vive en su propio
+   macro para poder refrescarlo via OOB (hx-swap-oob) SIN tocar #cfe-modal-container:
+   ese contenedor puede tener un modal abierto (ej. "Servicios ocultos") en el
+   momento del refresco, y si el OOB reemplazara el #cfe-lista completo (su
+   ancestro), el modal abierto quedaria huerfano en un subarbol desconectado del
+   documento — se veria como si el modal desapareciera en vez de actualizarse. #}
+{% macro _cuerpo_lista(oob) %}
+<div id="cfe-lista-cuerpo" {% if oob %}hx-swap-oob="outerHTML"{% endif %} class="space-y-4">
     <div class="flex items-center justify-between">
         <div>
             <h1 class="text-xl font-bold text-gray-900">Recibos CFE</h1>
             <p class="text-sm text-gray-500 mt-0.5">Descarga y gestión de recibos de luz por servicio</p>
             {% set servicios_error = servicios | selectattr('miespacio_estatus', 'equalto', 'error') | list %}
-            {% if estado_sesion is defined or servicios_error %}
+            {% if estado_sesion is defined or servicios_error or ocultos_count %}
             <div class="mt-1.5 flex items-center gap-2 text-xs">
                 {% if estado_sesion is defined %}
                 {% if estado_sesion.sesion_estado == 'activa' %}
@@ -42,6 +44,16 @@
                     </svg>
                     {{ servicios_error | length }} con error de registro
                 </a>
+                {% endif %}
+                {% if ocultos_count %}
+                {% if estado_sesion is defined or servicios_error %}<span class="text-gray-300">·</span>{% endif %}
+                <button type="button"
+                    hx-get="/cfe/ui/modal-ocultos{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                    hx-target="#cfe-modal-container"
+                    hx-swap="innerHTML"
+                    class="inline-flex items-center gap-1 text-gray-500 font-medium hover:text-gray-700 hover:underline">
+                    {{ ocultos_count }} servicio(s) oculto(s)
+                </button>
                 {% endif %}
             </div>
             {% endif %}
@@ -127,142 +139,6 @@
             </div>
         </div>
     </div>
-
-    <div id="cfe-modal-container"></div>
-
-    <script>
-    (function () {
-        function nombreArchivoZipCfe(response) {
-            const disposition = response.headers.get('content-disposition') || '';
-            const utf = disposition.match(/filename\*=UTF-8''([^;]+)/i);
-            if (utf) return decodeURIComponent(utf[1]);
-            const plain = disposition.match(/filename="?([^";]+)"?/i);
-            return plain ? plain[1] : 'recibos_cfe.zip';
-        }
-
-        function urlConFaltantesCfe(url) {
-            return `${url}${url.includes('?') ? '&' : '?'}permitir_incompleto=1`;
-        }
-
-        function descargarBlobZipCfe(blob, filename) {
-            const blobUrl = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = blobUrl;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            URL.revokeObjectURL(blobUrl);
-        }
-
-        function mostrarErrorZipCfe(message) {
-            const modal = document.getElementById('cfe-modal-container');
-            if (!modal) return;
-            modal.innerHTML = `
-                <div class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 p-4">
-                    <div class="w-full max-w-lg rounded-xl bg-white shadow-xl border border-red-100">
-                        <div class="p-5 border-b border-red-100">
-                            <h3 class="text-base font-semibold text-red-700">No se pudo generar el ZIP</h3>
-                            <p class="mt-1 text-sm text-gray-600"></p>
-                        </div>
-                        <div class="p-4 flex justify-end">
-                            <button type="button" class="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" data-cfe-zip-close>Cerrar</button>
-                        </div>
-                    </div>
-                </div>`;
-            modal.querySelector('p').textContent = message || 'Intenta de nuevo.';
-            modal.querySelector('[data-cfe-zip-close]').addEventListener('click', () => { modal.innerHTML = ''; });
-        }
-
-        function mostrarModalFaltantesZipCfe(data, url) {
-            const modal = document.getElementById('cfe-modal-container');
-            if (!modal) return;
-            const faltantes = Array.isArray(data.faltantes) ? data.faltantes : [];
-            modal.innerHTML = `
-                <div class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 p-4">
-                    <div class="w-full max-w-2xl rounded-xl bg-white shadow-xl border border-amber-100">
-                        <div class="p-5 border-b border-amber-100">
-                            <h3 class="text-base font-semibold text-amber-800">ZIP con archivos faltantes</h3>
-                            <p class="mt-1 text-sm text-gray-600">Algunos archivos no pudieron descargarse despues de 3 intentos. Puedes descargarlos manualmente desde la seccion Historial o continuar sin incluirlos.</p>
-                        </div>
-                        <div class="p-5">
-                            <ul class="max-h-64 space-y-2 overflow-y-auto text-sm text-gray-700" data-cfe-zip-faltantes></ul>
-                        </div>
-                        <div class="flex flex-wrap justify-end gap-2 border-t border-gray-100 p-4">
-                            <button type="button" class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50" data-cfe-zip-close>Cancelar</button>
-                            <button type="button" class="rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800" data-cfe-zip-confirm>Descargar ZIP con faltantes</button>
-                        </div>
-                    </div>
-                </div>`;
-
-            const lista = modal.querySelector('[data-cfe-zip-faltantes]');
-            faltantes.forEach((faltante) => {
-                const item = document.createElement('li');
-                item.className = 'rounded-lg bg-amber-50 px-3 py-2';
-                const servicio = faltante.servicio || 'Servicio';
-                const numero = faltante.numero_servicio || 'Sin numero';
-                const periodo = faltante.periodo || 'Sin periodo';
-                const tipo = faltante.tipo || 'Archivo';
-                const archivo = faltante.nombre_archivo || 'Sin nombre';
-                item.textContent = `${servicio} (${numero}) - ${periodo} - ${tipo}: ${archivo}`;
-                lista.appendChild(item);
-            });
-            if (!faltantes.length) {
-                const item = document.createElement('li');
-                item.className = 'rounded-lg bg-amber-50 px-3 py-2';
-                item.textContent = 'No se recibio detalle de archivos faltantes.';
-                lista.appendChild(item);
-            }
-
-            modal.querySelector('[data-cfe-zip-close]').addEventListener('click', () => { modal.innerHTML = ''; });
-            modal.querySelector('[data-cfe-zip-confirm]').addEventListener('click', async (event) => {
-                const button = event.currentTarget;
-                button.disabled = true;
-                button.textContent = 'Descargando...';
-                try {
-                    await descargarZipCfeDesdeUrl(urlConFaltantesCfe(url));
-                    modal.innerHTML = '';
-                } catch (error) {
-                    mostrarErrorZipCfe(error.message || 'No se pudo generar el ZIP con faltantes.');
-                }
-            });
-        }
-
-        async function descargarZipCfeDesdeUrl(url) {
-            const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-            if (response.status === 409) {
-                const data = await response.json();
-                mostrarModalFaltantesZipCfe(data, url);
-                return;
-            }
-            if (!response.ok) {
-                let message = 'No se pudo generar el ZIP.';
-                try {
-                    const data = await response.json();
-                    message = data.detail || data.message || message;
-                } catch (_error) {}
-                throw new Error(message);
-            }
-            const blob = await response.blob();
-            descargarBlobZipCfe(blob, nombreArchivoZipCfe(response));
-        }
-
-        window.descargarZipCfeDesdeUrl = descargarZipCfeDesdeUrl;
-        window.descargarZipCfe = async function (button, url) {
-            const originalHtml = button.innerHTML;
-            button.disabled = true;
-            button.innerHTML = '<span class="action-label">Descargando...</span>';
-            try {
-                await descargarZipCfeDesdeUrl(url);
-            } catch (error) {
-                mostrarErrorZipCfe(error.message || 'No se pudo generar el ZIP.');
-            } finally {
-                button.disabled = false;
-                button.innerHTML = originalHtml;
-            }
-        };
-    })();
-    </script>
 
     {% set busquedas_listas = servicios | selectattr('busqueda_activa_estatus', 'equalto', 'completado') | list %}
     {% if busquedas_listas %}
@@ -448,6 +324,18 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                         </svg>
                     </button>
+                    <button type="button"
+                        hx-post="/cfe/servicios/{{ s.id }}/ocultar{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                        hx-target="#cfe-lista"
+                        hx-swap="outerHTML"
+                        hx-confirm="¿Ocultar {{ s.nombre }} de tu lista? Solo te lo oculta a ti — el registro en CFE y las descargas no se tocan. Puedes mostrarlo de nuevo desde &quot;Servicios ocultos&quot; cuando quieras."
+                        class="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-900 px-3 py-1.5 border border-gray-200 rounded-lg transition-colors"
+                        aria-label="Ocultar servicio">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21"/>
+                        </svg>
+                        Ocultar
+                    </button>
                 </div>
             </div>
 
@@ -466,3 +354,154 @@
     </div>
     {% endif %}
 </div>
+{% endmacro %}
+
+{% if _oob %}
+{{ _cuerpo_lista(true) }}
+{% else %}
+{% if _toast is defined %}
+{% with message=_toast.message, type=_toast.type, title=_toast.title|default('Recibos CFE') %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+
+<div id="cfe-lista" class="p-6 space-y-4">
+    {{ _cuerpo_lista(false) }}
+
+    <div id="cfe-modal-container"></div>
+
+    <script>
+    (function () {
+        function nombreArchivoZipCfe(response) {
+            const disposition = response.headers.get('content-disposition') || '';
+            const utf = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+            if (utf) return decodeURIComponent(utf[1]);
+            const plain = disposition.match(/filename="?([^";]+)"?/i);
+            return plain ? plain[1] : 'recibos_cfe.zip';
+        }
+
+        function urlConFaltantesCfe(url) {
+            return `${url}${url.includes('?') ? '&' : '?'}permitir_incompleto=1`;
+        }
+
+        function descargarBlobZipCfe(blob, filename) {
+            const blobUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(blobUrl);
+        }
+
+        function mostrarErrorZipCfe(message) {
+            const modal = document.getElementById('cfe-modal-container');
+            if (!modal) return;
+            modal.innerHTML = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 p-4">
+                    <div class="w-full max-w-lg rounded-xl bg-white shadow-xl border border-red-100">
+                        <div class="p-5 border-b border-red-100">
+                            <h3 class="text-base font-semibold text-red-700">No se pudo generar el ZIP</h3>
+                            <p class="mt-1 text-sm text-gray-600"></p>
+                        </div>
+                        <div class="p-4 flex justify-end">
+                            <button type="button" class="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" data-cfe-zip-close>Cerrar</button>
+                        </div>
+                    </div>
+                </div>`;
+            modal.querySelector('p').textContent = message || 'Intenta de nuevo.';
+            modal.querySelector('[data-cfe-zip-close]').addEventListener('click', () => { modal.innerHTML = ''; });
+        }
+
+        function mostrarModalFaltantesZipCfe(data, url) {
+            const modal = document.getElementById('cfe-modal-container');
+            if (!modal) return;
+            const faltantes = Array.isArray(data.faltantes) ? data.faltantes : [];
+            modal.innerHTML = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 p-4">
+                    <div class="w-full max-w-2xl rounded-xl bg-white shadow-xl border border-amber-100">
+                        <div class="p-5 border-b border-amber-100">
+                            <h3 class="text-base font-semibold text-amber-800">ZIP con archivos faltantes</h3>
+                            <p class="mt-1 text-sm text-gray-600">Algunos archivos no pudieron descargarse despues de 3 intentos. Puedes descargarlos manualmente desde la seccion Historial o continuar sin incluirlos.</p>
+                        </div>
+                        <div class="p-5">
+                            <ul class="max-h-64 space-y-2 overflow-y-auto text-sm text-gray-700" data-cfe-zip-faltantes></ul>
+                        </div>
+                        <div class="flex flex-wrap justify-end gap-2 border-t border-gray-100 p-4">
+                            <button type="button" class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50" data-cfe-zip-close>Cancelar</button>
+                            <button type="button" class="rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-800" data-cfe-zip-confirm>Descargar ZIP con faltantes</button>
+                        </div>
+                    </div>
+                </div>`;
+
+            const lista = modal.querySelector('[data-cfe-zip-faltantes]');
+            faltantes.forEach((faltante) => {
+                const item = document.createElement('li');
+                item.className = 'rounded-lg bg-amber-50 px-3 py-2';
+                const servicio = faltante.servicio || 'Servicio';
+                const numero = faltante.numero_servicio || 'Sin numero';
+                const periodo = faltante.periodo || 'Sin periodo';
+                const tipo = faltante.tipo || 'Archivo';
+                const archivo = faltante.nombre_archivo || 'Sin nombre';
+                item.textContent = `${servicio} (${numero}) - ${periodo} - ${tipo}: ${archivo}`;
+                lista.appendChild(item);
+            });
+            if (!faltantes.length) {
+                const item = document.createElement('li');
+                item.className = 'rounded-lg bg-amber-50 px-3 py-2';
+                item.textContent = 'No se recibio detalle de archivos faltantes.';
+                lista.appendChild(item);
+            }
+
+            modal.querySelector('[data-cfe-zip-close]').addEventListener('click', () => { modal.innerHTML = ''; });
+            modal.querySelector('[data-cfe-zip-confirm]').addEventListener('click', async (event) => {
+                const button = event.currentTarget;
+                button.disabled = true;
+                button.textContent = 'Descargando...';
+                try {
+                    await descargarZipCfeDesdeUrl(urlConFaltantesCfe(url));
+                    modal.innerHTML = '';
+                } catch (error) {
+                    mostrarErrorZipCfe(error.message || 'No se pudo generar el ZIP con faltantes.');
+                }
+            });
+        }
+
+        async function descargarZipCfeDesdeUrl(url) {
+            const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            if (response.status === 409) {
+                const data = await response.json();
+                mostrarModalFaltantesZipCfe(data, url);
+                return;
+            }
+            if (!response.ok) {
+                let message = 'No se pudo generar el ZIP.';
+                try {
+                    const data = await response.json();
+                    message = data.detail || data.message || message;
+                } catch (_error) {}
+                throw new Error(message);
+            }
+            const blob = await response.blob();
+            descargarBlobZipCfe(blob, nombreArchivoZipCfe(response));
+        }
+
+        window.descargarZipCfeDesdeUrl = descargarZipCfeDesdeUrl;
+        window.descargarZipCfe = async function (button, url) {
+            const originalHtml = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<span class="action-label">Descargando...</span>';
+            try {
+                await descargarZipCfeDesdeUrl(url);
+            } catch (error) {
+                mostrarErrorZipCfe(error.message || 'No se pudo generar el ZIP.');
+            } finally {
+                button.disabled = false;
+                button.innerHTML = originalHtml;
+            }
+        };
+    })();
+    </script>
+</div>
+{% endif %}
