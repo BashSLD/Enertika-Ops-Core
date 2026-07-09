@@ -1,4 +1,5 @@
 {# templates/admin/partials/cfe_lanzador.html — subida del ejecutable del lanzador CFE #}
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 {% if _toast is defined %}
 {% with message=_toast.message, type=_toast.type, title=_toast.title|default('Lanzador CFE') %}
 {% include "shared/toast.html" %}
@@ -8,7 +9,9 @@
       hx-post="/admin/config/cfe/lanzador"
       hx-encoding="multipart/form-data"
       hx-target="#cfe-lanzador-display"
-      hx-swap="outerHTML">
+      hx-swap="outerHTML"
+      hx-indicator="#cfe-lanzador-spinner"
+      hx-disabled-elt="#cfe-lanzador-submit">
     {% if lanzador_version %}
     <p class="text-xs text-green-700 font-medium mb-2">
         Versión actual: {{ lanzador_version }} — disponible para descarga en el modal de renovación.
@@ -19,11 +22,12 @@
     </p>
     {% endif %}
     <div class="flex items-center gap-2">
-        <input type="file" name="archivo" accept=".exe"
+        <input type="file" name="archivo" accept=".exe" required
             class="text-xs text-gray-700 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0
                    file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200">
-        <button type="submit"
-            class="flex-shrink-0 bg-gray-700 hover:bg-gray-800 text-white font-medium py-2 px-4 rounded-lg text-xs transition-colors">
+        <button type="submit" id="cfe-lanzador-submit"
+            class="flex-shrink-0 inline-flex items-center gap-1.5 bg-gray-700 hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium py-2 px-4 rounded-lg text-xs transition-colors">
+            <span id="cfe-lanzador-spinner" class="htmx-indicator">{{ spinner_icon('w-3.5 h-3.5') }}</span>
             {% if lanzador_version %}Actualizar{% else %}Subir ejecutable{% endif %}
         </button>
     </div>

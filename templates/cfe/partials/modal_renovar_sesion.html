@@ -41,22 +41,25 @@
                 <strong>Renovación no habilitada todavía.</strong> Pide al equipo de sistemas que genere el
                 token del lanzador en Admin &gt; Configuración Global &gt; Recibos CFE.
             </div>
+            {% elif not estado_sesion.lanzador_disponible %}
+            <div class="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+                <strong>El ejecutable del lanzador aún no está disponible.</strong> Pide al equipo de sistemas
+                que lo suba en Admin &gt; Configuración Global &gt; Recibos CFE.
+            </div>
             {% endif %}
 
+            {% if estado_sesion.lanzador_disponible %}
             <div class="rounded-lg bg-gray-50 border border-gray-200 p-4">
                 <p class="text-sm font-semibold text-gray-700 mb-2">Pasos</p>
                 <ol class="list-decimal list-inside space-y-1.5 text-sm text-gray-600">
-                    <li>Abre el lanzador <code class="bg-gray-200 px-1 rounded">Renovar sesión CFE</code> en tu PC.</li>
+                    <li>Descarga el lanzador con el botón de abajo (solo la primera vez) y ábrelo en tu PC.</li>
                     <li>Se abrirá Microsoft Edge en la página de MiEspacio.</li>
-                    <li>Inicia sesión y resuelve el CAPTCHA (único paso manual).</li>
+                    <li>Resuelve el CAPTCHA (único paso manual).</li>
                     <li>No cierres la ventana: el lanzador detecta el login y sube la sesión solo.</li>
                     <li>Cuando veas <em>"Sesión renovada ✓"</em>, listo. Cierra y recarga esta página.</li>
                 </ol>
             </div>
-
-            <p class="text-xs text-gray-400">
-                ¿No tienes el lanzador? Solicítalo al equipo de sistemas junto con el token de acceso.
-            </p>
+            {% endif %}
         </div>
         <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 flex-shrink-0">
             {% if estado_sesion.lanzador_disponible %}
