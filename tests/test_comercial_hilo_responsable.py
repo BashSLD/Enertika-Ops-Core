@@ -8,6 +8,7 @@ import pytest
 from core.workflow.service import WorkflowService
 from modules.comercial.db_service import (
     QUERY_GET_HILO_EMAIL_ANCHOR,
+    QUERY_GET_TECNOLOGIA_NAME,
     QUERY_GET_ULTIMO_MOVIMIENTO_HILO,
     QUERY_INSERT_FOLLOWUP,
     QUERY_UPDATE_FECHA_ENVIO_EMAIL,
@@ -89,6 +90,95 @@ async def test_create_followup_inherits_clicked_parent_owner_and_thread_key():
     assert insert_call.args[3] == root_id
     assert insert_call.args[-2] == clicked_owner_id
     assert insert_call.args[-1] == "OFERTA FINAL_CLIENTE_PROYECTO_FV_CANAL"
+
+
+async def test_create_followup_transforms_tecnologia_when_provided():
+    """Un seguimiento de Actualización puede nacer con una tecnología distinta a la del padre
+    (ej. FV -> BESS). El título del hilo de correo debe reflejar la tecnología NUEVA."""
+    parent_id = uuid4()
+    creator_id = uuid4()
+    fixed_now = datetime(2026, 7, 9, 12, 0, tzinfo=ZoneInfo("America/Mexico_City"))
+
+    parent = _parent_row(
+        parent_id=None,
+        responsable_comercial_id=None,
+        creado_por_id=creator_id,
+        titulo_proyecto="LEVANTAMIENTO_CLIENTE_PROYECTO_FV_CANAL",
+        id_tecnologia=1,  # FV
+    )
+
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(return_value=parent)
+    conn.fetchval = AsyncMock(side_effect=[7, "Actualizacion", "BESS", None])
+    conn.execute = AsyncMock()
+
+    service = ComercialService()
+    service.get_current_datetime_mx = AsyncMock(return_value=fixed_now)
+    service.calcular_fuera_de_horario = AsyncMock(return_value=False)
+    service.calcular_deadline_inicial = AsyncMock(return_value=fixed_now + timedelta(days=1))
+    service.get_catalog_ids = AsyncMock(return_value={"estatus": {"pendiente": 10}})
+
+    await service.create_followup_oportunidad(
+        parent_id,
+        "ACTUALIZACION",
+        "high",
+        conn,
+        creator_id,
+        "Usuario Test",
+        id_tecnologia=2,  # BESS: transformación explícita, distinta a la del padre (FV)
+    )
+
+    tecnologia_name_call = next(
+        call for call in conn.fetchval.await_args_list if call.args[0] == QUERY_GET_TECNOLOGIA_NAME
+    )
+    assert tecnologia_name_call.args[1] == 2
+
+    insert_call = next(
+        call for call in conn.fetchval.await_args_list if call.args[0] == QUERY_INSERT_FOLLOWUP
+    )
+    assert insert_call.args[10] == 2
+    assert "BESS" in insert_call.args[4]
+
+
+async def test_create_followup_inherits_tecnologia_when_not_provided():
+    """Sin id_tecnologia explícito (flujo multisitio directo, Oferta Final, Levantamiento),
+    el seguimiento sigue heredando la tecnología del padre, sin cambio de comportamiento."""
+    parent_id = uuid4()
+    creator_id = uuid4()
+    fixed_now = datetime(2026, 7, 9, 12, 0, tzinfo=ZoneInfo("America/Mexico_City"))
+
+    parent = _parent_row(
+        parent_id=None,
+        responsable_comercial_id=None,
+        creado_por_id=creator_id,
+        titulo_proyecto="LEVANTAMIENTO_CLIENTE_PROYECTO_FV_CANAL",
+        id_tecnologia=1,  # FV
+    )
+
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(return_value=parent)
+    conn.fetchval = AsyncMock(side_effect=[7, "Actualizacion", "FV", None])
+    conn.execute = AsyncMock()
+
+    service = ComercialService()
+    service.get_current_datetime_mx = AsyncMock(return_value=fixed_now)
+    service.calcular_fuera_de_horario = AsyncMock(return_value=False)
+    service.calcular_deadline_inicial = AsyncMock(return_value=fixed_now + timedelta(days=1))
+    service.get_catalog_ids = AsyncMock(return_value={"estatus": {"pendiente": 10}})
+
+    await service.create_followup_oportunidad(
+        parent_id,
+        "ACTUALIZACION",
+        "high",
+        conn,
+        creator_id,
+        "Usuario Test",
+    )
+
+    insert_call = next(
+        call for call in conn.fetchval.await_args_list if call.args[0] == QUERY_INSERT_FOLLOWUP
+    )
+    assert insert_call.args[10] == 1
 
 
 async def test_threading_context_keeps_legacy_term_precedence():

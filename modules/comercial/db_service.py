@@ -417,7 +417,7 @@ QUERY_GET_OPORTUNIDAD_FULL = "SELECT * FROM tb_oportunidades WHERE id_oportunida
 
 # Paso 2 form data
 QUERY_GET_PASO2_DATA = """
-    SELECT id_interno_simulacion, titulo_proyecto, cliente_nombre, cantidad_sitios
+    SELECT id_interno_simulacion, titulo_proyecto, cliente_nombre, cantidad_sitios, id_tecnologia
     FROM tb_oportunidades WHERE id_oportunidad = $1
 """
 

@@ -73,6 +73,9 @@
             <input type="hidden" name="is_conversion" value="true">
             <input type="hidden" name="tipo_solicitud_conv" value="{{ conversion_tipo_solicitud }}">
             <input type="hidden" name="prioridad_conv" value="{{ conversion_prioridad }}">
+            {% if conversion_id_tecnologia %}
+            <input type="hidden" name="id_tecnologia_conv" value="{{ conversion_id_tecnologia }}">
+            {% endif %}
             {% endif %}
 
             <div

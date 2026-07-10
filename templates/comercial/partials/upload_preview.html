@@ -65,6 +65,9 @@
             hx-indicator="#global-loading-overlay">
             <input type="hidden" name="tipo_solicitud" value="{{ tipo_solicitud_conv }}">
             <input type="hidden" name="prioridad" value="{{ prioridad_conv }}">
+            {% if id_tecnologia_conv %}
+            <input type="hidden" name="id_tecnologia" value="{{ id_tecnologia_conv }}">
+            {% endif %}
             <input type="hidden" name="convertir_multisitio" value="true">
             <input type="hidden" name="sitios_json_conversion" value="{{ json_data | e }}">
             <button type="submit"

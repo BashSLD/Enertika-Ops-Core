@@ -1114,6 +1114,7 @@ async def upload_preview_endpoint(
     is_conversion: bool = Form(False),
     tipo_solicitud_conv: str = Form(None),
     prioridad_conv: str = Form(None),
+    id_tecnologia_conv: Optional[int] = Form(None),
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
     user_context = Depends(get_current_user_context),
@@ -1139,6 +1140,7 @@ async def upload_preview_endpoint(
             "is_conversion": is_conversion,
             "tipo_solicitud_conv": tipo_solicitud_conv,
             "prioridad_conv": prioridad_conv,
+            "id_tecnologia_conv": id_tecnologia_conv,
         })
     except HTTPException as he:
         return templates.TemplateResponse(request, "comercial/partials/toasts/toast_error.html", {"title": "Error", "message": he.detail})
@@ -1189,12 +1191,15 @@ async def get_modal_confirmar_seguimiento(
     if not row:
         return HTMLResponse("Oportunidad no encontrada", 404)
     ultimo_movimiento = await service.get_ultimo_movimiento_hilo(conn, id_oportunidad)
+    tecnologias = await service.get_tecnologias(conn)
     return templates.TemplateResponse(request, "comercial/modals/confirmar_seguimiento.html", {"id_oportunidad": id_oportunidad,
         "tipo_solicitud": tipo_solicitud,
         "prioridad": prioridad,
         "nombre_cliente": row['cliente_nombre'],
         "id_interno": row['id_interno_simulacion'],
         "ultimo_movimiento": ultimo_movimiento,
+        "id_tecnologia_actual": row['id_tecnologia'],
+        "tecnologias": tecnologias,
     })
 
 
@@ -1204,6 +1209,7 @@ async def get_paso2_conversion(
     id_oportunidad: UUID,
     tipo_solicitud: str,
     prioridad: str = "high",
+    id_tecnologia: Optional[int] = None,
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
     _auth = require_module_access("comercial", "editor")
@@ -1218,6 +1224,7 @@ async def get_paso2_conversion(
         "titulo_proyecto": row['titulo_proyecto'],
         "tipo_solicitud": tipo_solicitud,
         "prioridad": prioridad,
+        "id_tecnologia": id_tecnologia if id_tecnologia is not None else row['id_tecnologia'],
     })
 
 
@@ -1257,6 +1264,7 @@ async def crear_seguimiento(
     force_ganada: bool = Form(False),
     convertir_multisitio: bool = Form(False),
     sitios_json_conversion: str = Form(None),
+    id_tecnologia: Optional[int] = Form(None),
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
     ms_auth = Depends(get_ms_auth),
@@ -1312,6 +1320,7 @@ async def crear_seguimiento(
                 "prioridad": prioridad,
                 "convertir_multisitio": convertir_multisitio,
                 "sitios_json_conversion": sitios_json_conversion or "",
+                "id_tecnologia": id_tecnologia,
                 "ganado_op_id": bloqueador["op_id"],
                 "can_force": can_force,
             },
@@ -1334,14 +1343,30 @@ async def crear_seguimiento(
                 "prioridad": prioridad,
                 "convertir_multisitio": convertir_multisitio,
                 "sitios_json_conversion": sitios_json_conversion or "",
+                "id_tecnologia": id_tecnologia,
             })
 
     # --- CREACIÓN con conversión diferida (se ejecuta al enviar correo) ---
-    new_id = await service.create_followup_oportunidad(
-        parent_id, tipo_solicitud, prioridad, conn,
-        user_context['user_db_id'], user_context['user_name'],
-        sitios_json_pendiente=sitios_json_conversion if convertir_multisitio else None
-    )
+    try:
+        new_id = await service.create_followup_oportunidad(
+            parent_id, tipo_solicitud, prioridad, conn,
+            user_context['user_db_id'], user_context['user_name'],
+            sitios_json_pendiente=sitios_json_conversion if convertir_multisitio else None,
+            id_tecnologia=id_tecnologia
+        )
+    except HTTPException as exc:
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "type": "error",
+            "title": "No se pudo crear el seguimiento",
+            "message": exc.detail,
+        }, headers={"HX-Reswap": "none"})
+    except asyncpg.PostgresError as exc:
+        logger.exception("[SEGUIMIENTO] Error de base de datos creando seguimiento")
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "type": "error",
+            "title": "No se pudo crear el seguimiento",
+            "message": "Error de base de datos al crear el seguimiento.",
+        }, headers={"HX-Reswap": "none"})
 
     return HTMLResponse(headers={"HX-Location": f"/comercial/paso3/{new_id}"})
 

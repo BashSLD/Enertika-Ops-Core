@@ -1,3 +1,4 @@
+{% from "shared/partials/_tecnologia_select.html" import tecnologia_options %}
 <!-- Modal Crear Proyecto Gate -->
 <div class="fixed inset-0 z-[10100] overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
     <!-- Overlay -->
@@ -100,9 +101,7 @@
                         <select name="id_tecnologia" id="tecnologia-select" required onchange="actualizarPreview()"
                             class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
                             <option value="">Seleccionar tecnología...</option>
-                            {% for tec in tecnologias %}
-                            <option value="{{ tec.id }}">{{ tec.nombre }}</option>
-                            {% endfor %}
+                            {{ tecnologia_options(tecnologias) }}
                         </select>
                     </div>
 

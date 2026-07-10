@@ -318,6 +318,21 @@ class ComercialService:
         
         return SLACalculator.calculate_deadline(fecha_creacion, hora_corte, dias_sla)
 
+    async def _get_tecnologias_cached(self, conn) -> list:
+        """Fetch cacheado (5 min) del catálogo de tecnologías, compartido por todos los selects que lo necesitan."""
+        cache_key = "COMERCIAL_TECNOLOGIAS_CATALOG"
+        cached = await ConfigService.get_cached_value(cache_key, ttl=300.0)
+        if cached is not None:
+            return cached
+        rows = await conn.fetch(QUERY_GET_TECNOLOGIAS)
+        data = [dict(r) for r in rows]
+        await ConfigService.set_cached_value(cache_key, data)
+        return data
+
+    async def get_tecnologias(self, conn) -> list:
+        """Catálogo de tecnologías (FV/BESS/FV+BESS) para selects que solo necesitan este catálogo."""
+        return await self._get_tecnologias_cached(conn)
+
     async def get_catalogos_ui(self, conn, include_responsables_con_oportunidades: bool = False) -> dict:
         """Recupera los catálogos para llenar los <select> del formulario y filtros."""
         # Cache Strategy (5 min TTL)
@@ -330,7 +345,7 @@ class ComercialService:
         if cached:
             return cached
 
-        tecnologias = await conn.fetch(QUERY_GET_TECNOLOGIAS)
+        tecnologias = await self._get_tecnologias_cached(conn)
         tipos = await conn.fetch(QUERY_GET_TIPOS_SOLICITUD)
         estatus = await conn.fetch(QUERY_GET_ESTATUS_GLOBAL)
         usuarios_query = (
@@ -341,7 +356,7 @@ class ComercialService:
         usuarios = await conn.fetch(usuarios_query)
         
         data = {
-            "tecnologias": [dict(t) for t in tecnologias],
+            "tecnologias": tecnologias,
             "tipos_solicitud": [dict(t) for t in tipos],
             "estatus_global": [dict(t) for t in estatus],
             "usuarios": [dict(t) for t in usuarios]
@@ -359,31 +374,31 @@ class ComercialService:
                               Si False, solo 'PRE_OFERTA' y 'LICITACION' (para normal).
         """
         # Tecnologías (Todas)
-        tecnologias = await conn.fetch(QUERY_GET_TECNOLOGIAS)
-        
+        tecnologias = await self._get_tecnologias_cached(conn)
+
         # Tipos de Solicitud (Filtrado Dinámico)
         # Base: PRE_OFERTA, LEVANTAMIENTO ('LICITACION' removido, ahora es flag transversal)
         codigos = ['PRE_OFERTA', 'LEVANTAMIENTO']
-        
+
         if include_simulacion:
             codigos.append('SIMULACION')
-            
+
         # Generar placeholders para la query IN ($1, $2, ...)
         placeholders = ",".join([f"${i+1}" for i in range(len(codigos))])
-        
+
         tipos = await conn.fetch(f"""
-            SELECT id, nombre, codigo_interno 
-            FROM tb_cat_tipos_solicitud 
-            WHERE activo = true 
+            SELECT id, nombre, codigo_interno
+            FROM tb_cat_tipos_solicitud
+            WHERE activo = true
             AND codigo_interno IN ({placeholders})
             ORDER BY nombre
         """, *codigos)
-        
+
         # Usuarios (Para delegación)
         usuarios = await conn.fetch(QUERY_GET_ALL_USUARIOS)
 
         return {
-            "tecnologias": [dict(t) for t in tecnologias],
+            "tecnologias": tecnologias,
             "tipos_solicitud": [dict(t) for t in tipos],
             "usuarios": [dict(u) for u in usuarios]
         }
@@ -397,25 +412,25 @@ class ComercialService:
             dict con tecnologias, tipos_solicitud (solo PRE_OFERTA y SIMULACION), y usuarios
         """
         # Tecnologías (Todas)
-        tecnologias = await conn.fetch(QUERY_GET_TECNOLOGIAS)
-        
+        tecnologias = await self._get_tecnologias_cached(conn)
+
         # Tipos de Solicitud (PRE_OFERTA, SIMULACION, CAPTURA_RECIBOS)
         codigos = ['PRE_OFERTA', 'SIMULACION', 'CAPTURA_RECIBOS']
         placeholders = ",".join([f"${i+1}" for i in range(len(codigos))])
-        
+
         tipos = await conn.fetch(f"""
-            SELECT id, nombre, codigo_interno 
-            FROM tb_cat_tipos_solicitud 
-            WHERE activo = true 
+            SELECT id, nombre, codigo_interno
+            FROM tb_cat_tipos_solicitud
+            WHERE activo = true
             AND codigo_interno IN ({placeholders})
             ORDER BY nombre
         """, *codigos)
-        
+
         # Usuarios (Para delegación)
         usuarios = await conn.fetch(QUERY_GET_ALL_USUARIOS)
 
         return {
-            "tecnologias": [dict(t) for t in tecnologias],
+            "tecnologias": tecnologias,
             "tipos_solicitud": [dict(t) for t in tipos],
             "usuarios": [dict(u) for u in usuarios]
         }
@@ -1345,8 +1360,9 @@ class ComercialService:
             }
         return {"tipo": None}
 
-    async def create_followup_oportunidad(self, parent_id: UUID, nuevo_tipo_solicitud: str, prioridad: str, conn, user_id: UUID, user_name: str, sitios_json_pendiente: str = None) -> UUID:
-        """Crea seguimiento clonando padre + sitios. Si sitios_json_pendiente se provee, guarda conversión diferida."""
+    async def create_followup_oportunidad(self, parent_id: UUID, nuevo_tipo_solicitud: str, prioridad: str, conn, user_id: UUID, user_name: str, sitios_json_pendiente: str = None, id_tecnologia: Optional[int] = None) -> UUID:
+        """Crea seguimiento clonando padre + sitios. Si sitios_json_pendiente se provee, guarda conversión diferida.
+        Si id_tecnologia se provee, transforma la tecnología del seguimiento respecto al padre (ej. FV -> BESS)."""
         
         # Fuente de verdad temporal (Corrección Zona Horaria)
         # Obtenemos la hora con timezone de México. Asyncpg la convertirá a UTC al guardar.
@@ -1387,9 +1403,17 @@ class ComercialService:
         es_fuera_horario = await self.calcular_fuera_de_horario(conn, now_mx)
         deadline = await self.calcular_deadline_inicial(conn, now_mx)
         
+        # Tecnología del seguimiento: hereda del padre salvo que se pida transformarla.
+        # Restringido a ACTUALIZACION aquí (no solo en la UI) para que un id_tecnologia
+        # colado en otro tipo_solicitud no se aplique.
+        tecnologia_final = (
+            id_tecnologia if (id_tecnologia is not None and nuevo_tipo_solicitud == 'ACTUALIZACION')
+            else parent['id_tecnologia']
+        )
+
         # Obtener datos completos para construir título igual que en creación inicial
         nombre_tipo = await conn.fetchval(QUERY_GET_TIPO_SOLICITUD_NAME, id_tipo_solicitud)
-        nombre_tec = await conn.fetchval(QUERY_GET_TECNOLOGIA_NAME, parent['id_tecnologia'])
+        nombre_tec = await conn.fetchval(QUERY_GET_TECNOLOGIA_NAME, tecnologia_final)
         
         # Título completo con el MISMO formato que la creación inicial
         titulo_new = IdGeneratorService.generate_project_title(
@@ -1400,15 +1424,11 @@ class ComercialService:
         cats = await self.get_catalog_ids(conn)
         id_status_inicial = cats['estatus'].get('pendiente') or 1
 
-        # Agregar id_tecnologia que faltaba en seguimientos
-        # Usar placeholders $22 y $23
-
-        query_insert = QUERY_INSERT_FOLLOWUP
-        await conn.fetchval(query_insert,
+        await conn.fetchval(QUERY_INSERT_FOLLOWUP,
             new_uuid, user_id, effective_parent_id,
             titulo_new, parent['nombre_proyecto'], parent['cliente_nombre'], parent['cliente_id'],
             parent['canal_venta'], user_name,
-            parent['id_tecnologia'], id_tipo_solicitud, parent['cantidad_sitios'], prioridad,
+            tecnologia_final, id_tipo_solicitud, parent['cantidad_sitios'], prioridad,
             parent['direccion_obra'], parent['coordenadas_gps'], parent['google_maps_link'], parent['sharepoint_folder_url'],
             parent['id_interno_simulacion'], op_id_estandar_new, deadline, es_fuera_horario,
             id_status_inicial,  # Parámetro $22

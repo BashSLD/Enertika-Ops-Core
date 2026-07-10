@@ -4,6 +4,7 @@
 
 {% block content %}
 {% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+{% from "shared/partials/_tecnologia_select.html" import tecnologia_options %}
 <div class="max-w-4xl mx-auto bg-white p-8 rounded-lg shadow-lg border-t-4 border-[#00BABB] animate-fade-in-down"
     x-data="{ 
         hasMotores: false, 
@@ -445,9 +446,7 @@
                 <select name="id_tecnologia" required @change="checkTecnologia($event)"
                     class="w-full rounded-lg {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm">
                     <option value="" disabled selected>Seleccione una tecnología...</option>
-                    {% for tec in catalogos.tecnologias %}
-                    <option value="{{ tec.id }}">{{ tec.nombre }}</option>
-                    {% endfor %}
+                    {{ tecnologia_options(catalogos.tecnologias) }}
                 </select>
             </div>
 

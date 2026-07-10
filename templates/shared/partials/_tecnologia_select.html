@@ -1,0 +1,5 @@
+{% macro tecnologia_options(tecnologias) %}
+{% for tec in tecnologias %}
+<option value="{{ tec.id }}">{{ tec.nombre }}</option>
+{% endfor %}
+{% endmacro %}

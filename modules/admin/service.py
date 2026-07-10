@@ -679,6 +679,7 @@ class AdminService:
             raise ValueError(f"La tecnología '{nombre}' ya existe.")
 
         await self.db.insert_tecnologia(conn, nombre)
+        ConfigService.invalidar_cache()
         logger.info(f"Nueva tecnología creada: {nombre}")
 
     async def update_tecnologia(self, conn, id_tech: int, nombre: str, activo: bool) -> None:
@@ -692,6 +693,7 @@ class AdminService:
             activo: Nuevo estado
         """
         await self.db.update_tecnologia(conn, id_tech, nombre, activo)
+        ConfigService.invalidar_cache()
         logger.info(f"Tecnología ID {id_tech} actualizada: {nombre} (activo={activo})")
 
     # --- Tipos de Solicitud ---

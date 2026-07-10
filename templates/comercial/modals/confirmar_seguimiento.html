@@ -1,4 +1,5 @@
 {% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+{% from "shared/partials/_tecnologia_select.html" import tecnologia_options %}
 
 {% set tipo_labels = {
 'ACTUALIZACION': 'Actualización',
@@ -9,7 +10,7 @@
 
 <div id="modal-confirmar-seguimiento"
     class="modal-overlay-layer fixed inset-0 flex items-center justify-center z-[10001] transition-all duration-300 bg-gray-900 bg-opacity-50 backdrop-blur-sm"
-    x-data="{ expandido: false, cargando: false }" x-init="$nextTick(() => $el.querySelector('[autofocus]')?.focus())">
+    x-data="{ expandido: false, cargando: false, tecnologia: {{ id_tecnologia_actual if id_tecnologia_actual is not none else 'null' }} }" x-init="$nextTick(() => $el.querySelector('[autofocus]')?.focus())">
 
     <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden border border-gray-200 max-h-[90dvh] flex flex-col">
 
@@ -39,6 +40,18 @@
                 </svg>
                 <span>El último movimiento registrado fue un <strong>{{ ultimo_movimiento.tipo_solicitud }}</strong>
                 ({{ ultimo_movimiento.op_id_estandar }}). Considera solicitarlo desde ese registro para continuar el hilo de correo existente.</span>
+            </div>
+            {% endif %}
+
+            <!-- Tecnología (solo Actualización: permite transformar FV <-> BESS <-> FV+BESS) -->
+            {% if tipo_solicitud == 'ACTUALIZACION' %}
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <label class="block text-sm font-bold text-[#123456] mb-1">Tecnología</label>
+                <select x-model.number="tecnologia"
+                    class="w-full rounded-lg bg-white border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm">
+                    {{ tecnologia_options(tecnologias) }}
+                </select>
+                <p class="text-xs text-blue-700 mt-1">Si esta actualización requiere cambiar de tecnología, selecciona la nueva. Si no aplica, deja la que ya está seleccionada para conservarla.</p>
             </div>
             {% endif %}
 
@@ -85,6 +98,9 @@
                     hx-on::after-request="if(!event.detail.successful){ this.querySelector('.btn-spinner').style.display='none'; this.querySelector('.btn-arrow').style.display='flex'; this.querySelector('.btn-label').textContent='Solicitar'; }">
                     <input type="hidden" name="tipo_solicitud" value="{{ tipo_solicitud }}">
                     <input type="hidden" name="prioridad" value="{{ prioridad }}">
+                    {% if tipo_solicitud == 'ACTUALIZACION' %}
+                    <input type="hidden" name="id_tecnologia" :value="tecnologia">
+                    {% endif %}
                     <button type="submit"
                         class="px-4 py-2 bg-[#123456] text-white rounded-lg text-sm font-bold hover:bg-[#1a4a7a] shadow-sm transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
                         {{ spinner_icon('w-4 h-4', '', 'btn-spinner', 'style="display:none"') }}
@@ -98,7 +114,12 @@
 
                 <!-- Flujo conversión: navegar al Paso 2 de conversión -->
                 <a x-show="expandido"
-                    href="/comercial/paso2-conversion/{{ id_oportunidad }}?tipo_solicitud={{ tipo_solicitud }}&prioridad={{ prioridad }}"
+                    data-base-href="/comercial/paso2-conversion/{{ id_oportunidad }}?tipo_solicitud={{ tipo_solicitud }}&prioridad={{ prioridad }}"
+                    {% if tipo_solicitud == 'ACTUALIZACION' %}
+                    :href="$el.dataset.baseHref + (tecnologia !== null ? '&id_tecnologia=' + encodeURIComponent(tecnologia) : '')"
+                    {% else %}
+                    :href="$el.dataset.baseHref"
+                    {% endif %}
                     @click.prevent="if(!cargando){ cargando = true; $el.closest('#modal-confirmar-seguimiento').remove(); window.location.href = $el.href; }"
                     :class="cargando ? 'opacity-60 pointer-events-none' : ''"
                     class="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold hover:bg-amber-700 shadow-sm transition-colors flex items-center gap-2">
