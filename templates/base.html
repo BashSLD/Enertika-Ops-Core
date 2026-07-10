@@ -954,7 +954,7 @@
 
     <!-- Loading Overlay -->
     <div id="global-loading-overlay"
-        class="htmx-indicator fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-[9999] transition-opacity duration-300 flex items-center justify-center">
+        class="modal-overlay-layer htmx-indicator fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-[10200] transition-opacity duration-300 flex items-center justify-center">
         <div class="bg-white p-6 rounded-xl shadow-2xl flex flex-col items-center animate-fade-in-up">
             <div class="spinner-enertika mb-4"></div>
             <p class="text-gray-800 font-bold text-lg">Procesando...</p>
@@ -1034,16 +1034,19 @@
         // === NORMALIZADOR DE STACKING DE MODALES ===
         // Cuando un modal se abre sobre otro (contenedores globales hermanos o
         // x-teleport a body), ambos backdrops quedan montados y sus opacidades/blurs
-        // se acumulan visualmente. Este observer oculta el PINTADO (visibility) de los
-        // backdrops que no son el de mayor z-index, sin tocar el DOM ni el estado de
-        // Alpine — el backdrop de arriba ya cubre 100% del viewport, así que el
-        // bloqueo de clics de los de abajo no se pierde.
+        // se acumulan visualmente. Este observer neutraliza el tinte (background-color
+        // + backdrop-filter) de los backdrops que no son el de mayor z-index, dejando su
+        // contenido (la tarjeta del modal) siempre visible — a diferencia de ocultar
+        // visibility, que oculta también la tarjeta porque en la mayoría de estos
+        // templates el mismo <div> es a la vez el tinte y el contenedor del contenido.
+        // El backdrop de arriba sigue cubriendo 100% del viewport, así que el bloqueo de
+        // clics de los de abajo no se pierde.
         (function () {
             function normalizeModalStacking() {
                 const layers = [];
                 document.querySelectorAll('.modal-overlay-layer').forEach(el => {
                     const cs = getComputedStyle(el);
-                    if (cs.display !== 'none') {
+                    if (cs.display !== 'none' && parseFloat(cs.opacity) > 0) {
                         layers.push({ el, zIndex: parseInt(cs.zIndex, 10) || 0 });
                     }
                 });
@@ -1054,10 +1057,14 @@
                 const top = layers.reduce((hi, l) => l.zIndex >= hi.zIndex ? l : hi).el;
 
                 // Solo escribe si el valor cambia: una escritura sin cambios igual dispara
-                // el MutationObserver (attributeFilter: ['style']), causando un loop.
+                // el MutationObserver (attributeFilter incluye 'style'), causando un loop.
                 layers.forEach(({ el }) => {
-                    const desired = (el === top) ? '' : 'hidden';
-                    if (el.style.visibility !== desired) el.style.visibility = desired;
+                    const isTop = (el === top);
+                    const bg = isTop ? '' : 'transparent';
+                    const blur = isTop ? '' : 'none';
+                    if (el.style.backgroundColor !== bg) el.style.backgroundColor = bg;
+                    if (el.style.backdropFilter !== blur) el.style.backdropFilter = blur;
+                    if (el.style.webkitBackdropFilter !== blur) el.style.webkitBackdropFilter = blur;
                 });
             }
 
@@ -1069,7 +1076,54 @@
                 attributeFilter: ['style']
             });
 
+            // #global-loading-overlay cambia su opacidad via la clase htmx-request (no
+            // 'style'), así que necesita su propio watch de 'class' — acotado a este único
+            // elemento en vez de agregar 'class' al observer de todo document.body (que
+            // dispararía con cualquiera de los ~275 bindings :class de Alpine en la app).
+            // Se agenda un requestAnimationFrame de respaldo: si getComputedStyle(...).opacity
+            // se lee justo cuando la clase cambia, el navegador puede devolver todavía el valor
+            // previo a la transición (transition-opacity duration-300) y excluir el elemento un
+            // instante — el rAF re-evalúa un frame después para autocorregir.
+            const loadingOverlay = document.getElementById('global-loading-overlay');
+            if (loadingOverlay) {
+                new MutationObserver(() => {
+                    normalizeModalStacking();
+                    requestAnimationFrame(normalizeModalStacking);
+                }).observe(loadingOverlay, {
+                    attributes: true,
+                    attributeFilter: ['class']
+                });
+            }
+
             normalizeModalStacking();
+
+            // === RESET DE ESTADO "solicitando" AL CANCELAR UN MODAL HIJO ===
+            // detalle_oportunidad_modal.html deja `solicitando` en true de forma
+            // permanente al abrir Solicitar Actualización/Levantamiento/Oferta Final,
+            // asumiendo que el modal padre se cerraría después. Si el usuario cancela el
+            // hijo en vez de continuar, el padre reaparece con los botones deshabilitados.
+            // Se dispara un evento global cuando #modal-secondary-container se vacía para
+            // que el padre pueda resetear su propio estado de Alpine. El contenedor se
+            // define más abajo en el HTML, así que se espera a DOMContentLoaded.
+            // Límite conocido: el evento se dispara por identidad de contenedor, no por
+            // acción específica — #modal-secondary-container también lo usan Transferir y
+            // Bitácora de Comentarios. Hoy es inofensivo (resetear `solicitando` en falso
+            // ya en falso es un no-op) porque el contenedor solo tiene un hijo a la vez; si
+            // en el futuro se permiten flujos concurrentes sobre el mismo contenedor, esto
+            // podría resetear `solicitando` antes de tiempo. La protección real contra
+            // doble-envío (hx-disabled-elt + hx-sync="this:drop") no depende de esto.
+            document.addEventListener('DOMContentLoaded', () => {
+                const secondaryContainer = document.getElementById('modal-secondary-container');
+                if (!secondaryContainer) return;
+                let hadChildren = secondaryContainer.children.length > 0;
+                new MutationObserver(() => {
+                    const hasChildren = secondaryContainer.children.length > 0;
+                    if (hadChildren && !hasChildren) {
+                        window.dispatchEvent(new CustomEvent('modal-secondary-closed'));
+                    }
+                    hadChildren = hasChildren;
+                }).observe(secondaryContainer, { childList: true });
+            });
         })();
 
         // === HEARTBEAT ===

@@ -761,9 +761,8 @@
                     Solicitar:
                 </h4>
 
-                <!-- solicitando nunca se resetea — el modal cierra tras la navegación.
-                     Si se agrega manejo de error, resetear aquí y mantener el modal abierto. -->
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3" x-data="{ solicitando: false }"
+                    x-on:modal-secondary-closed.window="solicitando = false"
                     :class="{ 'pointer-events-none opacity-60': solicitando }">
 
                     <!-- Solicitar Actualización -->

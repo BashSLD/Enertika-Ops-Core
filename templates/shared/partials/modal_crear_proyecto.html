@@ -1,7 +1,11 @@
 <!-- Modal Crear Proyecto Gate -->
-<div class="modal-overlay-layer fixed inset-0 z-[10100] overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+<div class="fixed inset-0 z-[10100] overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
     <!-- Overlay -->
-    <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity animate-fade-in"
+    <!-- El z-[10100] se repite aquí (ya lo tiene el wrapper, necesario para el stacking real
+         entre modales) porque modal-overlay-layer necesita vivir en el mismo <div> que pinta
+         el tinte para que el normalizador de base.html pueda leer y neutralizar su
+         background-color/backdrop-filter — el wrapper no tiene tinte propio que neutralizar. -->
+    <div class="modal-overlay-layer fixed inset-0 z-[10100] bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity animate-fade-in"
         onclick="cerrarModalProyecto()"></div>
 
     <!-- Modal Content -->
