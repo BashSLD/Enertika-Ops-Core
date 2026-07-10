@@ -1437,29 +1437,17 @@ async def confirmar_saldo_inicial(
 ) -> dict:
     row = await conn.fetchrow(
         """
-        WITH conf AS (
-            INSERT INTO tb_he_saldo_inicial_confirmaciones
-                (usuario_id, minutos, confirmado_por)
-            VALUES ($1, $2, $3)
-            RETURNING id, usuario_id, minutos, confirmado_por
-        ),
-        mov AS (
+        WITH mov AS (
             INSERT INTO tb_he_bolsa_movimientos
                 (usuario_id, tipo, minutos, concepto, fecha_referencia, creado_por)
-            SELECT usuario_id,
-                   'CREDITO',
-                   minutos,
-                   'Saldo inicial',
-                   $4,
-                   confirmado_por
-            FROM conf
-            WHERE minutos > 0
+            SELECT $1, 'CREDITO', $2, 'Saldo inicial', $4, $3
+            WHERE $2 > 0
             RETURNING id
         )
-        UPDATE tb_he_saldo_inicial_confirmaciones c
-        SET movimiento_id = (SELECT id FROM mov)
-        WHERE c.id = (SELECT id FROM conf)
-        RETURNING c.*
+        INSERT INTO tb_he_saldo_inicial_confirmaciones
+            (usuario_id, minutos, confirmado_por, movimiento_id)
+        VALUES ($1, $2, $3, (SELECT id FROM mov))
+        RETURNING *
         """,
         usuario_id,
         minutos,
