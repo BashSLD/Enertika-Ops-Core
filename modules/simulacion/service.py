@@ -1001,12 +1001,13 @@ class SimulacionService:
             return
 
         ultima_fecha = self._as_aware(ultima_fecha_raw)
+        ultima_fecha_mx = ultima_fecha.astimezone(ZoneInfo("America/Mexico_City"))
         if fecha_real <= ultima_fecha:
             raise HTTPException(
                 status_code=400,
                 detail=(
                     f"La fecha del cambio debe ser posterior al último registro "
-                    f"({ultima_fecha.strftime('%d/%m/%Y %H:%M')})."
+                    f"({ultima_fecha_mx.strftime('%d/%m/%Y %H:%M')})."
                 )
             )
 
@@ -1018,7 +1019,7 @@ class SimulacionService:
                 status_code=400,
                 detail=(
                     f"Deben pasar al menos {min_gap} minuto(s) entre cambios de estatus. "
-                    f"El último cambio fue el {ultima_fecha.strftime('%d/%m/%Y %H:%M')}."
+                    f"El último cambio fue el {ultima_fecha_mx.strftime('%d/%m/%Y %H:%M')}."
                 )
             )
 
