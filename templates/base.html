@@ -26,6 +26,31 @@
         document.addEventListener('alpine:init', () => {
             Alpine.store('notifications', { count: 0 });
             Alpine.store('activeModule', { slug: '' });
+
+            // Autocompletar destinatarios (Para/CC) sobre chips existentes (ver addChip/removeChip abajo).
+            // Usuarios se leen de data-system-users en el <form> ancestro (una sola vez por formulario).
+            Alpine.data('recipientAutocomplete', () => ({
+                users: [],
+                query: '',
+                open: false,
+                init() {
+                    const form = this.$el.closest('form');
+                    this.users = JSON.parse((form && form.dataset.systemUsers) || '[]');
+                },
+                get filtered() {
+                    if (!this.query || this.query.trim().length < 2) return [];
+                    const q = this.query.trim().toLowerCase();
+                    return this.users.filter(u => (u.name && u.name.toLowerCase().includes(q)) || (u.email && u.email.toLowerCase().includes(q))).slice(0, 6);
+                },
+                pick(u) {
+                    const input = this.$refs.chipInput;
+                    input.value = u.email;
+                    addChip(input);
+                    this.query = '';
+                    this.open = false;
+                    input.focus();
+                }
+            }));
         });
     </script>
 

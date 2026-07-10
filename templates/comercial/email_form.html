@@ -25,103 +25,132 @@
     <p class="mb-4 text-gray-600">Detalles de la oportunidad: <strong>{{ op.id_interno_simulacion }}</strong>.</p>
 
     <form hx-post="/comercial/notificar/{{ op.id_oportunidad }}" hx-encoding="multipart/form-data" hx-target="this"
-        hx-swap="outerHTML" hx-indicator="#global-loading-overlay" class="space-y-6">
+        hx-swap="outerHTML" hx-indicator="#global-loading-overlay" class="space-y-6"
+        data-system-users='{{ system_users | default([]) | tojson }}'>
 
         <div>
             <label class="block text-sm font-medium text-gray-700">Asunto</label>
             <input type="text" name="subject" value="{{ op.titulo_proyecto }}"
-                class="mt-1 block w-full border border-gray-300 bg-gray-100 text-gray-600 rounded-md shadow-sm p-2 cursor-not-allowed"
+                class="mt-1 block w-full border border-gray-300 bg-gray-100 text-gray-600 rounded-md shadow-sm py-1.5 px-2 text-sm cursor-not-allowed"
                 readonly required>
         </div>
 
-        <div class="chip-wrapper">
+        <div class="chip-wrapper" x-data="recipientAutocomplete">
             <label class="block text-sm font-medium text-gray-700">Para (To)</label>
             {% if fixed_to %}
             <p class="text-xs text-blue-600 mb-2 font-mono">Fijos: <strong>{{ fixed_to|join('; ') }}</strong></p>
             {% for email in fixed_to %}<input type="hidden" name="fixed_to" value="{{ email }}">{% endfor %}
             {% endif %}
-            <div class="border border-gray-300 rounded-md p-2 focus-within:ring-1 focus-within:ring-blue-500 bg-white">
+            <div class="relative border border-gray-300 rounded-md p-1.5 focus-within:ring-1 focus-within:ring-blue-500 bg-white">
                 <div class="chips-container flex flex-wrap gap-1"></div>
-                <input type="text" class="chip-input border-none focus:ring-0 p-1 text-sm w-full"
-                    placeholder="Escribe correo y Enter o ;" list="system-users-list">
+                <input type="text" x-ref="chipInput" class="chip-input border-none focus:ring-0 p-0.5 text-sm w-full"
+                    placeholder="Escribe correo y Enter o ;"
+                    @input="query = $el.value; open = filtered.length > 0"
+                    @focus="query = $el.value; open = filtered.length > 0"
+                    @keydown.escape="open = false">
+                <div x-show="open" x-cloak @click.outside="open = false"
+                    class="absolute left-0 right-0 top-full z-20 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                    <template x-for="u in filtered" :key="u.email">
+                        <button type="button" @click="pick(u)"
+                            class="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-gray-100 last:border-0">
+                            <span class="block text-sm font-medium text-gray-800" x-text="u.name"></span>
+                            <span class="block text-xs text-gray-500 font-mono" x-text="u.email"></span>
+                        </button>
+                    </template>
+                </div>
             </div>
             <input type="hidden" name="recipients_str" class="recipients-hidden">
         </div>
 
-        <div class="chip-wrapper">
+        <div class="chip-wrapper" x-data="recipientAutocomplete">
             <label class="block text-sm font-medium text-gray-700">CC (Copia)</label>
             {% if fixed_cc %}
             <p class="text-xs text-blue-600 mb-2 font-mono">Fijos: <strong>{{ fixed_cc|join('; ') }}</strong></p>
             {% for email in fixed_cc %}<input type="hidden" name="fixed_cc" value="{{ email }}">{% endfor %}
             {% endif %}
-            <div class="border border-gray-300 rounded-md p-2 focus-within:ring-1 focus-within:ring-blue-500 bg-white">
+            <div class="relative border border-gray-300 rounded-md p-1.5 focus-within:ring-1 focus-within:ring-blue-500 bg-white">
                 <div class="chips-container flex flex-wrap gap-1"></div>
-                <input type="text" class="chip-input border-none focus:ring-0 p-1 text-sm w-full"
-                    placeholder="Agregar copias extra..." list="system-users-list">
+                <input type="text" x-ref="chipInput" class="chip-input border-none focus:ring-0 p-0.5 text-sm w-full"
+                    placeholder="Agregar copias extra..."
+                    @input="query = $el.value; open = filtered.length > 0"
+                    @focus="query = $el.value; open = filtered.length > 0"
+                    @keydown.escape="open = false">
+                <div x-show="open" x-cloak @click.outside="open = false"
+                    class="absolute left-0 right-0 top-full z-20 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                    <template x-for="u in filtered" :key="u.email">
+                        <button type="button" @click="pick(u)"
+                            class="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-gray-100 last:border-0">
+                            <span class="block text-sm font-medium text-gray-800" x-text="u.name"></span>
+                            <span class="block text-xs text-gray-500 font-mono" x-text="u.email"></span>
+                        </button>
+                    </template>
+                </div>
             </div>
             <input type="hidden" name="extra_cc" class="recipients-hidden">
         </div>
 
-        {% if system_users %}
-        <datalist id="system-users-list">
-            {% for u in system_users %}
-            <option value="{{ u.email }}">{{ u.name }}</option>
-            {% endfor %}
-        </datalist>
-        {% endif %}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
-        <!-- Prioridad del Correo -->
-        <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Prioridad del Correo</label>
-            <select name="prioridad"
-                class="w-full rounded-lg border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm">
-                <option value="normal" {{ 'selected' if op.prioridad=='normal' else '' }}>Normal</option>
-                <option value="high" {{ 'selected' if op.prioridad=='high' else '' }}>Alta</option>
-                <option value="low" {{ 'selected' if op.prioridad=='low' else '' }}>Baja</option>
-            </select>
-            <p class="text-xs text-gray-500 mt-1">Puedes cambiar la prioridad antes de enviar</p>
-        </div>
-
-        <!-- Fecha Ideal -->
-        <div x-data="{
-            init() {
-                // Inicializar con la fecha actual de la oportunidad o +7 días
-                {% if op.fecha_ideal_usuario %}
-                this.val = '{{ op.fecha_ideal_usuario.strftime('%Y-%m-%d') if op.fecha_ideal_usuario else '' }}';
-                {% else %}
-                const toLocalISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-                const date = new Date();
-                date.setDate(date.getDate() + 7);
-                this.val = toLocalISO(date);
-                {% endif %}
-            },
-            get minDate() {
-                const toLocalISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-                return toLocalISO(new Date());
-            },
-            val: ''
-        }" class="bg-blue-50 p-4 rounded-lg border border-blue-200">
-            <label class="block text-sm font-bold text-gray-700 mb-1">
-                📅 ¿Para cuándo lo requieres? *
-            </label>
-            <div class="flex gap-2 items-start">
-                <input type="date" name="fecha_ideal_usuario" required :min="minDate" x-model="val"
-                    class="flex-1 rounded-lg bg-white border-blue-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm"
-                    id="fecha-ideal-input"
-                    title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador">
-                {% if op.tipo_solicitud_codigo == 'LEVANTAMIENTO' %}
-                <div class="flex flex-col gap-1">
-                    <input type="time" name="hora_ideal_usuario" id="hora-ideal-input"
-                        class="rounded-lg bg-white border-blue-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm px-3 py-2 text-sm"
-                        placeholder="Hora (opcional)">
-                    <span class="text-xs text-blue-500 text-center">Hora (opcional)</span>
-                </div>
-                {% endif %}
+            <!-- Prioridad del Correo -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Prioridad del Correo</label>
+                <select name="prioridad"
+                    class="w-full rounded-lg border border-gray-300 bg-gray-50 hover:bg-gray-100 focus:bg-white focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm cursor-pointer transition-colors">
+                    <option value="normal" {{ 'selected' if op.prioridad=='normal' else '' }}>Normal</option>
+                    <option value="high" {{ 'selected' if op.prioridad=='high' else '' }}>Alta</option>
+                    <option value="low" {{ 'selected' if op.prioridad=='low' else '' }}>Baja</option>
+                </select>
+                <p class="text-xs text-gray-500 mt-1">Puedes cambiar la prioridad antes de enviar</p>
             </div>
-            <p class="text-xs text-blue-600 mt-2">
-                <strong>Nota:</strong> Puedes ajustar la fecha{% if op.tipo_solicitud_codigo == 'LEVANTAMIENTO' %} y
-                hora{% endif %} ideal para esta solicitud.
-            </p>
+
+            <!-- Fecha Ideal -->
+            <div x-data="{
+                init() {
+                    // Inicializar con la fecha actual de la oportunidad o +7 días
+                    {% if op.fecha_ideal_usuario %}
+                    this.val = '{{ op.fecha_ideal_usuario.strftime('%Y-%m-%d') if op.fecha_ideal_usuario else '' }}';
+                    {% else %}
+                    const toLocalISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                    const date = new Date();
+                    date.setDate(date.getDate() + 7);
+                    this.val = toLocalISO(date);
+                    {% endif %}
+                },
+                get minDate() {
+                    const toLocalISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                    return toLocalISO(new Date());
+                },
+                get displayDate() {
+                    return this.val ? window.formatDDMMYYYY(this.val) : '(por definir)';
+                },
+                val: ''
+            }" class="bg-white p-3 rounded-lg border border-gray-200 border-l-4 border-l-[#00BABB]">
+                <label class="block text-sm font-bold text-gray-700 mb-1">
+                    ¿Para cuándo lo requieres? *
+                </label>
+                <div class="flex gap-2 items-start">
+                    <input type="date" name="fecha_ideal_usuario" required :min="minDate" x-model="val"
+                        class="flex-1 rounded-lg bg-white border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm"
+                        id="fecha-ideal-input">
+                    {% if op.tipo_solicitud_codigo == 'LEVANTAMIENTO' %}
+                    <div class="flex flex-col gap-1">
+                        <input type="time" name="hora_ideal_usuario" id="hora-ideal-input"
+                            class="rounded-lg bg-white border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm px-3 py-2 text-sm"
+                            placeholder="Hora (opcional)">
+                        <span class="text-xs text-gray-500 text-center">Hora (opcional)</span>
+                    </div>
+                    {% endif %}
+                </div>
+                <p class="text-xs text-gray-600 mt-1"
+                    title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador">
+                    Fecha seleccionada: <span class="font-semibold" x-text="displayDate"></span>
+                </p>
+                <p class="text-xs text-gray-500 mt-1">
+                    <strong>Nota:</strong> Puedes ajustar la fecha{% if op.tipo_solicitud_codigo == 'LEVANTAMIENTO' %} y
+                    hora{% endif %} ideal para esta solicitud.
+                </p>
+            </div>
+
         </div>
 
         <div>
@@ -141,56 +170,56 @@
 
             <div class="static-footer">
                 <p class="font-bold mb-2 border-b border-gray-300 pb-1">Información Adjunta Automáticamente:</p>
-                <div id="footer-preview">
+                <div>
                     ID: {{ op.id_interno_simulacion }}<br>
                     Proyecto: {{ op.nombre_proyecto }}<br>
-                    Empresa: {{ op.cliente_nombre }}<br>
-                    Link SharePoint: {{ op.sharepoint_folder_url or 'N/A' }}<br>
-                    {% if op.direccion_obra %}Dirección: {{ op.direccion_obra }}<br>{% endif %}
-                    {% if op.coordenadas_gps %}Coordenadas: {{ op.coordenadas_gps }}<br>{% endif %}
-                    {% if op.google_maps_link %}Maps: {{ op.google_maps_link }}<br>{% endif %}
-                    Fecha Requerida: <span id="footer-fecha-preview">{{ op.fecha_ideal_usuario.strftime('%d/%m/%Y') if
-                        op.fecha_ideal_usuario else '(por definir)' }}</span><br>
-                    Atentamente: {{ user_name }}
+                    Empresa: {{ op.cliente_nombre }}
                 </div>
+                <details class="mt-1 group">
+                    <summary
+                        class="cursor-pointer select-none list-none inline-flex items-center gap-1 text-blue-600 hover:text-blue-700">
+                        <span>Ver más detalles</span>
+                        <svg class="w-3 h-3 transition-transform group-open:rotate-180" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </summary>
+                    <div id="footer-preview" class="mt-2">
+                        Link SharePoint: {{ op.sharepoint_folder_url or 'N/A' }}<br>
+                        {% if op.direccion_obra %}Dirección: {{ op.direccion_obra }}<br>{% endif %}
+                        {% if op.coordenadas_gps %}Coordenadas: {{ op.coordenadas_gps }}<br>{% endif %}
+                        {% if op.google_maps_link %}Maps: {{ op.google_maps_link }}<br>{% endif %}
+                        Fecha Requerida: <span id="footer-fecha-preview">{{ op.fecha_ideal_usuario.strftime('%d/%m/%Y')
+                            if
+                            op.fecha_ideal_usuario else '(por definir)' }}</span><br>
+                        Atentamente: {{ user_name }}
+                    </div>
+                </details>
             </div>
         </div>
 
-        <!-- Link Carpeta SharePoint (Reubicado del Paso 1) -->
-        <div class="bg-gray-50 p-4 rounded-md border border-gray-200 mb-4">
-            <label class="block text-sm font-medium text-gray-700 mb-1">📂 Link Carpeta SharePoint / Documentos
-                (Opcional)</label>
-            <div class="flex rounded-md shadow-sm">
-                <span
-                    class="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">
-                    🔗
-                </span>
-                <input type="url" name="sharepoint_folder_url" value="{{ op.sharepoint_folder_url or '' }}"
-                    class="flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md bg-white border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm border"
-                    placeholder="https://enertika.sharepoint.com/...">
-            </div>
-            <p class="text-xs text-gray-500 mt-1">
-                💡 SharePoint, Google Drive, Dropbox u otro enlace de documentos.
-            </p>
-        </div>
-
-        <div class="bg-gray-50 p-4 rounded-md border border-gray-200">
-            {% if has_multisitio_file %}
-
+        {% if has_multisitio_file %}
+        <div class="bg-white border border-gray-200 rounded-md p-3 mb-4">
             {% if is_followup %}
             <!-- ============================================ -->
             <!-- ESCENARIO SEGUIMIENTO (Editable)             -->
             <!-- ============================================ -->
-            <label class="block text-sm font-medium text-gray-700 mb-3">
-                Alcance del Proyecto (Sitios)
-            </label>
-
-            <div class="mb-4 bg-white border border-gray-200 rounded shadow-sm">
-                {% include 'comercial/partials/sitios_list.html' %}
-            </div>
+            <details class="group">
+                <summary
+                    class="cursor-pointer select-none list-none flex items-center justify-between gap-2 text-sm font-medium text-gray-700">
+                    <span>Alcance del Proyecto ({{ sitios|length }} sitio{{ 's' if sitios|length != 1 else '' }})</span>
+                    <svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none"
+                        stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </summary>
+                <div class="mt-3 bg-gray-50 border border-gray-200 rounded shadow-sm">
+                    {% include 'comercial/partials/sitios_list.html' %}
+                </div>
+            </details>
 
             <div
-                class="flex items-center gap-2 text-xs text-blue-600 mb-3 bg-blue-50 p-2 rounded border border-blue-100">
+                class="flex items-center gap-2 text-xs text-blue-600 mt-3 bg-blue-50 p-2 rounded border border-blue-100">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
@@ -204,37 +233,75 @@
             <!-- ESCENARIO INICIAL (Solo Informativo)         -->
             <!-- ============================================ -->
             <div
-                class="flex items-center gap-2 text-xs text-green-600 mb-3 bg-green-50 p-2 rounded border border-green-100">
+                class="flex items-center gap-2 text-xs text-green-600 bg-green-50 p-2 rounded border border-green-100">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                 </svg>
-                <span>📋 El listado de <strong>{{ sitios|length }}</strong> sitio(s) se adjuntará automáticamente en
+                <span>El listado de <strong>{{ sitios|length }}</strong> sitio(s) se adjuntará automáticamente en
                     formato Excel.</span>
             </div>
             {% endif %}
-
-            {% endif %}
-
-            <label
-                class="block text-sm font-medium text-gray-700 mb-3 {% if has_multisitio_file %}mt-4 border-t pt-4{% endif %}">Adjuntos
-                Adicionales (Planos,
-                Facturas, etc.)</label>
-            <div id="selected-files-list" class="space-y-2 mb-3"></div>
-            <button type="button" onclick="document.getElementById('file-input-hidden').click()"
-                class="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-blue-300 rounded-lg text-blue-600 hover:bg-blue-50 transition">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                <span class="font-semibold">Agregar Adjuntos</span>
-            </button>
-            <input type="file" id="file-input-hidden" name="archivos_extra" multiple class="hidden"
-                onchange="window.handleFileSelection(this)">
-            <div id="size-warning"
-                class="hidden mt-2 p-2 bg-red-100 text-red-700 rounded text-sm border border-red-300">⚠️ El tamaño total
-                excede 35MB.</div>
         </div>
+        {% endif %}
+
+        <!-- Documentos y Adjuntos (Link SharePoint + archivos extra) -->
+        <details class="bg-gray-50 rounded-md border border-gray-200 group">
+            <summary
+                class="cursor-pointer select-none list-none flex items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-gray-700">
+                <span class="flex items-center gap-2">
+                    Documentos y Adjuntos
+                    <span id="adjuntos-summary-badge" class="text-xs font-normal text-gray-500"></span>
+                </span>
+                <svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none"
+                    stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+            </summary>
+            <div class="px-4 pb-4 pt-1 border-t border-gray-200">
+
+                <!-- Link Carpeta SharePoint -->
+                <div class="mb-4 mt-3">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Link Carpeta SharePoint / Documentos
+                        (Opcional)</label>
+                    <div class="flex rounded-md shadow-sm">
+                        <span
+                            class="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-100 text-gray-500">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M13.828 10.172a4 4 0 010 5.656l-4 4a4 4 0 01-5.656-5.656l1.5-1.5m5.656-5.656l1.5-1.5a4 4 0 015.656 5.656l-4 4a4 4 0 01-5.656 0" />
+                            </svg>
+                        </span>
+                        <input type="url" name="sharepoint_folder_url" value="{{ op.sharepoint_folder_url or '' }}"
+                            id="sharepoint-folder-input"
+                            class="flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md bg-white border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm border"
+                            placeholder="https://enertika.sharepoint.com/...">
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">
+                        SharePoint, Google Drive, Dropbox u otro enlace de documentos.
+                    </p>
+                </div>
+
+                <!-- Adjuntos Adicionales -->
+                <label class="block text-sm font-medium text-gray-700 mb-2">Adjuntos Adicionales (Planos, Facturas,
+                    etc.)</label>
+                <div id="selected-files-list" class="space-y-2 mb-3"></div>
+                <button type="button" id="dropzone" onclick="document.getElementById('file-input-hidden').click()"
+                    class="w-full flex flex-col items-center justify-center gap-1 px-4 py-4 border-2 border-dashed border-blue-300 rounded-lg text-blue-600 hover:bg-blue-50 transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    <span class="font-semibold text-sm">Agregar Adjuntos</span>
+                    <span class="text-xs text-blue-400">o arrastra y suelta aquí</span>
+                </button>
+                <input type="file" id="file-input-hidden" name="archivos_extra" multiple class="hidden"
+                    onchange="window.handleFileSelection(this)">
+                <div id="size-warning"
+                    class="hidden mt-2 p-2 bg-red-100 text-red-700 rounded text-sm border border-red-300">El tamaño
+                    total excede 35MB.</div>
+            </div>
+        </details>
 
 
         <div class="flex justify-end gap-3 pt-4 border-t border-gray-100 items-center">
@@ -243,7 +310,7 @@
                 <span class="text-sm font-medium">Enviando...</span>
             </div>
             <button type="button" hx-delete="/comercial/{{ op.id_oportunidad }}" hx-target="body"
-                hx-confirm="¿Cancelar y borrar todo?" hx-indicator="#global-loading-overlay"
+                hx-confirm="¿Cancelar esta solicitud?" hx-indicator="#global-loading-overlay"
                 class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">Cancelar</button>
             <button type="submit" id="submit-btn" disabled
                 class="px-4 py-2 bg-blue-600 text-white rounded-md shadow-sm text-sm font-medium hover:bg-blue-700 flex items-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all">
@@ -294,6 +361,8 @@
             font-size: 0.75rem;
             color: #4b5563;
             font-family: monospace;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
 
         /* Estilos para botón deshabilitado con cursor prohibido */
@@ -309,6 +378,12 @@
     </style>
 
     <script>
+        // Convierte 'yyyy-mm-dd' (valor nativo de <input type="date">) a 'dd/mm/yyyy' para mostrar.
+        window.formatDDMMYYYY = function (iso) {
+            const [y, m, d] = iso.split('-');
+            return `${d}/${m}/${y}`;
+        };
+
         // Configuración del Footer
         // Configuración del Footer
         // Configuración del Footer (Minificado para evitar espacios en blanco extra)
@@ -579,7 +654,52 @@
             const warn = document.getElementById('size-warning');
             if (total > 36700160) { warn.classList.remove('hidden'); btn.disabled = true; btn.classList.add('opacity-50', 'cursor-not-allowed'); }
             else { warn.classList.add('hidden'); btn.disabled = false; btn.classList.remove('opacity-50', 'cursor-not-allowed'); }
+            updateAdjuntosSummary();
         };
+
+        // Resumen (badge) de "Documentos y Adjuntos": cuenta link + archivos
+        function updateAdjuntosSummary() {
+            const badge = document.getElementById('adjuntos-summary-badge');
+            if (!badge) return;
+            const linkInput = document.getElementById('sharepoint-folder-input');
+            const parts = [];
+            if (linkInput && linkInput.value.trim()) parts.push('1 link');
+            const fileCount = window.emailFiles.length;
+            if (fileCount > 0) parts.push(fileCount + (fileCount === 1 ? ' archivo' : ' archivos'));
+            badge.textContent = parts.length ? '(' + parts.join(' + ') + ')' : '';
+        }
+        (function () {
+            const linkInput = document.getElementById('sharepoint-folder-input');
+            if (linkInput) linkInput.addEventListener('input', updateAdjuntosSummary);
+            updateAdjuntosSummary();
+        })();
+
+        // Drag & drop de archivos sobre la zona de "Agregar Adjuntos"
+        (function () {
+            const dropzone = document.getElementById('dropzone');
+            const fileInput = document.getElementById('file-input-hidden');
+            if (!dropzone || !fileInput) return;
+            ['dragenter', 'dragover'].forEach(evt => {
+                dropzone.addEventListener(evt, function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dropzone.classList.add('bg-blue-50', 'border-blue-500');
+                });
+            });
+            ['dragleave', 'drop'].forEach(evt => {
+                dropzone.addEventListener(evt, function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dropzone.classList.remove('bg-blue-50', 'border-blue-500');
+                });
+            });
+            dropzone.addEventListener('drop', function (e) {
+                const dt = e.dataTransfer;
+                if (!dt || !dt.files || !dt.files.length) return;
+                fileInput.files = dt.files;
+                window.handleFileSelection(fileInput);
+            });
+        })();
 
 
         // Actualiza el preview de fecha en el footer visual en tiempo real
@@ -590,8 +710,7 @@
                 const preview = document.getElementById('footer-fecha-preview');
                 if (!fechaInput || !preview) return;
                 if (!fechaInput.value) { preview.textContent = '(por definir)'; return; }
-                const [y, m, d] = fechaInput.value.split('-');
-                let str = `${d}/${m}/${y}`;
+                let str = window.formatDDMMYYYY(fechaInput.value);
                 if (horaInput && horaInput.value) str += ` ${horaInput.value} hrs`;
                 preview.textContent = str;
             }
