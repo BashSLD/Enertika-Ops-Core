@@ -1342,23 +1342,32 @@ class ComercialService:
         )
         return has_token or False
 
-    async def check_grupo_bloqueador(self, conn, id_oportunidad: UUID) -> dict:
+    async def check_grupo_bloqueador(self, conn, id_oportunidad: UUID, incluir_es_ultimo: bool = False) -> dict:
         """Verifica si el grupo tiene un bloqueador antes de crear un seguimiento.
-        Retorna dict con tipo=None (libre), 'ganado', o 'activo' con detalles del bloqueador."""
+        Retorna dict con tipo=None (libre), 'ganado', o 'activo' con detalles del bloqueador.
+        Si incluir_es_ultimo=True, agrega es_ultimo_del_grupo (usado por marcar_como_ganada;
+        se omite por default para no pagar esa consulta en crear_seguimiento, que no la usa)."""
         row = await conn.fetchrow(QUERY_CHECK_GRUPO_BLOQUEADOR, id_oportunidad)
         if not row:
-            return {"tipo": None}
-        r = dict(row)
-        if r["grupo_ganado"]:
-            return {"tipo": "ganado", "op_id": r["ganado_op_id"]}
-        tiene_activo = r["tiene_activo_op"] or r["tiene_activo_lev"]
-        if tiene_activo:
-            return {
-                "tipo": "activo",
-                "sim": {"op_id": r["bloqueador_op_id"], "estado": r["bloqueador_op_estado"], "tipo_solicitud": r["bloqueador_op_tipo"], "es_borrador": r["bloqueador_op_es_borrador"]} if r["tiene_activo_op"] else None,
-                "lev": {"op_id": r["bloqueador_lev_op_id"], "estado": r["bloqueador_lev_estado"]} if r["tiene_activo_lev"] else None,
-            }
-        return {"tipo": None}
+            result = {"tipo": None}
+        else:
+            r = dict(row)
+            if r["grupo_ganado"]:
+                result = {"tipo": "ganado", "op_id": r["ganado_op_id"]}
+            elif r["tiene_activo_op"] or r["tiene_activo_lev"]:
+                result = {
+                    "tipo": "activo",
+                    "sim": {"op_id": r["bloqueador_op_id"], "estado": r["bloqueador_op_estado"], "tipo_solicitud": r["bloqueador_op_tipo"], "es_borrador": r["bloqueador_op_es_borrador"]} if r["tiene_activo_op"] else None,
+                    "lev": {"op_id": r["bloqueador_lev_op_id"], "estado": r["bloqueador_lev_estado"]} if r["tiene_activo_lev"] else None,
+                }
+            else:
+                result = {"tipo": None}
+
+        if incluir_es_ultimo:
+            # Misma fuente de verdad que gatea el boton en el modal de detalle (core/workflow),
+            # en vez de duplicar el calculo aqui - ver WorkflowDBService.
+            result["es_ultimo_del_grupo"] = await WorkflowDBService().es_ultimo_del_grupo(conn, id_oportunidad)
+        return result
 
     async def create_followup_oportunidad(self, parent_id: UUID, nuevo_tipo_solicitud: str, prioridad: str, conn, user_id: UUID, user_name: str, sitios_json_pendiente: str = None, id_tecnologia: Optional[int] = None) -> UUID:
         """Crea seguimiento clonando padre + sitios. Si sitios_json_pendiente se provee, guarda conversión diferida.
@@ -2021,6 +2030,22 @@ class ComercialService:
             raise HTTPException(500, "Error de configuración: faltan estatus en catálogo")
 
         await self.verify_ownership(conn, id_oportunidad, user_context)
+
+        # Candado: el grupo (raíz + seguimientos) no debe tener ya un ganador
+        # Nota: check-then-act sin lock de fila (mismo patrón que check_grupo_bloqueador
+        # usa en crear_seguimiento) — carrera teórica entre dos cierres simultáneos del
+        # mismo grupo, aceptada por bajo riesgo práctico.
+        bloqueador = await self.check_grupo_bloqueador(conn, id_oportunidad, incluir_es_ultimo=True)
+        if bloqueador["tipo"] == "ganado":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Este grupo ya tiene una oferta cerrada como Ganada ({bloqueador['op_id']})."
+            )
+        if not bloqueador["es_ultimo_del_grupo"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Existe una actualización más reciente en este grupo. El cierre de venta debe hacerse desde el último registro."
+            )
 
         # Validar status actual de la oportunidad
         current_status = await conn.fetchval(QUERY_GET_OP_ESTATUS, id_oportunidad)

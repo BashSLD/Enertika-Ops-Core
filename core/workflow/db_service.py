@@ -151,6 +151,25 @@ class WorkflowDBService:
         )
         return dict(row) if row else None
 
+    async def es_ultimo_del_grupo(self, conn, id_oportunidad: UUID) -> bool:
+        """True si id_oportunidad es el registro mas reciente del hilo (raiz + seguimientos)."""
+        return bool(await conn.fetchval(
+            f"""
+            WITH {CTE_ROOT_OPORTUNIDAD},
+            miembros AS (
+                SELECT o.id_oportunidad, o.fecha_creacion
+                FROM tb_oportunidades o
+                CROSS JOIN root
+                WHERE o.id_oportunidad = root.root_id OR o.parent_id = root.root_id
+            )
+            SELECT $1 = (
+                SELECT id_oportunidad FROM miembros
+                ORDER BY fecha_creacion DESC, id_oportunidad DESC LIMIT 1
+            )
+            """,
+            id_oportunidad,
+        ))
+
     async def get_historial_responsables(
         self,
         conn,

@@ -63,8 +63,8 @@
                     </span>
                     {% endif %}
 
-                    <!-- Botón Cierre de Venta (Solo Manager Editor+ y Status Entregado) -->
-                    {% if can_close_sale and op.status_global|lower == 'entregado' %}
+                    <!-- Botón Cierre de Venta (Solo Manager Editor+, Status Entregado, y último registro del grupo) -->
+                    {% if can_close_sale and op.status_global|lower == 'entregado' and es_ultimo_del_grupo %}
                     <div x-data="{ showCierreMenu: false }" class="relative ml-auto sm:ml-2">
                         <!-- Botón Principal -->
                         <button type="button" @click="showCierreMenu = !showCierreMenu"

@@ -326,6 +326,10 @@ class WorkflowService:
             _status = (op.get("status_global") or "").lower()
             can_reassign = (is_owner or can_close_sale) and _status not in ("ganada", "cancelado", "perdido")
 
+        es_ultimo_del_grupo = True
+        if can_close_sale and (op.get("status_global") or "").lower() == "entregado":
+            es_ultimo_del_grupo = await self.db.es_ultimo_del_grupo(conn, id_oportunidad)
+
         sitios = []
         if can_close_sale and op.get("cantidad_sitios", 1) > 1:
             sitios = await self.db.get_sitios_oportunidad(conn, id_oportunidad)
@@ -346,6 +350,7 @@ class WorkflowService:
             "op": op,
             "can_edit_comercial": can_edit_comercial,
             "can_close_sale": can_close_sale,
+            "es_ultimo_del_grupo": es_ultimo_del_grupo,
             "can_reassign": can_reassign,
             "sitios": sitios,
             "show_solicitar_actions": source_module == "comercial",
