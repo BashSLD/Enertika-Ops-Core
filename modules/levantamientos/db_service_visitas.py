@@ -405,13 +405,13 @@ class VisitasCampoDBService:
         Elimina un levantamiento del pivot.
         Retorna el conteo de levantamientos restantes en la visita.
         """
-        return await conn.fetchval("""
-            WITH deleted AS (
-                DELETE FROM tb_visita_campo_levantamientos
-                WHERE id_visita = $1 AND id_levantamiento = $2
-            )
-            SELECT COUNT(*) FROM tb_visita_campo_levantamientos WHERE id_visita = $1
+        await conn.execute("""
+            DELETE FROM tb_visita_campo_levantamientos
+            WHERE id_visita = $1 AND id_levantamiento = $2
         """, id_visita, id_levantamiento)
+        return await conn.fetchval("""
+            SELECT COUNT(*) FROM tb_visita_campo_levantamientos WHERE id_visita = $1
+        """, id_visita)
 
     async def has_envios(self, conn, id_visita: UUID) -> bool:
         """Verifica si la visita tiene al menos un envío registrado."""
