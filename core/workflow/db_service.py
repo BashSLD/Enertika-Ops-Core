@@ -192,6 +192,8 @@ class WorkflowDBService:
                     o.id_oportunidad,
                     o.op_id_estandar,
                     o.titulo_proyecto,
+                    (o.parent_id IS NULL) AS es_raiz,
+                    ts.nombre AS tipo_solicitud_nombre,
                     COALESCE(o.fecha_solicitud, o.fecha_creacion) AS fecha_evento,
                     u_creador.nombre AS actor_nombre,
                     u_creador.email AS actor_email,
@@ -203,6 +205,7 @@ class WorkflowDBService:
                 FROM cadena o
                 LEFT JOIN tb_usuarios u_creador ON u_creador.id_usuario = o.creado_por_id
                 LEFT JOIN tb_usuarios u_resp ON u_resp.id_usuario = o.responsable_comercial_id
+                LEFT JOIN tb_cat_tipos_solicitud ts ON ts.id = o.id_tipo_solicitud
             ),
             transferencias AS (
                 SELECT
@@ -211,6 +214,8 @@ class WorkflowDBService:
                     o.id_oportunidad,
                     o.op_id_estandar,
                     o.titulo_proyecto,
+                    NULL::boolean AS es_raiz,
+                    NULL::text AS tipo_solicitud_nombre,
                     t.fecha_transferencia AS fecha_evento,
                     u_actor.nombre AS actor_nombre,
                     u_actor.email AS actor_email,

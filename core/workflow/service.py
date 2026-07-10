@@ -342,9 +342,7 @@ class WorkflowService:
         sitios_con_proyecto_total = sum(
             1 for sitio in sitios_ganados_detalle if sitio["tiene_proyecto"]
         )
-        historial_responsables = (
-            [] if read_only else await self.db.get_historial_responsables(conn, id_oportunidad)
-        )
+        historial_responsables = await self.db.get_historial_responsables(conn, id_oportunidad)
 
         return {
             "op": op,
