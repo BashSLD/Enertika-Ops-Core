@@ -388,7 +388,7 @@ async def test_get_equipo_muestra_rc_persistido_aunque_no_sea_jefe_activo():
 
 
 @pytest.mark.asyncio
-async def test_get_equipo_fallback_jefe_organizacional_sin_rc():
+async def test_get_equipo_sin_responsable_persistido_queda_vacio():
     id_proyecto = uuid4()
     id_jefe = uuid4()
     service = ProyectosService()
@@ -402,6 +402,7 @@ async def test_get_equipo_fallback_jefe_organizacional_sin_rc():
 
     data = await service.get_equipo_proyecto(FakeConn(), id_proyecto)
 
-    # Fallback al jefe organizacional, en forma homogenea {id_usuario, nombre}
-    assert data["jefe_ingenieria"] == {"id_usuario": id_jefe, "nombre": "Jefe Ing"}
+    # Sin RI persistido el campo queda vacio; el jefe organizacional sigue siendo opcion.
+    assert data["jefe_ingenieria"] is None
     assert data["jefe_construccion"] is None   # no hay jefe_construccion configurado
+    assert data["jefes_ingenieria"] == [{"id_usuario": id_jefe, "nombre": "Jefe Ing"}]

@@ -3,8 +3,8 @@ from modules.cfe.scraper import (
     ResultadoBusquedaPeriodos,
     _advertencia_discrepancia,
     _otras_facturas_por_periodo,
-    _total_recibo_sin_decimales,
 )
+from modules.shared.services.cfe.extractor import candidatos_total_a_pagar
 
 
 def test_advertencia_discrepancia_avisa_cuando_difieren():
@@ -32,25 +32,42 @@ def test_wrapper_resultado_guarda_periodos_y_advertencia():
     assert r.advertencia == "x"
 
 
-def _xml_con_total(total: str) -> bytes:
+def _xml_con_totales(
+    imptotal: str = "",
+    imptotalxml: str = "",
+    total_sin_ade: str = "",
+) -> bytes:
+    campos_total = "".join(
+        f"<{campo}>{valor}</{campo}>"
+        for campo, valor in (
+            ("IMPTOTAL", imptotal),
+            ("IMPTOTALXML", imptotalxml),
+            ("TOTAL_SIN_ADE", total_sin_ade),
+        )
+        if valor
+    )
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" '
-        f'Folio="1" Total="{total}" SubTotal="{total}">'
+        'Folio="1" Total="2345.90" SubTotal="2345.90">'
         "<Complemento><clsRegArchFact><TARIFA_REG>GDMTO</TARIFA_REG>"
-        "<RPU>123</RPU></clsRegArchFact></Complemento>"
+        f"<RPU>123</RPU>{campos_total}</clsRegArchFact></Complemento>"
         "</cfdi:Comprobante>"
     ).encode("utf-8")
 
 
-def test_total_recibo_sin_decimales_redondea():
-    assert _total_recibo_sin_decimales(_xml_con_total("2345.90"), "b.xml") == "2346"
-    assert _total_recibo_sin_decimales(_xml_con_total("1000.50"), "a.xml") == "1000"
+def test_candidatos_total_a_pagar_prioriza_y_deduplica():
+    xml = _xml_con_totales(
+        imptotal="2345.90",
+        imptotalxml="2345",
+        total_sin_ade="1000.50",
+    )
+
+    assert candidatos_total_a_pagar(xml, "recibo.xml") == ["2345", "1000"]
 
 
-def test_total_recibo_sin_decimales_cero_si_no_hay_xml():
-    assert _total_recibo_sin_decimales(None, "x.xml") == "0"
-    assert _total_recibo_sin_decimales(b"no es xml", "x.xml") == "0"
+def test_candidatos_total_a_pagar_vacio_si_no_hay_campos():
+    assert candidatos_total_a_pagar(_xml_con_totales(), "recibo.xml") == []
 
 
 def test_otras_facturas_por_periodo_solo_filas_con_pdf_y_xml():
