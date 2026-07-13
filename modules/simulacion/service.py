@@ -697,6 +697,19 @@ class SimulacionService:
                         detail="Para marcar como Entregado, capture Potencia FV (KWp)."
                     )
 
+                # Tecnología con BESS (puro o híbrido): capacidad BESS obligatoria.
+                # Solo al transicionar A Entregado — registros ya Entregados sin este dato
+                # (histórico) no deben bloquearse al reguardar campos no relacionados.
+                # (El check de Potencia FV de arriba no tiene esta guarda; es un
+                # comportamiento previo fuera de alcance, no una omisión aquí.)
+                transicionando_a_entregado = current_data.get('id_estatus_global') != status_map["entregado"]
+                is_bess_related = is_bess_only or current_data.get('id_tecnologia') == 3
+                if transicionando_a_entregado and is_bess_related and datos.capacidad_cierre_bess_kwh is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Para marcar como Entregado, capture BESS (KWh)."
+                    )
+
         return datos
 
     async def _calculate_kpis_entrega_padre(
