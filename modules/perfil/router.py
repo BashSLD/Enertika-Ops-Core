@@ -229,7 +229,7 @@ async def perfil_ui(
     he_autorizables_count = sum(1 for r in he_solicitadas if r["puede_autorizar_he"])
     comp_autorizables_count = sum(1 for r in comp_pendientes if r["puede_autorizar_he"])
     es_jefe_o_aprobador = es_jefe
-    puede_ver_equipo = es_jefe or es_rrhh_viewer or bool(autorizable_he_set)
+    puede_ver_equipo = es_jefe or es_rrhh_viewer
     puede_ver_aprobaciones = es_jefe or es_rrhh_viewer or bool(autorizable_he_set)
     initial_tab, initial_endpoint = _resolve_initial_tab(
         tab,
