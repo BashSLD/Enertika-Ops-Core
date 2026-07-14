@@ -155,8 +155,11 @@ async def update_user_role(
     _ = require_module_access("admin", "admin")
 ):
     """Actualiza el rol de sistema de un usuario (HTMX)."""
-    await service.update_user_role(conn, user_id, role)
-    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Actualizado", 
+    try:
+        await service.update_user_role(conn, user_id, role)
+    except asistencia_service.HEFallbackVacioError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Actualizado",
         "message": f"Rol cambiado a {role}"
     })
 
@@ -189,8 +192,11 @@ async def delete_user(
     _ = require_module_access("admin", "admin")
 ):
     """Desactiva un usuario (Soft delete)."""
-    user = await service.deactivate_user(conn, user_id)
-    
+    try:
+        user = await service.deactivate_user(conn, user_id)
+    except asistencia_service.HEFallbackVacioError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     
@@ -949,9 +955,11 @@ async def update_user_modules(
 
     try:
         await service.update_user_modules(conn, user_id, module_roles)
+    except asistencia_service.HEFallbackVacioError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
     return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Guardado", "message": "Permisos actualizados"
     })
 
@@ -1070,6 +1078,8 @@ async def save_user_all(
             rol_organizacional=rol_org,
             module_roles=module_roles,
         )
+    except asistencia_service.HEFallbackVacioError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

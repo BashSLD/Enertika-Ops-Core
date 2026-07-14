@@ -6,7 +6,8 @@ from uuid import UUID
 
 async def get_usuario_simple_by_id(conn, usuario_id: UUID) -> dict | None:
     row = await conn.fetchrow(
-        "SELECT id_usuario, nombre, email, department, puesto FROM tb_usuarios WHERE id_usuario = $1",
+        "SELECT id_usuario, nombre, email, department, puesto, is_active "
+        "FROM tb_usuarios WHERE id_usuario = $1",
         usuario_id,
     )
     return dict(row) if row else None

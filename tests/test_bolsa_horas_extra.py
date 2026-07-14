@@ -15,7 +15,7 @@ import pytest
 
 from modules.asistencia import service as asistencia_service
 from modules.asistencia.service import (
-    _validar_permiso_compensatorio,
+    HEAutorizacionError,
     ajuste_manual_svc,
     aprobar_compensatorio_svc,
     aprobar_horas_extra_svc,
@@ -58,11 +58,21 @@ def _context_row(usuario_id, weekday: int, minutos_programados: int = 480) -> di
     }
 
 
-def _mock_lock(monkeypatch) -> None:
-    async def fake_lock(_conn, _usuario_id):
+def _mock_lock(monkeypatch, *, autorizado: bool = True) -> None:
+    """Mockea los locks HE (lock_he_usuario/lock_he_actor) y puede_autorizar_he.
+
+    `autorizado` simula el resultado de puede_autorizar_he en BD -- usarlo en False
+    para probar el bloqueo (incl. auto-aprobacion) via HEAutorizacionError."""
+
+    async def fake_lock(_conn, _id):
         return None
 
-    monkeypatch.setattr(asistencia_service.db, "lock_he_bolsa_usuario", fake_lock)
+    async def fake_puede_autorizar(_conn, _empleado_id, _aprobador_id):
+        return autorizado
+
+    monkeypatch.setattr(asistencia_service.db, "lock_he_usuario", fake_lock)
+    monkeypatch.setattr(asistencia_service.db, "lock_he_actor", fake_lock)
+    monkeypatch.setattr(asistencia_service.db, "puede_autorizar_he", fake_puede_autorizar)
 
 
 async def _async_date(value: date) -> date:
@@ -115,15 +125,15 @@ async def test_aprobar_horas_extra_bloquea_auto_aprobacion(monkeypatch):
         return row
 
     monkeypatch.setattr(asistencia_service.db, "get_asistencia_para_aprobar", fake_get)
+    _mock_lock(monkeypatch, autorizado=False)
 
-    with pytest.raises(ValueError, match="propias horas extra"):
+    with pytest.raises(HEAutorizacionError, match="No tienes permiso"):
         await aprobar_horas_extra_svc(
             FakeConn(),
             asistencia_id=uuid4(),
             aprobador_id=usuario_id,
             minutos_aprobados=60,
             comentario="ok",
-            equipo_ids=[usuario_id],
         )
 
 
@@ -140,6 +150,7 @@ async def test_aprobar_horas_extra_exitoso_retorna_email(monkeypatch):
 
     monkeypatch.setattr(asistencia_service.db, "get_asistencia_para_aprobar", fake_get)
     monkeypatch.setattr(asistencia_service.db, "aprobar_horas_extra", fake_aprobar)
+    _mock_lock(monkeypatch)
 
     result = await aprobar_horas_extra_svc(
         FakeConn(),
@@ -147,7 +158,6 @@ async def test_aprobar_horas_extra_exitoso_retorna_email(monkeypatch):
         aprobador_id=uuid4(),
         minutos_aprobados=60,
         comentario="Aprobado",
-        equipo_ids=[usuario_id],
     )
     assert result["empleado_email"] == "empleado@test.com"
 
@@ -165,6 +175,7 @@ async def test_aprobar_horas_extra_cero_acreditados_lanza_error(monkeypatch):
 
     monkeypatch.setattr(asistencia_service.db, "get_asistencia_para_aprobar", fake_get)
     monkeypatch.setattr(asistencia_service.db, "aprobar_horas_extra", fake_aprobar)
+    _mock_lock(monkeypatch)
 
     with pytest.raises(ValueError, match="ya fue procesado"):
         await aprobar_horas_extra_svc(
@@ -173,24 +184,7 @@ async def test_aprobar_horas_extra_cero_acreditados_lanza_error(monkeypatch):
             aprobador_id=uuid4(),
             minutos_aprobados=60,
             comentario="Aprobado",
-            equipo_ids=[usuario_id],
         )
-
-
-# ── _validar_permiso_compensatorio ──
-
-
-def test_validar_permiso_compensatorio_bloquea_auto_aprobacion():
-    usuario_id = uuid4()
-    solicitud = {"usuario_id": usuario_id}
-    with pytest.raises(ValueError, match="propia solicitud"):
-        _validar_permiso_compensatorio(solicitud, usuario_id, [usuario_id])
-
-
-def test_validar_permiso_compensatorio_usuario_fuera_de_equipo():
-    solicitud = {"usuario_id": uuid4()}
-    with pytest.raises(ValueError, match="no encontrada"):
-        _validar_permiso_compensatorio(solicitud, uuid4(), [])
 
 
 # ── aprobar_compensatorio_svc ──
@@ -212,13 +206,13 @@ async def test_aprobar_compensatorio_ya_procesada(monkeypatch):
         return solicitud
 
     monkeypatch.setattr(asistencia_service.db, "get_he_compensatorio_by_id", fake_get_for_update)
+    _mock_lock(monkeypatch)
 
     with pytest.raises(ValueError, match="ya fue procesada"):
         await aprobar_compensatorio_svc(
             FakeConn(),
             solicitud_id=solicitud_id,
             aprobador_id=uuid4(),
-            equipo_ids=[usuario_id],
         )
 
 
@@ -238,13 +232,13 @@ async def test_aprobar_compensatorio_bloquea_auto_aprobacion(monkeypatch):
         return solicitud
 
     monkeypatch.setattr(asistencia_service.db, "get_he_compensatorio_by_id", fake_get_for_update)
+    _mock_lock(monkeypatch, autorizado=False)
 
-    with pytest.raises(ValueError, match="propia solicitud"):
+    with pytest.raises(HEAutorizacionError, match="No tienes permiso"):
         await aprobar_compensatorio_svc(
             FakeConn(),
             solicitud_id=solicitud_id,
             aprobador_id=usuario_id,
-            equipo_ids=[usuario_id],
         )
 
 
@@ -264,13 +258,13 @@ async def test_aprobar_compensatorio_vencida(monkeypatch):
         return solicitud
 
     monkeypatch.setattr(asistencia_service.db, "get_he_compensatorio_by_id", fake_get_for_update)
+    _mock_lock(monkeypatch)
 
     with pytest.raises(ValueError, match="vencio"):
         await aprobar_compensatorio_svc(
             FakeConn(),
             solicitud_id=solicitud_id,
             aprobador_id=uuid4(),
-            equipo_ids=[usuario_id],
         )
 
 
@@ -307,7 +301,6 @@ async def test_aprobar_compensatorio_saldo_insuficiente(monkeypatch):
             FakeConn(),
             solicitud_id=solicitud_id,
             aprobador_id=uuid4(),
-            equipo_ids=[usuario_id],
         )
 
 
@@ -361,7 +354,6 @@ async def test_aprobar_compensatorio_exitoso_crea_debito(monkeypatch):
         FakeConn(),
         solicitud_id=solicitud_id,
         aprobador_id=aprobador_id,
-        equipo_ids=[usuario_id],
     )
 
     assert calls["aprobado"] is True
@@ -400,7 +392,6 @@ async def test_aprobar_compensatorio_bloquea_colision_con_horas_extra(monkeypatc
             FakeConn(),
             solicitud_id=solicitud_id,
             aprobador_id=uuid4(),
-            equipo_ids=[usuario_id],
         )
 
 
@@ -414,7 +405,6 @@ async def test_rechazar_compensatorio_comentario_obligatorio():
             FakeConn(),
             solicitud_id=uuid4(),
             aprobador_id=uuid4(),
-            equipo_ids=[],
             comentario="   ",
         )
 
@@ -435,13 +425,13 @@ async def test_rechazar_compensatorio_ya_procesada(monkeypatch):
         return solicitud
 
     monkeypatch.setattr(asistencia_service.db, "get_he_compensatorio_by_id", fake_get_for_update)
+    _mock_lock(monkeypatch)
 
     with pytest.raises(ValueError, match="ya fue procesada"):
         await rechazar_compensatorio_svc(
             FakeConn(),
             solicitud_id=solicitud_id,
             aprobador_id=uuid4(),
-            equipo_ids=[usuario_id],
             comentario="No aplica",
         )
 
@@ -451,25 +441,55 @@ async def test_rechazar_compensatorio_ya_procesada(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cancelar_compensatorio_no_propietario_o_no_pendiente(monkeypatch):
-    async def fake_cancelar(_conn, **_kwargs):
-        return None
+    async def fake_get(_conn, _id, for_update=False):
+        return {"usuario_id": uuid4(), "estatus": "pendiente"}
 
-    monkeypatch.setattr(asistencia_service.db, "cancelar_he_compensatorio", fake_cancelar)
+    _mock_lock(monkeypatch)
+    monkeypatch.setattr(asistencia_service.db, "get_he_compensatorio_by_id", fake_get)
 
     with pytest.raises(ValueError, match="pendientes propias"):
         await cancelar_compensatorio_svc(FakeConn(), solicitud_id=uuid4(), usuario_id=uuid4())
 
 
 @pytest.mark.asyncio
+async def test_cancelar_compensatorio_race_tras_row_lock(monkeypatch):
+    """El pre-check bajo FOR UPDATE pasa (dueno + pendiente), pero cancelar_he_compensatorio
+    igual puede devolver None si el estado cambio entre el row-lock y el UPDATE -- el
+    service debe revalidar el resultado, no confiar solo en el pre-check."""
+    usuario_id = uuid4()
+    solicitud_id = uuid4()
+
+    async def fake_get(_conn, _id, for_update=False):
+        return {"usuario_id": usuario_id, "estatus": "pendiente"}
+
+    async def fake_cancelar(_conn, **_kwargs):
+        return None
+
+    _mock_lock(monkeypatch)
+    monkeypatch.setattr(asistencia_service.db, "get_he_compensatorio_by_id", fake_get)
+    monkeypatch.setattr(asistencia_service.db, "cancelar_he_compensatorio", fake_cancelar)
+
+    with pytest.raises(ValueError, match="pendientes propias"):
+        await cancelar_compensatorio_svc(FakeConn(), solicitud_id=solicitud_id, usuario_id=usuario_id)
+
+
+@pytest.mark.asyncio
 async def test_cancelar_compensatorio_exitoso(monkeypatch):
-    resultado = {"id": uuid4(), "estatus": "cancelado"}
+    usuario_id = uuid4()
+    solicitud_id = uuid4()
+    resultado = {"id": solicitud_id, "estatus": "cancelado"}
+
+    async def fake_get(_conn, _id, for_update=False):
+        return {"usuario_id": usuario_id, "estatus": "pendiente"}
 
     async def fake_cancelar(_conn, **_kwargs):
         return resultado
 
+    _mock_lock(monkeypatch)
+    monkeypatch.setattr(asistencia_service.db, "get_he_compensatorio_by_id", fake_get)
     monkeypatch.setattr(asistencia_service.db, "cancelar_he_compensatorio", fake_cancelar)
 
-    result = await cancelar_compensatorio_svc(FakeConn(), solicitud_id=uuid4(), usuario_id=uuid4())
+    result = await cancelar_compensatorio_svc(FakeConn(), solicitud_id=solicitud_id, usuario_id=usuario_id)
     assert result == resultado
 
 
@@ -784,6 +804,7 @@ async def test_confirmar_saldo_inicial_jefe_directo_ok(monkeypatch):
     async def fake_confirmar(_conn, **_kwargs):
         return resultado
 
+    _mock_lock(monkeypatch)
     monkeypatch.setattr(asistencia_service.vacaciones_db, "get_empleados_donde_soy_jefe", fake_ids_jefe)
     monkeypatch.setattr(asistencia_service.db, "confirmar_saldo_inicial", fake_confirmar)
     monkeypatch.setattr(asistencia_service, "get_he_bolsa_fecha_corte", lambda _conn: _async_date(date(2026, 7, 7)))
@@ -809,6 +830,7 @@ async def test_confirmar_saldo_inicial_rrhh_editor_backup(monkeypatch):
     async def fake_confirmar(_conn, **_kwargs):
         return resultado
 
+    _mock_lock(monkeypatch)
     monkeypatch.setattr(asistencia_service.vacaciones_db, "get_empleados_donde_soy_jefe", fake_ids_jefe)
     monkeypatch.setattr(asistencia_service.db, "confirmar_saldo_inicial", fake_confirmar)
     monkeypatch.setattr(asistencia_service, "get_he_bolsa_fecha_corte", lambda _conn: _async_date(date(2026, 7, 7)))
@@ -833,6 +855,7 @@ async def test_confirmar_saldo_inicial_duplicado(monkeypatch):
     async def fake_confirmar(_conn, **_kwargs):
         raise asyncpg.UniqueViolationError("duplicate key")
 
+    _mock_lock(monkeypatch)
     monkeypatch.setattr(asistencia_service.vacaciones_db, "get_empleados_donde_soy_jefe", fake_ids_jefe)
     monkeypatch.setattr(asistencia_service.db, "confirmar_saldo_inicial", fake_confirmar)
     monkeypatch.setattr(asistencia_service, "get_he_bolsa_fecha_corte", lambda _conn: _async_date(date(2026, 7, 7)))
@@ -971,6 +994,7 @@ async def test_revertir_dia_horas_extra_estado_no_corregible(monkeypatch):
     async def fake_get(_conn, _id):
         return row
 
+    _mock_lock(monkeypatch)
     monkeypatch.setattr(asistencia_service.db, "get_asistencia_para_aprobar", fake_get)
 
     with pytest.raises(ValueError, match="feriado.*aprobado"):
@@ -992,6 +1016,7 @@ async def test_revertir_dia_horas_extra_feriado_ok(monkeypatch):
         called["asistencia_id"] = asistencia_id
         return True
 
+    _mock_lock(monkeypatch)
     monkeypatch.setattr(asistencia_service.db, "get_asistencia_para_aprobar", fake_get)
     monkeypatch.setattr(asistencia_service.db, "recuperar_dia_feriado", fake_recuperar_feriado)
 
@@ -1014,6 +1039,7 @@ async def test_revertir_dia_horas_extra_feriado_ya_no_aplica(monkeypatch):
     async def fake_recuperar_feriado(_conn, _asistencia_id):
         return False
 
+    _mock_lock(monkeypatch)
     monkeypatch.setattr(asistencia_service.db, "get_asistencia_para_aprobar", fake_get)
     monkeypatch.setattr(asistencia_service.db, "recuperar_dia_feriado", fake_recuperar_feriado)
 
@@ -1038,6 +1064,7 @@ async def test_revertir_dia_horas_extra_aprobado_ok(monkeypatch):
         called["revertido_por"] = revertido_por_arg
         return True
 
+    _mock_lock(monkeypatch)
     monkeypatch.setattr(asistencia_service.db, "get_asistencia_para_aprobar", fake_get)
     monkeypatch.setattr(asistencia_service.db, "revertir_horas_extra_aprobado", fake_revertir_aprobado)
 

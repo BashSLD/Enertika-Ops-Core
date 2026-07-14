@@ -4,6 +4,21 @@ import json
 from datetime import date, datetime
 from uuid import UUID, uuid4
 
+# Fragmentos SQL compartidos con TasksDBService (unica fuente, evita reimplementar la misma
+# regla de precedencia jefes/override en cada query):
+# - ACTIVE_RH_CONTACTS_WHERE: predicado RH editor/admin activo + ADMIN global con correo,
+#   usado por los fallback CTEs de get_datos_resolucion_notificacion_he y
+#   verificar_fallback_aprobador_he.
+# - _jefe_emails_lateral_join / _he_override_lateral_join / _HE_OVERRIDE_SELECT_COLUMNS:
+#   mismo LEFT JOIN LATERAL que arma get_active_rh_contacts para recordatorios, reusado aqui
+#   por get_datos_resolucion_notificacion_he para resolver un solo empleado.
+from core.tasks_db_service import (
+    ACTIVE_RH_CONTACTS_WHERE as _FALLBACK_RH_ADMIN_WHERE,
+    _HE_OVERRIDE_SELECT_COLUMNS,
+    _he_override_lateral_join,
+    _jefe_emails_lateral_join,
+)
+
 
 async def get_last_transaction_id(conn) -> int | None:
     return await conn.fetchval(
@@ -928,20 +943,27 @@ async def count_horas_extra_pendientes(conn, usuario_ids: list[UUID]) -> int:
     ) or 0
 
 
-async def omitir_horas_extra(conn, asistencia_id: UUID) -> None:
-    await conn.execute(
+async def omitir_horas_extra(conn, asistencia_id: UUID) -> bool:
+    """Devuelve False si el registro ya no estaba en 'pendiente'/'solicitado' al momento del
+    UPDATE (carrera concurrente) — el llamador debe validarlo bajo lock_he_usuario."""
+    row = await conn.fetchrow(
         """
         UPDATE tb_asistencia_diaria
         SET horas_extra_estado = 'omitido',
             horas_extra_resumen_rh_at = NULL
         WHERE id = $1
+          AND horas_extra_estado IN ('pendiente', 'solicitado')
+        RETURNING id
         """,
         asistencia_id,
     )
+    return row is not None
 
 
-async def recuperar_horas_extra(conn, asistencia_id: UUID) -> None:
-    await conn.execute(
+async def recuperar_horas_extra(conn, asistencia_id: UUID) -> bool:
+    """Devuelve False si el registro ya no estaba en 'omitido' al momento del UPDATE (carrera
+    concurrente) — el llamador debe validarlo bajo lock_he_usuario."""
+    row = await conn.fetchrow(
         """
         UPDATE tb_asistencia_diaria
         SET horas_extra_estado = 'pendiente',
@@ -952,9 +974,11 @@ async def recuperar_horas_extra(conn, asistencia_id: UUID) -> None:
             horas_extra_resumen_rh_at = NULL
         WHERE id = $1
           AND horas_extra_estado = 'omitido'
+        RETURNING id
         """,
         asistencia_id,
     )
+    return row is not None
 
 
 async def recuperar_dia_feriado(conn, asistencia_id: UUID) -> bool:
@@ -1032,8 +1056,11 @@ async def revertir_horas_extra_aprobado(conn, asistencia_id: UUID, revertido_por
 
 async def solicitar_aprobacion_horas_extra(
     conn, asistencia_id: UUID, usuario_id: UUID, motivo: str
-) -> None:
-    await conn.execute(
+) -> bool:
+    """Devuelve False si el registro ya no estaba en 'pendiente' al momento del UPDATE
+    (carrera concurrente) — el llamador debe validarlo bajo lock_he_usuario antes de persistir
+    evidencias asociadas."""
+    row = await conn.fetchrow(
         """
         UPDATE tb_asistencia_diaria
         SET horas_extra_estado = 'solicitado',
@@ -1045,17 +1072,118 @@ async def solicitar_aprobacion_horas_extra(
         WHERE id = $1
           AND usuario_id = $2
           AND horas_extra_estado = 'pendiente'
+        RETURNING id
         """,
         asistencia_id,
         usuario_id,
         motivo,
     )
+    return row is not None
 
 
-async def lock_he_bolsa_usuario(conn, usuario_id: UUID) -> None:
+async def _lock_he(conn, prefix: str, identifier: str) -> None:
+    """Advisory lock transaccional con namespace propio (prefijos disjuntos entre helpers)."""
     await conn.execute(
         "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
-        str(usuario_id),
+        f"{prefix}:{identifier}",
+    )
+
+
+async def lock_he_usuario(conn, usuario_id: UUID) -> None:
+    """Lock del empleado dueno de la bolsa/registro HE. Usar en todo movimiento de bolsa
+    y en toda transicion de estado HE/compensatorio (incl. saldo inicial y reversion)."""
+    await _lock_he(conn, "he_usuario", str(usuario_id))
+
+
+async def lock_he_actor(conn, actor_id: UUID) -> None:
+    """Lock del actor cuya actividad/RBAC se esta revalidando (aprobador, no el empleado)."""
+    await _lock_he(conn, "he_actor", str(actor_id))
+
+
+async def lock_he_fallback(conn) -> None:
+    """Lock unico global para la disponibilidad del fallback RH/ADMIN de aprobador HE exclusivo."""
+    await _lock_he(conn, "he_fallback", "global")
+
+
+# Fuente unica de la regla de precedencia "aprobador exclusivo HE > jefe/aprobador de
+# vacaciones (solo si el empleado NO tiene aprobador exclusivo)". $1 = aprobador_id;
+# $2 (nullable) = empleado_id opcional para acotar a un solo empleado. Con $2 = NULL
+# devuelve el set completo de empleados que $1 puede autorizar (get_empleados_para_autorizacion_he);
+# con $2 = un empleado especifico, se usa en un EXISTS(...) para el chequeo booleano
+# (puede_autorizar_he). Las 3 ramas son deliberadamente separadas (no un solo OR) para que
+# cada una use su propio indice (idx_empleados_aprobador_horas_extra + indices existentes de
+# jefe/aprobador de vacaciones) sin depender de que el planner especialice un OR compuesto.
+#
+# ATENCION: modules.asistencia.service.resolver_destinatarios_he_puro consume la MISMA regla
+# por separado, via el flag `tiene_override` de get_datos_resolucion_notificacion_he (un simple
+# `id_aprobador_horas_extra IS NOT NULL`) -- no se pudo unificar aqui porque esa query devuelve
+# una fila de datos de notificacion, no un booleano/lista de UUIDs. Si cambias la regla de
+# precedencia, replicala tambien ahi -- tests/test_aprobador_he_exclusivo.py::test_consistencia_*
+# corre fixtures compartidos contra las tres para detectar drift.
+_HE_AUTORIZACION_PRECEDENCIA_QUERY = """
+        SELECT ed.usuario_id
+        FROM tb_empleados_datos ed
+        WHERE ed.id_aprobador_horas_extra = $1
+          AND ($2::uuid IS NULL OR ed.usuario_id = $2)
+        UNION
+        SELECT ej.empleado_id
+        FROM tb_empleados_jefes ej
+        LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = ej.empleado_id
+        WHERE ej.jefe_id = $1 AND ed.id_aprobador_horas_extra IS NULL
+          AND ($2::uuid IS NULL OR ej.empleado_id = $2)
+        UNION
+        SELECT ed.usuario_id
+        FROM tb_empleados_datos ed
+        WHERE ed.id_aprobador_vacaciones = $1
+          AND ed.id_aprobador_horas_extra IS NULL
+          AND ($2::uuid IS NULL OR ed.usuario_id = $2)
+"""
+
+
+async def get_empleados_para_autorizacion_he(conn, aprobador_id: UUID) -> list[UUID]:
+    """Empleados que $1 puede autorizar en HE/compensatorio (excluye visibilidad, solo autorizacion).
+
+    Consume _HE_AUTORIZACION_PRECEDENCIA_QUERY sin filtro de empleado (set completo para
+    aprobador_id). Ver esa constante para la regla de precedencia y su nota de consistencia.
+    """
+    rows = await conn.fetch(_HE_AUTORIZACION_PRECEDENCIA_QUERY, aprobador_id, None)
+    return [row["usuario_id"] for row in rows]
+
+
+async def puede_autorizar_he(conn, empleado_id: UUID, aprobador_id: UUID) -> bool:
+    """Fuente de verdad de los POST de autorizacion HE/compensatorio de terceros.
+
+    Revalida en BD (nunca reutiliza una lista de UI): actor activo, bypass ADMIN global
+    o RH editor/admin, autoaprobacion negada, y -via _HE_AUTORIZACION_PRECEDENCIA_QUERY,
+    acotada a `empleado_id`- override de aprobador exclusivo HE vigente o, si no hay
+    override, jefe directo/aprobador de vacaciones.
+    """
+    if empleado_id == aprobador_id:
+        return False
+    return bool(
+        await conn.fetchval(
+            f"""
+            WITH actor AS (
+                SELECT
+                    u.rol_sistema = 'ADMIN' AS es_admin,
+                    EXISTS (
+                        SELECT 1 FROM tb_permisos_modulos pm
+                        WHERE pm.usuario_id = u.id_usuario
+                          AND pm.modulo_slug = 'rrhh'
+                          AND pm.rol_modulo IN ('editor', 'admin')
+                    ) AS es_rh_editor
+                FROM tb_usuarios u
+                WHERE u.id_usuario = $1 AND u.is_active = true
+            )
+            SELECT
+                actor.es_admin
+                OR actor.es_rh_editor
+                OR EXISTS ({_HE_AUTORIZACION_PRECEDENCIA_QUERY})
+            FROM actor
+            """,
+            aprobador_id,
+            empleado_id,
+        )
     )
 
 
@@ -1786,17 +1914,99 @@ async def get_he_niveles_catalogo(conn) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-async def get_jefes_del_empleado(conn, usuario_id: UUID) -> list[dict]:
-    rows = await conn.fetch(
-        """
-        SELECT u.id_usuario, u.nombre, u.email, u.rol_organizacional
-        FROM tb_empleados_jefes ej
-        JOIN tb_usuarios u ON u.id_usuario = ej.jefe_id
-        WHERE ej.empleado_id = $1 AND u.is_active = TRUE
+async def get_datos_resolucion_notificacion_he(conn, usuario_id: UUID) -> dict:
+    """Todo lo necesario para el resolver unico de destinatarios HE/compensatorio en un round trip:
+    aprobador exclusivo (si existe) + su estado, jefes activos + si alguno es director, aprobador de
+    vacaciones activo, y el fallback RH editor/admin + ADMIN global con correo."""
+    row = await conn.fetchrow(
+        f"""
+        WITH base AS (
+            SELECT $1::uuid AS usuario_id
+        ),
+        fallback AS (
+            SELECT DISTINCT u.email
+            FROM tb_usuarios u
+            LEFT JOIN tb_permisos_modulos pm
+                ON pm.usuario_id = u.id_usuario
+               AND pm.modulo_slug = 'rrhh'
+               AND pm.rol_modulo IN ('editor', 'admin')
+            WHERE {_FALLBACK_RH_ADMIN_WHERE}
+        )
+        SELECT
+            {_HE_OVERRIDE_SELECT_COLUMNS},
+            jefes.emails AS jefe_emails,
+            COALESCE(jefes.tiene_director, false) AS tiene_director,
+            (SELECT array_agg(DISTINCT email) FROM fallback) AS fallback_emails
+        FROM base
+        {_jefe_emails_lateral_join("base.usuario_id")}
+        {_he_override_lateral_join("base.usuario_id")}
         """,
         usuario_id,
     )
-    return [dict(r) for r in rows]
+    return dict(row)
+
+
+async def get_fallback_rh_admin_emails(conn) -> set[str]:
+    """RH editor/admin activos + ADMIN global con correo — fallback de aprobador HE exclusivo inactivo.
+
+    Mismo criterio que TasksDBService.get_active_rh_contacts (core/tasks_db_service.py) — se
+    reusa ese metodo en vez de duplicar el predicado."""
+    from core.tasks_db_service import get_tasks_db_service
+
+    rows = await get_tasks_db_service().get_active_rh_contacts(conn)
+    return {row["email"] for row in rows}
+
+
+async def get_empleados_con_aprobador_he_exclusivo(conn, aprobador_id: UUID) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT ed.usuario_id, u.nombre AS empleado_nombre
+        FROM tb_empleados_datos ed
+        JOIN tb_usuarios u ON u.id_usuario = ed.usuario_id
+        WHERE ed.id_aprobador_horas_extra = $1
+        """,
+        aprobador_id,
+    )
+    return [dict(row) for row in rows]
+
+
+async def verificar_fallback_aprobador_he(conn, *, user_id: UUID, sera_fallback_despues: bool) -> dict:
+    """Valida que ningun empleado con aprobador HE exclusivo quede sin fallback tras un cambio
+    administrativo sobre user_id (baja, cambio de rol o modulos).
+
+    `sera_fallback_despues` indica si, tras el cambio propuesto, user_id seguira contando como
+    RH editor/admin/ADMIN activo (para deactivate_user siempre False). "Afectados" incluye tanto
+    los empleados cuyo aprobador exclusivo es user_id (relevante al desactivarlo) como los que ya
+    dependian del fallback porque su aprobador exclusivo ya estaba inactivo (relevante si este
+    cambio reduce el pool de fallback a cero).
+    """
+    row = await conn.fetchrow(
+        f"""
+        WITH afectados AS (
+            SELECT ed.usuario_id
+            FROM tb_empleados_datos ed
+            JOIN tb_usuarios u ON u.id_usuario = ed.id_aprobador_horas_extra
+            WHERE ed.id_aprobador_horas_extra IS NOT NULL
+              AND (u.id_usuario = $1 OR u.is_active = false)
+        ),
+        fallback AS (
+            SELECT DISTINCT u.id_usuario
+            FROM tb_usuarios u
+            LEFT JOIN tb_permisos_modulos pm
+                ON pm.usuario_id = u.id_usuario
+               AND pm.modulo_slug = 'rrhh'
+               AND pm.rol_modulo IN ('editor', 'admin')
+            WHERE {_FALLBACK_RH_ADMIN_WHERE}
+              AND (u.id_usuario <> $1 OR $2::boolean)
+        )
+        SELECT
+            (SELECT COUNT(*) FROM afectados)::int AS afectados_count,
+            EXISTS (SELECT 1 FROM fallback) AS tiene_fallback
+        """,
+        user_id,
+        sera_fallback_despues,
+    )
+    return dict(row)
 
 
 async def get_horas_extra_omitidas_equipo(

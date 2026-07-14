@@ -19,6 +19,39 @@ def _jefe_emails_lateral_join(empleado_id_expr: str) -> str:
     """
 
 
+def _he_override_lateral_join(empleado_id_expr: str) -> str:
+    """Fragmento SQL compartido: aprobador exclusivo HE (activo) y aprobador de vacaciones activo,
+    para resolver destinatarios de recordatorios sin N+1 — ver
+    modules.asistencia.service.resolver_destinatarios_he_puro, que consume estas mismas columnas.
+
+    `empleado_id_expr` es siempre un literal de codigo (columna correlacionada), nunca input de usuario.
+    """
+    return f"""
+            LEFT JOIN tb_empleados_datos ed_override ON ed_override.usuario_id = {empleado_id_expr}
+            LEFT JOIN tb_usuarios u_override ON u_override.id_usuario = ed_override.id_aprobador_horas_extra
+            LEFT JOIN tb_usuarios u_aprobador_vac
+                ON u_aprobador_vac.id_usuario = ed_override.id_aprobador_vacaciones
+               AND u_aprobador_vac.is_active = true
+               AND u_aprobador_vac.email IS NOT NULL
+    """
+
+
+_HE_OVERRIDE_SELECT_COLUMNS = """
+                (ed_override.id_aprobador_horas_extra IS NOT NULL) AS tiene_override,
+                (CASE WHEN u_override.is_active THEN u_override.email END) AS override_email,
+                u_aprobador_vac.email AS aprobador_vac_email"""
+
+
+# Predicado RH editor/admin activo + ADMIN global con correo. Compartido por
+# get_active_rh_contacts (este archivo) y por los fallback CTEs de
+# modules.asistencia.db_service (get_datos_resolucion_notificacion_he,
+# verificar_fallback_aprobador_he), que lo inlinean via este mismo string
+# porque lo necesitan en el mismo round trip que el resto de sus datos.
+ACTIVE_RH_CONTACTS_WHERE = """u.is_active = true
+              AND u.email IS NOT NULL
+              AND (u.rol_sistema = 'ADMIN' OR pm.usuario_id IS NOT NULL)"""
+
+
 class TasksDBService:
     """Queries SQL puras para tareas periodicas del worker."""
 
@@ -593,16 +626,14 @@ class TasksDBService:
 
     async def get_active_rh_contacts(self, conn) -> list[dict]:
         rows = await conn.fetch(
-            """
+            f"""
             SELECT DISTINCT u.id_usuario, u.email
             FROM tb_usuarios u
             LEFT JOIN tb_permisos_modulos pm
                 ON pm.usuario_id = u.id_usuario
                AND pm.modulo_slug = 'rrhh'
                AND pm.rol_modulo IN ('editor', 'admin')
-            WHERE u.is_active = true
-              AND u.email IS NOT NULL
-              AND (u.rol_sistema = 'ADMIN' OR pm.usuario_id IS NOT NULL)
+            WHERE {ACTIVE_RH_CONTACTS_WHERE}
             """
         )
         return [dict(row) for row in rows]
@@ -628,10 +659,12 @@ class TasksDBService:
                 u.nombre AS empleado_nombre,
                 u.email AS empleado_email,
                 COALESCE(jefes.emails, ARRAY[]::text[]) AS jefe_emails,
-                COALESCE(jefes.tiene_director, false) AS tiene_director
+                COALESCE(jefes.tiene_director, false) AS tiene_director,
+                {_HE_OVERRIDE_SELECT_COLUMNS}
             FROM tb_asistencia_diaria ad
             JOIN tb_usuarios u ON u.id_usuario = ad.usuario_id
             {_jefe_emails_lateral_join("ad.usuario_id")}
+            {_he_override_lateral_join("ad.usuario_id")}
             WHERE ad.horas_extra_estado = 'solicitado'
               AND ad.minutos_extra > 0
               AND COALESCE(ad.horas_extra_recordatorios_enviados, 0) < $3
@@ -746,10 +779,12 @@ class TasksDBService:
                 u.nombre AS empleado_nombre,
                 u.email AS empleado_email,
                 COALESCE(jefes.emails, ARRAY[]::text[]) AS jefe_emails,
-                COALESCE(jefes.tiene_director, false) AS tiene_director
+                COALESCE(jefes.tiene_director, false) AS tiene_director,
+                {_HE_OVERRIDE_SELECT_COLUMNS}
             FROM tb_he_solicitudes_compensatorio s
             JOIN tb_usuarios u ON u.id_usuario = s.usuario_id
             {_jefe_emails_lateral_join("s.usuario_id")}
+            {_he_override_lateral_join("s.usuario_id")}
             WHERE s.estatus = 'pendiente'
               AND COALESCE(s.recordatorios_enviados, 0) < $3
               AND (

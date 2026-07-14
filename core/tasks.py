@@ -52,19 +52,29 @@ async def _procesar_recordatorios_pendientes(
     Orquesta el envio de recordatorios (horas-extra y compensatorio comparten
     esta misma logica: solo difieren la query fuente, el notify_* y el mark_*).
     """
+    from modules.asistencia.service import resolver_destinatarios_he_puro
+
     for row in rows:
-        jefe_emails = {email for email in (row.get("jefe_emails") or []) if email}
-        destinatarios = jefe_emails or rh_emails
+        resuelto = resolver_destinatarios_he_puro(
+            tiene_override=row.get("tiene_override", False),
+            override_email=row.get("override_email"),
+            jefe_emails=row.get("jefe_emails"),
+            tiene_director=row.get("tiene_director", False),
+            aprobador_vac_email=row.get("aprobador_vac_email"),
+            fallback_emails=rh_emails,
+        )
+        destinatarios = resuelto["to"]
         if not destinatarios:
             logger.warning("[%s] Sin destinatarios para id=%s", log_tag, row["id"])
             continue
-        cc_emails = rh_emails if row.get("tiene_director") and jefe_emails else set()
+        cc_emails = resuelto["cc"]
         recordatorio_numero = int(row.get(campo_contador) or 0) + 1
         enviado = await notify_fn(
             conn,
             destinatarios=destinatarios,
             cc_emails=cc_emails,
-            via_rh=not jefe_emails,
+            url_aprobacion=resuelto["url"],
+            label_boton=resuelto["label_boton"],
             es_recordatorio=True,
             recordatorio_numero=recordatorio_numero,
             **row_to_kwargs(row),

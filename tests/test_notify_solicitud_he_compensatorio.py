@@ -57,6 +57,8 @@ async def test_notify_horas_extra_solicitud_envia_y_notifica(monkeypatch):
         extra_fmt="2h",
         motivo="Cierre urgente",
         destinatarios={"jefe@enertika.mx"},
+        url_aprobacion="https://app.test/perfil/ui?tab=aprobaciones",
+        label_boton="Revisar en Aprobaciones",
     )
 
     assert enviado is True
@@ -75,6 +77,8 @@ async def test_notify_horas_extra_solicitud_recordatorio_cambia_subject(monkeypa
         extra_fmt="2h",
         motivo="Cierre urgente",
         destinatarios={"jefe@enertika.mx"},
+        url_aprobacion="https://app.test/perfil/ui?tab=aprobaciones",
+        label_boton="Revisar en Aprobaciones",
         es_recordatorio=True,
     )
 
@@ -91,6 +95,8 @@ async def test_notify_compensatorio_solicitud_envia_y_notifica(monkeypatch):
         minutos_fmt="1h 30m",
         motivo="Descanso",
         destinatarios={"jefe@enertika.mx"},
+        url_aprobacion="https://app.test/perfil/ui?tab=aprobaciones",
+        label_boton="Revisar en Aprobaciones",
     )
 
     assert enviado is True
@@ -108,6 +114,8 @@ async def test_notify_solicitud_sin_destinatarios_no_envia(monkeypatch):
         extra_fmt="2h",
         motivo="",
         destinatarios=set(),
+        url_aprobacion="https://app.test/perfil/ui?tab=aprobaciones",
+        label_boton="Revisar en Aprobaciones",
     )
 
     assert enviado is False

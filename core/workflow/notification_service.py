@@ -559,7 +559,8 @@ class NotificationService:
         template_context: dict,
         destinatarios: set[str],
         cc_emails: set[str] | None = None,
-        via_rh: bool = False,
+        url_aprobacion: str,
+        label_boton: str,
         es_recordatorio: bool = False,
         recordatorio_numero: int | None = None,
         log_tag: str,
@@ -568,6 +569,9 @@ class NotificationService:
         Orquestacion compartida por las solicitudes de horas-extra y compensatorio:
         misma forma (render + envio + broadcast in-app), solo cambian el template,
         el copy de asunto/notificacion y los campos propios de cada entidad.
+
+        url_aprobacion/label_boton los entrega el resolver unico de destinatarios
+        (modules.asistencia.service.resolver_destinatarios_he_puro) — no se infieren aqui.
         """
         try:
             if not destinatarios:
@@ -575,12 +579,6 @@ class NotificationService:
                 return False
 
             cc_emails = cc_emails or set()
-            if via_rh:
-                url_aprobacion = f"{settings.APP_BASE_URL}/rrhh?tab=aprobaciones"
-                label_boton = "Revisar en RRHH"
-            else:
-                url_aprobacion = f"{settings.APP_BASE_URL}/perfil/ui?tab=equipo"
-                label_boton = "Revisar en Mi Equipo"
 
             html = self._render_template(
                 template_path,
@@ -628,7 +626,8 @@ class NotificationService:
         motivo: str,
         destinatarios: set[str],
         cc_emails: set[str] | None = None,
-        via_rh: bool = False,
+        url_aprobacion: str,
+        label_boton: str,
         es_recordatorio: bool = False,
         recordatorio_numero: int | None = None,
     ) -> bool:
@@ -649,7 +648,8 @@ class NotificationService:
             },
             destinatarios=destinatarios,
             cc_emails=cc_emails,
-            via_rh=via_rh,
+            url_aprobacion=url_aprobacion,
+            label_boton=label_boton,
             es_recordatorio=es_recordatorio,
             recordatorio_numero=recordatorio_numero,
             log_tag="SOLICITUD_HORAS_EXTRA",
@@ -665,7 +665,8 @@ class NotificationService:
         motivo: str,
         destinatarios: set[str],
         cc_emails: set[str] | None = None,
-        via_rh: bool = False,
+        url_aprobacion: str,
+        label_boton: str,
         es_recordatorio: bool = False,
         recordatorio_numero: int | None = None,
     ) -> bool:
@@ -686,11 +687,71 @@ class NotificationService:
             },
             destinatarios=destinatarios,
             cc_emails=cc_emails,
-            via_rh=via_rh,
+            url_aprobacion=url_aprobacion,
+            label_boton=label_boton,
             es_recordatorio=es_recordatorio,
             recordatorio_numero=recordatorio_numero,
             log_tag="SOLICITUD_HE_COMP",
         )
+
+    async def notify_he_solicitud_retirada(
+        self,
+        conn,
+        *,
+        empleado_nombre: str,
+        fecha_laboral,
+        extra_fmt: str,
+        destinatarios: set[str],
+    ) -> bool:
+        """Aviso informativo (sin recordatorios) cuando el dueno retira una HE en estado 'solicitado'."""
+        try:
+            if not destinatarios:
+                logger.info("[NOTIFY] HE_SOLICITUD_RETIRADA sin destinatarios — omitiendo")
+                return False
+            html = self._render_template(
+                "shared/emails/vacaciones/horas_extra_retiro.html",
+                {
+                    "empleado_nombre": empleado_nombre,
+                    "fecha": fecha_laboral.strftime("%d/%m/%Y"),
+                    "extra_fmt": extra_fmt,
+                },
+            )
+            subject = f"Solicitud de horas extra retirada: {empleado_nombre}"
+            sender_config = await self._get_notification_sender(conn, "DEFAULT")
+            return await self._send_email(destinatarios, set(), subject, html, sender_config["email"])
+        except asyncpg.PostgresError as exc:
+            logger.error("[NOTIFY] Error BD en HE_SOLICITUD_RETIRADA: %s", exc, exc_info=True)
+        except httpx.HTTPError as exc:
+            logger.error("[NOTIFY] Error red en HE_SOLICITUD_RETIRADA: %s", exc, exc_info=True)
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as exc:
+            logger.error("[NOTIFY] Error inesperado en HE_SOLICITUD_RETIRADA: %s", exc, exc_info=True)
+        return False
+
+    async def notify_aprobador_he_inactivo(
+        self,
+        conn,
+        *,
+        empleados_afectados: list[dict],
+        destinatarios: set[str],
+    ) -> bool:
+        """Post-baja: avisa a RH/ADMIN que un aprobador HE exclusivo quedo inactivo y debe reasignarse."""
+        try:
+            if not destinatarios or not empleados_afectados:
+                return False
+            html = self._render_template(
+                "shared/emails/vacaciones/aprobador_he_inactivo.html",
+                {"empleados_afectados": empleados_afectados},
+            )
+            subject = f"Aprobador de horas extra inactivo — {len(empleados_afectados)} empleado(s) afectados"
+            sender_config = await self._get_notification_sender(conn, "DEFAULT")
+            return await self._send_email(destinatarios, set(), subject, html, sender_config["email"])
+        except asyncpg.PostgresError as exc:
+            logger.error("[NOTIFY] Error BD en APROBADOR_HE_INACTIVO: %s", exc, exc_info=True)
+        except httpx.HTTPError as exc:
+            logger.error("[NOTIFY] Error red en APROBADOR_HE_INACTIVO: %s", exc, exc_info=True)
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as exc:
+            logger.error("[NOTIFY] Error inesperado en APROBADOR_HE_INACTIVO: %s", exc, exc_info=True)
+        return False
 
     async def _notify_resumen_rh(
         self,

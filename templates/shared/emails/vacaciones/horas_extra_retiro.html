@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><title>Solicitud de horas extra retirada — {{ empleado_nombre }}</title></head>
+<body style="margin:0;padding:0;font-family:'Segoe UI',sans-serif;background-color:#f4f4f4;color:#333;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:20px 0;">
+<tr><td align="center">
+  <table width="600" cellpadding="0" cellspacing="0" style="background-color:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+    <tr>
+      <td style="background:linear-gradient(135deg,#123456 0%,#00BABB 100%);padding:30px 40px;text-align:center;">
+        <h1 style="margin:0;color:#fff;font-size:24px;font-weight:600;">Solicitud de horas extra retirada</h1>
+        <p style="margin:10px 0 0;color:#E0F7F7;font-size:14px;">Ya no requiere aprobación</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:40px;">
+        <p style="margin:0 0 20px;font-size:16px;">Hola,</p>
+        <p style="margin:0 0 24px;color:#555;font-size:15px;line-height:1.6;">
+          <strong>{{ empleado_nombre }}</strong> retiró su solicitud de aprobación de horas extra. No es necesario tomar ninguna acción.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9f9f9;border-left:4px solid #00BABB;border-radius:4px;margin-bottom:28px;">
+          <tr><td style="padding:20px;">
+            <table width="100%" cellpadding="7" cellspacing="0">
+              <tr>
+                <td width="140" style="color:#123456;font-weight:600;font-size:14px;">Empleado:</td>
+                <td style="font-size:14px;">{{ empleado_nombre }}</td>
+              </tr>
+              <tr>
+                <td style="color:#123456;font-weight:600;font-size:14px;">Fecha:</td>
+                <td style="font-size:14px;">{{ fecha }}</td>
+              </tr>
+              <tr>
+                <td style="color:#123456;font-weight:600;font-size:14px;">Horas extra:</td>
+                <td style="font-size:14px;"><strong>{{ extra_fmt }}</strong></td>
+              </tr>
+            </table>
+          </td></tr>
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td style="background:#f8f9fa;padding:20px 40px;text-align:center;border-top:1px solid #e0e0e0;">
+        <p style="margin:0;color:#00BABB;font-weight:700;">ECO — Enertika Core Ops</p>
+        <p style="margin:8px 0 0;color:#ccc;font-size:11px;">Correo automático. No responder.</p>
+      </td>
+    </tr>
+  </table>
+</td></tr>
+</table>
+</body>
+</html>

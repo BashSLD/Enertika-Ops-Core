@@ -12,6 +12,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from core.database import get_db_connection
+from core.permissions import user_has_module_access
 from core.security import get_current_user_context
 from core.timezone import fmt_time_mx, today_mx
 from modules.asistencia import db_service as asistencia_db
@@ -24,7 +25,9 @@ from modules.asistencia.schemas import SolicitudManualIn
 from modules.asistencia.service import (
     crear_solicitud_manual_svc,
     get_dias_retroactivo_manual,
+    get_equipo_visible_he,
     get_he_bolsa_ctx,
+    marcar_puede_autorizar_he,
     omitir_horas_extra_propio_svc,
     preparar_solicitud_manual_svc,
 )
@@ -155,7 +158,8 @@ def _context_con_perfil(context: dict, perfil: dict | None) -> dict:
 def _resolve_initial_tab(
     tab: str | None,
     *,
-    es_jefe_o_aprobador: bool,
+    puede_ver_aprobaciones: bool,
+    puede_ver_equipo: bool,
     solicitud_id: UUID | None,
     origen: str,
     equipo_uid: UUID | None,
@@ -174,7 +178,9 @@ def _resolve_initial_tab(
         return "firma", f"/perfil/firma?solicitud_pendiente_id={solicitud_pendiente_id}"
 
     initial_tab = tab if tab in PERFIL_TAB_ENDPOINTS else "asistencia"
-    if initial_tab in {"aprobaciones", "equipo"} and not es_jefe_o_aprobador:
+    if initial_tab == "aprobaciones" and not puede_ver_aprobaciones:
+        initial_tab = "asistencia"
+    elif initial_tab == "equipo" and not puede_ver_equipo:
         initial_tab = "asistencia"
     return initial_tab, PERFIL_TAB_ENDPOINTS[initial_tab]
 
@@ -198,23 +204,37 @@ async def perfil_ui(
     tipos = await vac_db.get_tipos_ausencia(conn)
     firma = await signatures_db.get_firma_usuario(conn, usuario_id)
     es_jefe = await vac_service.es_jefe_o_aprobador_de_alguien(conn, usuario_id)
+    es_rrhh_viewer = user_has_module_access("rrhh", context, "viewer")
     hoy = today_mx()
     fecha_inicio = hoy - timedelta(days=30)
     if es_jefe:
         pendientes_aprobacion = await vac_db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
         equipo_ids = await vac_db.get_equipo_ids_jefe_o_aprobador(conn, usuario_id)
-        he_solicitadas = await asistencia_db.get_horas_extra_equipo(
-            conn, equipo_ids, fecha_inicio, hoy, estados=("solicitado",)
-        )
-        comp_pendientes = await asistencia_db.get_he_compensatorio_pendientes(conn, equipo_ids)
     else:
         pendientes_aprobacion = []
+        equipo_ids = []
+    equipo_visible_he, autorizable_he_set = await get_equipo_visible_he(
+        conn, usuario_id, context, equipo_ids
+    )
+    if equipo_visible_he:
+        he_solicitadas = await asistencia_db.get_horas_extra_equipo(
+            conn, equipo_visible_he, fecha_inicio, hoy, estados=("solicitado",)
+        )
+        comp_pendientes = await asistencia_db.get_he_compensatorio_pendientes(conn, equipo_visible_he)
+    else:
         he_solicitadas = []
         comp_pendientes = []
+    marcar_puede_autorizar_he(he_solicitadas, autorizable_he_set)
+    marcar_puede_autorizar_he(comp_pendientes, autorizable_he_set)
+    he_autorizables_count = sum(1 for r in he_solicitadas if r["puede_autorizar_he"])
+    comp_autorizables_count = sum(1 for r in comp_pendientes if r["puede_autorizar_he"])
     es_jefe_o_aprobador = es_jefe
+    puede_ver_equipo = es_jefe or es_rrhh_viewer or bool(autorizable_he_set)
+    puede_ver_aprobaciones = es_jefe or es_rrhh_viewer or bool(autorizable_he_set)
     initial_tab, initial_endpoint = _resolve_initial_tab(
         tab,
-        es_jefe_o_aprobador=es_jefe_o_aprobador,
+        puede_ver_aprobaciones=puede_ver_aprobaciones,
+        puede_ver_equipo=puede_ver_equipo,
         solicitud_id=solicitud_id,
         origen=origen,
         equipo_uid=equipo_uid,
@@ -228,8 +248,10 @@ async def perfil_ui(
         "tipos": tipos,
         "firma": firma,
         "es_jefe_o_aprobador": es_jefe_o_aprobador,
+        "puede_ver_aprobaciones": puede_ver_aprobaciones,
+        "puede_ver_equipo": puede_ver_equipo,
         "pendientes_aprobaciones_count": (
-            len(pendientes_aprobacion) + len(he_solicitadas) + len(comp_pendientes)
+            len(pendientes_aprobacion) + he_autorizables_count + comp_autorizables_count
         ),
         "initial_tab": initial_tab,
         "initial_endpoint": initial_endpoint,

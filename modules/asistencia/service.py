@@ -13,6 +13,7 @@ from fastapi import UploadFile
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
+from core.config import settings
 from core.config_service import ConfigService
 from core.database import get_db_pool
 from core.integrations.sharepoint import SharePointService
@@ -38,6 +39,15 @@ from modules.vacaciones import db_service as vacaciones_db
 
 logger = logging.getLogger("asistencia.service")
 
+
+class HEAutorizacionError(Exception):
+    """El actor no tiene permiso para autorizar HE/compensatorio de un tercero (403)."""
+
+
+class HEFallbackVacioError(Exception):
+    """Un cambio administrativo dejaria a empleados con aprobador HE exclusivo sin fallback (409)."""
+
+
 _SOLICITUD_MANUAL_ESTADOS = {
     "pendiente": "Pendiente",
     "aprobado": "Aprobado",
@@ -57,16 +67,74 @@ def validate_aprobacion(minutos_aprobados: int, minutos_extra: int, comentario: 
 _RRHH_EDITOR_EQUIPO_MAX_EMPLEADOS = 10000
 
 
+async def _ids_todos_empleados_rh_editor(conn) -> list[UUID]:
+    """Bypass RH editor/admin: todos los empleados con ficha (consulta y autorizacion HE).
+
+    Usa la query liviana (solo IDs, sin los joins de detalle de
+    get_all_empleados_con_datos) porque este bypass corre en cada carga de
+    Mi Perfil / detalle de solicitud para RH editor/admin, no solo en listados."""
+    return await vacaciones_db.get_all_empleado_ids_activos(
+        conn, limit=_RRHH_EDITOR_EQUIPO_MAX_EMPLEADOS
+    )
+
+
 async def get_equipo_ids(conn, user_id: UUID, user_ctx: dict) -> list[UUID]:
     if user_has_module_access("rrhh", user_ctx, "editor"):
-        rows = await vacaciones_db.get_all_empleados_con_datos(
-            conn, limit=_RRHH_EDITOR_EQUIPO_MAX_EMPLEADOS, offset=0
-        )
-        return [r["id_usuario"] for r in rows]
+        return await _ids_todos_empleados_rh_editor(conn)
 
     ids_jefe = await vacaciones_db.get_empleados_donde_soy_jefe(conn, user_id)
     ids_aprobador = await vacaciones_db.get_empleados_donde_soy_aprobador(conn, user_id)
     return list({*ids_jefe, *ids_aprobador})
+
+
+async def get_equipo_ids_para_autorizacion_he(conn, user_id: UUID, user_ctx: dict) -> list[UUID]:
+    """Alcance de AUTORIZACION de HE/compensatorio (no de consulta general).
+
+    RH editor conserva bypass total; cualquier otro usuario obtiene solo los empleados
+    donde es aprobador exclusivo HE, jefe directo sin override, o aprobador de vacaciones
+    sin override (ver db.get_empleados_para_autorizacion_he).
+    """
+    if user_has_module_access("rrhh", user_ctx, "editor"):
+        return await _ids_todos_empleados_rh_editor(conn)
+    return await db.get_empleados_para_autorizacion_he(conn, user_id)
+
+
+async def get_equipo_visible_he(
+    conn, user_id: UUID, user_ctx: dict, base_ids: list[UUID] | set[UUID] = ()
+) -> tuple[list[UUID], set[UUID]]:
+    """Union de `base_ids` (equipo de consulta general, ya resuelto por el llamador) con los
+    IDs autorizables de HE/compensatorio. Devuelve tambien el set autorizable para marcar
+    `puede_autorizar_he` por fila en listados de aprobaciones."""
+    autorizable_he_set = set(await get_equipo_ids_para_autorizacion_he(conn, user_id, user_ctx))
+    equipo_visible_he = list({*base_ids, *autorizable_he_set})
+    return equipo_visible_he, autorizable_he_set
+
+
+def marcar_puede_autorizar_he(rows: list[dict], autorizable_he_set: set[UUID]) -> None:
+    """Anota `puede_autorizar_he` in-place en cada row de un listado HE/compensatorio,
+    a partir del set devuelto por get_equipo_visible_he."""
+    for row in rows:
+        row["puede_autorizar_he"] = row["usuario_id"] in autorizable_he_set
+
+
+async def _lock_y_exigir_autorizacion_he(conn, *, empleado_id: UUID, aprobador_id: UUID) -> None:
+    """Lock actor+empleado y revalida en BD que `aprobador_id` puede autorizar HE/compensatorio
+    de terceros para `empleado_id`. Usar dentro de la transaccion, antes de mutar el registro.
+
+    NOTA anti-enumeracion (aceptado 2026-07-14): todo llamador hace `if not row: raise
+    ValueError("... no encontrado")` ANTES de invocar esta funcion, así que un actor sin
+    autorizacion sobre un registro real recibe HEAutorizacionError/403 (distinto del 400 que
+    recibe ante un id inexistente). Antes de esta feature, el chequeo equivalente
+    (`_validar_permiso_compensatorio`, ya eliminado) devolvia el mismo "no encontrada" en ambos
+    casos, ocultando deliberadamente si el id existia. Se decidio conservar el comportamiento
+    actual (distinguible) porque esto es una herramienta interna autenticada, no una API publica,
+    y lo que se filtra es solo "existe un registro con este UUID", no su contenido. Si se
+    necesita restaurar la ambiguedad, hacer que esta funcion levante el mismo ValueError/mensaje
+    "no encontrado" en vez de HEAutorizacionError."""
+    await db.lock_he_actor(conn, aprobador_id)
+    await db.lock_he_usuario(conn, empleado_id)
+    if not await db.puede_autorizar_he(conn, empleado_id, aprobador_id):
+        raise HEAutorizacionError("No tienes permiso para autorizar este registro")
 
 
 async def aprobar_horas_extra_svc(
@@ -76,22 +144,20 @@ async def aprobar_horas_extra_svc(
     aprobador_id: UUID,
     minutos_aprobados: int,
     comentario: str,
-    equipo_ids: list[UUID],
 ) -> dict:
-    row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
-    if not row:
-        raise ValueError("Registro no encontrado")
-    if row["horas_extra_estado"] not in ("pendiente", "solicitado"):
-        raise ValueError("Este registro ya fue procesado")
-    if row["usuario_id"] not in equipo_ids:
-        raise ValueError("Registro no encontrado")
-    if row["usuario_id"] == aprobador_id:
-        raise ValueError("No puedes aprobar tus propias horas extra")
-    if row.get("minutos_he_compensatorio"):
-        raise ValueError("Este dia ya tiene horas extra tomadas")
-    validate_aprobacion(minutos_aprobados, row["minutos_extra"], comentario)
-
     async with conn.transaction():
+        row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
+        if not row:
+            raise ValueError("Registro no encontrado")
+        await _lock_y_exigir_autorizacion_he(
+            conn, empleado_id=row["usuario_id"], aprobador_id=aprobador_id
+        )
+        if row["horas_extra_estado"] not in ("pendiente", "solicitado"):
+            raise ValueError("Este registro ya fue procesado")
+        if row.get("minutos_he_compensatorio"):
+            raise ValueError("Este dia ya tiene horas extra tomadas")
+        validate_aprobacion(minutos_aprobados, row["minutos_extra"], comentario)
+
         acreditados = await db.aprobar_horas_extra(
             conn,
             asistencia_id=asistencia_id,
@@ -652,31 +718,63 @@ async def omitir_horas_extra_propio_svc(
     *,
     asistencia_id: UUID,
     usuario_id: UUID,
-) -> None:
-    row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
-    if not row:
-        raise ValueError("Registro no encontrado")
-    if row["usuario_id"] != usuario_id:
-        raise ValueError("No tienes permiso para modificar este registro")
-    if row["horas_extra_estado"] != "pendiente":
-        raise ValueError("Solo puedes descartar registros pendientes")
-    await db.omitir_horas_extra(conn, asistencia_id)
+) -> dict:
+    """Retiro propio: el dueno del registro descarta 'pendiente' o retira 'solicitado'.
+
+    No es autorizacion de terceros (valida propiedad, no puede_autorizar_he), pero usa
+    el mismo lock de empleado para linealizar contra aprobaciones/reasignaciones concurrentes.
+    """
+    async with conn.transaction():
+        await db.lock_he_usuario(conn, usuario_id)
+        row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
+        if not row:
+            raise ValueError("Registro no encontrado")
+        if row["usuario_id"] != usuario_id:
+            raise ValueError("No tienes permiso para modificar este registro")
+        if row["horas_extra_estado"] not in ("pendiente", "solicitado"):
+            raise ValueError("Solo puedes retirar registros pendientes o solicitados")
+        estado_anterior = row["horas_extra_estado"]
+        if not await db.omitir_horas_extra(conn, asistencia_id):
+            raise ValueError("Este registro ya fue procesado")
+    if estado_anterior == "solicitado":
+        await _notificar_retiro_horas_extra(conn, usuario_id=usuario_id, row=row)
+    return {"empleado_nombre": row["empleado_nombre"], "estado_anterior": estado_anterior}
+
+
+async def _notificar_retiro_horas_extra(conn, *, usuario_id: UUID, row: dict) -> None:
+    from core.workflow.notification_service import NotificationService
+
+    resuelto = await resolver_destinatarios_he(conn, usuario_id)
+    destinatarios = resuelto["to"] | resuelto["cc"]
+    if not destinatarios:
+        return
+    svc_notif = NotificationService()
+    await svc_notif.notify_he_solicitud_retirada(
+        conn,
+        empleado_nombre=row["empleado_nombre"],
+        fecha_laboral=row["fecha_laboral"],
+        extra_fmt=format_minutes(row["minutos_extra"] or 0),
+        destinatarios=destinatarios,
+    )
 
 
 async def omitir_horas_extra_svc(
     conn,
     *,
     asistencia_id: UUID,
-    equipo_ids: list[UUID],
+    aprobador_id: UUID,
 ) -> dict:
-    row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
-    if not row:
-        raise ValueError("Registro no encontrado")
-    if row["horas_extra_estado"] not in ("pendiente", "solicitado"):
-        raise ValueError("Solo se pueden descartar registros pendientes o solicitados")
-    if row["usuario_id"] not in equipo_ids:
-        raise ValueError("Registro no encontrado")
-    await db.omitir_horas_extra(conn, asistencia_id)
+    async with conn.transaction():
+        row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
+        if not row:
+            raise ValueError("Registro no encontrado")
+        await _lock_y_exigir_autorizacion_he(
+            conn, empleado_id=row["usuario_id"], aprobador_id=aprobador_id
+        )
+        if row["horas_extra_estado"] not in ("pendiente", "solicitado"):
+            raise ValueError("Solo se pueden descartar registros pendientes o solicitados")
+        if not await db.omitir_horas_extra(conn, asistencia_id):
+            raise ValueError("Este registro ya fue procesado")
     return {"empleado_nombre": row["empleado_nombre"]}
 
 
@@ -684,16 +782,19 @@ async def recuperar_horas_extra_svc(
     conn,
     *,
     asistencia_id: UUID,
-    equipo_ids: list[UUID],
+    aprobador_id: UUID,
 ) -> dict:
-    row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
-    if not row:
-        raise ValueError("Registro no encontrado")
-    if row["horas_extra_estado"] != "omitido":
-        raise ValueError("El registro no está descartado")
-    if row["usuario_id"] not in equipo_ids:
-        raise ValueError("Registro no encontrado")
-    await db.recuperar_horas_extra(conn, asistencia_id)
+    async with conn.transaction():
+        row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
+        if not row:
+            raise ValueError("Registro no encontrado")
+        await _lock_y_exigir_autorizacion_he(
+            conn, empleado_id=row["usuario_id"], aprobador_id=aprobador_id
+        )
+        if row["horas_extra_estado"] != "omitido":
+            raise ValueError("El registro no está descartado")
+        if not await db.recuperar_horas_extra(conn, asistencia_id):
+            raise ValueError("Este registro ya fue procesado")
     return {"empleado_nombre": row["empleado_nombre"]}
 
 
@@ -707,22 +808,25 @@ async def revertir_dia_horas_extra_svc(
 
     Uso exclusivo RH (sin credito que revertir en 'feriado'; reversion de credito
     en 'aprobado' via revertir_horas_extra_aprobado). Sin exposicion en UI todavia
-    — ver PENDIENTES_RH.md seccion 4.
+    — ver PENDIENTES_RH.md seccion 4. Fuera del override de aprobador exclusivo (3.6
+    del plan): el gate de acceso es RH manager, no puede_autorizar_he.
     """
     row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
     if not row:
         raise ValueError("Registro no encontrado")
 
-    estado = row["horas_extra_estado"]
-    if estado == "feriado":
-        ok = await db.recuperar_dia_feriado(conn, asistencia_id)
-    elif estado == "aprobado":
-        ok = await db.revertir_horas_extra_aprobado(conn, asistencia_id, revertido_por)
-    else:
-        raise ValueError("Solo se puede corregir un registro en estado 'feriado' o 'aprobado'")
+    async with conn.transaction():
+        await db.lock_he_usuario(conn, row["usuario_id"])
+        estado = row["horas_extra_estado"]
+        if estado == "feriado":
+            ok = await db.recuperar_dia_feriado(conn, asistencia_id)
+        elif estado == "aprobado":
+            ok = await db.revertir_horas_extra_aprobado(conn, asistencia_id, revertido_por)
+        else:
+            raise ValueError("Solo se puede corregir un registro en estado 'feriado' o 'aprobado'")
 
-    if not ok:
-        raise ValueError("El registro ya no esta en el estado esperado")
+        if not ok:
+            raise ValueError("El registro ya no esta en el estado esperado")
     return {
         "empleado_nombre": row["empleado_nombre"],
         "fecha_laboral": row["fecha_laboral"],
@@ -764,7 +868,10 @@ async def solicitar_aprobacion_svc(
 ) -> dict:
     row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
     motivo_limpio = await _validar_solicitud_horas_extra(conn, row, usuario_id, motivo)
-    await db.solicitar_aprobacion_horas_extra(conn, asistencia_id, usuario_id, motivo_limpio)
+    async with conn.transaction():
+        await db.lock_he_usuario(conn, usuario_id)
+        if not await db.solicitar_aprobacion_horas_extra(conn, asistencia_id, usuario_id, motivo_limpio):
+            raise ValueError("Este registro ya fue procesado o no aplica")
     if empleado_nombre:
         await _notificar_solicitud_horas_extra(
             conn,
@@ -775,6 +882,146 @@ async def solicitar_aprobacion_svc(
             motivo=motivo_limpio,
         )
     return {"fecha_laboral": row["fecha_laboral"], "minutos_extra": row["minutos_extra"]}
+
+
+def resolver_destinatarios_he_puro(
+    *,
+    tiene_override: bool,
+    override_email: str | None,
+    jefe_emails,
+    tiene_director: bool,
+    aprobador_vac_email: str | None,
+    fallback_emails: set[str],
+) -> dict:
+    """Logica pura del resolver unico de destinatarios TO/CC/motivo/URL para HE y compensatorio.
+
+    Sin acceso a BD: recibe columnas ya resueltas para poder reusarse tanto en la solicitud
+    inmediata/retiro propio (round trip via resolver_destinatarios_he) como en los recordatorios
+    batched del worker (columnas ya traidas por la query, sin N+1).
+
+    Prioridad: aprobador exclusivo activo (TO exclusivo, CC vacio) > aprobador exclusivo inactivo
+    (fallback RH/ADMIN, CC vacio) > regla normal: jefes activos union aprobador de vacaciones activo
+    (CC = fallback solo si algun jefe jerarquico es director Y su correo quedo en TO) > sin
+    destinatarios normales -> fallback.
+
+    ATENCION: el input `tiene_override` codifica la misma regla de precedencia (exclusivo >
+    jefe/aprobador de vacaciones) que modules.asistencia.db_service._HE_AUTORIZACION_PRECEDENCIA_QUERY
+    (fuente unica compartida por get_empleados_para_autorizacion_he y puede_autorizar_he). No se
+    unifico tambien aqui porque `tiene_override` viene de get_datos_resolucion_notificacion_he,
+    que devuelve una fila de datos de notificacion (no un booleano/lista de UUIDs) y solo necesita
+    el discriminador simple `id_aprobador_horas_extra IS NOT NULL`, sin la union con jefe/aprobador
+    de vacaciones. Si cambias la regla de precedencia, replicala tambien ahi --
+    tests/test_aprobador_he_exclusivo.py::test_consistencia_* la valida contra fixtures compartidos.
+    """
+    url_perfil = f"{settings.APP_BASE_URL}/perfil/ui?tab=aprobaciones"
+    url_rh = f"{settings.APP_BASE_URL}/rrhh/ui?tab=aprobaciones"
+
+    def _fallback_rh() -> dict:
+        return {
+            "to": set(fallback_emails),
+            "cc": set(),
+            "url": url_rh,
+            "label_boton": "Revisar en RRHH",
+        }
+
+    if tiene_override:
+        if override_email:
+            return {
+                "to": {override_email},
+                "cc": set(),
+                "url": url_perfil,
+                "label_boton": "Revisar en Aprobaciones",
+            }
+        return _fallback_rh()
+
+    jefe_emails_set = {email for email in (jefe_emails or []) if email}
+    to_emails = jefe_emails_set | ({aprobador_vac_email} if aprobador_vac_email else set())
+    if not to_emails:
+        return _fallback_rh()
+    return {
+        "to": to_emails,
+        "cc": set(fallback_emails) if (tiene_director and jefe_emails_set) else set(),
+        "url": url_perfil,
+        "label_boton": "Revisar en Aprobaciones",
+    }
+
+
+async def verificar_fallback_aprobador_he_svc(
+    conn, *, user_id: UUID, sera_fallback_despues: bool
+) -> None:
+    """Guard para deactivate_user/update_user_role/update_user_modules/save_user_all.
+
+    Llamar dentro de la misma transaccion, bajo lock_he_fallback, antes de persistir el cambio.
+    Lanza HEFallbackVacioError (409) si algun empleado con aprobador HE exclusivo quedaria sin
+    ningun destinatario de respaldo (RH editor/admin o ADMIN global) con correo.
+
+    NOTA arquitectura: este invariante ("todo aprobador HE exclusivo tiene fallback vivo") solo
+    se garantiza por convencion -- los 4 mutadores de modules/admin/service.py que pueden afectar
+    el pool de fallback (update_user_role, update_user_modules, save_user_all, deactivate_user)
+    llaman este guard. No hay backstop a nivel de esquema (es un invariante cross-row, no
+    expresable como CHECK de una sola fila); un futuro camino de escritura que cambie rol_sistema
+    o tb_permisos_modulos sin pasar por admin/service.py lo saltaria en silencio.
+    """
+    resultado = await db.verificar_fallback_aprobador_he(
+        conn, user_id=user_id, sera_fallback_despues=sera_fallback_despues
+    )
+    if resultado["afectados_count"] > 0 and not resultado["tiene_fallback"]:
+        raise HEFallbackVacioError(
+            f"No se puede completar el cambio: {resultado['afectados_count']} empleado(s) con "
+            "aprobador de horas extra exclusivo quedarian sin ningun RH o Administrador de respaldo "
+            "con correo. Asigna otro RH/Administrador activo antes de continuar."
+        )
+
+
+async def notify_aprobador_he_inactivo(
+    conn, *, aprobador_id: UUID, afectados: list[dict] | None = None
+) -> None:
+    """Post-commit, best-effort: avisa a RH/ADMIN de los empleados cuyo aprobador HE exclusivo
+    acaba de quedar inactivo. Un fallo aqui solo se registra (no revierte la baja ya confirmada) --
+    el propio try/except vive aqui (no en el llamador) para que el contrato "best-effort" se
+    cumpla sin importar quien invoque esta funcion.
+
+    `afectados`, si se pasa, evita repetir la consulta que el llamador (ej. deactivate_user via
+    _lock_y_guardar_fallback_he) ya hizo dentro de la misma transaccion recien commiteada."""
+    try:
+        if afectados is None:
+            afectados = await db.get_empleados_con_aprobador_he_exclusivo(conn, aprobador_id)
+        if not afectados:
+            return
+        fallback_emails = await db.get_fallback_rh_admin_emails(conn)
+        if not fallback_emails:
+            logger.warning(
+                "[HE_APROBADOR_INACTIVO] Sin destinatarios de fallback para avisar de %d afectado(s)",
+                len(afectados),
+            )
+            return
+        from core.workflow.notification_service import NotificationService
+
+        svc_notif = NotificationService()
+        await svc_notif.notify_aprobador_he_inactivo(
+            conn, empleados_afectados=afectados, destinatarios=fallback_emails
+        )
+    except (asyncpg.PostgresError, asyncpg.InterfaceError) as exc:
+        logger.error(
+            "[HE_APROBADOR_INACTIVO] Error avisando fallback para aprobador %s: %s",
+            aprobador_id,
+            exc,
+        )
+
+
+async def resolver_destinatarios_he(conn, usuario_id: UUID) -> dict:
+    """Wrapper con round trip a BD de resolver_destinatarios_he_puro; usar en solicitud
+    inmediata y retiro propio. Los recordatorios batched del worker llaman la version pura
+    directamente con columnas ya traidas por su query (ver core/tasks.py)."""
+    datos = await db.get_datos_resolucion_notificacion_he(conn, usuario_id)
+    return resolver_destinatarios_he_puro(
+        tiene_override=datos["tiene_override"],
+        override_email=datos.get("override_email"),
+        jefe_emails=datos.get("jefe_emails"),
+        tiene_director=datos.get("tiene_director", False),
+        aprobador_vac_email=datos.get("aprobador_vac_email"),
+        fallback_emails=set(datos.get("fallback_emails") or []),
+    )
 
 
 async def _notificar_solicitud_horas_extra(
@@ -789,21 +1036,17 @@ async def _notificar_solicitud_horas_extra(
     from core.workflow.notification_service import NotificationService
 
     svc_notif = NotificationService()
-    jefes = await db.get_jefes_del_empleado(conn, usuario_id)
-    jefe_emails = {j["email"] for j in jefes if j.get("email")}
-    rh_emails = await svc_notif._get_rh_emails_cc(conn)
-    tiene_director = any((j.get("rol_organizacional") or "").lower() == "director" for j in jefes)
-    destinatarios = jefe_emails or rh_emails
-    cc_emails = rh_emails if tiene_director and jefe_emails else set()
+    resuelto = await resolver_destinatarios_he(conn, usuario_id)
     await svc_notif.notify_horas_extra_solicitud(
         conn,
         empleado_nombre=empleado_nombre,
         fecha_laboral=fecha_laboral,
         extra_fmt=format_minutes(minutos_extra),
         motivo=motivo,
-        destinatarios=destinatarios,
-        cc_emails=cc_emails,
-        via_rh=not jefe_emails,
+        destinatarios=resuelto["to"],
+        cc_emails=resuelto["cc"],
+        url_aprobacion=resuelto["url"],
+        label_boton=resuelto["label_boton"],
     )
 
 
@@ -974,8 +1217,9 @@ async def generar_reporte_bolsa_he_svc(conn, *, scope: str, usuario_id: UUID, co
     if scope == "propio":
         usuario_ids = [usuario_id]
     elif scope == "equipo":
-        equipo = await get_equipo_ids(conn, usuario_id, context)
-        usuario_ids = equipo or [usuario_id]
+        equipo_consulta = await get_equipo_ids(conn, usuario_id, context)
+        equipo_visible_he, _ = await get_equipo_visible_he(conn, usuario_id, context, equipo_consulta)
+        usuario_ids = equipo_visible_he or [usuario_id]
     else:
         if not user_has_module_access("rrhh", context, "viewer"):
             raise PermissionError("No tienes acceso a este reporte")
@@ -1025,7 +1269,7 @@ async def solicitar_compensatorio_svc(
         raise ValueError("El motivo es obligatorio")
 
     async with conn.transaction():
-        await db.lock_he_bolsa_usuario(conn, usuario_id)
+        await db.lock_he_usuario(conn, usuario_id)
         schedule = await _validar_fecha_compensatorio(conn, usuario_id, fecha_descanso)
         if minutos_solicitados < 30 or minutos_solicitados > min(1440, schedule.minutos_programados):
             raise ValueError("Los minutos solicitados deben estar dentro de la jornada programada")
@@ -1059,39 +1303,32 @@ async def _notificar_compensatorio_solicitud(conn, solicitud: dict | None) -> No
     from core.workflow.notification_service import NotificationService
 
     svc_notif = NotificationService()
-    jefes = await db.get_jefes_del_empleado(conn, solicitud["usuario_id"])
-    destinatarios = {j["email"] for j in jefes if j.get("email")}
-    via_rh = False
-    if not destinatarios:
-        destinatarios = await svc_notif._get_rh_emails_cc(conn)
-        via_rh = True
+    resuelto = await resolver_destinatarios_he(conn, solicitud["usuario_id"])
     await svc_notif.notify_compensatorio_solicitud(
         conn,
         empleado_nombre=solicitud["empleado_nombre"],
         fecha_descanso=solicitud["fecha_descanso"],
         minutos_fmt=format_minutes(solicitud["minutos_solicitados"]),
         motivo=solicitud["motivo"],
-        destinatarios=destinatarios,
-        via_rh=via_rh,
+        destinatarios=resuelto["to"],
+        cc_emails=resuelto["cc"],
+        url_aprobacion=resuelto["url"],
+        label_boton=resuelto["label_boton"],
     )
 
 
-def _validar_permiso_compensatorio(solicitud: dict, aprobador_id: UUID, equipo_ids: list[UUID]) -> None:
-    if solicitud["usuario_id"] not in equipo_ids:
-        raise ValueError("Solicitud no encontrada")
-    if solicitud["usuario_id"] == aprobador_id:
-        raise ValueError("No puedes aprobar o rechazar tu propia solicitud")
-
-
 async def _lock_solicitud_compensatorio_pendiente(
-    conn, solicitud_id: UUID, aprobador_id: UUID, equipo_ids: list[UUID]
+    conn, solicitud_id: UUID, aprobador_id: UUID
 ) -> dict:
+    """FOR UPDATE del recurso, luego lock actor + lock empleado, luego revalida autorizacion."""
     solicitud = await db.get_he_compensatorio_by_id(conn, solicitud_id, for_update=True)
     if not solicitud:
         raise ValueError("Solicitud no encontrada")
+    await _lock_y_exigir_autorizacion_he(
+        conn, empleado_id=solicitud["usuario_id"], aprobador_id=aprobador_id
+    )
     if solicitud["estatus"] != "pendiente":
         raise ValueError("La solicitud ya fue procesada")
-    _validar_permiso_compensatorio(solicitud, aprobador_id, equipo_ids)
     return solicitud
 
 
@@ -1100,13 +1337,10 @@ async def aprobar_compensatorio_svc(
     *,
     solicitud_id: UUID,
     aprobador_id: UUID,
-    equipo_ids: list[UUID],
     comentario: str | None = None,
 ) -> dict:
     async with conn.transaction():
-        solicitud = await _lock_solicitud_compensatorio_pendiente(
-            conn, solicitud_id, aprobador_id, equipo_ids
-        )
+        solicitud = await _lock_solicitud_compensatorio_pendiente(conn, solicitud_id, aprobador_id)
         if solicitud["fecha_descanso"] < today_mx():
             raise ValueError("La solicitud vencio; rechazala para liberar el saldo")
 
@@ -1118,7 +1352,6 @@ async def aprobar_compensatorio_svc(
                 "Ese dia ya tiene horas extra en proceso o aprobadas; no se puede aplicar como compensatorio"
             )
 
-        await db.lock_he_bolsa_usuario(conn, solicitud["usuario_id"])
         saldo = await db.get_he_saldo_usuario(
             conn, solicitud["usuario_id"], excluir_solicitud_pendiente_id=solicitud_id
         )
@@ -1145,16 +1378,13 @@ async def rechazar_compensatorio_svc(
     *,
     solicitud_id: UUID,
     aprobador_id: UUID,
-    equipo_ids: list[UUID],
     comentario: str,
 ) -> dict:
     comentario_limpio = (comentario or "").strip()
     if not comentario_limpio:
         raise ValueError("El comentario es obligatorio")
     async with conn.transaction():
-        solicitud = await _lock_solicitud_compensatorio_pendiente(
-            conn, solicitud_id, aprobador_id, equipo_ids
-        )
+        solicitud = await _lock_solicitud_compensatorio_pendiente(conn, solicitud_id, aprobador_id)
         updated = await db.rechazar_he_compensatorio(
             conn,
             solicitud_id=solicitud_id,
@@ -1169,7 +1399,15 @@ async def rechazar_compensatorio_svc(
 
 
 async def cancelar_compensatorio_svc(conn, *, solicitud_id: UUID, usuario_id: UUID) -> dict:
+    """Toma el row-lock de la solicitud antes que el advisory lock_he_usuario, en el mismo
+    orden que _lock_solicitud_compensatorio_pendiente (aprobar/rechazar) — el orden inverso
+    (advisory antes que row-lock) puede producir un deadlock detectado por Postgres si esta
+    funcion corre a la vez que una aprobacion/rechazo sobre la misma solicitud."""
     async with conn.transaction():
+        solicitud = await db.get_he_compensatorio_by_id(conn, solicitud_id, for_update=True)
+        if not solicitud or solicitud["usuario_id"] != usuario_id or solicitud["estatus"] != "pendiente":
+            raise ValueError("Solo puedes cancelar solicitudes pendientes propias")
+        await db.lock_he_usuario(conn, usuario_id)
         updated = await db.cancelar_he_compensatorio(
             conn,
             solicitud_id=solicitud_id,
@@ -1210,6 +1448,7 @@ async def confirmar_saldo_inicial_svc(
         raise ValueError("Solo el jefe directo o RRHH pueden confirmar este saldo")
     fecha_corte = await get_he_bolsa_fecha_corte(conn)
     async with conn.transaction():
+        await db.lock_he_usuario(conn, usuario_id)
         try:
             return await db.confirmar_saldo_inicial(
                 conn,
@@ -1240,7 +1479,7 @@ async def ajuste_manual_svc(
     if not concepto_limpio:
         raise ValueError("El concepto es obligatorio")
     async with conn.transaction():
-        await db.lock_he_bolsa_usuario(conn, usuario_id)
+        await db.lock_he_usuario(conn, usuario_id)
         if tipo_limpio == "DEBITO":
             saldo = await db.get_he_saldo_usuario(conn, usuario_id)
             validar_debito_compensatorio(saldo["minutos_disponibles"], minutos)
@@ -1334,7 +1573,9 @@ async def subir_evidencias_he_y_solicitar_svc(
 
     try:
         async with conn.transaction():
-            await db.solicitar_aprobacion_horas_extra(conn, asistencia_id, usuario_id, motivo_limpio)
+            await db.lock_he_usuario(conn, usuario_id)
+            if not await db.solicitar_aprobacion_horas_extra(conn, asistencia_id, usuario_id, motivo_limpio):
+                raise ValueError("Este registro ya fue procesado o no aplica")
             for file, result, size in upload_results:
                 await db.insertar_he_evidencia(
                     conn,

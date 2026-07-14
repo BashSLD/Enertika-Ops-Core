@@ -132,6 +132,7 @@
         <p class="text-xs text-gray-500">{{ sol.fecha_descanso.strftime('%d/%m/%Y') }} &middot; {{ sol.minutos_solicitados }} min</p>
         <p class="mt-1 text-xs text-gray-400">{{ sol.motivo }}</p>
       </div>
+      {% if sol.puede_autorizar_he %}
       <div class="flex flex-wrap gap-2">
         <button type="button"
                 hx-post="/asistencia/api/compensatorio/{{ sol.id }}/aprobar"
@@ -160,6 +161,9 @@
           </button>
         </form>
       </div>
+      {% else %}
+      <span class="text-xs italic text-gray-400">Autoriza el aprobador exclusivo asignado</span>
+      {% endif %}
     </div>
     {% endfor %}
   </div>
@@ -274,6 +278,7 @@
           {{ he_evidencias.he_evidencia_links(row.evidencias) }}
         </div>
 
+        {% if row.puede_autorizar_he %}
         <div class="flex items-center gap-2 flex-shrink-0">
           <button
             @click="openAprobar('{{ row.id }}')"
@@ -290,6 +295,9 @@
             Rechazar
           </button>
         </div>
+        {% else %}
+        <span class="text-xs italic text-gray-400 flex-shrink-0">Autoriza el aprobador exclusivo asignado</span>
+        {% endif %}
       </div>
       {% endfor %}
     </div>

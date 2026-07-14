@@ -84,6 +84,38 @@
     </select>
   </div>
 
+  <div x-data="{ accionHE: '{{ 'conservar_inactivo' if (empleado and empleado.id_aprobador_horas_extra and not empleado.aprobador_he_activo) else ('asignar' if (empleado and empleado.id_aprobador_horas_extra) else 'regla_normal') }}' }">
+    <label class="block text-xs font-medium text-gray-600 mb-1">Aprobador exclusivo de horas extra</label>
+    {% if empleado and empleado.id_aprobador_horas_extra and not empleado.aprobador_he_activo %}
+    <p class="text-xs text-amber-600 mb-1">
+      Asignado a <strong>{{ empleado.aprobador_he_nombre }}</strong>, quien está inactivo. Mientras no se
+      reasigne, las solicitudes de este empleado se dirigen a RRHH/Administradores.
+    </p>
+    {% endif %}
+    <select name="accion_aprobador_he" x-model="accionHE"
+      class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30 bg-white">
+      <option value="regla_normal">Regla normal (jefe directo o aprobador de vacaciones)</option>
+      <option value="asignar">Asignar aprobador exclusivo</option>
+      {% if empleado and empleado.id_aprobador_horas_extra and not empleado.aprobador_he_activo %}
+      <option value="conservar_inactivo">Conservar asignación inactiva (no reasignar aún)</option>
+      {% endif %}
+    </select>
+    <div x-show="accionHE === 'asignar'" x-cloak class="mt-2">
+      <select name="id_aprobador_horas_extra"
+        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30 bg-white">
+        <option value="">— Selecciona un usuario —</option>
+        {% for u in usuarios %}
+        {% if u.id_usuario != usuario.id_usuario and u.email %}
+        <option value="{{ u.id_usuario }}"
+          {% if empleado and empleado.id_aprobador_horas_extra and empleado.id_aprobador_horas_extra | string == u.id_usuario | string %}selected{% endif %}>
+          {{ u.nombre }}
+        </option>
+        {% endif %}
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
   <div>
     <label class="block text-xs font-medium text-gray-600 mb-1">
       Jefes directos

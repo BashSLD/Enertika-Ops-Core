@@ -13,8 +13,10 @@ from modules.asistencia import db_service as asistencia_db
 from modules.asistencia.service import (
     attach_he_evidencias,
     build_horas_extra_grupos,
+    get_equipo_visible_he,
     get_he_bolsa_fecha_corte,
     get_he_niveles_equipo_ctx,
+    marcar_puede_autorizar_he,
     recalcular_asistencia,
 )
 from modules.shared import signatures_db_service as signatures_db
@@ -346,11 +348,16 @@ async def get_aprobaciones_ctx_svc(conn, context: dict, **extra) -> dict:
     ids_jefe = await db.get_empleados_donde_soy_jefe(conn, usuario_id)
     ids_aprobador = await db.get_empleados_donde_soy_aprobador(conn, usuario_id)
     equipo_ids = list({*ids_jefe, *ids_aprobador})
-    horas_extra_rows = await asistencia_db.get_horas_extra_equipo(
-        conn, equipo_ids, fecha_inicio, hoy
+    equipo_visible_he, autorizable_he_set = await get_equipo_visible_he(
+        conn, usuario_id, context, equipo_ids
     )
+    horas_extra_rows = await asistencia_db.get_horas_extra_equipo(
+        conn, equipo_visible_he, fecha_inicio, hoy
+    )
+    marcar_puede_autorizar_he(horas_extra_rows, autorizable_he_set)
     await attach_he_evidencias(conn, horas_extra_rows)
-    comp_pendientes = await asistencia_db.get_he_compensatorio_pendientes(conn, equipo_ids)
+    comp_pendientes = await asistencia_db.get_he_compensatorio_pendientes(conn, equipo_visible_he)
+    marcar_puede_autorizar_he(comp_pendientes, autorizable_he_set)
     fecha_corte = await get_he_bolsa_fecha_corte(conn)
     saldo_inicial_pendientes = await asistencia_db.get_saldo_inicial_pendientes(
         conn, ids_jefe, fecha_corte=fecha_corte

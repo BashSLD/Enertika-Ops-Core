@@ -745,6 +745,8 @@ async def empleado_guardar(
     id_aprobador_vacaciones: Optional[UUID] = Form(None),
     dias_vacaciones_ajuste: Optional[int] = Form(None),
     jefes_ids: List[UUID] = Form(default=[]),
+    accion_aprobador_he: str = Form("regla_normal"),
+    id_aprobador_horas_extra: Optional[UUID] = Form(None),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "editor"),
@@ -762,6 +764,8 @@ async def empleado_guardar(
             dias_vacaciones_ajuste=dias_vacaciones_ajuste,
             jefes_ids=jefes_ids,
             updated_by=UUID(str(context["user_db_id"])),
+            accion_aprobador_he=accion_aprobador_he,
+            id_aprobador_horas_extra_input=id_aprobador_horas_extra,
         )
     except ValueError as e:
         return toast_error(request, str(e))

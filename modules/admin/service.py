@@ -11,6 +11,7 @@ import logging
 import secrets
 import time
 
+import asyncpg
 from fastapi import UploadFile
 from .schemas import ConfiguracionGlobalUpdate, EmailRuleCreate
 from .db_service import AdminDBService
@@ -19,11 +20,56 @@ from core.config_service import ConfigService
 from core.integrations.sharepoint import SharePointService
 from core.microsoft import MicrosoftAuth, get_ms_auth
 from core.timezone import now_mx
+from modules.asistencia import db_service as asistencia_db
 from modules.asistencia.constants import BIOTIME_CONFIG_KEYS
+from modules.asistencia.service import (
+    notify_aprobador_he_inactivo,
+    verificar_fallback_aprobador_he_svc,
+)
 from modules.cfe.constants import CFE_CONFIG_KEYS, SHAREPOINT_CFE_TOOLS_FOLDER
 from .permission_utils import validate_module_roles
 
 logger = logging.getLogger("AdminModule")
+
+
+def _es_fallback_valido(rol_sistema: str | None, rrhh_rol: str | None) -> bool:
+    """Predicado puro: True si este rol_sistema/rol de modulo RRHH cuenta como fallback
+    RH/ADMIN de aprobador HE exclusivo. Compartido por los `calcular_sera_fallback_despues`
+    de update_user_role/update_user_modules/save_user_all (deactivate_user usa siempre False,
+    no este predicado, porque el usuario se esta dando de baja)."""
+    return rol_sistema == "ADMIN" or rrhh_rol in ("editor", "admin")
+
+
+async def _lock_y_guardar_fallback_he(
+    conn, *, user_id: UUID, calcular_sera_fallback_despues
+) -> None:
+    """Lock + guard de fallback HE exclusivo. Llamar al inicio de la transaccion en todo
+    mutador de admin que pueda afectar el pool de fallback RH/ADMIN (baja, rol, modulos).
+    `calcular_sera_fallback_despues` es una coroutine sin argumentos que el llamador ejecuta
+    DESPUES de que el lock ya esta tomado — si leyera permisos/rol actuales antes del lock,
+    ese valor podria quedar obsoleto frente a un cambio concurrente sobre el mismo usuario que
+    commitea justo en la ventana entre la lectura y la adquisicion del lock.
+
+    Ademas del lock global de fallback, toma lock_he_actor(user_id) y lock_he_usuario de cada
+    empleado cuyo aprobador HE exclusivo es user_id, en orden por UUID. Esto serializa el cambio
+    administrativo contra cualquier aprobacion de terceros en vuelo (_lock_y_exigir_autorizacion_he
+    toma los mismos locks), evitando que una revocacion concurrente deje terminar una autorizacion
+    con permisos ya retirados.
+
+    No devuelve `afectados`: la lista se consulta aqui solo para saber a quien tomarle
+    lock_he_usuario. Un llamador que necesite notificar a los afectados (ej. deactivate_user)
+    debe volver a consultarlos post-commit via notify_aprobador_he_inactivo (sin pasarle
+    `afectados`), para no basar la notificacion en un snapshot tomado antes de que los locks
+    por-empleado estuvieran adquiridos."""
+    await asistencia_db.lock_he_fallback(conn)
+    await asistencia_db.lock_he_actor(conn, user_id)
+    afectados = await asistencia_db.get_empleados_con_aprobador_he_exclusivo(conn, user_id)
+    for row in sorted(afectados, key=lambda r: r["usuario_id"]):
+        await asistencia_db.lock_he_usuario(conn, row["usuario_id"])
+    sera_fallback_despues = await calcular_sera_fallback_despues()
+    await verificar_fallback_aprobador_he_svc(
+        conn, user_id=user_id, sera_fallback_despues=sera_fallback_despues
+    )
 
 
 class AdminService:
@@ -479,7 +525,18 @@ class AdminService:
             user_id: ID del usuario
             role: Nuevo rol (ADMIN/MANAGER/USER)
         """
-        await self.db.update_user_role(conn, user_id, role)
+        user_id = UUID(str(user_id))
+
+        async def _calcular_sera_fallback():
+            permisos = await self.db.fetch_user_permissions(conn, user_id)
+            rrhh_rol = next((p["rol_modulo"] for p in permisos if p["modulo_slug"] == "rrhh"), None)
+            return _es_fallback_valido(role, rrhh_rol)
+
+        async with conn.transaction():
+            await _lock_y_guardar_fallback_he(
+                conn, user_id=user_id, calcular_sera_fallback_despues=_calcular_sera_fallback
+            )
+            await self.db.update_user_role(conn, user_id, role)
         logger.info(f"Rol actualizado para usuario {user_id}: {role}")
 
     async def update_user_department(self, conn, user_id: UUID, department_slug: Optional[str]) -> Optional[str]:
@@ -507,11 +564,21 @@ class AdminService:
             module_roles: Dict con módulo_slug: rol
         """
         validate_module_roles(module_roles)
-        await self.db.delete_user_permissions(conn, user_id)
+        user_id = UUID(str(user_id))
 
-        for module_slug, rol in module_roles.items():
-            if rol:  # Solo si hay un rol seleccionado
-                await self.db.insert_user_permission(conn, user_id, module_slug, rol)
+        async def _calcular_sera_fallback():
+            usuario = await self.db.fetch_user_by_id(conn, user_id)
+            rol_sistema = usuario.get("rol_sistema") if usuario else None
+            return _es_fallback_valido(rol_sistema, module_roles.get("rrhh"))
+
+        async with conn.transaction():
+            await _lock_y_guardar_fallback_he(
+                conn, user_id=user_id, calcular_sera_fallback_despues=_calcular_sera_fallback
+            )
+            await self.db.delete_user_permissions(conn, user_id)
+            for module_slug, rol in module_roles.items():
+                if rol:  # Solo si hay un rol seleccionado
+                    await self.db.insert_user_permission(conn, user_id, module_slug, rol)
         logger.info(f"Módulos actualizados para usuario {user_id}")
 
     async def update_preferred_module(self, conn, user_id: UUID, modulo_slug: Optional[str]) -> None:
@@ -605,8 +672,15 @@ class AdminService:
         if rol_organizacional not in ROLES_ORGANIZACIONALES_VALIDOS:
             raise ValueError(f"Rol organizacional inválido: {rol_organizacional}")
         validate_module_roles(module_roles)
+        user_id = UUID(str(user_id))
+
+        async def _calcular_sera_fallback():
+            return _es_fallback_valido(rol_sistema, module_roles.get("rrhh"))
 
         async with conn.transaction():
+            await _lock_y_guardar_fallback_he(
+                conn, user_id=user_id, calcular_sera_fallback_despues=_calcular_sera_fallback
+            )
             if department_slug:
                 dept_nombre = await self.db.fetch_department_name_by_slug(conn, department_slug)
                 if not dept_nombre:
@@ -637,10 +711,26 @@ class AdminService:
         Returns:
             Dict: Usuario actualizado con is_active=False
         """
-        await self.db.deactivate_user(conn, user_id)
-        user = await self.db.fetch_user_by_id(conn, user_id)
+        user_id = UUID(str(user_id))
+
+        async def _no_sera_fallback():
+            return False
+
+        async with conn.transaction():
+            await _lock_y_guardar_fallback_he(
+                conn, user_id=user_id, calcular_sera_fallback_despues=_no_sera_fallback
+            )
+            await self.db.deactivate_user(conn, user_id)
+            user = await self.db.fetch_user_by_id(conn, user_id)
 
         logger.info(f"Usuario desactivado (soft delete): {user_id}")
+        # Sin `afectados`: fuerza una consulta fresca post-commit en vez de reusar el
+        # snapshot pre-lock de _lock_y_guardar_fallback_he, que puede quedar obsoleto si
+        # otra transaccion reasigna a alguno de los empleados afectados durante la ventana
+        # entre esa consulta y los locks por-empleado (ver memory/feedback correspondiente).
+        # notify_aprobador_he_inactivo ya es best-effort internamente (atrapa sus propios
+        # errores de BD) -- no necesita un try/except aqui.
+        await notify_aprobador_he_inactivo(conn, aprobador_id=user_id)
         return user
 
     async def reactivate_user(self, conn, user_id: UUID) -> Dict:

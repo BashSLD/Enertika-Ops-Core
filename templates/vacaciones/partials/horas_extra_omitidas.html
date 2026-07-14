@@ -15,12 +15,16 @@
       <p class="text-xs text-gray-400 italic">"{{ row.motivo_solicitud }}"</p>
       {% endif %}
     </div>
+    {% if row.puede_autorizar_he %}
     <button
       hx-post="/asistencia/api/horas-extra/{{ row.id }}/recuperar"
       hx-swap="none"
       class="px-3 py-1 rounded-lg text-xs font-medium text-[#007C7D] border border-[#00BABB]/40 hover:bg-[#00BABB]/10 flex-shrink-0">
       Recuperar
     </button>
+    {% else %}
+    <span class="text-xs italic text-gray-400 flex-shrink-0">Autoriza el aprobador exclusivo asignado</span>
+    {% endif %}
   </div>
   {% endfor %}
 </div>

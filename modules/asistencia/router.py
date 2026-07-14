@@ -21,6 +21,7 @@ from core.workflow.notification_service import NotificationService
 from modules.asistencia import db_service as db
 from modules.asistencia.constants import ASISTENCIA_ESTADOS
 from modules.asistencia.service import (
+    HEAutorizacionError,
     ajuste_manual_svc,
     aprobar_compensatorio_svc,
     aprobar_solicitud_manual_svc,
@@ -29,6 +30,8 @@ from modules.asistencia.service import (
     confirmar_saldo_inicial_svc,
     generar_reporte_bolsa_he_svc,
     get_equipo_ids,
+    get_equipo_ids_para_autorizacion_he,
+    get_equipo_visible_he,
     get_he_bolsa_ctx,
     get_he_bolsa_fecha_corte,
     omitir_horas_extra_svc,
@@ -104,9 +107,6 @@ async def aprobar_horas_extra(
     if not context.get("user_db_id"):
         raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
-    equipo = await get_equipo_ids(conn, aprobador_id, context)
-    if not equipo:
-        raise HTTPException(status_code=403)
 
     try:
         result = await aprobar_horas_extra_svc(
@@ -115,8 +115,9 @@ async def aprobar_horas_extra(
             aprobador_id=aprobador_id,
             minutos_aprobados=minutos_aprobados,
             comentario=comentario,
-            equipo_ids=equipo,
         )
+    except HEAutorizacionError as exc:
+        return toast_error(request, str(exc), status_code=403)
     except ValueError as exc:
         return toast_error(request, str(exc))
     except asyncpg.PostgresError as exc:
@@ -124,6 +125,7 @@ async def aprobar_horas_extra(
         return toast_error(request, "Error al guardar la aprobacion", status_code=500)
 
     try:
+        equipo = await get_equipo_ids_para_autorizacion_he(conn, aprobador_id, context)
         new_count = await db.count_horas_extra_pendientes(conn, equipo)
     except asyncpg.PostgresError as exc:
         logger.error("Error contando horas extra pendientes: %s", exc)
@@ -166,14 +168,13 @@ async def omitir_horas_extra(
     if not context.get("user_db_id"):
         raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
-    equipo = await get_equipo_ids(conn, aprobador_id, context)
-    if not equipo:
-        raise HTTPException(status_code=403)
 
     try:
         result = await omitir_horas_extra_svc(
-            conn, asistencia_id=asistencia_id, equipo_ids=equipo
+            conn, asistencia_id=asistencia_id, aprobador_id=aprobador_id
         )
+    except HEAutorizacionError as exc:
+        return toast_error(request, str(exc), status_code=403)
     except ValueError as exc:
         return toast_error(request, str(exc))
     except asyncpg.PostgresError as exc:
@@ -181,6 +182,7 @@ async def omitir_horas_extra(
         return toast_error(request, "Error al descartar el registro", status_code=500)
 
     try:
+        equipo = await get_equipo_ids_para_autorizacion_he(conn, aprobador_id, context)
         new_count = await db.count_horas_extra_pendientes(conn, equipo)
     except asyncpg.PostgresError as exc:
         logger.error("Error contando horas extra pendientes: %s", exc)
@@ -207,14 +209,13 @@ async def recuperar_horas_extra(
     if not context.get("user_db_id"):
         raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
-    equipo = await get_equipo_ids(conn, aprobador_id, context)
-    if not equipo:
-        raise HTTPException(status_code=403)
 
     try:
         await recuperar_horas_extra_svc(
-            conn, asistencia_id=asistencia_id, equipo_ids=equipo
+            conn, asistencia_id=asistencia_id, aprobador_id=aprobador_id
         )
+    except HEAutorizacionError as exc:
+        return toast_error(request, str(exc), status_code=403)
     except ValueError as exc:
         return toast_error(request, str(exc))
     except asyncpg.PostgresError as exc:
@@ -222,6 +223,7 @@ async def recuperar_horas_extra(
         return toast_error(request, "Error al recuperar el registro", status_code=500)
 
     try:
+        equipo = await get_equipo_ids_para_autorizacion_he(conn, aprobador_id, context)
         new_count = await db.count_horas_extra_pendientes(conn, equipo)
     except asyncpg.PostgresError as exc:
         logger.error("Error contando horas extra pendientes: %s", exc)
@@ -406,17 +408,15 @@ async def aprobar_compensatorio(
     if not context.get("user_db_id"):
         raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
-    equipo = await get_equipo_ids(conn, aprobador_id, context)
-    if not equipo:
-        raise HTTPException(status_code=403)
     try:
         await aprobar_compensatorio_svc(
             conn,
             solicitud_id=solicitud_id,
             aprobador_id=aprobador_id,
-            equipo_ids=equipo,
             comentario=comentario,
         )
+    except HEAutorizacionError as exc:
+        return toast_error(request, str(exc), status_code=403)
     except ValueError as exc:
         return toast_error(request, str(exc))
     except asyncpg.PostgresError as exc:
@@ -440,17 +440,15 @@ async def rechazar_compensatorio(
     if not context.get("user_db_id"):
         raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
-    equipo = await get_equipo_ids(conn, aprobador_id, context)
-    if not equipo:
-        raise HTTPException(status_code=403)
     try:
         await rechazar_compensatorio_svc(
             conn,
             solicitud_id=solicitud_id,
             aprobador_id=aprobador_id,
-            equipo_ids=equipo,
             comentario=comentario,
         )
+    except HEAutorizacionError as exc:
+        return toast_error(request, str(exc), status_code=403)
     except ValueError as exc:
         return toast_error(request, str(exc))
     except asyncpg.PostgresError as exc:
@@ -500,9 +498,17 @@ async def preview_he_evidencia(
     evidencia = await db.get_he_evidencia_for_preview(conn, documento_id)
     if not evidencia:
         raise HTTPException(status_code=404, detail="Evidencia no encontrada")
-    equipo = await get_equipo_ids(conn, usuario_id, context)
+    if user_has_module_access("rrhh", context, "editor"):
+        equipo_visible_he, _ = await get_equipo_visible_he(conn, usuario_id, context, [])
+    else:
+        equipo_consulta = await get_equipo_ids(conn, usuario_id, context)
+        equipo_visible_he, _ = await get_equipo_visible_he(conn, usuario_id, context, equipo_consulta)
     es_rrhh = user_has_module_access("rrhh", context, "viewer")
-    if evidencia["usuario_id"] != usuario_id and evidencia["usuario_id"] not in equipo and not es_rrhh:
+    if (
+        evidencia["usuario_id"] != usuario_id
+        and evidencia["usuario_id"] not in equipo_visible_he
+        and not es_rrhh
+    ):
         raise HTTPException(status_code=403, detail="No tienes permiso para ver esta evidencia")
     token = await get_ms_auth().get_application_token()
     if not token:

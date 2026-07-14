@@ -26,6 +26,9 @@ class FakeConn:
     async def __aexit__(self, *exc):
         return False
 
+    async def execute(self, *_args, **_kwargs):
+        return None
+
 
 class FakeUploadFile:
     def __init__(self, filename: str, content_type: str, content: bytes = b"contenido"):
@@ -115,28 +118,9 @@ async def test_validate_he_evidencias_dentro_de_limites_ok(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_subir_evidencias_usa_token_de_aplicacion_no_delegado(monkeypatch):
+async def test_subir_evidencias_usa_token_de_aplicacion_no_delegado(monkeypatch, fake_sharepoint_he_evidencia):
     usuario_id = uuid4()
     asistencia_id = uuid4()
-    calls = {"token_requested": False}
-
-    class FakeMsAuth:
-        async def get_application_token(self):
-            calls["token_requested"] = True
-            return "token-app-123"
-
-    class FakeSharePointService:
-        def __init__(self, token):
-            self.token = token
-
-        async def _resolve_config(self, _conn):
-            return {"site_id": "site123", "drive_id": "drive123"}
-
-        async def upload_file(self, _conn, file, _folder, _config=None):
-            return {"id": f"item-{file.filename}"}
-
-        async def delete_file_by_item_id(self, _conn, _item_id, _config=None):
-            return None
 
     async def fake_get_asistencia(_conn, _id):
         return {
@@ -150,14 +134,12 @@ async def test_subir_evidencias_usa_token_de_aplicacion_no_delegado(monkeypatch)
         return set()
 
     async def fake_solicitar(_conn, _asistencia_id, _usuario_id, _motivo):
-        return None
+        return True
 
     async def fake_insertar_evidencia(_conn, **_kwargs):
         return uuid4()
 
     _patch_config(monkeypatch, {"SHAREPOINT_BASE_FOLDER": "TestFolder"})
-    monkeypatch.setattr(asistencia_service, "get_ms_auth", lambda: FakeMsAuth())
-    monkeypatch.setattr(asistencia_service, "SharePointService", FakeSharePointService)
     monkeypatch.setattr(asistencia_service.db, "get_asistencia_para_aprobar", fake_get_asistencia)
     monkeypatch.setattr(asistencia_service.db, "get_festivos_range", fake_festivos)
     monkeypatch.setattr(asistencia_service.db, "solicitar_aprobacion_horas_extra", fake_solicitar)
@@ -173,7 +155,7 @@ async def test_subir_evidencias_usa_token_de_aplicacion_no_delegado(monkeypatch)
         evidencias=[FakeUploadFile("evidencia.pdf", "application/pdf")],
     )
 
-    assert calls["token_requested"] is True
+    assert fake_sharepoint_he_evidencia["token_requested"] is True
 
 
 async def _noop():
@@ -181,27 +163,9 @@ async def _noop():
 
 
 @pytest.mark.asyncio
-async def test_subir_evidencias_cleanup_best_effort_si_falla_db(monkeypatch):
+async def test_subir_evidencias_cleanup_best_effort_si_falla_db(monkeypatch, fake_sharepoint_he_evidencia):
     usuario_id = uuid4()
     asistencia_id = uuid4()
-    deleted: list[str] = []
-
-    class FakeMsAuth:
-        async def get_application_token(self):
-            return "token-app-123"
-
-    class FakeSharePointService:
-        def __init__(self, token):
-            self.token = token
-
-        async def _resolve_config(self, _conn):
-            return {"site_id": "site123", "drive_id": "drive123"}
-
-        async def upload_file(self, _conn, file, _folder, _config=None):
-            return {"id": "item-huerfano-123"}
-
-        async def delete_file_by_item_id(self, _conn, item_id, _config=None):
-            deleted.append(item_id)
 
     async def fake_get_asistencia(_conn, _id):
         return {
@@ -218,8 +182,6 @@ async def test_subir_evidencias_cleanup_best_effort_si_falla_db(monkeypatch):
         raise asyncpg.PostgresError("fallo simulado de BD")
 
     _patch_config(monkeypatch, {"SHAREPOINT_BASE_FOLDER": "TestFolder"})
-    monkeypatch.setattr(asistencia_service, "get_ms_auth", lambda: FakeMsAuth())
-    monkeypatch.setattr(asistencia_service, "SharePointService", FakeSharePointService)
     monkeypatch.setattr(asistencia_service.db, "get_asistencia_para_aprobar", fake_get_asistencia)
     monkeypatch.setattr(asistencia_service.db, "get_festivos_range", fake_festivos)
     monkeypatch.setattr(asistencia_service.db, "solicitar_aprobacion_horas_extra", fake_solicitar_falla)
@@ -234,4 +196,5 @@ async def test_subir_evidencias_cleanup_best_effort_si_falla_db(monkeypatch):
             evidencias=[FakeUploadFile("evidencia.pdf", "application/pdf")],
         )
 
-    assert deleted == ["item-huerfano-123"]
+    assert fake_sharepoint_he_evidencia["eliminados"] == fake_sharepoint_he_evidencia["subidos"]
+    assert len(fake_sharepoint_he_evidencia["subidos"]) == 1

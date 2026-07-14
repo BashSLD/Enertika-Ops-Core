@@ -13,6 +13,11 @@ from core.permissions import user_has_module_access
 from core.security import get_current_user_context
 from core.timezone import fmt_time_mx, today_mx
 from modules.asistencia import db_service as asistencia_db
+from modules.asistencia.service import (
+    get_equipo_ids_para_autorizacion_he,
+    get_equipo_visible_he,
+    marcar_puede_autorizar_he,
+)
 from modules.shared import signatures_db_service as signatures_db
 from modules.shared.utils import format_minutes, is_htmx, toast_error
 from modules.vacaciones import db_service as db
@@ -287,14 +292,21 @@ async def detalle_solicitud(
         )
 
     es_jefe = await service.es_jefe_o_aprobador_de_alguien(conn, usuario_id)
+    if es_jefe or es_rrhh_viewer:
+        autorizable_he_set: set = set()
+    else:
+        autorizable_he_set = set(await get_equipo_ids_para_autorizacion_he(conn, usuario_id, context))
     if es_jefe:
         pendientes_aprobacion = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
     else:
         pendientes_aprobacion = []
 
+    puede_ver_equipo_he = es_jefe or es_rrhh_viewer or bool(autorizable_he_set)
     ctx.update(
         {
-            "es_jefe_o_aprobador": es_jefe or es_rrhh_viewer,
+            "es_jefe_o_aprobador": puede_ver_equipo_he,
+            "puede_ver_aprobaciones": puede_ver_equipo_he,
+            "puede_ver_equipo": puede_ver_equipo_he,
             "pendientes_aprobaciones_count": len(pendientes_aprobacion),
             "tab_activa": "aprobaciones" if origen == "aprobaciones" else "solicitudes",
             "user_name": context.get("user_name"),
@@ -496,11 +508,15 @@ async def horas_extra_omitidas(
     usuario_id = UUID(str(context["user_db_id"]))
     ids_jefe = await db.get_empleados_donde_soy_jefe(conn, usuario_id)
     ids_aprobador = await db.get_empleados_donde_soy_aprobador(conn, usuario_id)
-    equipo = list({*ids_jefe, *ids_aprobador})
+    equipo_ids = list({*ids_jefe, *ids_aprobador})
+    equipo_visible_he, autorizable_he_set = await get_equipo_visible_he(
+        conn, usuario_id, context, equipo_ids
+    )
     hoy = today_mx()
     rows = await asistencia_db.get_horas_extra_omitidas_equipo(
-        conn, equipo, hoy - timedelta(days=30), hoy
+        conn, equipo_visible_he, hoy - timedelta(days=30), hoy
     )
+    marcar_puede_autorizar_he(rows, autorizable_he_set)
     for row in rows:
         row["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
         row["entrada_fmt"] = fmt_time_mx(row.get("primera_entrada"))

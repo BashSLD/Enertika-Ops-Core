@@ -1625,6 +1625,40 @@ async def _validar_no_solapa_rango(
             raise ValueError("El rango de antiguedad se empalma con otro rango activo")
 
 
+async def _resolver_id_aprobador_horas_extra(
+    conn, *, usuario_id: UUID, existing: dict | None, accion: str, candidato_id: UUID | None
+) -> UUID | None:
+    """Backend no confia en el formulario: resuelve el UUID final segun el modo elegido.
+
+    - regla_normal: NULL (restaura jefe directo/aprobador de vacaciones).
+    - asignar: requiere un usuario activo, con correo, distinto del empleado editado.
+    - conservar_inactivo: solo valido si la asignacion actual sigue existiendo y sigue inactiva;
+      preserva el UUID actual sin cambios (no limpia la excepcion accidentalmente).
+    """
+    actual_id = existing.get("id_aprobador_horas_extra") if existing else None
+    if accion == "regla_normal":
+        return None
+    if accion == "conservar_inactivo":
+        if not actual_id:
+            raise ValueError("No hay un aprobador exclusivo de horas extra asignado que conservar")
+        actual = await rrhh_db.get_usuario_simple_by_id(conn, actual_id)
+        if not actual or actual["is_active"]:
+            raise ValueError(
+                "El aprobador exclusivo actual ya no esta inactivo; usa 'Asignar' o 'Regla normal'"
+            )
+        return actual_id
+    if accion == "asignar":
+        if not candidato_id:
+            raise ValueError("Selecciona un usuario para el aprobador exclusivo de horas extra")
+        if candidato_id == usuario_id:
+            raise ValueError("El aprobador exclusivo de horas extra no puede ser el mismo empleado")
+        candidato = await rrhh_db.get_usuario_simple_by_id(conn, candidato_id)
+        if not candidato or not candidato["is_active"] or not candidato["email"]:
+            raise ValueError("El aprobador exclusivo debe ser un usuario activo con correo")
+        return candidato_id
+    raise ValueError("Accion de aprobador de horas extra invalida")
+
+
 async def guardar_empleado(
     conn,
     usuario_id: UUID,
@@ -1637,23 +1671,41 @@ async def guardar_empleado(
     sucursal_id: UUID | None,
     jefes_ids: list[UUID],
     updated_by: UUID,
+    accion_aprobador_he: str = "regla_normal",
+    id_aprobador_horas_extra_input: UUID | None = None,
 ) -> None:
-    existing = await vac_db.get_empleado_datos(conn, usuario_id)
-    old_sucursal_id = existing["sucursal_id"] if existing else None
+    async with conn.transaction():
+        if accion_aprobador_he == "asignar" and id_aprobador_horas_extra_input:
+            # Lock del candidato ANTES del empleado: mismo orden actor->usuario que
+            # _lock_y_exigir_autorizacion_he/_lock_y_guardar_fallback_he (evita deadlock)
+            # y cierra la ventana donde el candidato podria desactivarse concurrentemente
+            # entre la lectura de is_active y el commit de esta asignacion.
+            await asistencia_db.lock_he_actor(conn, id_aprobador_horas_extra_input)
+        await asistencia_db.lock_he_usuario(conn, usuario_id)
+        existing = await vac_db.get_empleado_datos(conn, usuario_id)
+        old_sucursal_id = existing["sucursal_id"] if existing else None
+        id_aprobador_horas_extra = await _resolver_id_aprobador_horas_extra(
+            conn,
+            usuario_id=usuario_id,
+            existing=existing,
+            accion=accion_aprobador_he,
+            candidato_id=id_aprobador_horas_extra_input,
+        )
 
-    await vac_db.upsert_empleado_datos(
-        conn,
-        usuario_id=usuario_id,
-        numero_empleado=numero_empleado,
-        fecha_contratacion=fecha_contratacion,
-        puesto=puesto,
-        departamento=departamento,
-        id_aprobador_vacaciones=id_aprobador_vacaciones,
-        dias_vacaciones_ajuste=dias_vacaciones_ajuste,
-        sucursal_id=sucursal_id,
-        updated_by=updated_by,
-    )
-    await vac_db.set_jefes(conn, usuario_id, jefes_ids)
+        await vac_db.upsert_empleado_datos(
+            conn,
+            usuario_id=usuario_id,
+            numero_empleado=numero_empleado,
+            fecha_contratacion=fecha_contratacion,
+            puesto=puesto,
+            departamento=departamento,
+            id_aprobador_vacaciones=id_aprobador_vacaciones,
+            dias_vacaciones_ajuste=dias_vacaciones_ajuste,
+            sucursal_id=sucursal_id,
+            id_aprobador_horas_extra=id_aprobador_horas_extra,
+            updated_by=updated_by,
+        )
+        await vac_db.set_jefes(conn, usuario_id, jefes_ids)
 
     if sucursal_id != old_sucursal_id:
         await recalcular_asistencia_reciente_usuario(conn, usuario_id)
