@@ -786,7 +786,9 @@ async def empleado_guardar(
     except ValueError as e:
         return toast_error(request, str(e))
 
-    filas = await vac_db.get_all_empleados_con_datos(conn, limit=1, offset=0, usuario_ids=[usuario_id])
+    filas = await vac_db.get_all_empleados_con_datos(
+        conn, limit=1, offset=0, usuario_ids=[usuario_id], incluir_dados_de_baja=True
+    )
     emp = filas[0] if filas else None
     balances = await vac_service.get_balances_por_ids(conn, [usuario_id])
     return templates.TemplateResponse(

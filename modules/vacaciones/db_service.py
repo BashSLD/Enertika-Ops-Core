@@ -410,7 +410,7 @@ async def upsert_empleado_datos(
             numero_empleado           = EXCLUDED.numero_empleado,
             fecha_contratacion        = EXCLUDED.fecha_contratacion,
             puesto                    = EXCLUDED.puesto,
-            departamento              = EXCLUDED.departamento,
+            departamento              = COALESCE(EXCLUDED.departamento, tb_empleados_datos.departamento),
             id_aprobador_vacaciones   = EXCLUDED.id_aprobador_vacaciones,
             dias_vacaciones_ajuste    = COALESCE(EXCLUDED.dias_vacaciones_ajuste, tb_empleados_datos.dias_vacaciones_ajuste),
             sucursal_id               = EXCLUDED.sucursal_id,

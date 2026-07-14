@@ -185,7 +185,9 @@
       modalMinutosResto: 0,
       modalComentario: '',
       confirmandoAprobacion: false,
-      omitiendoIds: [],
+      omitirId: '',
+      omitirMotivo: '',
+      omitirEnviando: false,
       rows: [],
       gruposAbiertos: {},
       get modalMinutosTotal() {
@@ -214,18 +216,24 @@
         this.rows = this.rows.filter(r => r.id !== this.modalId);
         this.openModal = false;
       },
-      omitirRow(id, evt) {
-        this.omitiendoIds.push(id);
-        const source = evt.currentTarget;
-        const onAfterRequest = (e) => {
-          source.removeEventListener('htmx:afterRequest', onAfterRequest);
-          this.omitiendoIds = this.omitiendoIds.filter(x => x !== id);
-          if (e.detail.successful) {
-            this.rows = this.rows.filter(r => r.id !== id);
-          }
-        };
-        source.addEventListener('htmx:afterRequest', onAfterRequest);
-        htmx.ajax('POST', '/asistencia/api/horas-extra/' + id + '/omitir', { source, swap: 'none' });
+      abrirOmitir(id) {
+        this.omitirId = id;
+        this.omitirMotivo = '';
+      },
+      confirmarOmitir() {
+        const motivoLimpio = this.omitirMotivo.trim();
+        if (!motivoLimpio || this.omitirEnviando) return;
+        this.omitirEnviando = true;
+        const id = this.omitirId;
+        htmx.ajax('POST', '/asistencia/api/horas-extra/' + id + '/omitir', {
+          swap: 'none',
+          values: { comentario: motivoLimpio }
+        }).then(() => {
+          this.omitirEnviando = false;
+          this.rows = this.rows.filter(r => r.id !== id);
+          this.omitirId = '';
+          this.omitirMotivo = '';
+        });
       }
     }"
     class="bg-white rounded-2xl shadow-sm border border-blue-100 overflow-hidden">
@@ -310,17 +318,12 @@
               class="px-3 py-1 rounded-lg text-xs font-medium text-white bg-blue-600 hover:bg-blue-700">
               Aprobar
             </button>
-            <button @click="omitirRow('{{ row.id }}', $event)"
-                    :disabled="omitiendoIds.includes('{{ row.id }}')"
-                    :class="omitiendoIds.includes('{{ row.id }}') ? 'cursor-wait opacity-75' : ''"
-                    class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-white bg-red-500 hover:bg-red-600 transition-colors flex items-center gap-1.5 disabled:pointer-events-none">
-              <span x-show="omitiendoIds.includes('{{ row.id }}')" x-cloak>
-                {{ spinner_icon('w-3.5 h-3.5') }}
-              </span>
-              <svg x-show="!omitiendoIds.includes('{{ row.id }}')" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <button @click="abrirOmitir('{{ row.id }}')"
+                    class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-white bg-red-500 hover:bg-red-600 transition-colors flex items-center gap-1.5">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
               </svg>
-              <span x-text="omitiendoIds.includes('{{ row.id }}') ? 'Rechazando...' : 'Rechazar'">Rechazar</span>
+              Rechazar
             </button>
           </div>
           {% endif %}
@@ -408,6 +411,30 @@
             class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
             {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="confirmandoAprobacion" x-cloak') }}
             <span x-text="confirmandoAprobacion ? 'Aprobando...' : 'Confirmar aprobación'">Confirmar aprobación</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div x-show="omitirId !== ''" x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+         @keydown.escape.window="omitirId = ''">
+      <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl" @click.stop>
+        <h3 class="mb-1 text-base font-semibold text-gray-900">Rechazar horas extra</h3>
+        <p class="mb-3 text-sm text-gray-500">Indica el motivo del rechazo.</p>
+        <textarea x-model="omitirMotivo" rows="3" required placeholder="Explica el motivo..."
+                  :disabled="omitirEnviando"
+                  class="mb-4 w-full resize-none rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-400 disabled:opacity-60"></textarea>
+        <div class="flex gap-2">
+          <button type="button" @click="omitirId = ''" :disabled="omitirEnviando"
+                  class="flex-1 rounded-xl border border-gray-200 py-2 text-sm hover:bg-gray-50 disabled:opacity-50">Cancelar</button>
+          <button type="button" @click="confirmarOmitir()" :disabled="!omitirMotivo.trim() || omitirEnviando"
+                  class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+            {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="omitirEnviando" x-cloak') }}
+            <span x-text="omitirEnviando ? 'Rechazando...' : 'Rechazar'">Rechazar</span>
           </button>
         </div>
       </div>

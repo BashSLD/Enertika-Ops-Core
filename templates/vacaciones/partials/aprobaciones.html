@@ -9,7 +9,7 @@
 </span>
 {% endmacro %}
 
-{% macro modal_rechazo(evento, titulo, endpoint_prefix, endpoint_suffix, campo, swap, target_expr=none) %}
+{% macro modal_rechazo(evento, titulo, endpoint_prefix, endpoint_suffix, campo, swap, target_template=none) %}
 <div x-data="{ open: false, motivo: '', targetId: '', nombre: '', rechazando: false }"
      @{{ evento }}.window="open = true; targetId = $event.detail.id; nombre = $event.detail.nombre; motivo = ''; rechazando = false;"
      x-show="open"
@@ -23,7 +23,7 @@
             if (!motivoLimpio || !targetId || rechazando) return;
             rechazando = true;
             htmx.ajax('POST', '{{ endpoint_prefix }}' + targetId + '{{ endpoint_suffix }}', {
-              {% if target_expr %}target: {{ target_expr }},
+              {% if target_template %}target: '{{ target_template }}'.replace('{id}', targetId),
               {% endif %}swap: '{{ swap }}',
               values: { {{ campo }}: motivoLimpio }
             }).then(() => {
@@ -492,8 +492,8 @@
   </div>
 </div>
 
-{{ modal_rechazo('open-rechazo', 'Rechazar solicitud', '/vacaciones/solicitudes/', '/rechazar', 'motivo', 'innerHTML', target_expr="'#tab-content'") }}
+{{ modal_rechazo('open-rechazo', 'Rechazar solicitud', '/vacaciones/solicitudes/', '/rechazar', 'motivo', 'innerHTML', target_template='#tab-content') }}
 
-{{ modal_rechazo('open-rechazo-comp', 'Rechazar tiempo x tiempo', '/asistencia/api/compensatorio/', '/rechazar', 'comentario', 'outerHTML', target_expr="'#comp-row-' + targetId") }}
+{{ modal_rechazo('open-rechazo-comp', 'Rechazar tiempo x tiempo', '/asistencia/api/compensatorio/', '/rechazar', 'comentario', 'outerHTML', target_template='#comp-row-{id}') }}
 
 {{ modal_rechazo('open-rechazo-he', 'Rechazar horas extra', '/asistencia/api/horas-extra/', '/omitir', 'comentario', 'none') }}

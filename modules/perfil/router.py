@@ -558,7 +558,8 @@ async def omitir_horas_extra_propio(
 
     row = await perfil_db.get_asistencia_row_por_id(conn, asistencia_id)
     hoy = today_mx()
-    row = _preparar_asistencia_rows([row], hoy=hoy, fecha_minima=hoy)[0]
+    dias_retroactivo = await get_dias_retroactivo_manual(conn)
+    row = _preparar_asistencia_rows([row], hoy=hoy, fecha_minima=hoy - timedelta(days=dias_retroactivo))[0]
     return templates.TemplateResponse(
         request,
         "perfil/partials/he_row_actualizada.html",

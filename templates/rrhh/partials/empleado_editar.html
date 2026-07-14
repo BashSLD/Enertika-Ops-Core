@@ -90,9 +90,10 @@
   </div>
 
   <div x-data="{
-    requiereHE: {{ 'true' if (empleado and empleado.requiere_aprobador_he == True) else ('false' if (empleado and empleado.requiere_aprobador_he == False) else ('true' if (usuario.get('department') == 'Construcción') else 'false')) }},
+    requiereHE: {{ 'true' if (empleado and empleado.requiere_aprobador_he == True) else ('false' if (empleado and empleado.requiere_aprobador_he == False) else ('true' if ((empleado and empleado.id_aprobador_horas_extra) or usuario.get('department') == 'Construcción') else 'false')) }},
     idAprobadorHE: '{{ empleado.id_aprobador_horas_extra if (empleado and empleado.id_aprobador_horas_extra and empleado.aprobador_he_activo) else '' }}',
-    hasExistenteInactivo: {{ 'true' if (empleado and empleado.id_aprobador_horas_extra and not empleado.aprobador_he_activo) else 'false' }}
+    hasExistenteInactivo: {{ 'true' if (empleado and empleado.id_aprobador_horas_extra and not empleado.aprobador_he_activo) else 'false' }},
+    sugeridoSinDecision: {{ 'true' if (not (empleado and empleado.id_aprobador_horas_extra)) and (not empleado or empleado.requiere_aprobador_he is none) else 'false' }}
   }">
     <label class="flex items-start gap-2 cursor-pointer">
       <input type="checkbox" x-model="requiereHE" class="mt-0.5 rounded text-[#00BABB] focus:ring-[#00BABB]/30">
@@ -117,7 +118,7 @@
     {% endif %}
 
     <div x-show="requiereHE" x-cloak class="mt-2">
-      <select name="id_aprobador_horas_extra" x-model="idAprobadorHE" :required="requiereHE && !hasExistenteInactivo"
+      <select name="id_aprobador_horas_extra" x-model="idAprobadorHE" :required="requiereHE && !hasExistenteInactivo && !sugeridoSinDecision"
         class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30 bg-white">
         <option value="">— Selecciona un usuario —</option>
         {% for u in usuarios %}
@@ -129,7 +130,7 @@
     </div>
 
     <input type="hidden" name="accion_aprobador_he"
-      :value="!requiereHE ? 'regla_normal' : (idAprobadorHE ? 'asignar' : 'conservar_inactivo')">
+      :value="!requiereHE ? 'regla_normal' : (idAprobadorHE ? 'asignar' : (sugeridoSinDecision ? 'regla_normal' : 'conservar_inactivo'))">
   </div>
 
   <div>

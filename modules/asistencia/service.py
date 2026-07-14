@@ -1227,10 +1227,7 @@ async def generar_reporte_bolsa_he_svc(conn, *, scope: str, usuario_id: UUID, co
     else:
         if not user_has_module_access("rrhh", context, "viewer"):
             raise PermissionError("No tienes acceso a este reporte")
-        empleados = await vacaciones_db.get_all_empleados_con_datos(
-            conn, limit=10000, offset=0, incluir_dados_de_baja=False
-        )
-        todos_ids = [row["id_usuario"] for row in empleados]
+        todos_ids = await vacaciones_db.get_all_empleado_ids_activos(conn, limit=10000)
         usuario_ids = await db.get_usuario_ids_con_he_aprobada(conn, todos_ids)
 
     usuarios = await db.get_he_reporte_usuarios(conn, usuario_ids)
