@@ -220,19 +220,27 @@
         this.omitirId = id;
         this.omitirMotivo = '';
       },
-      confirmarOmitir() {
+      confirmarOmitir(evt) {
         const motivoLimpio = this.omitirMotivo.trim();
         if (!motivoLimpio || this.omitirEnviando) return;
         this.omitirEnviando = true;
         const id = this.omitirId;
+        const source = evt.currentTarget;
+        const onAfterRequest = (e) => {
+          source.removeEventListener('htmx:afterRequest', onAfterRequest);
+          this.omitirEnviando = false;
+          if (e.detail.successful) {
+            document.getElementById('rrhh-he-row-' + id)?.remove();
+            this.rows = this.rows.filter(r => r.id !== id);
+            this.omitirId = '';
+            this.omitirMotivo = '';
+          }
+        };
+        source.addEventListener('htmx:afterRequest', onAfterRequest);
         htmx.ajax('POST', '/asistencia/api/horas-extra/' + id + '/omitir', {
+          source,
           swap: 'none',
           values: { comentario: motivoLimpio }
-        }).then(() => {
-          this.omitirEnviando = false;
-          this.rows = this.rows.filter(r => r.id !== id);
-          this.omitirId = '';
-          this.omitirMotivo = '';
         });
       }
     }"
@@ -431,7 +439,7 @@
         <div class="flex gap-2">
           <button type="button" @click="omitirId = ''" :disabled="omitirEnviando"
                   class="flex-1 rounded-xl border border-gray-200 py-2 text-sm hover:bg-gray-50 disabled:opacity-50">Cancelar</button>
-          <button type="button" @click="confirmarOmitir()" :disabled="!omitirMotivo.trim() || omitirEnviando"
+          <button type="button" @click="confirmarOmitir($event)" :disabled="!omitirMotivo.trim() || omitirEnviando"
                   class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
             {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="omitirEnviando" x-cloak') }}
             <span x-text="omitirEnviando ? 'Rechazando...' : 'Rechazar'">Rechazar</span>

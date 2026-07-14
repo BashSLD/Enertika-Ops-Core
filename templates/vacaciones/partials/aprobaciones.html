@@ -22,16 +22,23 @@
             const motivoLimpio = motivo.trim();
             if (!motivoLimpio || !targetId || rechazando) return;
             rechazando = true;
+            const formEl = $event.target;
+            const onAfterRequest = (e) => {
+              formEl.removeEventListener('htmx:afterRequest', onAfterRequest);
+              rechazando = false;
+              if (e.detail.successful) {
+                open = false;
+                motivo = '';
+                targetId = '';
+                nombre = '';
+              }
+            };
+            formEl.addEventListener('htmx:afterRequest', onAfterRequest);
             htmx.ajax('POST', '{{ endpoint_prefix }}' + targetId + '{{ endpoint_suffix }}', {
+              source: formEl,
               {% if target_template %}target: '{{ target_template }}'.replace('{id}', targetId),
               {% endif %}swap: '{{ swap }}',
               values: { {{ campo }}: motivoLimpio }
-            }).then(() => {
-              rechazando = false;
-              open = false;
-              motivo = '';
-              targetId = '';
-              nombre = '';
             });
           ">
       <label class="mb-1.5 block text-sm text-gray-700">Motivo del rechazo *</label>
