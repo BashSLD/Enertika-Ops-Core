@@ -8,7 +8,9 @@ import os
 # Worker configuration
 # Railway: 2 workers ideal para plan Starter (512MB-1GB RAM)
 # Con 20 usuarios, 2 workers balancea carga sin saturar recursos
-workers = int(os.getenv("GUNICORN_WORKERS", "1"))  # Reducido a 1 para debugging
+# 1 worker es punto unico de falla: al reciclarse por max_requests, la app
+# se queda sin capacidad hasta que el nuevo worker termina de bootear.
+workers = int(os.getenv("GUNICORN_WORKERS", "2"))
 
 # Worker class: UvicornWorker para ASGI + WebSocket/SSE support
 worker_class = "uvicorn.workers.UvicornWorker"
