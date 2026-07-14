@@ -6,7 +6,6 @@ import binascii
 import json
 import logging
 import re
-import time as time_module
 import unicodedata
 import zlib
 from datetime import date, time, timedelta
@@ -1691,6 +1690,7 @@ async def guardar_empleado(
             accion=accion_aprobador_he,
             candidato_id=id_aprobador_horas_extra_input,
         )
+        requiere_aprobador_he = accion_aprobador_he != "regla_normal"
 
         await vac_db.upsert_empleado_datos(
             conn,
@@ -1703,6 +1703,7 @@ async def guardar_empleado(
             dias_vacaciones_ajuste=dias_vacaciones_ajuste,
             sucursal_id=sucursal_id,
             id_aprobador_horas_extra=id_aprobador_horas_extra,
+            requiere_aprobador_he=requiere_aprobador_he,
             updated_by=updated_by,
         )
         await vac_db.set_jefes(conn, usuario_id, jefes_ids)

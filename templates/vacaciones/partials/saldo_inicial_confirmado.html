@@ -1,0 +1,4 @@
+<div id="saldo-inicial-row-{{ usuario_id }}" hx-swap-oob="outerHTML:#saldo-inicial-row-{{ usuario_id }}"></div>
+{% with type="success", title="Confirmado", message="Saldo inicial confirmado." %}
+{% include "shared/toast.html" %}
+{% endwith %}

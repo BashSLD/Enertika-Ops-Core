@@ -763,7 +763,11 @@ async def omitir_horas_extra_svc(
     *,
     asistencia_id: UUID,
     aprobador_id: UUID,
+    comentario: str,
 ) -> dict:
+    comentario_limpio = (comentario or "").strip()
+    if not comentario_limpio:
+        raise ValueError("El motivo del rechazo es obligatorio")
     async with conn.transaction():
         row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
         if not row:
@@ -773,7 +777,7 @@ async def omitir_horas_extra_svc(
         )
         if row["horas_extra_estado"] not in ("pendiente", "solicitado"):
             raise ValueError("Solo se pueden descartar registros pendientes o solicitados")
-        if not await db.omitir_horas_extra(conn, asistencia_id):
+        if not await db.omitir_horas_extra(conn, asistencia_id, comentario_limpio):
             raise ValueError("Este registro ya fue procesado")
     return {"empleado_nombre": row["empleado_nombre"]}
 
@@ -1226,7 +1230,8 @@ async def generar_reporte_bolsa_he_svc(conn, *, scope: str, usuario_id: UUID, co
         empleados = await vacaciones_db.get_all_empleados_con_datos(
             conn, limit=10000, offset=0, incluir_dados_de_baja=False
         )
-        usuario_ids = [row["id_usuario"] for row in empleados]
+        todos_ids = [row["id_usuario"] for row in empleados]
+        usuario_ids = await db.get_usuario_ids_con_he_aprobada(conn, todos_ids)
 
     usuarios = await db.get_he_reporte_usuarios(conn, usuario_ids)
     saldos = await db.get_he_saldo_reporte(conn, usuario_ids)

@@ -18,7 +18,7 @@ from modules.asistencia import db_service as asistencia_db
 from modules.asistencia.constants import ASISTENCIA_ESTADO_LABELS, ASISTENCIA_ESTADOS
 from modules.asistencia.logic import ensure_mx
 from modules.rrhh import service
-from modules.shared.utils import excel_response, format_minutes, is_htmx, toast_error, toast_success
+from modules.shared.utils import excel_response, format_minutes, is_htmx, toast_error
 from modules.vacaciones import db_service as vac_db
 from modules.vacaciones import service as vac_service
 from core.timezone import today_mx
@@ -196,6 +196,16 @@ def _format_estado_asistencia(estado: str | None) -> str:
     if not estado:
         return ""
     return ASISTENCIA_ESTADO_LABELS.get(estado, estado.replace("_", " "))
+
+
+_ESTADO_APROBACION_HE_LABELS = {
+    "aprobado": "Aprobado",
+    "omitido": "Descartado",
+}
+
+
+def _format_estado_aprobacion_he(horas_extra_estado: str | None) -> str:
+    return _ESTADO_APROBACION_HE_LABELS.get(horas_extra_estado, "Pendiente")
 
 
 def _style_sheet(worksheet, headers: list[str]) -> None:
@@ -695,7 +705,7 @@ async def reporte_horas_extra_excel(
             "Motivo solicitud",
             "Estado aprobacion",
             "Horas aprobadas",
-            "Comentario aprobacion",
+            "Comentario Aprobado/Rechazado",
         ],
         [
             [
@@ -710,13 +720,19 @@ async def reporte_horas_extra_excel(
                 _format_estado_asistencia(row.get("estado")),
                 row.get("observaciones") or "",
                 row.get("motivo_solicitud") or "—",
-                "Aprobado" if row.get("horas_extra_estado") == "aprobado" else "Pendiente",
+                _format_estado_aprobacion_he(row.get("horas_extra_estado")),
                 format_minutes(row.get("minutos_aprobados")) if row.get("minutos_aprobados") else "—",
-                row.get("aprobacion_comentario") or "—",
+                row.get("aprobacion_comentario") or row.get("horas_extra_motivo_rechazo") or "—",
             ]
             for row in rows
         ],
     )
+    worksheet = workbook.active
+    bold_font = Font(bold=True)
+    for offset, row in enumerate(rows, start=2):
+        if row.get("horas_extra_estado") in ("aprobado", "omitido"):
+            for cell in worksheet[offset]:
+                cell.font = bold_font
     filename = f"reporte_horas_extra_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}.xlsx"
     return excel_response(workbook, filename)
 
@@ -769,7 +785,18 @@ async def empleado_guardar(
         )
     except ValueError as e:
         return toast_error(request, str(e))
-    return toast_success(request, "Datos del empleado actualizados")
+
+    filas = await vac_db.get_all_empleados_con_datos(conn, limit=1, offset=0, usuario_ids=[usuario_id])
+    emp = filas[0] if filas else None
+    balances = await vac_service.get_balances_por_ids(conn, [usuario_id])
+    return templates.TemplateResponse(
+        request, "rrhh/partials/empleado_guardado.html",
+        {
+            "emp": emp,
+            "balance": balances.get(usuario_id),
+            "can_edit_rrhh": _get_rrhh_permissions(context)["can_edit"],
+        },
+    )
 
 
 # ─────────────────────────────────────────────

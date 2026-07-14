@@ -1,0 +1,56 @@
+{% macro empleado_row(emp, b, can_edit_rrhh, oob=false) %}
+<tr id="empleado-row-{{ emp.id_usuario }}"
+    {% if oob %}hx-swap-oob="outerHTML:#empleado-row-{{ emp.id_usuario }}"{% endif %}
+    class="hover:bg-gray-50 transition-colors">
+  <td class="px-4 py-3 hidden sm:table-cell text-gray-600 w-28 whitespace-nowrap">
+    {{ emp.numero_empleado or '—' }}
+  </td>
+  <td class="px-4 py-3">
+    {% if can_edit_rrhh %}
+    <button
+      hx-get="/rrhh/empleados/{{ emp.id_usuario }}/editar"
+      hx-target="#empleado-modal-content"
+      hx-swap="innerHTML"
+      class="font-medium text-gray-800 hover:text-[#00BABB] truncate max-w-[180px] transition-colors text-left block">
+      {{ emp.nombre }}
+    </button>
+    {% else %}
+    <span class="block max-w-[180px] truncate text-left font-medium text-gray-800">
+      {{ emp.nombre }}
+    </span>
+    {% endif %}
+    <p class="text-xs text-gray-400">{{ emp.email or '—' }}</p>
+  </td>
+  <td class="px-4 py-3 hidden md:table-cell text-gray-600">
+    {{ emp.fecha_contratacion.strftime('%d/%m/%Y') if emp.fecha_contratacion else '—' }}
+  </td>
+  <td class="px-4 py-3 hidden md:table-cell text-gray-600 text-xs">
+    {{ emp.sucursal_nombre or '—' }}
+  </td>
+  <td class="px-4 py-3 hidden lg:table-cell text-gray-600 text-xs">
+    {{ emp.jefes_nombres or '—' }}
+  </td>
+  <td class="px-4 py-3 hidden lg:table-cell text-gray-600 text-xs">
+    {{ emp.aprobador_nombre or '—' }}
+  </td>
+  <td class="px-4 py-3 hidden lg:table-cell">
+    {% if b %}
+      <span class="font-semibold text-sm {{ 'text-red-600' if b.saldo_neto < 0 else 'text-gray-800' }}">{{ b.saldo_neto }} días</span>
+      {% if b.periodos %}
+        {% for p in b.periodos if p.alerta and not p.es_proximo and not p.expirado %}
+        <p class="text-xs mt-0.5 {{ 'text-red-500' if p.dias_para_expiracion < 30 else 'text-amber-500' }}">
+          Período {{ p.periodo }}: {{ p.dias_restantes }} días · vence {{ p.fecha_expiracion.strftime('%d/%m/%Y') }}
+        </p>
+        {% endfor %}
+        {% for p in b.periodos if p.tiene_prorroga and not p.es_proximo and not p.expirado %}
+        <p class="text-xs mt-0.5 text-teal-600">
+          Período {{ p.periodo }}: {{ p.dias_restantes_prorrogados }} días en prórroga · vence {{ p.fecha_expiracion_efectiva.strftime('%d/%m/%Y') }}
+        </p>
+        {% endfor %}
+      {% endif %}
+    {% else %}
+      <span class="text-xs text-gray-400">—</span>
+    {% endif %}
+  </td>
+</tr>
+{% endmacro %}

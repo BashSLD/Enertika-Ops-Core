@@ -589,6 +589,7 @@ async def get_reporte_asistencia(
             ad.minutos_he_compensatorio,
             ad.he_compensatorio_solicitud_id,
             ad.motivo_solicitud,
+            ad.horas_extra_motivo_rechazo,
             ta.nombre AS tipo_ausencia_nombre,
             ta.abreviatura AS tipo_ausencia_abreviatura,
             ta.slug AS tipo_ausencia_slug,
@@ -631,6 +632,7 @@ async def get_reporte_asistencia(
             0::int AS minutos_he_compensatorio,
             NULL::uuid AS he_compensatorio_solicitud_id,
             NULL::text AS motivo_solicitud,
+            NULL::text AS horas_extra_motivo_rechazo,
             ta.nombre AS tipo_ausencia_nombre,
             ta.abreviatura AS tipo_ausencia_abreviatura,
             ta.slug AS tipo_ausencia_slug,
@@ -943,19 +945,24 @@ async def count_horas_extra_pendientes(conn, usuario_ids: list[UUID]) -> int:
     ) or 0
 
 
-async def omitir_horas_extra(conn, asistencia_id: UUID) -> bool:
+async def omitir_horas_extra(conn, asistencia_id: UUID, motivo_rechazo: str | None = None) -> bool:
     """Devuelve False si el registro ya no estaba en 'pendiente'/'solicitado' al momento del
-    UPDATE (carrera concurrente) — el llamador debe validarlo bajo lock_he_usuario."""
+    UPDATE (carrera concurrente) — el llamador debe validarlo bajo lock_he_usuario.
+
+    `motivo_rechazo` solo aplica al rechazo de terceros (omitir_horas_extra_svc); el retiro
+    propio del empleado (omitir_horas_extra_propio_svc) no lo pide y lo deja NULL."""
     row = await conn.fetchrow(
         """
         UPDATE tb_asistencia_diaria
         SET horas_extra_estado = 'omitido',
-            horas_extra_resumen_rh_at = NULL
+            horas_extra_resumen_rh_at = NULL,
+            horas_extra_motivo_rechazo = $2
         WHERE id = $1
           AND horas_extra_estado IN ('pendiente', 'solicitado')
         RETURNING id
         """,
         asistencia_id,
+        motivo_rechazo,
     )
     return row is not None
 
@@ -1755,6 +1762,21 @@ async def get_he_saldo_reporte(conn, usuario_ids: list[UUID]) -> dict[UUID, dict
         item["minutos_disponibles"] = item["minutos_acumulados"] - item["minutos_tomados"]
         result[item["usuario_id"]] = item
     return result
+
+
+async def get_usuario_ids_con_he_aprobada(conn, usuario_ids: list[UUID]) -> list[UUID]:
+    """Subconjunto de `usuario_ids` con al menos un credito (HE aprobada) en la bolsa."""
+    if not usuario_ids:
+        return []
+    rows = await conn.fetch(
+        """
+        SELECT DISTINCT usuario_id
+        FROM tb_he_bolsa_movimientos
+        WHERE usuario_id = ANY($1::uuid[]) AND tipo = 'CREDITO'
+        """,
+        usuario_ids,
+    )
+    return [row["usuario_id"] for row in rows]
 
 
 async def get_he_movimientos_reporte(conn, usuario_ids: list[UUID]) -> list[dict]:

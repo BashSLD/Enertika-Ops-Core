@@ -1,0 +1,4 @@
+{% from "rrhh/partials/_empleado_row.html" import empleado_row %}
+{% if emp %}
+{{ empleado_row(emp, balance, can_edit_rrhh, oob=true) }}
+{% endif %}

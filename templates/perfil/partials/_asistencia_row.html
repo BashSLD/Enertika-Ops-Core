@@ -1,0 +1,141 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+{% macro asistencia_row(row) %}
+{% set estado = row.estado or 'sin_registro' %}
+<div id="he-row-mi-{{ row.id }}"
+     class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-2 {% if row.minutos_extra and row.horas_extra_estado == 'solicitado' %}bg-blue-50/40{% endif %}">
+
+  <!-- Fecha + estado -->
+  <div class="min-w-0 flex-1">
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-sm font-semibold text-gray-800">
+        {{ row.dia_semana }} {{ row.fecha_laboral.strftime('%d/%m/%Y') }}
+      </span>
+      {% if estado == 'asistencia' %}
+        <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">{{ row.estado_label }}</span>
+      {% elif estado == 'en_curso' %}
+        <span class="px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 text-xs font-medium">{{ row.estado_label }}</span>
+      {% elif estado in ('falta', 'sin_registro', 'incompleto') %}
+        <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-medium">{{ row.estado_label }}</span>
+      {% elif estado in ('vacaciones', 'checada_en_vacaciones', 'ausencia', 'checada_en_ausencia') %}
+        <span class="px-2 py-0.5 rounded-full bg-[#00BABB]/15 text-[#007C7D] text-xs font-medium">{{ row.estado_label }}</span>
+      {% elif estado in ('descanso', 'feriado') %}
+        <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">{{ row.estado_label }}</span>
+      {% else %}
+        <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">{{ row.estado_label }}</span>
+      {% endif %}
+      {% if row.tiene_ausencia_justificada and row.tipo_ausencia_nombre %}
+        <span class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-xs font-medium">{{ row.tipo_ausencia_nombre }}</span>
+      {% endif %}
+      {% if row.minutos_he_compensatorio and row.minutos_he_compensatorio > 0 %}
+        <span class="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-medium">Horas extra tomadas &middot; {{ row.he_compensatorio_fmt }}</span>
+      {% endif %}
+    </div>
+
+    {% if row.entrada_fmt %}
+    <p class="text-xs text-gray-500 mt-0.5">
+      {{ row.entrada_fmt }} → {{ row.salida_fmt or '...' }}
+      {% if row.minutos_trabajados %}&middot; {{ row.trabajado_fmt }}{% endif %}
+    </p>
+    {% endif %}
+  </div>
+
+  <!-- Horas extra + accion -->
+  {% if row.minutos_extra and row.minutos_extra > 0 %}
+  <div x-data="{ descartando: false }" class="flex flex-col gap-1.5 flex-shrink-0">
+
+    {% if row.horas_extra_estado == 'feriado' %}
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold">
+        +{{ row.extra_fmt }} extra
+      </span>
+      <span class="px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold">Feriado - pago economico</span>
+    </div>
+    {% elif row.horas_extra_estado == 'pendiente' %}
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+        +{{ row.extra_fmt }} extra
+      </span>
+      <button type="button"
+              hx-get="/asistencia/horas-extra/{{ row.id }}/form"
+              hx-target="#he-solicitud-modal"
+              hx-swap="innerHTML"
+              class="px-3 py-1 rounded-lg text-xs font-medium text-white bg-[#00BABB] hover:bg-[#009899] transition-colors">
+        Solicitar aprobación
+      </button>
+      <button hx-post="/perfil/horas-extra/{{ row.id }}/omitir"
+              hx-target="#he-row-mi-{{ row.id }}"
+              hx-swap="outerHTML"
+              hx-on::before-request="descartando = true"
+              hx-on::after-request="descartando = false"
+              :disabled="descartando"
+              :class="descartando ? 'cursor-wait opacity-75' : ''"
+              class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors disabled:pointer-events-none">
+        {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="descartando" x-cloak') }}
+        <span x-text="descartando ? 'Descartando...' : 'Descartar'">Descartar</span>
+      </button>
+    </div>
+
+    {% else %}
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+        +{{ row.extra_fmt }} extra
+      </span>
+      {% if row.horas_extra_estado == 'solicitado' %}
+      <span class="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">Solicitada</span>
+      {% if row.motivo_solicitud %}
+      <span class="text-xs text-gray-500 italic">"{{ row.motivo_solicitud }}"</span>
+      {% endif %}
+      {% elif row.horas_extra_estado == 'aprobado' %}
+      <span class="px-2.5 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-semibold">Aprobada</span>
+      {% elif row.horas_extra_estado == 'omitido' %}
+      <span class="px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-400 text-xs font-medium">Descartada</span>
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </div>
+  {% elif row.solicitud_manual and row.solicitud_manual.estado == 'pendiente' %}
+  <div class="flex-shrink-0">
+    <span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">Pendiente de aprobación</span>
+  </div>
+  {% elif row.solicitud_manual and row.solicitud_manual.estado == 'aprobado' %}
+  <div class="flex-shrink-0">
+    <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">Registro manual aprobado</span>
+  </div>
+  {% elif row.solicitud_manual and row.solicitud_manual.estado == 'rechazado' %}
+  <div class="flex items-start gap-3 flex-shrink-0">
+    <div class="flex flex-col items-start gap-1 max-w-[14rem]">
+      <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-medium">Rechazado</span>
+      {% if row.solicitud_manual.comentario_revision %}
+      <p class="text-xs text-gray-500 italic">"{{ row.solicitud_manual.comentario_revision }}"</p>
+      {% endif %}
+    </div>
+    {% if row.puede_solicitar_manual %}
+    <div class="flex-shrink-0">
+      <button type="button"
+              hx-get="/perfil/asistencia/solicitudes-manuales/nueva?fecha_laboral={{ row.fecha_laboral.isoformat() }}"
+              hx-target="#asistencia-manual-modal"
+              hx-swap="innerHTML"
+              class="inline-flex items-center gap-1.5 rounded-lg bg-[#00BABB] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#009899]">
+        Volver a registrar
+      </button>
+    </div>
+    {% endif %}
+  </div>
+  {% elif row.puede_solicitar_manual %}
+  <div class="flex-shrink-0">
+    <button type="button"
+            hx-get="/perfil/asistencia/solicitudes-manuales/nueva?fecha_laboral={{ row.fecha_laboral.isoformat() }}"
+            hx-target="#asistencia-manual-modal"
+            hx-swap="innerHTML"
+            class="inline-flex items-center gap-1.5 rounded-lg bg-[#00BABB] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#009899]">
+      <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 5v14M5 12h14"/>
+      </svg>
+      Registrar
+    </button>
+  </div>
+  {% endif %}
+
+</div>
+{% endmacro %}

@@ -1,6 +1,57 @@
 {% import "shared/partials/_he_evidencia_links.html" as he_evidencias %}
 {% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 
+{% macro seccion_tooltip(texto) %}
+<span class="inline-flex flex-shrink-0 text-gray-400 hover:text-gray-600 cursor-help" title="{{ texto }}">
+  <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+</span>
+{% endmacro %}
+
+{% macro modal_rechazo(evento, titulo, endpoint_prefix, endpoint_suffix, campo, swap, target_expr=none) %}
+<div x-data="{ open: false, motivo: '', targetId: '', nombre: '', rechazando: false }"
+     @{{ evento }}.window="open = true; targetId = $event.detail.id; nombre = $event.detail.nombre; motivo = ''; rechazando = false;"
+     x-show="open"
+     class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     x-cloak>
+  <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl" @click.stop>
+    <h3 class="mb-1 text-base font-semibold text-gray-900">{{ titulo }}</h3>
+    <p class="mb-3 text-sm text-gray-500" x-text="nombre"></p>
+    <form @submit.prevent="
+            const motivoLimpio = motivo.trim();
+            if (!motivoLimpio || !targetId || rechazando) return;
+            rechazando = true;
+            htmx.ajax('POST', '{{ endpoint_prefix }}' + targetId + '{{ endpoint_suffix }}', {
+              {% if target_expr %}target: {{ target_expr }},
+              {% endif %}swap: '{{ swap }}',
+              values: { {{ campo }}: motivoLimpio }
+            }).then(() => {
+              rechazando = false;
+              open = false;
+              motivo = '';
+              targetId = '';
+              nombre = '';
+            });
+          ">
+      <label class="mb-1.5 block text-sm text-gray-700">Motivo del rechazo *</label>
+      <textarea name="{{ campo }}" x-model="motivo" rows="3" required placeholder="Explica el motivo..."
+                :disabled="rechazando"
+                class="mb-4 w-full resize-none rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-400 disabled:opacity-60"></textarea>
+      <div class="flex gap-2">
+        <button type="button" @click="open = false" :disabled="rechazando"
+                class="flex-1 rounded-xl border border-gray-200 py-2 text-sm hover:bg-gray-50 disabled:opacity-50">Cancelar</button>
+        <button type="submit" :disabled="!motivo.trim() || rechazando"
+                class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+          {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="rechazando" x-cloak') }}
+          <span x-text="rechazando ? 'Rechazando...' : 'Rechazar'">Rechazar</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endmacro %}
+
 {% if toast_msg %}
 {% with type=toast_type, title="Aviso", message=toast_msg %}
 {% include "shared/toast.html" %}
@@ -22,6 +73,7 @@
         </svg>
       </span>
       <h2 class="text-sm font-semibold text-gray-700">Aprobaciones pendientes</h2>
+      {{ seccion_tooltip('Solicitudes de vacaciones y otras ausencias del equipo, pendientes de tu aprobación.') }}
     </div>
     {% if pendientes %}
     <span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">{{ pendientes | length }}</span>
@@ -92,12 +144,16 @@
 {% if saldo_inicial_pendientes %}
 <section class="mt-4 overflow-hidden rounded-2xl border border-amber-100 bg-white shadow-sm">
   <div class="border-b border-amber-100 bg-amber-50 px-5 py-3">
-    <h3 class="text-sm font-semibold text-amber-800">Saldo inicial de bolsa HE pendiente</h3>
+    <div class="flex items-center gap-2">
+      <h3 class="text-sm font-semibold text-amber-800">Saldo inicial de bolsa HE pendiente</h3>
+      {{ seccion_tooltip('Registra cuántos minutos de horas extra acumulaba cada colaborador antes de empezar a usar este sistema, aunque sea 0. Se captura una sola vez por persona.') }}
+    </div>
     <p class="text-xs text-amber-700">Confirma el saldo inicial de tus colaboradores directos, incluso si es 0.</p>
   </div>
   <div class="divide-y divide-amber-50">
     {% for emp in saldo_inicial_pendientes %}
-    <form class="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between"
+    <form id="saldo-inicial-row-{{ emp.id_usuario }}"
+          class="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between"
           hx-post="/asistencia/api/saldo-inicial/{{ emp.id_usuario }}/confirmar"
           hx-swap="none">
       <div>
@@ -121,12 +177,15 @@
 {% if comp_pendientes %}
 <section class="mt-4 overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm">
   <div class="border-b border-teal-100 bg-teal-50 px-5 py-3">
-    <h3 class="text-sm font-semibold text-teal-800">Aprobaciones tiempo x tiempo</h3>
+    <div class="flex items-center gap-2">
+      <h3 class="text-sm font-semibold text-teal-800">Aprobaciones tiempo x tiempo</h3>
+      {{ seccion_tooltip('Solicitudes para GASTAR horas extra ya acreditadas como descanso (consumo de la bolsa). No acredita horas nuevas — para eso ver "Horas extra pendientes de aprobación".') }}
+    </div>
     <p class="text-xs text-teal-700">Solicitudes para tomar horas extra como descanso.</p>
   </div>
   <div class="divide-y divide-gray-50">
     {% for sol in comp_pendientes %}
-    <div id="comp-row-{{ sol.id }}" x-data="{ aprobando: false, rechazando: false }" class="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-start sm:justify-between">
+    <div id="comp-row-{{ sol.id }}" x-data="{ aprobando: false }" class="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-start sm:justify-between">
       <div>
         <p class="text-sm font-semibold text-gray-800">{{ sol.empleado_nombre }}</p>
         <p class="text-xs text-gray-500">{{ sol.fecha_descanso.strftime('%d/%m/%Y') }} &middot; {{ sol.minutos_solicitados }} min</p>
@@ -146,23 +205,14 @@
           {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="aprobando" x-cloak') }}
           <span x-text="aprobando ? 'Aprobando...' : 'Aprobar'">Aprobar</span>
         </button>
-        <form hx-post="/asistencia/api/compensatorio/{{ sol.id }}/rechazar"
-              hx-target="#comp-row-{{ sol.id }}"
-              hx-swap="outerHTML"
-              @htmx:before-request="rechazando = true"
-              @htmx:after-request="rechazando = false"
-              class="flex items-center gap-2">
-          <input type="text" name="comentario" required placeholder="Motivo" :disabled="rechazando"
-                 class="w-36 rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:border-[#00BABB] focus:ring-[#00BABB]">
-          <button type="submit" :disabled="rechazando" :class="rechazando ? 'cursor-wait opacity-75' : ''"
-                  class="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:pointer-events-none">
-            {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="rechazando" x-cloak') }}
-            <span x-text="rechazando ? 'Rechazando...' : 'Rechazar'">Rechazar</span>
-          </button>
-        </form>
+        <button type="button"
+                @click="$dispatch('open-rechazo-comp', {id: '{{ sol.id }}', nombre: '{{ sol.empleado_nombre }}'})"
+                class="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors">
+          Rechazar
+        </button>
       </div>
       {% else %}
-      <span class="text-xs italic text-gray-400">Autoriza el aprobador exclusivo asignado</span>
+      <span class="text-xs italic text-gray-400">Horas Extra: Autoriza el aprobador asignado</span>
       {% endif %}
     </div>
     {% endfor %}
@@ -180,10 +230,14 @@
     modalFecha: '',
     modalMotivo: '',
     modalMaxMinutos: 60,
-    modalMinutos: 60,
+    modalHoras: 1,
+    modalMinutosResto: 0,
     modalComentario: '',
     rows: [],
     gruposAbiertos: {},
+    get modalMinutosTotal() {
+      return (parseInt(this.modalHoras) || 0) * 60 + (parseInt(this.modalMinutosResto) || 0);
+    },
     init() {
       this.rows = JSON.parse(this.$el.dataset.rows || '[]');
       this.rows = this.rows.map(r => ({...r, id: String(r.id)}));
@@ -192,11 +246,13 @@
       const row = this.rows.find(r => r.id === String(id));
       if (!row) return;
       const maxMinutos = Number(row.minutos_extra || 0);
+      const inicial = Math.min(maxMinutos, 60);
       this.modalId = row.id;
       this.modalNombre = row.empleado_nombre || '';
       this.modalFecha = row.fecha_fmt || '';
       this.modalMaxMinutos = maxMinutos;
-      this.modalMinutos = Math.min(maxMinutos, 60);
+      this.modalHoras = Math.floor(inicial / 60);
+      this.modalMinutosResto = inicial % 60;
       this.modalComentario = '';
       this.modalMotivo = row.motivo_solicitud || '';
       this.openModal = true;
@@ -204,14 +260,6 @@
     onAprobacionDone() {
       this.rows = this.rows.filter(r => r.id !== this.modalId);
       this.openModal = false;
-    },
-    omitirRow(id) {
-      htmx.ajax('POST', '/asistencia/api/horas-extra/' + id + '/omitir', { swap: 'none' })
-        .then(() => {
-          if (!document.getElementById('he-row-' + id)) {
-            this.rows = this.rows.filter(r => r.id !== id);
-          }
-        });
     }
   }"
   class="mt-4 bg-white rounded-2xl shadow-sm border border-blue-100 overflow-hidden">
@@ -224,6 +272,7 @@
         </svg>
       </span>
       <h3 class="text-sm font-semibold text-blue-800">Horas extra pendientes de aprobacion</h3>
+      {{ seccion_tooltip('Autoriza que las horas extra trabajadas se ACREDITEN a la bolsa del colaborador (crédito). Distinto de gastarlas — para eso ver "Aprobaciones tiempo x tiempo".') }}
     </div>
     <p class="text-xs text-blue-700">Registros de los últimos 30 días pendientes o solicitados.</p>
   </div>
@@ -286,7 +335,7 @@
             Aprobar
           </button>
           <button
-            @click="omitirRow('{{ row.id }}')"
+            @click="$dispatch('open-rechazo-he', {id: '{{ row.id }}', nombre: '{{ row.empleado_nombre }}'})"
             title="Descartar este registro"
             class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-white bg-red-500 hover:bg-red-600 transition-colors flex items-center gap-1.5">
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -296,7 +345,7 @@
           </button>
         </div>
         {% else %}
-        <span class="text-xs italic text-gray-400 flex-shrink-0">Autoriza el aprobador exclusivo asignado</span>
+        <span class="text-xs italic text-gray-400 flex-shrink-0">Horas Extra: Autoriza el aprobador asignado</span>
         {% endif %}
       </div>
       {% endfor %}
@@ -333,11 +382,20 @@
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-700 mb-1">
-            Minutos a aprobar (min. 30, max. <span x-text="modalMaxMinutos"></span>)
+            Tiempo a aprobar (mín. 30 min, máx. <span x-text="(modalMaxMinutos / 60).toFixed(1)"></span> h)
           </label>
-          <input type="number" x-model.number="modalMinutos"
-                 :min="30" :max="modalMaxMinutos" step="30"
-                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+          <div class="flex items-center gap-2">
+            <input type="number" x-model.number="modalHoras" min="0" step="1"
+                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                   placeholder="Horas">
+            <input type="number" x-model.number="modalMinutosResto" min="0" max="59" step="1"
+                   class="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                   placeholder="Min">
+            <span class="text-xs text-gray-400 flex-shrink-0">min</span>
+          </div>
+          <p class="mt-1 text-xs text-gray-400">
+            Equivale a <strong x-text="modalMinutosTotal"></strong> min.
+          </p>
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-700 mb-1">
@@ -351,14 +409,14 @@
         <button
           @click="
             htmx.ajax('POST', '/asistencia/api/horas-extra/' + modalId + '/aprobar', {
-              values: { minutos_aprobados: modalMinutos, comentario: modalComentario },
+              values: { minutos_aprobados: modalMinutosTotal, comentario: modalComentario },
               swap: 'none'
             }).then(() => {
               if (!document.getElementById('he-row-' + modalId)) onAprobacionDone();
               else openModal = false;
             });
           "
-          :disabled="!modalComentario.trim() || modalMinutos < 30 || modalMinutos > modalMaxMinutos"
+          :disabled="!modalComentario.trim() || modalMinutosTotal < 30 || modalMinutosTotal > modalMaxMinutos"
           class="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
           Confirmar aprobacion
         </button>
@@ -400,6 +458,7 @@
         </svg>
       </span>
       <h2 class="text-sm font-semibold text-blue-800">Horas extra pendientes de aprobacion</h2>
+      {{ seccion_tooltip('Autoriza que las horas extra trabajadas se ACREDITEN a la bolsa del colaborador (crédito). Distinto de gastarlas — para eso ver "Aprobaciones tiempo x tiempo".') }}
     </div>
     {% if horas_extra_pendientes %}
     <span class="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">{{ horas_extra_pendientes | length }}</span>
@@ -433,43 +492,8 @@
   </div>
 </div>
 
-<div x-data="{ open: false, motivo: '', solicitudId: '', nombre: '', rechazando: false }"
-     @open-rechazo.window="open = true; solicitudId = $event.detail.id; nombre = $event.detail.nombre; motivo = ''; rechazando = false;"
-     x-show="open"
-     class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-     x-cloak>
-  <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl" @click.stop>
-    <h3 class="mb-1 text-base font-semibold text-gray-900">Rechazar solicitud</h3>
-    <p class="mb-3 text-sm text-gray-500" x-text="nombre"></p>
-    <form @submit.prevent="
-            const motivoLimpio = motivo.trim();
-            if (!motivoLimpio || !solicitudId || rechazando) return;
-            rechazando = true;
-            htmx.ajax('POST', '/vacaciones/solicitudes/' + solicitudId + '/rechazar', {
-              target: '#tab-content',
-              swap: 'innerHTML',
-              values: { motivo: motivoLimpio }
-            }).then(() => {
-              rechazando = false;
-              open = false;
-              motivo = '';
-              solicitudId = '';
-              nombre = '';
-            });
-          ">
-      <label class="mb-1.5 block text-sm text-gray-700">Motivo del rechazo *</label>
-      <textarea name="motivo" x-model="motivo" rows="3" required placeholder="Explica el motivo..."
-                :disabled="rechazando"
-                class="mb-4 w-full resize-none rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-400 disabled:opacity-60"></textarea>
-      <div class="flex gap-2">
-        <button type="button" @click="open = false" :disabled="rechazando"
-                class="flex-1 rounded-xl border border-gray-200 py-2 text-sm hover:bg-gray-50 disabled:opacity-50">Cancelar</button>
-        <button type="submit" :disabled="!motivo.trim() || rechazando"
-                class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-          {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="rechazando" x-cloak') }}
-          <span x-text="rechazando ? 'Rechazando...' : 'Rechazar'">Rechazar</span>
-        </button>
-      </div>
-    </form>
-  </div>
-</div>
+{{ modal_rechazo('open-rechazo', 'Rechazar solicitud', '/vacaciones/solicitudes/', '/rechazar', 'motivo', 'innerHTML', target_expr="'#tab-content'") }}
+
+{{ modal_rechazo('open-rechazo-comp', 'Rechazar tiempo x tiempo', '/asistencia/api/compensatorio/', '/rechazar', 'comentario', 'outerHTML', target_expr="'#comp-row-' + targetId") }}
+
+{{ modal_rechazo('open-rechazo-he', 'Rechazar horas extra', '/asistencia/api/horas-extra/', '/omitir', 'comentario', 'none') }}

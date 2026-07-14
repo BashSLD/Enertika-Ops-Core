@@ -162,6 +162,7 @@ async def aprobar_horas_extra(
 async def omitir_horas_extra(
     request: Request,
     asistencia_id: UUID,
+    comentario: str = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
@@ -171,7 +172,7 @@ async def omitir_horas_extra(
 
     try:
         result = await omitir_horas_extra_svc(
-            conn, asistencia_id=asistencia_id, aprobador_id=aprobador_id
+            conn, asistencia_id=asistencia_id, aprobador_id=aprobador_id, comentario=comentario
         )
     except HEAutorizacionError as exc:
         return toast_error(request, str(exc), status_code=403)
@@ -583,7 +584,12 @@ async def confirmar_saldo_inicial(
     except asyncpg.PostgresError as exc:
         logger.error("Error BD confirmando saldo inicial HE: %s", exc)
         return toast_error(request, "Error al confirmar el saldo", status_code=500)
-    return toast_success(request, "Saldo inicial confirmado.")
+    return templates.TemplateResponse(
+        request,
+        "vacaciones/partials/saldo_inicial_confirmado.html",
+        {"usuario_id": str(usuario_id)},
+        headers={"HX-Reswap": "none"},
+    )
 
 
 @router.post("/api/bolsa/ajuste-manual")

@@ -83,3 +83,35 @@ async def get_mi_asistencia(
         offset,
     )
     return [dict(row) for row in rows]
+
+
+async def get_asistencia_row_por_id(conn, asistencia_id: UUID) -> Optional[dict]:
+    row = await conn.fetchrow(
+        """
+        SELECT
+            ad.id,
+            ad.fecha_laboral,
+            ad.primera_entrada,
+            ad.ultima_salida,
+            ad.minutos_trabajados,
+            ad.minutos_programados,
+            ad.minutos_extra,
+            ad.estado,
+            ad.tiene_ausencia_justificada,
+            ad.horas_extra_estado,
+            ad.minutos_he_compensatorio,
+            ad.he_compensatorio_solicitud_id,
+            ad.motivo_solicitud,
+            ta.nombre AS tipo_ausencia_nombre,
+            ta.abreviatura AS tipo_ausencia_abreviatura,
+            ta.slug AS tipo_ausencia_slug,
+            s.nombre AS sucursal_nombre
+        FROM tb_asistencia_diaria ad
+        LEFT JOIN tb_solicitudes_ausencia sa ON sa.id = ad.solicitud_ausencia_id
+        LEFT JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
+        LEFT JOIN tb_cat_sucursales s ON s.id = ad.sucursal_id
+        WHERE ad.id = $1
+        """,
+        asistencia_id,
+    )
+    return dict(row) if row else None

@@ -1,7 +1,11 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 <form
   hx-post="/rrhh/empleados/{{ usuario.id_usuario }}"
   hx-target="this"
   hx-swap="none"
+  x-data="{ saving: false, saved: false }"
+  @htmx:before-request="saving = true; saved = false"
+  @htmx:after-request="saving = false; if (event.detail.successful) { saved = true; setTimeout(() => saved = false, 2500) }"
   class="space-y-4">
 
   <div class="grid grid-cols-2 gap-4 items-end">
@@ -48,9 +52,10 @@
     </div>
     <div>
       <label class="block text-xs font-medium text-gray-600 mb-1">Departamento</label>
-      <input type="text" name="departamento"
-        value="{{ empleado.departamento if (empleado and empleado.departamento) else (usuario.get('department') or '') }}"
-        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+      <p class="text-sm text-gray-500 px-3 py-2 bg-gray-50 rounded-xl truncate"
+         title="Sincronizado desde Microsoft — no editable aquí">
+        {{ usuario.get('department') or 'Sin departamento en Microsoft' }}
+      </p>
     </div>
   </div>
 
@@ -84,36 +89,47 @@
     </select>
   </div>
 
-  <div x-data="{ accionHE: '{{ 'conservar_inactivo' if (empleado and empleado.id_aprobador_horas_extra and not empleado.aprobador_he_activo) else ('asignar' if (empleado and empleado.id_aprobador_horas_extra) else 'regla_normal') }}' }">
-    <label class="block text-xs font-medium text-gray-600 mb-1">Aprobador exclusivo de horas extra</label>
+  <div x-data="{
+    requiereHE: {{ 'true' if (empleado and empleado.requiere_aprobador_he == True) else ('false' if (empleado and empleado.requiere_aprobador_he == False) else ('true' if (usuario.get('department') == 'Construcción') else 'false')) }},
+    idAprobadorHE: '{{ empleado.id_aprobador_horas_extra if (empleado and empleado.id_aprobador_horas_extra and empleado.aprobador_he_activo) else '' }}',
+    hasExistenteInactivo: {{ 'true' if (empleado and empleado.id_aprobador_horas_extra and not empleado.aprobador_he_activo) else 'false' }}
+  }">
+    <label class="flex items-start gap-2 cursor-pointer">
+      <input type="checkbox" x-model="requiereHE" class="mt-0.5 rounded text-[#00BABB] focus:ring-[#00BABB]/30">
+      <span>
+        <span class="block text-xs font-medium text-gray-700">Requiere aprobador exclusivo de horas extra</span>
+        <span class="block text-xs text-gray-400">Caso específico: esta persona autoriza en vez del jefe directo o aprobador de vacaciones.</span>
+      </span>
+    </label>
+
+    <p x-show="!requiereHE" x-cloak class="mt-1.5">
+      <span class="text-xs text-gray-400 underline decoration-dotted cursor-help"
+        title="Puede autorizar horas extra y compensatorio el jefe directo o el aprobador de vacaciones asignado arriba.">
+        Regla normal (jefe directo o aprobador de vacaciones)
+      </span>
+    </p>
+
     {% if empleado and empleado.id_aprobador_horas_extra and not empleado.aprobador_he_activo %}
-    <p class="text-xs text-amber-600 mb-1">
-      Asignado a <strong>{{ empleado.aprobador_he_nombre }}</strong>, quien está inactivo. Mientras no se
-      reasigne, las solicitudes de este empleado se dirigen a RRHH/Administradores.
+    <p x-show="requiereHE" x-cloak class="mt-1.5 text-xs text-amber-600">
+      Asignado a <strong>{{ empleado.aprobador_he_nombre }}</strong>, quien está inactivo. Mientras no elijas
+      otro abajo, las solicitudes de este empleado se dirigen a RRHH/Administradores.
     </p>
     {% endif %}
-    <select name="accion_aprobador_he" x-model="accionHE"
-      class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30 bg-white">
-      <option value="regla_normal">Regla normal (jefe directo o aprobador de vacaciones)</option>
-      <option value="asignar">Asignar aprobador exclusivo</option>
-      {% if empleado and empleado.id_aprobador_horas_extra and not empleado.aprobador_he_activo %}
-      <option value="conservar_inactivo">Conservar asignación inactiva (no reasignar aún)</option>
-      {% endif %}
-    </select>
-    <div x-show="accionHE === 'asignar'" x-cloak class="mt-2">
-      <select name="id_aprobador_horas_extra"
+
+    <div x-show="requiereHE" x-cloak class="mt-2">
+      <select name="id_aprobador_horas_extra" x-model="idAprobadorHE" :required="requiereHE && !hasExistenteInactivo"
         class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30 bg-white">
         <option value="">— Selecciona un usuario —</option>
         {% for u in usuarios %}
         {% if u.id_usuario != usuario.id_usuario and u.email %}
-        <option value="{{ u.id_usuario }}"
-          {% if empleado and empleado.id_aprobador_horas_extra and empleado.id_aprobador_horas_extra | string == u.id_usuario | string %}selected{% endif %}>
-          {{ u.nombre }}
-        </option>
+        <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
         {% endif %}
         {% endfor %}
       </select>
     </div>
+
+    <input type="hidden" name="accion_aprobador_he"
+      :value="!requiereHE ? 'regla_normal' : (idAprobadorHE ? 'asignar' : 'conservar_inactivo')">
   </div>
 
   <div>
@@ -135,13 +151,19 @@
     </div>
   </div>
 
-  <div class="pt-2 flex gap-3">
+  <div class="pt-2 flex items-center gap-3">
     <button type="submit"
       :disabled="saving"
-      x-text="saving ? 'Guardando...' : 'Guardar cambios'"
-      class="flex-1 bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">
-      Guardar cambios
+      class="flex-1 bg-[#00BABB] hover:bg-[#009A9B] disabled:opacity-60 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2">
+      <template x-if="saving">{{ spinner_icon('w-4 h-4', 'text-white') }}</template>
+      <span x-text="saving ? 'Guardando...' : 'Guardar cambios'"></span>
     </button>
+    <span x-show="saved" x-cloak x-transition class="flex items-center gap-1 text-sm font-medium text-teal-600 whitespace-nowrap">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+      </svg>
+      Guardado
+    </span>
   </div>
 </form>
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 import json
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
 from core.timezone import today_mx
@@ -374,6 +374,7 @@ async def get_empleado_datos(conn, usuario_id: UUID) -> Optional[dict]:
         SELECT ed.id, ed.usuario_id, ed.numero_empleado, ed.fecha_contratacion, ed.puesto,
                ed.departamento, ed.id_aprobador_vacaciones, ed.dias_vacaciones_ajuste,
                ed.sucursal_id, ed.biotime_emp_code, ed.id_aprobador_horas_extra,
+               ed.requiere_aprobador_he,
                aphe.nombre AS aprobador_he_nombre, aphe.is_active AS aprobador_he_activo
         FROM tb_empleados_datos ed
         LEFT JOIN tb_usuarios aphe ON aphe.id_usuario = ed.id_aprobador_horas_extra
@@ -396,14 +397,15 @@ async def upsert_empleado_datos(
     sucursal_id: Optional[UUID],
     id_aprobador_horas_extra: Optional[UUID],
     updated_by: UUID,
+    requiere_aprobador_he: Optional[bool] = None,
 ) -> dict:
     row = await conn.fetchrow(
         """
         INSERT INTO tb_empleados_datos
             (usuario_id, numero_empleado, fecha_contratacion, puesto, departamento,
              id_aprobador_vacaciones, dias_vacaciones_ajuste, sucursal_id,
-             id_aprobador_horas_extra, updated_by, updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())
+             id_aprobador_horas_extra, requiere_aprobador_he, updated_by, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())
         ON CONFLICT (usuario_id) DO UPDATE SET
             numero_empleado           = EXCLUDED.numero_empleado,
             fecha_contratacion        = EXCLUDED.fecha_contratacion,
@@ -413,15 +415,16 @@ async def upsert_empleado_datos(
             dias_vacaciones_ajuste    = COALESCE(EXCLUDED.dias_vacaciones_ajuste, tb_empleados_datos.dias_vacaciones_ajuste),
             sucursal_id               = EXCLUDED.sucursal_id,
             id_aprobador_horas_extra  = EXCLUDED.id_aprobador_horas_extra,
+            requiere_aprobador_he     = EXCLUDED.requiere_aprobador_he,
             updated_by                = EXCLUDED.updated_by,
             updated_at                = now()
         RETURNING id, usuario_id, numero_empleado, fecha_contratacion, puesto,
                   departamento, id_aprobador_vacaciones, dias_vacaciones_ajuste,
-                  sucursal_id, id_aprobador_horas_extra
+                  sucursal_id, id_aprobador_horas_extra, requiere_aprobador_he
         """,
         usuario_id, numero_empleado, fecha_contratacion, puesto, departamento,
         id_aprobador_vacaciones, dias_vacaciones_ajuste, sucursal_id,
-        id_aprobador_horas_extra, updated_by,
+        id_aprobador_horas_extra, requiere_aprobador_he, updated_by,
     )
     return dict(row)
 

@@ -555,10 +555,14 @@ async def omitir_horas_extra_propio(
     except asyncpg.PostgresError as exc:
         logger.error("Error BD omitiendo HE propias: %s", exc)
         return toast_error(request, "Error al descartar el registro.", status_code=500)
+
+    row = await perfil_db.get_asistencia_row_por_id(conn, asistencia_id)
+    hoy = today_mx()
+    row = _preparar_asistencia_rows([row], hoy=hoy, fecha_minima=hoy)[0]
     return templates.TemplateResponse(
         request,
-        "perfil/partials/he_omitida_row.html",
-        {"asistencia_id": str(asistencia_id)},
+        "perfil/partials/he_row_actualizada.html",
+        {"row": row},
     )
 
 
