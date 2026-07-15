@@ -15,6 +15,7 @@ from core.jinja_filters import register_timezone_filters
 from core.permissions import require_manager_access, require_module_access
 from core.security import get_current_user_context
 from modules.asistencia import db_service as asistencia_db
+from modules.asistencia import service as asistencia_service
 from modules.asistencia.constants import (
     ASISTENCIA_ESTADO_LABELS,
     ASISTENCIA_ESTADOS,
@@ -1572,6 +1573,7 @@ async def asistencia_panel(
         )
         tiene_siguiente = len(raw) > _ASISTENCIA_PER_PAGE
         raw = raw[:_ASISTENCIA_PER_PAGE]
+        raw = await asistencia_service.anexar_modalidad_metadata_asistencia(conn, raw)
         unmapped = await asistencia_db.get_unmapped_biotime_checks_summary(
             conn,
             fecha_inicio=fi,

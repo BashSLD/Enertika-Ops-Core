@@ -18,6 +18,7 @@ from core.tasks_db_service import (
     _he_override_lateral_join,
     _jefe_emails_lateral_join,
 )
+from modules.asistencia.constants import ASISTENCIA_MODALIDAD_METADATA_SLUGS
 
 
 async def get_last_transaction_id(conn) -> int | None:
@@ -411,6 +412,48 @@ async def get_ausencias_justificadas(
     return [dict(row) for row in rows]
 
 
+async def get_modalidades_metadata_en_rango(
+    conn,
+    *,
+    usuario_ids: list[UUID],
+    fecha_inicio: date,
+    fecha_fin: date,
+) -> list[dict]:
+    """Modalidades informativas aprobadas, expandidas a cada fecha visible."""
+    if not usuario_ids:
+        return []
+    rows = await conn.fetch(
+        """
+        SELECT
+            sa.usuario_id,
+            dias.fecha_laboral::date AS fecha_laboral,
+            ta.slug AS tipo_slug,
+            ta.nombre AS tipo_nombre,
+            ta.abreviatura AS tipo_abreviatura,
+            sa.id AS solicitud_id
+        FROM tb_solicitudes_ausencia sa
+        JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
+        CROSS JOIN LATERAL generate_series(
+            GREATEST(sa.fecha_inicio, $2::date),
+            LEAST(sa.fecha_fin, $3::date),
+            INTERVAL '1 day'
+        ) AS dias(fecha_laboral)
+        WHERE sa.usuario_id = ANY($1::uuid[])
+          AND sa.estado = 'aprobado'
+          AND COALESCE(sa.es_migracion, false) = false
+          AND ta.slug = ANY($4::text[])
+          AND sa.fecha_inicio <= $3
+          AND sa.fecha_fin >= $2
+        ORDER BY sa.usuario_id, dias.fecha_laboral::date, ta.orden NULLS LAST, ta.nombre, sa.id
+        """,
+        usuario_ids,
+        fecha_inicio,
+        fecha_fin,
+        list(ASISTENCIA_MODALIDAD_METADATA_SLUGS),
+    )
+    return [dict(row) for row in rows]
+
+
 async def get_festivos_range(conn, fecha_inicio: date, fecha_fin: date) -> set[date]:
     rows = await conn.fetch(
         """
@@ -595,6 +638,7 @@ async def get_reporte_asistencia(
             ta.abreviatura AS tipo_ausencia_abreviatura,
             ta.slug AS tipo_ausencia_slug,
             u.id_usuario,
+            u.id_usuario AS usuario_id,
             u.nombre AS empleado_nombre,
             u.email AS empleado_email,
             s.nombre AS sucursal_nombre,
@@ -638,6 +682,7 @@ async def get_reporte_asistencia(
             ta.abreviatura AS tipo_ausencia_abreviatura,
             ta.slug AS tipo_ausencia_slug,
             u.id_usuario,
+            u.id_usuario AS usuario_id,
             u.nombre AS empleado_nombre,
             u.email AS empleado_email,
             s.nombre AS sucursal_nombre,

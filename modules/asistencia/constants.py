@@ -16,6 +16,27 @@ ASISTENCIA_ESTADOS = {
     "sin_horario",
 }
 
+# Deliberadamente explicito (no derivado de tb_cat_tipos_ausencia.justifica_asistencia_dia):
+# hoy coincide con los slugs de justifica_asistencia_dia=false, pero son conceptos distintos
+# (justifica el dia vs. modalidad informativa con checada). Acoplarlos haria que un tipo de
+# ausencia nuevo con justifica_asistencia_dia=false muestre este chip sin decision explicita.
+# Al agregar un tipo de ausencia al catalogo, evaluar si debe sumarse aqui tambien.
+ASISTENCIA_MODALIDAD_METADATA_SLUGS = frozenset({
+    "home_office",
+    "permiso_llegar_tarde",
+    "permiso_salir_temprano",
+})
+
+# Subconjunto curado a mano de ASISTENCIA_ESTADOS: los unicos estados que produce
+# calcular_resumen_dia() (logic.py) con checada real en un dia laborable, sin que medie
+# vacaciones/ausencia/feriado/descanso/sin_horario. Si logic.py gana un estado nuevo con
+# checada real, evaluar si debe sumarse aqui tambien.
+ASISTENCIA_ESTADOS_CON_MODALIDAD_METADATA = frozenset({
+    "asistencia",
+    "incompleto",
+    "en_curso",
+})
+
 ASISTENCIA_ESTADO_LABELS = {
     "asistencia": "Asistencia",
     "vacaciones": "Vacaciones",

@@ -43,6 +43,7 @@ async def get_mi_asistencia_heatmap(
 _ASISTENCIA_ROW_SELECT = """
     SELECT
         ad.id,
+        ad.usuario_id,
         ad.fecha_laboral,
         ad.primera_entrada,
         ad.ultima_salida,

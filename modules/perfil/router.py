@@ -23,6 +23,7 @@ from modules.asistencia.constants import (
 )
 from modules.asistencia.schemas import SolicitudManualIn
 from modules.asistencia.service import (
+    anexar_modalidad_metadata_asistencia,
     crear_solicitud_manual_svc,
     get_dias_retroactivo_manual,
     get_equipo_visible_he,
@@ -369,8 +370,9 @@ async def _fetch_asistencia(
     desde = hoy - timedelta(days=_ASISTENCIA_DIAS_VENTANA)
     rows = await perfil_db.get_mi_asistencia(conn, usuario_id, desde, hoy, limit=15, offset=offset)
     tiene_mas = len(rows) > 15
+    rows_visibles = await anexar_modalidad_metadata_asistencia(conn, rows[:15])
     rows_preparados = _preparar_asistencia_rows(
-        rows[:15], hoy=hoy, fecha_minima=fecha_minima, solicitudes_por_fecha=solicitudes_por_fecha
+        rows_visibles, hoy=hoy, fecha_minima=fecha_minima, solicitudes_por_fecha=solicitudes_por_fecha
     )
     return rows_preparados, tiene_mas
 
@@ -559,6 +561,7 @@ async def omitir_horas_extra_propio(
     row = await perfil_db.get_asistencia_row_por_id(conn, asistencia_id)
     hoy = today_mx()
     dias_retroactivo = await get_dias_retroactivo_manual(conn)
+    row = (await anexar_modalidad_metadata_asistencia(conn, [row]))[0]
     row = _preparar_asistencia_rows([row], hoy=hoy, fecha_minima=hoy - timedelta(days=dias_retroactivo))[0]
     return templates.TemplateResponse(
         request,

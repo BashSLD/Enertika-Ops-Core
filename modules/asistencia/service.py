@@ -22,7 +22,10 @@ from core.permissions import user_has_module_access
 from core.timezone import fmt_time_mx, now_mx, today_mx
 from modules.asistencia import db_service as db
 from modules.asistencia.biotime_client import BioTimeClient
-from modules.asistencia.constants import BIOTIME_CONFIG_KEYS
+from modules.asistencia.constants import (
+    ASISTENCIA_ESTADOS_CON_MODALIDAD_METADATA,
+    BIOTIME_CONFIG_KEYS,
+)
 from modules.asistencia.logic import (
     AttendanceCheck,
     MX_TZ,
@@ -116,6 +119,49 @@ def marcar_puede_autorizar_he(rows: list[dict], autorizable_he_set: set[UUID]) -
     a partir del set devuelto por get_equipo_visible_he."""
     for row in rows:
         row["puede_autorizar_he"] = row["usuario_id"] in autorizable_he_set
+
+
+async def anexar_modalidad_metadata_asistencia(conn, rows: list[dict]) -> list[dict]:
+    """Anexa metadata visual de modalidades sin alterar la asistencia persistida."""
+    if not rows:
+        return rows
+
+    usuario_ids = list({row["usuario_id"] for row in rows})
+    fechas = [row["fecha_laboral"] for row in rows]
+    modalidades = await db.get_modalidades_metadata_en_rango(
+        conn,
+        usuario_ids=usuario_ids,
+        fecha_inicio=min(fechas),
+        fecha_fin=max(fechas),
+    )
+
+    metadata_por_fecha: dict[tuple[UUID, date], dict] = {}
+    for modalidad in modalidades:
+        key = (modalidad["usuario_id"], modalidad["fecha_laboral"])
+        if key in metadata_por_fecha:
+            logger.warning(
+                "[ASISTENCIA_ANOMALIA] Modalidades de asistencia duplicadas para usuario=%s fecha=%s; se conserva la primera",
+                key[0],
+                key[1],
+            )
+            continue
+        metadata_por_fecha[key] = {
+            "slug": modalidad["tipo_slug"],
+            "nombre": modalidad["tipo_nombre"],
+            "abreviatura": modalidad["tipo_abreviatura"],
+            "solicitud_id": modalidad["solicitud_id"],
+        }
+
+    for row in rows:
+        tiene_checada = bool(row.get("primera_entrada") or row.get("ultima_salida"))
+        mostrar = (
+            tiene_checada
+            and (row.get("minutos_programados") or 0) > 0
+            and row.get("estado") in ASISTENCIA_ESTADOS_CON_MODALIDAD_METADATA
+        )
+        key = (row["usuario_id"], row["fecha_laboral"])
+        row["modalidad_metadata"] = metadata_por_fecha.get(key) if mostrar else None
+    return rows
 
 
 async def _lock_y_exigir_autorizacion_he(conn, *, empleado_id: UUID, aprobador_id: UUID) -> None:
