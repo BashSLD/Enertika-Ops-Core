@@ -64,6 +64,49 @@ def build_labor_window(fecha_laboral: date, schedule: ScheduleConfig | None) -> 
     )
 
 
+def extender_salida_descanso_medianoche(
+    checks_dia: list[AttendanceCheck],
+    checks_todos: list[AttendanceCheck],
+    window: LaborWindow,
+    margen_salida_despues_min: int,
+) -> tuple[list[AttendanceCheck], AttendanceCheck | None]:
+    """Si en un dia de descanso (ventana [medianoche, medianoche+1dia)) hay una entrada sin
+    salida posterior dentro de esa ventana, busca la primera checada del dia siguiente dentro
+    de `margen_salida_despues_min` contado desde medianoche. Solo la usa como salida si ocurre
+    antes de cualquier entrada nueva en ese margen -- nunca se apropia de una jornada nueva ni
+    asocia una salida aislada. El resultado (y las horas extra) siguen perteneciendo a la fecha
+    de la entrada, ya que solo se extiende `checks_dia` de ese dia.
+
+    Retorna `(checks_dia, prestada)`: `prestada` es la checada tomada del dia siguiente
+    (o `None` si no se tomo ninguna) -- el llamador debe excluirla de `checks_todos` al
+    procesar ese dia siguiente para no contarla dos veces."""
+    if margen_salida_despues_min <= 0:
+        return checks_dia, None
+    ordenados = sorted(checks_dia, key=lambda c: ensure_mx(c.check_time))
+    entradas = [c for c in ordenados if is_in_state(c.punch_state)]
+    if not entradas:
+        return checks_dia, None
+
+    ultima_entrada = ensure_mx(entradas[-1].check_time)
+    if any(
+        is_out_state(c.punch_state) and ensure_mx(c.check_time) > ultima_entrada
+        for c in ordenados
+    ):
+        # La ultima entrada ya tiene su propia salida el mismo dia -- no hay nada que extender.
+        return checks_dia, None
+    margen_fin = window.end + timedelta(minutes=margen_salida_despues_min)
+    candidatos = sorted(
+        (c for c in checks_todos if window.end <= ensure_mx(c.check_time) < margen_fin),
+        key=lambda c: ensure_mx(c.check_time),
+    )
+    for candidato in candidatos:
+        if is_in_state(candidato.punch_state):
+            return checks_dia, None
+        if is_out_state(candidato.punch_state) and ensure_mx(candidato.check_time) > ultima_entrada:
+            return [*checks_dia, candidato], candidato
+    return checks_dia, None
+
+
 def is_in_state(punch_state: str | None) -> bool:
     return (punch_state or "").strip().lower() in IN_STATES
 
@@ -95,14 +138,14 @@ def calcular_resumen_dia(
     ausencia_label = ausencia_tipo_nombre or "Ausencia aprobada"
 
     if not checks_ordenados:
-        if tiene_vacaciones:
-            estado = "vacaciones"
-        elif tiene_ausencia_justificada:
-            estado = "ausencia"
-        elif es_feriado:
+        if es_feriado:
             estado = "feriado"
         elif schedule and not schedule.es_laboral:
             estado = "descanso"
+        elif tiene_vacaciones:
+            estado = "vacaciones"
+        elif tiene_ausencia_justificada:
+            estado = "ausencia"
         elif schedule is None:
             estado = "sin_horario"
         else:
@@ -147,7 +190,7 @@ def calcular_resumen_dia(
         estado = "checada_en_vacaciones"
     elif tiene_ausencia_justificada:
         estado = "checada_en_ausencia"
-    elif schedule is None:
+    elif schedule is None and not es_feriado:
         estado = "sin_horario"
     elif not entradas:
         estado = "incompleto"

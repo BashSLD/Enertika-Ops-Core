@@ -402,6 +402,7 @@ async def get_ausencias_justificadas(
           AND COALESCE(sa.es_migracion, false) = false
           AND sa.fecha_inicio <= $3
           AND sa.fecha_fin >= $2
+        ORDER BY sa.updated_at DESC, sa.id
         """,
         usuario_ids,
         fecha_inicio,
@@ -661,11 +662,25 @@ async def get_reporte_asistencia(
             LEAST(sa.fecha_fin, $2::date),
             INTERVAL '1 day'
         ) AS dias(fecha_laboral)
+        LEFT JOIN LATERAL (
+            SELECT *
+            FROM tb_horarios_sucursal
+            WHERE sucursal_id = COALESCE(m.sucursal_id, ed.sucursal_id)
+              AND activo = true
+            ORDER BY updated_at DESC
+            LIMIT 1
+        ) h ON true
+        LEFT JOIN tb_horarios_sucursal_dias d
+            ON d.horario_sucursal_id = h.id
+           AND d.dia_semana = ((EXTRACT(DOW FROM dias.fecha_laboral::date)::int + 6) % 7)
+        LEFT JOIN tb_cat_festivos fest ON fest.fecha = dias.fecha_laboral::date
         WHERE sa.estado = 'aprobado'
           AND COALESCE(ta.justifica_asistencia_dia, false) = true
           AND COALESCE(sa.es_migracion, false) = false
           AND sa.fecha_inicio <= $2
           AND sa.fecha_fin >= $1
+          AND fest.fecha IS NULL
+          AND (d.id IS NULL OR d.es_laboral = true)
           AND NOT EXISTS (
               SELECT 1
               FROM tb_asistencia_diaria ad_existing

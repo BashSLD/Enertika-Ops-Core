@@ -30,6 +30,7 @@ from modules.asistencia.logic import (
     build_labor_window,
     calcular_resumen_dia,
     ensure_mx,
+    extender_salida_descanso_medianoche,
     is_break_state,
     is_in_state,
     is_out_state,
@@ -540,18 +541,45 @@ def _targets_from_inserted(inserted: list[dict]) -> list[tuple[UUID, date]]:
     return sorted(targets, key=lambda item: (str(item[0]), item[1]))
 
 
-async def recalcular_asistencia_reciente(conn, *, days: int) -> int:
+def _agrupar_fechas_contiguas(fechas: list[date]) -> list[list[date]]:
+    """Agrupa fechas ordenadas en corridas de dias consecutivos. `recalcular_asistencia`
+    fetchea BD por el rango [min(fechas), max(fechas)] de cada llamada -- sin agrupar,
+    un conjunto disperso (ej. feriados del anio, ~8 fechas sueltas) forzaria un fetch de
+    casi un anio completo de checadas para recalcular solo esas fechas puntuales."""
+    grupos: list[list[date]] = []
+    for fecha in fechas:
+        if grupos and fecha - grupos[-1][-1] == timedelta(days=1):
+            grupos[-1].append(fecha)
+        else:
+            grupos.append([fecha])
+    return grupos
+
+
+async def recalcular_asistencia_usuarios_activos(conn, fechas) -> list[tuple[UUID, date]]:
+    """Recalcula asistencia de todos los usuarios activos para un conjunto de fechas.
+
+    Compartido por el recalculo periodico reciente y por el CRUD de feriados
+    (`rrhh/service.py`), que necesita recalcular fechas puntuales (no un rango
+    contiguo) al crear, mover o eliminar un feriado."""
+    fechas_validas = sorted({fecha for fecha in fechas if fecha})
+    if not fechas_validas:
+        return []
     usuario_ids = await db.get_active_attendance_users(conn)
     if not usuario_ids:
-        return 0
+        return []
+    targets: list[tuple[UUID, date]] = []
+    for grupo in _agrupar_fechas_contiguas(fechas_validas):
+        grupo_targets = [(usuario_id, fecha) for usuario_id in usuario_ids for fecha in grupo]
+        await recalcular_asistencia(conn, grupo_targets)
+        targets.extend(grupo_targets)
+    return targets
+
+
+async def recalcular_asistencia_reciente(conn, *, days: int) -> int:
     end = today_mx()
     start = end - timedelta(days=max(0, days - 1))
-    targets = [
-        (usuario_id, start + timedelta(days=offset))
-        for usuario_id in usuario_ids
-        for offset in range((end - start).days + 1)
-    ]
-    await recalcular_asistencia(conn, targets)
+    fechas = {start + timedelta(days=offset) for offset in range((end - start).days + 1)}
+    targets = await recalcular_asistencia_usuarios_activos(conn, fechas)
     return len(targets)
 
 
@@ -611,25 +639,44 @@ async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[
 
     calculated_at = now_mx()
     rows_to_save: list[dict] = []
+    # `targets` viene ordenado por (usuario_id, fecha) ascendente (`_dedupe_targets`), asi que
+    # una checada tomada prestada del dia siguiente para cerrar un descanso (ver
+    # `extender_salida_descanso_medianoche`) ya fue removida de `checks_by_user` antes de
+    # procesar ese dia siguiente como su propio target -- evita que la misma checada se
+    # cuente dos veces (una extendiendo el descanso, otra como salida huerfana del dia siguiente).
     for usuario_id, fecha_laboral in targets:
         schedule = schedule_by_user_day.get((usuario_id, fecha_laboral.weekday()))
         window = build_labor_window(fecha_laboral, schedule)
+        checks_usuario = checks_by_user.get(usuario_id, [])
         checks_dia = [
-            check for check in checks_by_user.get(usuario_id, [])
+            check for check in checks_usuario
             if window.start <= ensure_mx(check.check_time) < window.end
         ]
+        es_dia_descanso = bool(schedule and not schedule.es_laboral)
+        if es_dia_descanso:
+            checks_dia, prestada = extender_salida_descanso_medianoche(
+                checks_dia, checks_usuario, window, schedule.margen_salida_despues_min
+            )
+            if prestada is not None:
+                checks_by_user[usuario_id] = [c for c in checks_usuario if c is not prestada]
+        es_feriado = fecha_laboral in festivos
         ausencia = _find_ausencia_justificada(ausencias, usuario_id, fecha_laboral)
-        tipo_slug = ausencia.get("tipo_slug") if ausencia else None
-        solicitud_id = ausencia["id"] if ausencia else None
+        ausencia_aplica_laboralmente = bool(
+            ausencia
+            and not es_feriado
+            and not es_dia_descanso
+        )
+        tipo_slug = ausencia.get("tipo_slug") if ausencia_aplica_laboralmente else None
+        solicitud_id = ausencia["id"] if ausencia_aplica_laboralmente else None
         tiene_vacaciones = tipo_slug == "vacaciones"
-        tiene_ausencia_justificada = ausencia is not None
+        tiene_ausencia_justificada = ausencia_aplica_laboralmente
         resumen = calcular_resumen_dia(
             checks=checks_dia,
             schedule=schedule,
             tiene_vacaciones=tiene_vacaciones,
             tiene_ausencia_justificada=tiene_ausencia_justificada,
-            ausencia_tipo_nombre=ausencia.get("tipo_nombre") if ausencia else None,
-            es_feriado=fecha_laboral in festivos,
+            ausencia_tipo_nombre=ausencia.get("tipo_nombre") if ausencia_aplica_laboralmente else None,
+            es_feriado=es_feriado,
             fecha_laboral=fecha_laboral,
             now=calculated_at,
             min_minutos_he=min_minutos_he,
@@ -647,7 +694,7 @@ async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[
             resumen["observaciones"] = "; ".join(observaciones)
 
         horas_extra_estado = "pendiente"
-        if fecha_laboral in festivos and resumen.get("minutos_extra", 0) > 0:
+        if es_feriado and resumen.get("minutos_extra", 0) > 0:
             horas_extra_estado = "feriado"
         rows_to_save.append({
             "usuario_id": usuario_id,
@@ -668,6 +715,11 @@ async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[
 
 
 def _dedupe_targets(targets: list[tuple[UUID, date]]) -> list[tuple[UUID, date]]:
+    """Contrato: el orden ascendente por (usuario_id, fecha) es load-bearing -- `recalcular_asistencia`
+    depende de que, para un mismo usuario, las fechas se procesen de menor a mayor, para que una
+    checada prestada de un descanso hacia el dia siguiente (`extender_salida_descanso_medianoche`)
+    ya haya sido removida de `checks_by_user` antes de llegar a ese dia siguiente como su propio
+    target. No cambiar el criterio de orden sin revisar ese uso."""
     return sorted(set(targets), key=lambda item: (str(item[0]), item[1]))
 
 
@@ -707,10 +759,22 @@ def _find_ausencia_justificada(
     usuario_id: UUID,
     fecha_laboral: date,
 ) -> dict | None:
-    for row in ausencias:
-        if row["usuario_id"] == usuario_id and row["fecha_inicio"] <= fecha_laboral <= row["fecha_fin"]:
-            return row
-    return None
+    """`ausencias` ya viene ordenada (updated_at DESC, id) por
+    db.get_ausencias_justificadas -- ante un solapamiento anomalo de dos solicitudes
+    aprobadas para la misma fecha (dato historico, bloqueado hoy en creacion/aprobacion
+    para solicitudes nuevas), esta funcion registra la anomalia y usa de forma deterministica
+    la mas recientemente actualizada, en vez de una eleccion arbitraria por orden de BD."""
+    encontradas = [
+        row for row in ausencias
+        if row["usuario_id"] == usuario_id and row["fecha_inicio"] <= fecha_laboral <= row["fecha_fin"]
+    ]
+    if len(encontradas) > 1:
+        logger.warning(
+            "[ASISTENCIA_ANOMALIA] %d solicitudes aprobadas solapadas para usuario=%s fecha=%s; "
+            "se usa la mas reciente (id=%s)",
+            len(encontradas), usuario_id, fecha_laboral, encontradas[0]["id"],
+        )
+    return encontradas[0] if encontradas else None
 
 
 async def omitir_horas_extra_propio_svc(
@@ -1276,8 +1340,11 @@ async def solicitar_compensatorio_svc(
         if minutos_solicitados < 30 or minutos_solicitados > min(1440, schedule.minutos_programados):
             raise ValueError("Los minutos solicitados deben estar dentro de la jornada programada")
 
+        # Sin solo_justificadas: bloquea contra cualquier solicitud activa (incluye
+        # home_office/permiso_llegar_tarde/permiso_salir_temprano), simetrico con
+        # crear_solicitud, que ya bloquea la creacion de una ausencia si hay compensatorio activo.
         ausencias = await vacaciones_db.get_solicitudes_activas_en_rango(
-            conn, usuario_id, fecha_descanso, fecha_descanso, solo_justificadas=True
+            conn, usuario_id, fecha_descanso, fecha_descanso
         )
         if ausencias:
             raise ValueError("Ya existe una ausencia activa para esa fecha")

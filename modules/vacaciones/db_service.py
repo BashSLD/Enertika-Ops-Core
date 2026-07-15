@@ -221,9 +221,11 @@ async def insert_festivos_generados(conn, feriados: list[dict], created_by: Opti
     return inserted
 
 
-async def delete_festivo(conn, festivo_id: UUID) -> bool:
-    result = await conn.execute("DELETE FROM tb_cat_festivos WHERE id = $1", festivo_id)
-    return result == "DELETE 1"
+async def delete_festivo(conn, festivo_id: UUID) -> date | None:
+    row = await conn.fetchrow(
+        "DELETE FROM tb_cat_festivos WHERE id = $1 RETURNING fecha", festivo_id
+    )
+    return row["fecha"] if row else None
 
 
 async def create_tipo_ausencia(

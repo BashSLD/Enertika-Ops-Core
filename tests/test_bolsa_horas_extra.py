@@ -949,9 +949,13 @@ async def test_crear_solicitud_bloquea_compensatorio_activo(monkeypatch):
     async def fake_compensatorio_activo(_conn, _usuario_id, _inicio, _fin):
         return [{"id": uuid4(), "fecha_descanso": fecha_inicio, "estatus": "aprobado"}]
 
+    async def fake_lock(_conn, _usuario_id):
+        return None
+
     monkeypatch.setattr(vacaciones_service.db, "get_tipo_ausencia_by_id", fake_tipo)
     monkeypatch.setattr(vacaciones_service.db, "get_festivos_set", fake_festivos_set)
     monkeypatch.setattr(vacaciones_service.db, "get_solicitudes_activas_en_rango", fake_solapadas)
+    monkeypatch.setattr(vacaciones_service.asistencia_db, "lock_he_usuario", fake_lock)
     monkeypatch.setattr(
         vacaciones_service.asistencia_db,
         "get_he_compensatorio_activo_en_rango",
@@ -1075,6 +1079,171 @@ async def test_revertir_dia_horas_extra_aprobado_ok(monkeypatch):
     assert called["asistencia_id"] == asistencia_id
     assert called["revertido_por"] == revertido_por
     assert result["estado_anterior"] == "aprobado"
+
+
+# ── recalcular_asistencia: checada de medianoche prestada no se cuenta dos veces ──
+
+
+@pytest.mark.asyncio
+async def test_recalcular_asistencia_no_reutiliza_checada_prestada_en_dia_siguiente(monkeypatch):
+    """Regresion: la checada de salida del domingo 00:30, prestada para cerrar el
+    descanso del sabado (extender_salida_descanso_medianoche), no debe volver a
+    contarse como la (unica) checada del domingo -- el domingo debe seguir siendo
+    'descanso' puro, sin checadas propias."""
+    usuario_id = uuid4()
+    sabado = date(2026, 8, 1)
+    domingo = date(2026, 8, 2)
+    mx_tz = asistencia_service.MX_TZ
+
+    entrada_sabado = datetime.combine(sabado, time(23, 45), tzinfo=mx_tz)
+    salida_domingo = datetime.combine(domingo, time(0, 30), tzinfo=mx_tz)
+
+    async def fake_get_global_config(cls, _conn, _clave, default, tipo=str):
+        return default
+
+    def _descanso(weekday: int) -> dict:
+        context = _context_row(usuario_id, weekday)
+        context["es_laboral"] = False
+        context["hora_entrada"] = None
+        context["hora_salida"] = None
+        context["margen_salida_despues_min"] = 180
+        return context
+
+    async def fake_contexts(_conn, _usuario_ids):
+        return [_descanso(sabado.weekday()), _descanso(domingo.weekday())]
+
+    async def fake_ausencias(_conn, **_kwargs):
+        return []
+
+    async def fake_festivos(_conn, _inicio, _fin):
+        return set()
+
+    async def fake_comp_aprobado(_conn, **_kwargs):
+        return []
+
+    async def fake_checks(_conn, **_kwargs):
+        return [
+            {"usuario_id": usuario_id, "check_time": entrada_sabado, "punch_state": "0"},
+            {"usuario_id": usuario_id, "check_time": salida_domingo, "punch_state": "1"},
+        ]
+
+    saved = {}
+
+    async def fake_upsert(_conn, rows):
+        saved["rows"] = rows
+
+    monkeypatch.setattr(
+        asistencia_service.ConfigService, "get_global_config", classmethod(fake_get_global_config)
+    )
+    monkeypatch.setattr(asistencia_service.db, "get_attendance_contexts", fake_contexts)
+    monkeypatch.setattr(asistencia_service.db, "get_ausencias_justificadas", fake_ausencias)
+    monkeypatch.setattr(asistencia_service.db, "get_festivos_range", fake_festivos)
+    monkeypatch.setattr(
+        asistencia_service.db, "get_he_compensatorio_aprobado_por_fechas", fake_comp_aprobado
+    )
+    monkeypatch.setattr(asistencia_service.db, "get_checks_for_users_window", fake_checks)
+    monkeypatch.setattr(asistencia_service.db, "upsert_asistencia_diaria_batch", fake_upsert)
+
+    rows = await asistencia_service.recalcular_asistencia(
+        FakeConn(), [(usuario_id, sabado), (usuario_id, domingo)]
+    )
+
+    by_fecha = {row["fecha_laboral"]: row for row in rows}
+    assert by_fecha[sabado]["estado"] != "incompleto"
+    assert by_fecha[domingo]["estado"] == "descanso"
+
+
+# ── recalcular_asistencia_usuarios_activos: helper compartido (rrhh feriados + reciente) ──
+
+
+@pytest.mark.asyncio
+async def test_recalcular_asistencia_usuarios_activos_arma_targets_y_recalcula(monkeypatch):
+    usuario_id = uuid4()
+    fechas = {date(2026, 7, 3), date(2026, 7, 6)}
+    llamadas = []
+
+    async def fake_active_users(conn):
+        return [usuario_id]
+
+    async def fake_recalcular(conn, targets):
+        llamadas.append(targets)
+        return []
+
+    monkeypatch.setattr(asistencia_service.db, "get_active_attendance_users", fake_active_users)
+    monkeypatch.setattr(asistencia_service, "recalcular_asistencia", fake_recalcular)
+
+    resultado = await asistencia_service.recalcular_asistencia_usuarios_activos(FakeConn(), fechas)
+
+    assert {t[1] for t in resultado} == fechas
+    todos_los_targets = [t for llamada in llamadas for t in llamada]
+    assert {t[1] for t in todos_los_targets} == fechas
+    assert all(t[0] == usuario_id for t in resultado)
+
+
+@pytest.mark.asyncio
+async def test_recalcular_asistencia_usuarios_activos_agrupa_fechas_dispersas(monkeypatch):
+    """Fechas no contiguas (ej. feriados del anio) deben recalcularse en llamadas
+    separadas por corrida contigua, para no forzar un fetch de rango completo
+    (min..max) que abarque casi un anio para solo un puñado de fechas puntuales."""
+    usuario_id = uuid4()
+    fechas = {date(2026, 1, 1), date(2026, 7, 3), date(2026, 7, 4), date(2026, 12, 25)}
+    llamadas = []
+
+    async def fake_active_users(conn):
+        return [usuario_id]
+
+    async def fake_recalcular(conn, targets):
+        llamadas.append(sorted(t[1] for t in targets))
+        return []
+
+    monkeypatch.setattr(asistencia_service.db, "get_active_attendance_users", fake_active_users)
+    monkeypatch.setattr(asistencia_service, "recalcular_asistencia", fake_recalcular)
+
+    await asistencia_service.recalcular_asistencia_usuarios_activos(FakeConn(), fechas)
+
+    assert llamadas == [
+        [date(2026, 1, 1)],
+        [date(2026, 7, 3), date(2026, 7, 4)],
+        [date(2026, 12, 25)],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_recalcular_asistencia_usuarios_activos_sin_usuarios_no_recalcula(monkeypatch):
+    llamadas = {}
+
+    async def fake_active_users(conn):
+        return []
+
+    async def fake_recalcular(conn, targets):
+        llamadas["called"] = True
+        return []
+
+    monkeypatch.setattr(asistencia_service.db, "get_active_attendance_users", fake_active_users)
+    monkeypatch.setattr(asistencia_service, "recalcular_asistencia", fake_recalcular)
+
+    resultado = await asistencia_service.recalcular_asistencia_usuarios_activos(
+        FakeConn(), {date(2026, 7, 3)}
+    )
+
+    assert resultado == []
+    assert "called" not in llamadas
+
+
+@pytest.mark.asyncio
+async def test_recalcular_asistencia_usuarios_activos_sin_fechas_no_consulta_usuarios(monkeypatch):
+    llamadas = {}
+
+    async def fake_active_users(conn):
+        llamadas["called"] = True
+        return []
+
+    monkeypatch.setattr(asistencia_service.db, "get_active_attendance_users", fake_active_users)
+
+    resultado = await asistencia_service.recalcular_asistencia_usuarios_activos(FakeConn(), set())
+
+    assert resultado == []
+    assert "called" not in llamadas
 
 
 # ── recalcular_asistencia: compensatorio no debe descartar horas reales trabajadas ──

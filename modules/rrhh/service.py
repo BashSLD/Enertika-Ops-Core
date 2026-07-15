@@ -25,6 +25,7 @@ from modules.asistencia.service import (
     get_he_bolsa_fecha_corte,
     recalcular_asistencia,
     recalcular_asistencia_reciente_usuario,
+    recalcular_asistencia_usuarios_activos,
 )
 from modules.asistencia.constants import (
     ASISTENCIA_ESTADO_LABELS,
@@ -1387,13 +1388,19 @@ async def build_empleados_vacaciones_export(
 
 async def generar_festivos_anio(conn, anio: int, user_id: UUID | None = None) -> int:
     _validar_anio_festivos(anio)
+    festivos_generados = generar_feriados_mexico(anio)
     async with conn.transaction():
         insertados = await vac_db.insert_festivos_generados(
             conn,
-            generar_feriados_mexico(anio),
+            festivos_generados,
             created_by=user_id,
         )
         await vac_db.mark_festivos_validacion_pendiente(conn, anio, updated_by=user_id)
+        # Sin esto, el feriado nuevo solo se reflejaria en asistencia hasta el proximo
+        # worker/sync de BioTime sobre esas fechas.
+        await recalcular_asistencia_usuarios_activos(
+            conn, {f["fecha"] for f in festivos_generados}
+        )
         return insertados
 
 
@@ -1434,11 +1441,13 @@ async def guardar_festivo(
     _validar_anio_festivos(fecha.year)
     async with conn.transaction():
         anios_pendientes = {fecha.year}
+        fechas_afectadas = {fecha}
         if festivo_id:
             actual = await vac_db.get_festivo_by_id(conn, festivo_id)
             if not actual:
                 raise ValueError("Festivo no encontrado")
             anios_pendientes.add(actual["fecha"].year)
+            fechas_afectadas.add(actual["fecha"])
             updated = await vac_db.update_festivo(
                 conn, festivo_id, fecha, descripcion, es_oficial, user_id
             )
@@ -1449,15 +1458,17 @@ async def guardar_festivo(
 
         for anio in anios_pendientes:
             await vac_db.mark_festivos_validacion_pendiente(conn, anio, updated_by=user_id)
+        await recalcular_asistencia_usuarios_activos(conn, fechas_afectadas)
 
 
 async def eliminar_festivo(conn, festivo_id: UUID, anio: int, user_id: UUID) -> None:
     _validar_anio_festivos(anio)
     async with conn.transaction():
-        deleted = await vac_db.delete_festivo(conn, festivo_id)
-        if not deleted:
+        fecha_eliminada = await vac_db.delete_festivo(conn, festivo_id)
+        if not fecha_eliminada:
             raise ValueError("Festivo no encontrado")
         await vac_db.mark_festivos_validacion_pendiente(conn, anio, updated_by=user_id)
+        await recalcular_asistencia_usuarios_activos(conn, {fecha_eliminada})
 
 
 async def validar_festivos_anio(conn, anio: int, notas: str | None, user_id: UUID) -> None:
