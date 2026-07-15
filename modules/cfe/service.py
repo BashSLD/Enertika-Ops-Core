@@ -385,12 +385,7 @@ class CfeService:
                 return None, None
             if zona_solicitada in ZONAS_OYM:
                 return zona_solicitada, None
-            usuario_id = user.get("user_db_id")
-            if not usuario_id:
-                return None, None
-            oym_db = get_oym_db_service()
-            zona_propia = await oym_db.get_zona_de_usuario(conn, usuario_id)
-            return zona_propia, None  # None = sin zona = ve todo (comportamiento actual)
+            return await self.get_zona_propia_oym(conn, user), None
 
         if modulo_activo == "simulacion":
             if get_user_module_role("simulacion", user) == "admin":
@@ -402,6 +397,29 @@ class CfeService:
             return None, visibles  # lista (posiblemente vacia) = filtro estricto
 
         return None, None
+
+    async def get_zona_propia_oym(self, conn: asyncpg.Connection, user: dict) -> str | None:
+        """Zona asignada al usuario en oym. None = admin de oym/ADMIN sistema
+        o usuario sin zona asignada -> ve/selecciona todas las zonas."""
+        if get_user_module_role("oym", user) == "admin":
+            return None
+        usuario_id = user.get("user_db_id")
+        if not usuario_id:
+            return None
+        oym_db = get_oym_db_service()
+        return await oym_db.get_zona_de_usuario(conn, usuario_id)
+
+    async def get_zonas_oym_selector(
+        self, conn: asyncpg.Connection, user: dict
+    ) -> tuple[tuple[str, ...], str | None]:
+        """Zonas a mostrar como boton en el selector conmutable (excluye la
+        zona propia, ya cubierta por el boton 'Mi zona') junto con la zona
+        propia misma, para que el template la resalte por comparacion directa
+        en vez de inferirla de la ausencia en la lista. Admin de oym/ADMIN
+        sistema o usuario sin zona asignada ven ambas zonas."""
+        zona_propia = await self.get_zona_propia_oym(conn, user)
+        zonas_visibles = tuple(z for z in ZONAS_OYM if z != zona_propia)
+        return zonas_visibles, zona_propia
 
     async def listar_servicios(
         self, conn: asyncpg.Connection,

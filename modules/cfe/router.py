@@ -54,6 +54,16 @@ def _resolver_modulos(user: dict, modulo_param: str | None) -> tuple[str | None,
     return activo, accesibles
 
 
+async def _zona_selector_ctx(svc, conn, user: dict, modulo_activo: str | None) -> dict:
+    """zonas_oym (botones a mostrar) + zona_propia (para resaltar 'Mi zona'
+    por comparacion directa) del selector conmutable de lista_servicios.html.
+    Solo aplica al contexto oym; en otros modulos el bloque ni se renderiza."""
+    if modulo_activo != "oym":
+        return {"zonas_oym": ZONAS_OYM, "zona_propia": None}
+    zonas_oym, zona_propia = await svc.get_zonas_oym_selector(conn, user)
+    return {"zonas_oym": zonas_oym, "zona_propia": zona_propia}
+
+
 def _zip_faltantes_response(exc: CfeZipFaltantesError) -> JSONResponse:
     return JSONResponse(
         status_code=409,
@@ -109,7 +119,7 @@ async def cfe_ui(
         "modulo": modulo_activo,
         "modulos_accesibles": modulos_accesibles,
         "zona_activa": zona,
-        "zonas_oym": ZONAS_OYM,
+        **await _zona_selector_ctx(svc, conn, user, modulo_activo),
         "user": user,
         "user_name": user.get("user_name"),
         "role": user.get("role"),
@@ -326,7 +336,7 @@ async def crear_servicio(
             "modulo": modulo_activo,
             "modulos_accesibles": modulos_accesibles,
             "zona_activa": zona_filtro,
-            "zonas_oym": ZONAS_OYM,
+            **await _zona_selector_ctx(svc, conn, user, modulo_activo),
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
             "ocultos_count": ocultos_count,
@@ -411,7 +421,7 @@ async def crear_servicios_bulk(
             "modulo": modulo_activo,
             "modulos_accesibles": modulos_accesibles,
             "zona_activa": zona_filtro,
-            "zonas_oym": ZONAS_OYM,
+            **await _zona_selector_ctx(svc, conn, user, modulo_activo),
             "user": user,
             "user_name": user.get("user_name"),
             "role": user.get("role"),
@@ -461,7 +471,7 @@ async def ocultar_servicio(
         request, "cfe/partials/lista_servicios.html",
         {
             "servicios": servicios, "modulo": modulo_activo, "modulos_accesibles": modulos_accesibles,
-            "zona_activa": zona, "zonas_oym": ZONAS_OYM,
+            "zona_activa": zona, **await _zona_selector_ctx(svc, conn, user, modulo_activo),
             "user": user, "_toast": {"message": toast_msg, "type": toast_type},
             "ocultos_count": ocultos_count,
         },
@@ -517,7 +527,7 @@ async def mostrar_servicio(
             "ocultos": ocultos, "modulo": modulo_activo, "zona_activa": zona, "user": user,
             "_toast": {"message": "Servicio visible de nuevo.", "type": "success"},
             "servicios": servicios, "modulos_accesibles": modulos_accesibles,
-            "zonas_oym": ZONAS_OYM,
+            **await _zona_selector_ctx(svc, conn, user, modulo_activo),
             "ocultos_count": ocultos_count,
         },
     )
@@ -587,7 +597,7 @@ async def editar_servicio(
             "modulo": modulo_activo,
             "modulos_accesibles": modulos_accesibles,
             "zona_activa": zona,
-            "zonas_oym": ZONAS_OYM,
+            **await _zona_selector_ctx(svc, conn, user, modulo_activo),
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
             "ocultos_count": ocultos_count,
@@ -654,7 +664,7 @@ async def registrar_manual(
             "modulo": modulo_activo,
             "modulos_accesibles": modulos_accesibles,
             "zona_activa": zona,
-            "zonas_oym": ZONAS_OYM,
+            **await _zona_selector_ctx(svc, conn, user, modulo_activo),
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
             "ocultos_count": ocultos_count,
@@ -700,7 +710,7 @@ async def reintentar_alta_miespacio(
             "modulo": modulo_activo,
             "modulos_accesibles": modulos_accesibles,
             "zona_activa": zona,
-            "zonas_oym": ZONAS_OYM,
+            **await _zona_selector_ctx(svc, conn, user, modulo_activo),
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
             "ocultos_count": ocultos_count,
@@ -848,7 +858,7 @@ async def descargar_todos(
             "modulo": modulo_activo,
             "modulos_accesibles": modulos_accesibles,
             "zona_activa": zona,
-            "zonas_oym": ZONAS_OYM,
+            **await _zona_selector_ctx(svc, conn, user, modulo_activo),
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
             "ocultos_count": len(excluir_ids or []),

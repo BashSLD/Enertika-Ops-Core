@@ -149,7 +149,7 @@
                 hx-get="/cfe/ui{{ qs('oym', none) }}"
                 hx-target="#cfe-lista"
                 hx-swap="outerHTML"
-                class="px-3 py-1.5 font-medium transition-colors {% if not zona_activa %}bg-[#00BABB] text-white{% else %}bg-white text-gray-600 hover:bg-gray-50{% endif %}">
+                class="px-3 py-1.5 font-medium transition-colors {% if not zona_activa or zona_activa == zona_propia %}bg-[#00BABB] text-white{% else %}bg-white text-gray-600 hover:bg-gray-50{% endif %}">
                 Mi zona
             </button>
             {% for z in zonas_oym %}

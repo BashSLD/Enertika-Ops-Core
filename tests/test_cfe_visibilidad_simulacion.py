@@ -230,6 +230,31 @@ async def test_resolver_oym_admin_ve_todo_ignora_zona_solicitada(mock_conn, admi
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "zona_bd,esperado",
+    [
+        ("Zona 1", (("Zona 2",), "Zona 1")),
+        (None, (("Zona 1", "Zona 2"), None)),
+    ],
+)
+async def test_selector_oym_zonas_visibles(mock_conn, monkeypatch, zona_bd, esperado):
+    svc = _svc_con_db()
+    _mock_oym_db(monkeypatch, zona_bd)
+    user = {"user_db_id": uuid4(), "role": "USER", "module_roles": {"oym": "editor"}}
+
+    assert await svc.get_zonas_oym_selector(mock_conn, user) == esperado
+
+
+@pytest.mark.asyncio
+async def test_selector_oym_admin_muestra_ambas_sin_consultar(mock_conn, admin_context, monkeypatch):
+    svc = _svc_con_db()
+    fake_oym_db = _mock_oym_db(monkeypatch, "Zona 1")
+
+    assert await svc.get_zonas_oym_selector(mock_conn, admin_context) == (("Zona 1", "Zona 2"), None)
+    fake_oym_db.get_zona_de_usuario.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_crear_servicio_oym_estampa_zona():
     svc = _svc_con_db()
     svc.db.get_servicio_by_numero = AsyncMock(return_value=None)
