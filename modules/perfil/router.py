@@ -20,6 +20,7 @@ from modules.asistencia.constants import (
     ASISTENCIA_ESTADO_COLORES,
     ASISTENCIA_ESTADO_LABELS,
     ASISTENCIA_ESTADOS_SIN_HUECO_MANUAL,
+    ASISTENCIA_ESTADOS_VACACIONES,
 )
 from modules.asistencia.schemas import SolicitudManualIn
 from modules.asistencia.service import (
@@ -92,6 +93,11 @@ def _preparar_asistencia_rows(
         row["he_compensatorio_fmt"] = _fmt_minutos(row.get("minutos_he_compensatorio"))
         row["estado_label"] = ASISTENCIA_ESTADO_LABELS.get(
             row.get("estado", ""), row.get("estado", "")
+        )
+        row["mostrar_tipo_ausencia"] = bool(
+            row.get("tiene_ausencia_justificada")
+            and row.get("tipo_ausencia_nombre")
+            and row.get("estado") not in ASISTENCIA_ESTADOS_VACACIONES
         )
         solicitud = solicitudes_por_fecha.get(row["fecha_laboral"])
         row["solicitud_manual"] = solicitud

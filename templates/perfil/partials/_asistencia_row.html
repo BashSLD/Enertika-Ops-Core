@@ -23,7 +23,7 @@
       {% else %}
         <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">{{ row.estado_label }}</span>
       {% endif %}
-      {% if row.tiene_ausencia_justificada and row.tipo_ausencia_nombre %}
+      {% if row.mostrar_tipo_ausencia %}
         <span class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-xs font-medium">{{ row.tipo_ausencia_nombre }}</span>
       {% endif %}
       {% if row.minutos_he_compensatorio and row.minutos_he_compensatorio > 0 %}
