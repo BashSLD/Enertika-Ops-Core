@@ -16,6 +16,7 @@ import time
 import asyncpg
 import base64
 import httpx
+from pdfminer.pdfexceptions import PSException
 from .pdf_extractor import process_pdf_bytes
 from .xml_extractor import parse_cfdi_xml, validate_xml_content
 from .schemas import (
@@ -141,8 +142,16 @@ class ComprasService:
                 continue
             
             # 2. Extraer datos del PDF
-            data = process_pdf_bytes(content, filename)
-            
+            try:
+                data = process_pdf_bytes(content, filename)
+            except (PSException, ValueError, TypeError, KeyError, IndexError, AttributeError, OSError) as e:
+                logger.error(f"Error procesando PDF {filename}: {e}", exc_info=True)
+                errores.append({
+                    "archivo": filename,
+                    "error": f"Error al procesar PDF: {str(e)}"
+                })
+                continue
+
             if data.error or not data.is_valid():
                 errores.append({
                     "archivo": filename,
