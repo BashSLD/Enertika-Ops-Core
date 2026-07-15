@@ -59,6 +59,10 @@ ASISTENCIA_ESTADOS_SIN_HUECO_MANUAL = {
     "he_compensatorio",
 }
 
+ASISTENCIA_ESTADOS_VACACIONES = {"vacaciones", "checada_en_vacaciones"}
+
+HE_MINIMO_OPCIONES = (10, 15, 30, 60)
+
 BIOTIME_CONFIG_KEYS = {
     "sync_activo": "BIOTIME_SYNC_ACTIVO",
     "base_url": "BIOTIME_BASE_URL",

@@ -31,7 +31,8 @@ def _install_redis_stub() -> None:
 
 _install_redis_stub()
 
-from modules.rrhh.service import _normalizar_dias_horario
+from modules.asistencia.constants import HE_MINIMO_OPCIONES
+from modules.rrhh.service import _coercer_he_minimo, _normalizar_dias_horario, guardar_config_asistencia
 
 
 def _semana_base():
@@ -119,3 +120,50 @@ def test_traslape_de_ventanas_consecutivas_es_bloqueante():
 
     with pytest.raises(ValueError, match="se cruza"):
         _normalizar(raw, margen_entrada=120, margen_salida=900)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("valor", [1, 5, 9, 20, 45, 61, 480])
+async def test_guardar_config_asistencia_rechaza_valores_fuera_del_catalogo(valor):
+    with pytest.raises(ValueError, match="Minutos minimos invalidos"):
+        await guardar_config_asistencia(conn=None, he_minimo_minutos=valor)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("valor", HE_MINIMO_OPCIONES)
+async def test_guardar_config_asistencia_acepta_valores_del_catalogo(monkeypatch, valor):
+    guardado = {}
+
+    async def fake_upsert(_conn, minutos):
+        guardado["minutos"] = minutos
+
+    import modules.rrhh.service as rrhh_service
+
+    monkeypatch.setattr(rrhh_service.rrhh_db, "upsert_he_minimo_minutos", fake_upsert)
+
+    await guardar_config_asistencia(conn=None, he_minimo_minutos=valor)
+
+    assert guardado["minutos"] == valor
+
+
+@pytest.mark.parametrize("valor", HE_MINIMO_OPCIONES)
+def test_coercer_he_minimo_respeta_valores_del_catalogo(valor):
+    assert _coercer_he_minimo(valor) == valor
+
+
+@pytest.mark.parametrize(
+    "valor,esperado",
+    [
+        (1, 10),
+        (9, 10),
+        (12, 10),
+        (13, 15),
+        (20, 15),
+        (23, 30),
+        (45, 30),
+        (46, 60),
+        (480, 60),
+    ],
+)
+def test_coercer_he_minimo_ajusta_al_valor_mas_cercano(valor, esperado):
+    assert _coercer_he_minimo(valor) == esperado

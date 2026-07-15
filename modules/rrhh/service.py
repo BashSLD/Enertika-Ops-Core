@@ -26,7 +26,11 @@ from modules.asistencia.service import (
     recalcular_asistencia,
     recalcular_asistencia_reciente_usuario,
 )
-from modules.asistencia.constants import ASISTENCIA_ESTADO_LABELS, ASISTENCIA_ESTADOS
+from modules.asistencia.constants import (
+    ASISTENCIA_ESTADO_LABELS,
+    ASISTENCIA_ESTADOS,
+    HE_MINIMO_OPCIONES,
+)
 from modules.rrhh import db_service as rrhh_db
 from modules.vacaciones import db_service as vac_db
 from modules.vacaciones.constants import ESTADOS_SOLICITUD
@@ -825,10 +829,19 @@ async def limpiar_migracion_empleado(conn, usuario_id: UUID) -> int:
         return await vac_db.limpiar_migracion_usuario(conn, usuario_id)
 
 
+def _coercer_he_minimo(valor: int) -> int:
+    """Ajusta un he_minimo_minutos guardado fuera del catalogo a la opcion mas cercana."""
+    if valor in HE_MINIMO_OPCIONES:
+        return valor
+    return min(HE_MINIMO_OPCIONES, key=lambda opcion: abs(opcion - valor))
+
+
 async def get_admin_ctx(conn, anio: int | None = None) -> dict:
     anio = anio or today_mx().year
     meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)
-    he_minimo = await ConfigService.get_global_config(conn, "ASISTENCIA_HE_MINIMO_MINUTOS", 30, int)
+    he_minimo = _coercer_he_minimo(
+        await ConfigService.get_global_config(conn, "ASISTENCIA_HE_MINIMO_MINUTOS", 30, int)
+    )
     horarios_rows = await rrhh_db.get_horarios_sucursal_admin(conn)
     return {
         "anio": anio,
@@ -836,6 +849,7 @@ async def get_admin_ctx(conn, anio: int | None = None) -> dict:
         "dias_vacaciones": await vac_db.get_catalogo_dias_admin(conn),
         "vacaciones_meses_expiracion": meses_exp,
         "he_minimo_minutos": he_minimo,
+        "he_minimo_opciones": HE_MINIMO_OPCIONES,
         "sucursales": await rrhh_db.get_sucursales_admin(conn),
         "dias_semana": DIAS_SEMANA,
         "horarios_sucursal": _build_horarios_admin(horarios_rows),
@@ -1243,8 +1257,8 @@ async def guardar_config_vacaciones(conn, *, meses_expiracion: int) -> None:
 
 
 async def guardar_config_asistencia(conn, *, he_minimo_minutos: int) -> None:
-    if he_minimo_minutos < 1 or he_minimo_minutos > 480:
-        raise ValueError("El umbral de horas extra debe estar entre 1 y 480 minutos")
+    if he_minimo_minutos not in HE_MINIMO_OPCIONES:
+        raise ValueError("Minutos minimos invalidos")
     await rrhh_db.upsert_he_minimo_minutos(conn, he_minimo_minutos)
 
 

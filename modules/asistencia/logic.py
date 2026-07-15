@@ -42,15 +42,21 @@ def ensure_mx(dt: datetime) -> datetime:
     return dt.astimezone(MX_TZ)
 
 
+def _programmed_bounds(fecha_laboral: date, schedule: ScheduleConfig) -> tuple[datetime, datetime]:
+    """Entrada/salida programadas del turno, ajustando la salida si cruza medianoche."""
+    entrada = datetime.combine(fecha_laboral, schedule.hora_entrada, tzinfo=MX_TZ)
+    salida = datetime.combine(fecha_laboral, schedule.hora_salida, tzinfo=MX_TZ)
+    if schedule.cruza_medianoche or schedule.hora_salida < schedule.hora_entrada:
+        salida += timedelta(days=1)
+    return entrada, salida
+
+
 def build_labor_window(fecha_laboral: date, schedule: ScheduleConfig | None) -> LaborWindow:
     if not schedule or not schedule.es_laboral or not schedule.hora_entrada or not schedule.hora_salida:
         start = datetime.combine(fecha_laboral, time.min, tzinfo=MX_TZ)
         return LaborWindow(start=start, end=start + timedelta(days=1))
 
-    entrada = datetime.combine(fecha_laboral, schedule.hora_entrada, tzinfo=MX_TZ)
-    salida = datetime.combine(fecha_laboral, schedule.hora_salida, tzinfo=MX_TZ)
-    if schedule.cruza_medianoche or schedule.hora_salida < schedule.hora_entrada:
-        salida += timedelta(days=1)
+    entrada, salida = _programmed_bounds(fecha_laboral, schedule)
 
     return LaborWindow(
         start=entrada - timedelta(minutes=schedule.margen_entrada_antes_min),
@@ -157,9 +163,11 @@ def calcular_resumen_dia(
         estado = "asistencia"
 
     minutos_extra = _calcular_extra(
-        minutos_trabajados=minutos_trabajados,
-        minutos_programados=minutos_programados,
+        primera_entrada=primera,
+        ultima_salida=ultima_salida,
+        fecha_laboral=fecha_laboral,
         schedule=schedule,
+        minutos_trabajados=minutos_trabajados,
         es_feriado=es_feriado,
         tiene_vacaciones=tiene_vacaciones,
         tiene_ausencia_justificada=tiene_ausencia_justificada,
@@ -200,9 +208,11 @@ def _minutos_programados(schedule: ScheduleConfig | None, es_feriado: bool) -> i
 
 def _calcular_extra(
     *,
-    minutos_trabajados: int,
-    minutos_programados: int,
+    primera_entrada: datetime | None,
+    ultima_salida: datetime | None,
+    fecha_laboral: date | None,
     schedule: ScheduleConfig | None,
+    minutos_trabajados: int,
     es_feriado: bool,
     tiene_vacaciones: bool,
     tiene_ausencia_justificada: bool | None = None,
@@ -210,12 +220,23 @@ def _calcular_extra(
 ) -> int:
     if tiene_ausencia_justificada is None:
         tiene_ausencia_justificada = tiene_vacaciones
-    if minutos_trabajados <= 0 or tiene_ausencia_justificada:
+    if (
+        tiene_ausencia_justificada
+        or not primera_entrada
+        or not ultima_salida
+        or ultima_salida <= primera_entrada
+    ):
         return 0
+
     if es_feriado or (schedule and not schedule.es_laboral):
-        exceso = minutos_trabajados
-    elif not schedule:
+        total = minutos_trabajados
+    elif not schedule or not schedule.hora_entrada or not schedule.hora_salida or not fecha_laboral:
         return 0
     else:
-        exceso = max(0, minutos_trabajados - minutos_programados - schedule.tolerancia_extra_min)
-    return exceso if exceso >= min_minutos_he else 0
+        entrada_prog, salida_prog = _programmed_bounds(fecha_laboral, schedule)
+        tolerancia = timedelta(minutes=schedule.tolerancia_extra_min)
+        exceso_entrada = max(0, int(((entrada_prog - tolerancia) - primera_entrada).total_seconds() // 60))
+        exceso_salida = max(0, int((ultima_salida - (salida_prog + tolerancia)).total_seconds() // 60))
+        total = exceso_entrada + exceso_salida
+
+    return total if total >= min_minutos_he else 0

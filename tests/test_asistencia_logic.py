@@ -1,5 +1,7 @@
 from datetime import date, datetime, time
 
+import pytest
+
 from modules.asistencia.logic import (
     AttendanceCheck,
     MX_TZ,
@@ -46,6 +48,7 @@ def test_after_midnight_checkout_belongs_to_labor_day_summary():
         schedule=schedule,
         tiene_vacaciones=False,
         es_feriado=False,
+        fecha_laboral=date(2026, 5, 12),
     )
 
     assert resumen["estado"] == "asistencia"
@@ -72,11 +75,69 @@ def test_overtime_is_calculated_locally_from_schedule():
         schedule=schedule,
         tiene_vacaciones=False,
         es_feriado=False,
+        fecha_laboral=date(2026, 5, 12),
     )
 
     assert resumen["minutos_trabajados"] == 660
     assert resumen["minutos_programados"] == 480
-    assert resumen["minutos_extra"] == 165
+    # Solo el extremo de salida excede la tolerancia: 19:00 - (17:00+15min) = 105
+    assert resumen["minutos_extra"] == 105
+
+
+@pytest.mark.parametrize(
+    "hora_entrada_real,hora_salida_real,extra_esperado",
+    [
+        ((6, 30), (17, 30), 0),
+        ((6, 30), (17, 40), 10),
+        ((6, 29), (17, 0), 1),
+        ((7, 0), (17, 31), 1),
+    ],
+)
+def test_overtime_symmetric_tolerance_per_extremo(hora_entrada_real, hora_salida_real, extra_esperado):
+    schedule = ScheduleConfig(
+        hora_entrada=time(7, 0),
+        hora_salida=time(17, 0),
+        minutos_programados=600,
+        tolerancia_extra_min=30,
+    )
+    checks = [
+        AttendanceCheck(_dt(2026, 5, 12, *hora_entrada_real), "0"),
+        AttendanceCheck(_dt(2026, 5, 12, *hora_salida_real), "1"),
+    ]
+
+    resumen = calcular_resumen_dia(
+        checks=checks,
+        schedule=schedule,
+        tiene_vacaciones=False,
+        es_feriado=False,
+        fecha_laboral=date(2026, 5, 12),
+    )
+
+    assert resumen["minutos_extra"] == extra_esperado
+
+
+def test_overtime_en_feriado_descuenta_comida_igual_que_minutos_trabajados():
+    schedule = ScheduleConfig(
+        hora_entrada=time(8, 0),
+        hora_salida=time(17, 0),
+        minutos_programados=480,
+        descuento_comida_min=60,
+    )
+    checks = [
+        AttendanceCheck(_dt(2026, 5, 12, 8, 0), "0"),
+        AttendanceCheck(_dt(2026, 5, 12, 17, 0), "1"),
+    ]
+
+    resumen = calcular_resumen_dia(
+        checks=checks,
+        schedule=schedule,
+        tiene_vacaciones=False,
+        es_feriado=True,
+        fecha_laboral=date(2026, 5, 12),
+    )
+
+    assert resumen["minutos_trabajados"] == 480
+    assert resumen["minutos_extra"] == resumen["minutos_trabajados"]
 
 
 def test_vacation_without_checks_marks_vacaciones():

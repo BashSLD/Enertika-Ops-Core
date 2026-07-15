@@ -212,9 +212,12 @@
             class="flex flex-col sm:flex-row sm:items-end gap-4">
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">Mínimo de minutos para horas extra</label>
-          <input type="number" name="he_minimo_minutos" min="1" max="480"
-                 value="{{ he_minimo_minutos }}"
-                 class="w-32 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+          <select name="he_minimo_minutos"
+                  class="w-32 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+            {% for opcion in he_minimo_opciones %}
+            <option value="{{ opcion }}" {% if he_minimo_minutos == opcion %}selected{% endif %}>{{ opcion }} min</option>
+            {% endfor %}
+          </select>
           <p class="text-xs text-gray-400 mt-1">Exceso mínimo sobre el horario para contabilizar como horas extra</p>
         </div>
         <button type="submit"
