@@ -734,8 +734,7 @@ async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[
             minutos_compensatorio = minutos_compensatorio_aprobado
             observaciones = [resumen.get("observaciones")] if resumen.get("observaciones") else []
             observaciones.append("Horas extra tomadas")
-            if resumen.get("minutos_programados", 0) and minutos_compensatorio >= resumen["minutos_programados"]:
-                resumen["estado"] = "he_compensatorio"
+            resumen["estado"] = "he_compensatorio"
             resumen["minutos_extra"] = 0
             resumen["observaciones"] = "; ".join(observaciones)
 

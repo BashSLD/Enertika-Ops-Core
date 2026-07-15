@@ -20,12 +20,14 @@
         <span class="px-2 py-0.5 rounded-full bg-[#00BABB]/15 text-[#007C7D] text-xs font-medium">{{ row.estado_label }}</span>
       {% elif estado in ('descanso', 'feriado') %}
         <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">{{ row.estado_label }}</span>
+      {% elif estado == 'he_compensatorio' %}
+        {# el chip indigo de abajo ya muestra "Horas extra tomadas" con el detalle de minutos; evita duplicarlo #}
       {% else %}
         <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">{{ row.estado_label }}</span>
       {% endif %}
       {% if row.modalidad_metadata %}
         <span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium">
-          {{ row.modalidad_metadata.abreviatura or row.modalidad_metadata.nombre }}
+          {{ row.modalidad_metadata.nombre or row.modalidad_metadata.abreviatura }}
         </span>
       {% endif %}
       {% if row.minutos_he_compensatorio and row.minutos_he_compensatorio > 0 %}
@@ -71,7 +73,7 @@
               hx-on::after-request="descartando = false"
               :disabled="descartando"
               :class="descartando ? 'cursor-wait opacity-75' : ''"
-              class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors disabled:pointer-events-none">
+              class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium text-red-700 bg-white border border-red-200 hover:bg-red-50 transition-colors disabled:pointer-events-none">
         {{ spinner_icon('h-3.5 w-3.5', '', '', 'x-show="descartando" x-cloak') }}
         <span x-text="descartando ? 'Descartando...' : 'Descartar'">Descartar</span>
       </button>

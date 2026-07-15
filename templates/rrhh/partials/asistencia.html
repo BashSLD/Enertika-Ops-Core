@@ -194,7 +194,7 @@
               </span>
               {% if row.modalidad_metadata %}
               <span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
-                {{ row.modalidad_metadata.abreviatura or row.modalidad_metadata.nombre }}
+                {{ row.modalidad_metadata.nombre or row.modalidad_metadata.abreviatura }}
               </span>
               {% endif %}
             </td>

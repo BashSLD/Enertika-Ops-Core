@@ -1373,3 +1373,65 @@ async def test_recalcular_asistencia_aplica_compensatorio_si_no_hay_checadas(mon
     assert row["minutos_extra"] == 0
     assert row["minutos_he_compensatorio"] == 480
     assert row["he_compensatorio_solicitud_id"] == comp_id
+
+
+@pytest.mark.asyncio
+async def test_recalcular_asistencia_aplica_compensatorio_parcial_sin_checadas(monkeypatch):
+    """Compensatorio que no cubre el dia completo (135 de 480 min) sin checadas tambien debe
+    reflejar estado='he_compensatorio', no dejar el dia contradictorio como 'sin_registro' con
+    la observacion 'Horas extra tomadas' encima (bug reportado sobre datos de QA en DEV)."""
+    usuario_id = uuid4()
+    fecha_laboral = date(2026, 8, 3)
+    weekday = fecha_laboral.weekday()
+    comp_id = uuid4()
+
+    async def fake_get_global_config(cls, _conn, _clave, default, tipo=str):
+        return default
+
+    async def fake_contexts(_conn, _usuario_ids):
+        return [_context_row(usuario_id, weekday)]
+
+    async def fake_ausencias(_conn, **_kwargs):
+        return []
+
+    async def fake_festivos(_conn, _inicio, _fin):
+        return set()
+
+    async def fake_comp_aprobado(_conn, **_kwargs):
+        return [{
+            "usuario_id": usuario_id,
+            "fecha_descanso": fecha_laboral,
+            "id": comp_id,
+            "minutos_solicitados": 135,
+        }]
+
+    async def fake_checks(_conn, **_kwargs):
+        return []
+
+    saved = {}
+
+    async def fake_upsert(_conn, rows):
+        saved["rows"] = rows
+
+    monkeypatch.setattr(
+        asistencia_service.ConfigService, "get_global_config", classmethod(fake_get_global_config)
+    )
+    monkeypatch.setattr(asistencia_service.db, "get_attendance_contexts", fake_contexts)
+    monkeypatch.setattr(asistencia_service.db, "get_ausencias_justificadas", fake_ausencias)
+    monkeypatch.setattr(asistencia_service.db, "get_festivos_range", fake_festivos)
+    monkeypatch.setattr(
+        asistencia_service.db, "get_he_compensatorio_aprobado_por_fechas", fake_comp_aprobado
+    )
+    monkeypatch.setattr(asistencia_service.db, "get_checks_for_users_window", fake_checks)
+    monkeypatch.setattr(asistencia_service.db, "upsert_asistencia_diaria_batch", fake_upsert)
+
+    rows = await asistencia_service.recalcular_asistencia(
+        FakeConn(), [(usuario_id, fecha_laboral)]
+    )
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["estado"] == "he_compensatorio"
+    assert row["minutos_extra"] == 0
+    assert row["minutos_he_compensatorio"] == 135
+    assert row["he_compensatorio_solicitud_id"] == comp_id
