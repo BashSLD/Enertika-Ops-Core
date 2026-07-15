@@ -129,7 +129,7 @@
                 Comida por defecto
                 <span tabindex="0" title="Minutos de comida que se usan para llenar los dias laborales." class="ml-1 text-[#00BABB] cursor-help">?</span>
               </label>
-              <input type="number" name="descuento_comida_min" min="0" max="1440" value="60" required
+              <input type="number" name="descuento_comida_min" min="0" max="1440" value="0" required
                      class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
             </div>
           </div>
@@ -149,7 +149,7 @@
             </thead>
             <tbody class="divide-y divide-gray-50">
               {% for dia in dias_semana %}
-              <tr x-data="{ laboral: {{ 'true' if dia.value < 5 else 'false' }}, entrada: '{{ '08:00' if dia.value < 5 else '' }}', salida: '{{ '17:00' if dia.value < 5 else '' }}', comida: {{ 60 if dia.value < 5 else 0 }} }">
+              <tr x-data="{ laboral: {{ 'true' if dia.value < 5 else 'false' }}, entrada: '{{ '08:00' if dia.value < 5 else '' }}', salida: '{{ '17:00' if dia.value < 5 else '' }}', comida: 0 }">
                 <td class="px-3 py-2 font-medium text-gray-700">
                   {{ dia.nombre }}
                   <input type="hidden" name="dia_semana" value="{{ dia.value }}">
@@ -166,7 +166,7 @@
                          class="w-28 border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
                 </td>
                 <td class="px-3 py-2">
-                  <input type="number" name="descuento_comida_min_dia" min="0" max="1440" value="{{ 60 if dia.value < 5 else 0 }}" x-model.number="comida"
+                  <input type="number" name="descuento_comida_min_dia" min="0" max="1440" value="0" x-model.number="comida"
                          class="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
                 </td>
                 <td class="px-3 py-2">
