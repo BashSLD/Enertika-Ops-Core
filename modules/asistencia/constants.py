@@ -59,7 +59,16 @@ ASISTENCIA_ESTADOS_SIN_HUECO_MANUAL = {
     "he_compensatorio",
 }
 
-ASISTENCIA_ESTADOS_VACACIONES = {"vacaciones", "checada_en_vacaciones"}
+def formatear_estado_asistencia_label(estado: str | None, tipo_ausencia_nombre: str | None = None) -> str:
+    """Unico formateador de label de estado para Mi Perfil, RRHH y XLSX: en `estado='ausencia'`
+    usa el tipo real de la solicitud (o 'Ausencia' sin tipo); el resto de estados conserva su
+    label fijo. Reemplaza el chip secundario de tipo -- no debe volver a agregarse en paralelo."""
+    if not estado:
+        return ""
+    if estado == "ausencia":
+        return tipo_ausencia_nombre or "Ausencia"
+    return ASISTENCIA_ESTADO_LABELS.get(estado, estado.replace("_", " "))
+
 
 HE_MINIMO_OPCIONES = (10, 15, 30, 60)
 

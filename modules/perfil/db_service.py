@@ -25,11 +25,13 @@ async def get_mi_asistencia_heatmap(
 ) -> list[dict]:
     rows = await conn.fetch(
         """
-        SELECT fecha_laboral, estado
-        FROM tb_asistencia_diaria
-        WHERE usuario_id = $1
-          AND fecha_laboral >= $2
-          AND fecha_laboral <= $3
+        SELECT ad.fecha_laboral, ad.estado, ta.nombre AS tipo_ausencia_nombre
+        FROM tb_asistencia_diaria ad
+        LEFT JOIN tb_solicitudes_ausencia sa ON sa.id = ad.solicitud_ausencia_id
+        LEFT JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
+        WHERE ad.usuario_id = $1
+          AND ad.fecha_laboral >= $2
+          AND ad.fecha_laboral <= $3
         """,
         usuario_id,
         fecha_inicio,

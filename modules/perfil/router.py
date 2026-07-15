@@ -18,9 +18,8 @@ from core.timezone import fmt_time_mx, today_mx
 from modules.asistencia import db_service as asistencia_db
 from modules.asistencia.constants import (
     ASISTENCIA_ESTADO_COLORES,
-    ASISTENCIA_ESTADO_LABELS,
     ASISTENCIA_ESTADOS_SIN_HUECO_MANUAL,
-    ASISTENCIA_ESTADOS_VACACIONES,
+    formatear_estado_asistencia_label,
 )
 from modules.asistencia.schemas import SolicitudManualIn
 from modules.asistencia.service import (
@@ -91,13 +90,8 @@ def _preparar_asistencia_rows(
         row["trabajado_fmt"] = _fmt_minutos(row.get("minutos_trabajados"))
         row["extra_fmt"] = _fmt_minutos(row.get("minutos_extra"))
         row["he_compensatorio_fmt"] = _fmt_minutos(row.get("minutos_he_compensatorio"))
-        row["estado_label"] = ASISTENCIA_ESTADO_LABELS.get(
-            row.get("estado", ""), row.get("estado", "")
-        )
-        row["mostrar_tipo_ausencia"] = bool(
-            row.get("tiene_ausencia_justificada")
-            and row.get("tipo_ausencia_nombre")
-            and row.get("estado") not in ASISTENCIA_ESTADOS_VACACIONES
+        row["estado_label"] = formatear_estado_asistencia_label(
+            row.get("estado", ""), row.get("tipo_ausencia_nombre")
         )
         solicitud = solicitudes_por_fecha.get(row["fecha_laboral"])
         row["solicitud_manual"] = solicitud
@@ -111,7 +105,7 @@ def _preparar_asistencia_rows(
 
 
 def _build_heatmap(rows: list[dict], hoy) -> list[list[dict]]:
-    por_fecha = {r["fecha_laboral"]: r["estado"] for r in rows}
+    por_fecha = {r["fecha_laboral"]: (r["estado"], r.get("tipo_ausencia_nombre")) for r in rows}
     lunes_actual = hoy - timedelta(days=hoy.weekday())
     inicio = lunes_actual - timedelta(weeks=51)
     fin = lunes_actual + timedelta(days=6)
@@ -120,7 +114,7 @@ def _build_heatmap(rows: list[dict], hoy) -> list[list[dict]]:
     while d <= fin:
         semana: list[dict] = []
         for _ in range(7):
-            estado = por_fecha.get(d)
+            estado, tipo_ausencia_nombre = por_fecha.get(d, (None, None))
             if d > hoy:
                 semana.append({"color": "#f9fafb", "tip": ""})
             else:
@@ -128,7 +122,7 @@ def _build_heatmap(rows: list[dict], hoy) -> list[list[dict]]:
                 fecha_label = d.strftime("%d/%m")
                 if estado:
                     color = ASISTENCIA_ESTADO_COLORES.get(estado, "#e5e7eb")
-                    estado_label = ASISTENCIA_ESTADO_LABELS.get(estado, estado)
+                    estado_label = formatear_estado_asistencia_label(estado, tipo_ausencia_nombre)
                     tip = f"{dia_label} {fecha_label} · {estado_label}"
                 else:
                     color = "#f3f4f6"

@@ -15,7 +15,11 @@ from core.jinja_filters import register_timezone_filters
 from core.permissions import require_manager_access, require_module_access
 from core.security import get_current_user_context
 from modules.asistencia import db_service as asistencia_db
-from modules.asistencia.constants import ASISTENCIA_ESTADO_LABELS, ASISTENCIA_ESTADOS
+from modules.asistencia.constants import (
+    ASISTENCIA_ESTADO_LABELS,
+    ASISTENCIA_ESTADOS,
+    formatear_estado_asistencia_label,
+)
 from modules.asistencia.logic import ensure_mx
 from modules.rrhh import service
 from modules.shared.utils import excel_response, format_minutes, is_htmx, toast_error
@@ -192,12 +196,6 @@ def _build_horario_dias_form(
     ]
 
 
-def _format_estado_asistencia(estado: str | None) -> str:
-    if not estado:
-        return ""
-    return ASISTENCIA_ESTADO_LABELS.get(estado, estado.replace("_", " "))
-
-
 _ESTADO_APROBACION_HE_LABELS = {
     "aprobado": "Aprobado",
     "omitido": "Descartado",
@@ -287,7 +285,7 @@ def _asistencia_row_values(row: dict) -> list:
         format_minutes(row.get("minutos_trabajados")),
         format_minutes(row.get("minutos_programados")),
         format_minutes(row.get("minutos_extra")),
-        _format_estado_asistencia(row.get("estado")),
+        formatear_estado_asistencia_label(row.get("estado"), row.get("tipo_ausencia_nombre")),
         "Si" if row.get("tiene_ausencia_justificada") else "No",
         row.get("tipo_ausencia_nombre") or "",
         row.get("observaciones") or "",
@@ -717,7 +715,7 @@ async def reporte_horas_extra_excel(
                 format_minutes(row.get("minutos_trabajados")),
                 format_minutes(row.get("minutos_programados")),
                 format_minutes(row.get("minutos_extra")),
-                _format_estado_asistencia(row.get("estado")),
+                formatear_estado_asistencia_label(row.get("estado"), row.get("tipo_ausencia_nombre")),
                 row.get("observaciones") or "",
                 row.get("motivo_solicitud") or "—",
                 _format_estado_aprobacion_he(row.get("horas_extra_estado")),
@@ -1586,7 +1584,7 @@ async def asistencia_panel(
                 "salida_fmt": ensure_mx(row["ultima_salida"]).strftime("%H:%M") if row.get("ultima_salida") else "",
                 "horas_fmt": format_minutes(row.get("minutos_trabajados") or 0),
                 "extra_fmt": format_minutes(row.get("minutos_extra") or 0),
-                "estado_label": _format_estado_asistencia(row.get("estado")),
+                "estado_label": formatear_estado_asistencia_label(row.get("estado"), row.get("tipo_ausencia_nombre")),
             }
             for row in raw
         ]
