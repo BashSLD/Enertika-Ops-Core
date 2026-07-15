@@ -41,6 +41,8 @@ from .constants import (
     CFE_CONFIG_KEYS,
     SHAREPOINT_CFE_ROOT,
     SHAREPOINT_CFE_STAGING_ROOT,
+    ZONA_TODAS,
+    ZONAS_OYM,
 )
 from .db_service import CfeDBService, get_cfe_db_service
 from .scraper import (
@@ -361,28 +363,34 @@ class CfeService:
     # ── Servicios ─────────────────────────────────────────────────────────
 
     async def resolver_filtro_visibilidad(
-        self, conn: asyncpg.Connection, user: dict, modulo_activo: str | None
-    ) -> tuple[list[UUID] | None, list[UUID] | None]:
+        self, conn: asyncpg.Connection, user: dict, modulo_activo: str | None,
+        zona_solicitada: str | None = None,
+    ) -> tuple[str | None, list[UUID] | None]:
         """
-        Devuelve (creado_por_ids, servicio_ids) para filtrar el listado.
+        Devuelve (zona, servicio_ids) para filtrar el listado.
         Solo una dimension se activa segun el modulo; la otra es None.
 
-        - oym: filtra por zona del usuario (creado_por_ids). admin de oym /
-          ADMIN sistema / sin zona -> (None, None) = ve todo.
+        - oym: filtro conmutable por zona (cualquier usuario oym puede ver
+          cualquier zona, la zona no es candado de seguridad). admin de oym /
+          ADMIN sistema / 'todas' -> (None, None) = ve todo. zona_solicitada
+          en ZONAS_OYM -> esa zona. default (mi zona) -> zona propia del
+          usuario (None si no tiene = ve todo).
         - simulacion: filtra por servicios que el usuario registro (servicio_ids).
           admin de simulacion / ADMIN sistema -> (None, None). Un usuario sin
           registros -> ([] en servicio_ids) = no ve nada. NUNCA colapsar [] a None.
         - sin modulo activo (tiene ambos) -> (None, None) = ve todo.
         """
         if modulo_activo == "oym":
-            if get_user_module_role("oym", user) == "admin":
+            if zona_solicitada == ZONA_TODAS or get_user_module_role("oym", user) == "admin":
                 return None, None
+            if zona_solicitada in ZONAS_OYM:
+                return zona_solicitada, None
             usuario_id = user.get("user_db_id")
             if not usuario_id:
                 return None, None
             oym_db = get_oym_db_service()
-            ids = await oym_db.get_usuario_ids_en_misma_zona(conn, usuario_id)
-            return (ids or None), None
+            zona_propia = await oym_db.get_zona_de_usuario(conn, usuario_id)
+            return zona_propia, None  # None = sin zona = ve todo (comportamiento actual)
 
         if modulo_activo == "simulacion":
             if get_user_module_role("simulacion", user) == "admin":
@@ -398,12 +406,12 @@ class CfeService:
     async def listar_servicios(
         self, conn: asyncpg.Connection,
         modulos: list[str] | None = None,
-        creado_por_ids: list[UUID] | None = None,
+        zona: str | None = None,
         servicio_ids: list[UUID] | None = None,
         excluir_ids: list[UUID] | None = None,
     ) -> list[dict]:
         return await self.db.get_all_servicios(
-            conn, modulos=modulos, creado_por_ids=creado_por_ids,
+            conn, modulos=modulos, zona=zona,
             servicio_ids=servicio_ids, excluir_ids=excluir_ids,
         )
 
@@ -447,19 +455,21 @@ class CfeService:
 
     async def listar_servicios_visibles(
         self, conn: asyncpg.Connection, user: dict, modulo_activo: str | None,
-        modulos_accesibles: list[str],
+        modulos_accesibles: list[str], zona_solicitada: str | None = None,
     ) -> tuple[list[dict], int]:
         """Resuelve visibilidad + ocultos y arma (servicios, ocultos_count) para
         un usuario. Centraliza el patron repetido en los endpoints que
         re-renderizan lista_servicios.html tras una accion. No usar en
-        endpoints que ya necesitan creado_por_ids/servicio_ids antes de listar
+        endpoints que ya necesitan zona/servicio_ids antes de listar
         (ej. descargar_todos, que los pasa a iniciar_descarga_masiva) — ahi
         resolver_filtro_visibilidad se llama aparte para evitar resolverlo dos veces."""
         modulos = [modulo_activo] if modulo_activo else modulos_accesibles
-        creado_por_ids, servicio_ids = await self.resolver_filtro_visibilidad(conn, user, modulo_activo)
+        zona_filtro, servicio_ids = await self.resolver_filtro_visibilidad(
+            conn, user, modulo_activo, zona_solicitada
+        )
         excluir_ids = await self.resolver_ocultos(conn, user, modulos)
         servicios = await self.listar_servicios(
-            conn, modulos=modulos, creado_por_ids=creado_por_ids,
+            conn, modulos=modulos, zona=zona_filtro,
             servicio_ids=servicio_ids, excluir_ids=excluir_ids,
         )
         return servicios, len(excluir_ids or [])
@@ -480,7 +490,7 @@ class CfeService:
     async def crear_servicio(
         self, conn: asyncpg.Connection, *, numero_servicio: str, nombre: str,
         alias: Optional[str], lada: str, telefono: str, email: str, usuario_id: UUID,
-        modulo: str = "oym",
+        modulo: str = "oym", zona: str | None = None,
     ) -> tuple[dict, str]:
         """Returns (servicio, estado). estado en:
         'creado'              -> servicio nuevo
@@ -495,6 +505,7 @@ class CfeService:
         su fila de registrador — ese hueco dejo huerfanos a 2 servicios de un
         usuario real (ver Tarea 0, PLAN_CFE_OCULTAR_SERVICIOS_Y_FIX_VISIBILIDAD.md)."""
         nombre = self._normalizar_nombre_servicio(nombre)
+        zona_servicio = zona if (modulo == "oym" and zona in ZONAS_OYM) else None
 
         async with conn.transaction():
             existing = await self.db.get_servicio_by_numero(conn, numero_servicio)
@@ -510,7 +521,7 @@ class CfeService:
                         f"como '{existing['nombre']}'."
                     )
                 # El servicio existe en otro módulo: agregar este módulo al array
-                await self.db.agregar_modulo_a_servicio(conn, existing["id"], modulo)
+                await self.db.agregar_modulo_a_servicio(conn, existing["id"], modulo, zona_servicio)
                 if modulo == "simulacion":
                     await self.db.agregar_registrador(conn, existing["id"], usuario_id, "simulacion")
                 # Verifica/registra en MiEspacio si aun no esta (idempotente).
@@ -519,7 +530,7 @@ class CfeService:
             nuevo = await self.db.crear_servicio(
                 conn, numero_servicio=numero_servicio, nombre=nombre, alias=alias,
                 lada=lada, telefono=telefono, email=email, creado_por=usuario_id,
-                modulos=[modulo],
+                modulos=[modulo], zona=zona_servicio,
             )
             if modulo == "simulacion":
                 await self.db.agregar_registrador(conn, nuevo["id"], usuario_id, "simulacion")
@@ -631,7 +642,7 @@ class CfeService:
         *,
         modulos: list[str] | None,
         usuario_id: UUID,
-        creado_por_ids: list[UUID] | None = None,
+        zona: str | None = None,
         servicio_ids: list[UUID] | None = None,
     ) -> tuple[int, int]:
         """
@@ -641,7 +652,7 @@ class CfeService:
         Retorna (encolados, omitidos).
         """
         servicios = await self.db.get_all_servicios(
-            conn, modulos=modulos, creado_por_ids=creado_por_ids, servicio_ids=servicio_ids
+            conn, modulos=modulos, zona=zona, servicio_ids=servicio_ids
         )
         registrados = [s for s in servicios if s.get("miespacio_estatus") == "registrado"]
 
@@ -1925,7 +1936,7 @@ class CfeService:
         *,
         modulos: list[str] | None,
         perfil_slug: str = "oym",
-        creado_por_ids: list[UUID] | None = None,
+        zona: str | None = None,
         servicio_ids: list[UUID] | None = None,
         permitir_incompleto: bool = False,
     ) -> tuple[bytes, str]:
@@ -1935,7 +1946,7 @@ class CfeService:
         servicio. Corresponde al resultado de la descarga masiva.
         """
         rows = await self.db.get_ultimas_descargas_completadas_por_modulo(
-            conn, modulos, creado_por_ids=creado_por_ids, servicio_ids=servicio_ids
+            conn, modulos, zona=zona, servicio_ids=servicio_ids
         )
         if not rows:
             raise ValueError("No hay recibos descargados para incluir en el ZIP.")

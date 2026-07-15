@@ -289,7 +289,7 @@ class _FakeCfeZipDB:
         return self.descargas if self.servicio["id"] == servicio_id else []
 
     async def get_ultimas_descargas_completadas_por_modulo(
-        self, conn, modulos, creado_por_ids=None, servicio_ids=None
+        self, conn, modulos, zona=None, servicio_ids=None
     ):
         return self.global_rows
 

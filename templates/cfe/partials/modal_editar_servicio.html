@@ -1,3 +1,4 @@
+{% from "cfe/partials/_zona_qs.html" import qs %}
 {# templates/cfe/partials/modal_editar_servicio.html #}
 <div class="fixed inset-0 z-50 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
      id="cfe-editar-modal">
@@ -18,7 +19,7 @@
             </div>
         </div>
 
-        <form hx-post="/cfe/servicios/{{ servicio.id }}/editar{% if modulo %}?modulo={{ modulo }}{% endif %}"
+        <form hx-post="/cfe/servicios/{{ servicio.id }}/editar{{ qs(modulo, zona_activa) }}"
               hx-target="#cfe-lista"
               hx-swap="outerHTML"
               hx-on::after-request="if(event.detail.successful) document.getElementById('cfe-modal-container').innerHTML=''"

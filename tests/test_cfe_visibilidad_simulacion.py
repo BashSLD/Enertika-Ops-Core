@@ -171,3 +171,136 @@ async def test_ocultar_servicio_sin_acceso_lanza_error(mock_conn):
 async def test_resolver_ocultos_sin_usuario_no_filtra(mock_conn):
     svc = _svc_con_db()
     assert await svc.resolver_ocultos(mock_conn, {}, ["oym"]) is None
+
+
+# ── Zona explicita + filtro conmutable (oym) ────────────────────────────────
+
+def _mock_oym_db(monkeypatch, zona_propia):
+    fake_oym_db = AsyncMock()
+    fake_oym_db.get_zona_de_usuario = AsyncMock(return_value=zona_propia)
+    monkeypatch.setattr(
+        "modules.cfe.service.get_oym_db_service", lambda: fake_oym_db
+    )
+    return fake_oym_db
+
+
+@pytest.mark.asyncio
+async def test_resolver_oym_mi_zona_usa_zona_propia(mock_conn, monkeypatch):
+    svc = _svc_con_db()
+    fake_oym_db = _mock_oym_db(monkeypatch, "Zona 1")
+    user = {"user_db_id": uuid4(), "role": "USER", "module_roles": {"oym": "editor"}}
+
+    zona_filtro, servicio_ids = await svc.resolver_filtro_visibilidad(mock_conn, user, "oym", None)
+
+    assert zona_filtro == "Zona 1"
+    assert servicio_ids is None
+    fake_oym_db.get_zona_de_usuario.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_resolver_oym_zona_explicita(mock_conn, monkeypatch):
+    svc = _svc_con_db()
+    fake_oym_db = _mock_oym_db(monkeypatch, "Zona 1")
+    user = {"user_db_id": uuid4(), "role": "USER", "module_roles": {"oym": "editor"}}
+
+    zona_filtro, servicio_ids = await svc.resolver_filtro_visibilidad(mock_conn, user, "oym", "Zona 2")
+
+    assert (zona_filtro, servicio_ids) == ("Zona 2", None)
+    # zona_solicitada valida no debe consultar la zona propia del usuario.
+    fake_oym_db.get_zona_de_usuario.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resolver_oym_todas_ve_todo(mock_conn, monkeypatch):
+    svc = _svc_con_db()
+    fake_oym_db = _mock_oym_db(monkeypatch, "Zona 1")
+    user = {"user_db_id": uuid4(), "role": "USER", "module_roles": {"oym": "editor"}}
+
+    assert await svc.resolver_filtro_visibilidad(mock_conn, user, "oym", "todas") == (None, None)
+    fake_oym_db.get_zona_de_usuario.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resolver_oym_admin_ve_todo_ignora_zona_solicitada(mock_conn, admin_context, monkeypatch):
+    svc = _svc_con_db()
+    fake_oym_db = _mock_oym_db(monkeypatch, "Zona 1")
+
+    assert await svc.resolver_filtro_visibilidad(mock_conn, admin_context, "oym", "Zona 2") == (None, None)
+    fake_oym_db.get_zona_de_usuario.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_crear_servicio_oym_estampa_zona():
+    svc = _svc_con_db()
+    svc.db.get_servicio_by_numero = AsyncMock(return_value=None)
+    creado = {"id": uuid4(), "nombre": "CLIENTE X", "modulos": ["oym"], "zona": "Zona 2"}
+    svc.db.crear_servicio = AsyncMock(return_value=creado)
+    svc.db.marcar_alta_miespacio_pendiente = AsyncMock()
+
+    servicio, estado = await svc.crear_servicio(
+        FakeConnTx(), numero_servicio="123", nombre="cliente x", alias=None,
+        lada="55", telefono="1", email="a@b.com", usuario_id=uuid4(),
+        modulo="oym", zona="Zona 2",
+    )
+
+    assert estado == "creado"
+    assert svc.db.crear_servicio.await_args.kwargs["zona"] == "Zona 2"
+
+
+@pytest.mark.asyncio
+async def test_crear_servicio_oym_zona_invalida_no_se_estampa():
+    svc = _svc_con_db()
+    svc.db.get_servicio_by_numero = AsyncMock(return_value=None)
+    creado = {"id": uuid4(), "nombre": "CLIENTE X", "modulos": ["oym"], "zona": None}
+    svc.db.crear_servicio = AsyncMock(return_value=creado)
+    svc.db.marcar_alta_miespacio_pendiente = AsyncMock()
+
+    await svc.crear_servicio(
+        FakeConnTx(), numero_servicio="123", nombre="cliente x", alias=None,
+        lada="55", telefono="1", email="a@b.com", usuario_id=uuid4(),
+        modulo="oym", zona="Zona Inexistente",
+    )
+
+    assert svc.db.crear_servicio.await_args.kwargs["zona"] is None
+
+
+@pytest.mark.asyncio
+async def test_crear_servicio_modulo_agregado_estampa_zona():
+    # Servicio ya existente en 'simulacion' (zona NULL); un usuario oym lo suma
+    # a su modulo eligiendo zona explicita — debe estamparse, no perderse.
+    svc = _svc_con_db()
+    existente = {"id": uuid4(), "nombre": "CLIENTE X", "modulos": ["simulacion"], "zona": None}
+    svc.db.get_servicio_by_numero = AsyncMock(return_value=existente)
+    svc.db.agregar_modulo_a_servicio = AsyncMock(return_value=existente)
+    svc.db.marcar_alta_miespacio_pendiente = AsyncMock()
+
+    servicio, estado = await svc.crear_servicio(
+        FakeConnTx(), numero_servicio="123", nombre="cliente x", alias=None,
+        lada="55", telefono="1", email="a@b.com", usuario_id=uuid4(),
+        modulo="oym", zona="Zona 2",
+    )
+
+    assert estado == "modulo_agregado"
+    call_args = svc.db.agregar_modulo_a_servicio.await_args.args
+    assert call_args[1] == existente["id"]
+    assert call_args[2] == "oym"
+    assert call_args[3] == "Zona 2"
+
+
+@pytest.mark.asyncio
+async def test_crear_servicio_simulacion_ignora_zona():
+    # zona solo aplica a oym; si llega en una alta de simulacion se descarta.
+    svc = _svc_con_db()
+    svc.db.get_servicio_by_numero = AsyncMock(return_value=None)
+    creado = {"id": uuid4(), "nombre": "CLIENTE X", "modulos": ["simulacion"], "zona": None}
+    svc.db.crear_servicio = AsyncMock(return_value=creado)
+    svc.db.agregar_registrador = AsyncMock(return_value=True)
+    svc.db.marcar_alta_miespacio_pendiente = AsyncMock()
+
+    await svc.crear_servicio(
+        FakeConnTx(), numero_servicio="123", nombre="cliente x", alias=None,
+        lada="55", telefono="1", email="a@b.com", usuario_id=uuid4(),
+        modulo="simulacion", zona="Zona 1",
+    )
+
+    assert svc.db.crear_servicio.await_args.kwargs["zona"] is None

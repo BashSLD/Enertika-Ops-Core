@@ -1,0 +1,2 @@
+{# templates/cfe/partials/_zona_qs.html — construye "?modulo=X&zona=Y" (ambos opcionales) #}
+{% macro qs(modulo, zona) %}{% set parts = [] %}{% if modulo %}{% set _ = parts.append('modulo=' ~ modulo) %}{% endif %}{% if zona %}{% set _ = parts.append('zona=' ~ (zona | urlencode)) %}{% endif %}{%- if parts -%}?{{ parts | join('&') }}{%- endif -%}{% endmacro %}

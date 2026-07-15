@@ -11,18 +11,13 @@ logger = logging.getLogger("OyMDBService")
 
 class OyMDBService:
 
-    async def get_usuario_ids_en_misma_zona(
+    async def get_zona_de_usuario(
         self, conn: asyncpg.Connection, usuario_id: UUID
-    ) -> list[UUID]:
-        """Todos los usuario_id de la misma zona. Lista vacía si el usuario no tiene zona."""
-        rows = await conn.fetch(
-            """
-            SELECT usuario_id FROM tb_oym_zonas_usuarios
-            WHERE zona = (SELECT zona FROM tb_oym_zonas_usuarios WHERE usuario_id = $1)
-            """,
-            usuario_id,
+    ) -> str | None:
+        """Zona asignada al usuario, o None si no tiene zona."""
+        return await conn.fetchval(
+            "SELECT zona FROM tb_oym_zonas_usuarios WHERE usuario_id = $1", usuario_id,
         )
-        return [r["usuario_id"] for r in rows]
 
     async def get_asignaciones_zona(self, conn: asyncpg.Connection) -> list[dict]:
         """Usuarios activos del departamento de O&M con su zona actual (NULL si sin asignar)."""

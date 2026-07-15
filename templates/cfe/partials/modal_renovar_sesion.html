@@ -1,3 +1,4 @@
+{% from "cfe/partials/_zona_qs.html" import qs %}
 {# templates/cfe/partials/modal_renovar_sesion.html #}
 <div class="fixed inset-0 z-50 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
      id="cfe-renovar-modal">
@@ -69,7 +70,7 @@
             </a>
             {% endif %}
             <button type="button"
-                    hx-get="/cfe/ui{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                    hx-get="/cfe/ui{{ qs(modulo, zona_activa) }}"
                     hx-target="#main-content"
                     hx-swap="innerHTML"
                     hx-push-url="true"

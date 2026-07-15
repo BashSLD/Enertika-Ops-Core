@@ -3,6 +3,7 @@
      id="cfe-agregar-modal"
      x-data="{
        tab: 'individual',
+       moduloSel: '{{ modulo or (modulos_accesibles[0] if modulos_accesibles else 'oym') }}',
        filas: [{rpu: '', nombre: '', alias: ''}],
        agregar() { this.filas.push({rpu: '', nombre: '', alias: ''}) },
        quitar(i) { if (this.filas.length > 1) this.filas.splice(i, 1) }
@@ -37,7 +38,7 @@
 
         {# ── Tab: individual ── #}
         <div x-show="tab === 'individual'" x-cloak>
-            <form hx-post="/cfe/servicios"
+            <form hx-post="/cfe/servicios{% if zona_activa %}?zona_filtro={{ zona_activa | urlencode }}{% endif %}"
                   hx-target="#cfe-lista"
                   hx-swap="outerHTML"
                   hx-on::after-request="if(event.detail.successful) document.getElementById('cfe-modal-container').innerHTML=''"
@@ -62,7 +63,7 @@
                     {% if modulos_accesibles | length > 1 %}
                     <div class="col-span-2">
                         <label class="block text-sm font-bold text-gray-700 mb-1">Departamento <span class="text-red-500">*</span></label>
-                        <select name="modulo" class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-teal-500 focus:border-teal-500">
+                        <select name="modulo" x-model="moduloSel" class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-teal-500 focus:border-teal-500">
                             {% for m in modulos_accesibles %}
                             <option value="{{ m }}" {% if m == modulo %}selected{% endif %}>
                                 {% if m == 'oym' %}O&M{% elif m == 'simulacion' %}Simulación{% else %}{{ m }}{% endif %}
@@ -72,6 +73,17 @@
                     </div>
                     {% else %}
                     <input type="hidden" name="modulo" value="{{ modulo or (modulos_accesibles[0] if modulos_accesibles else 'oym') }}">
+                    {% endif %}
+                    {% if 'oym' in modulos_accesibles %}
+                    <div class="col-span-2" x-show="moduloSel === 'oym'" x-cloak>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Zona</label>
+                        <select name="zona" class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-teal-500 focus:border-teal-500">
+                            <option value="">Sin zona</option>
+                            {% for z in zonas_oym %}
+                            <option value="{{ z }}" {% if z == zona_default_alta %}selected{% endif %}>{{ z }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                     {% endif %}
                     <input type="hidden" name="lada" value="{{ contacto_defaults.lada }}">
                     <input type="hidden" name="telefono" value="{{ contacto_defaults.telefono }}">
@@ -88,7 +100,7 @@
 
         {# ── Tab: varios ── #}
         <div x-show="tab === 'varios'" x-cloak class="p-6 space-y-4">
-            <form hx-post="/cfe/servicios/bulk"
+            <form hx-post="/cfe/servicios/bulk{% if zona_activa %}?zona_filtro={{ zona_activa | urlencode }}{% endif %}"
                   hx-target="#cfe-bulk-resultado"
                   hx-swap="innerHTML"
                   hx-on::after-swap="var r=document.getElementById('cfe-bulk-resultado'); if(r && r.querySelector('[data-close-modal]')) setTimeout(function(){ document.getElementById('cfe-modal-container').innerHTML=''; }, 1200)"
@@ -96,7 +108,7 @@
                 {% if modulos_accesibles | length > 1 %}
                 <div>
                     <label class="block text-sm font-bold text-gray-700 mb-1">Departamento <span class="text-red-500">*</span></label>
-                    <select name="modulo" class="rounded-lg border-gray-300 px-3 py-2 text-sm focus:ring-teal-500 focus:border-teal-500">
+                    <select name="modulo" x-model="moduloSel" class="rounded-lg border-gray-300 px-3 py-2 text-sm focus:ring-teal-500 focus:border-teal-500">
                         {% for m in modulos_accesibles %}
                         <option value="{{ m }}" {% if m == modulo %}selected{% endif %}>
                             {% if m == 'oym' %}O&M{% elif m == 'simulacion' %}Simulación{% else %}{{ m }}{% endif %}
@@ -106,6 +118,17 @@
                 </div>
                 {% else %}
                 <input type="hidden" name="modulo" value="{{ modulo or (modulos_accesibles[0] if modulos_accesibles else 'oym') }}">
+                {% endif %}
+                {% if 'oym' in modulos_accesibles %}
+                <div x-show="moduloSel === 'oym'" x-cloak>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Zona</label>
+                    <select name="zona" class="rounded-lg border-gray-300 px-3 py-2 text-sm focus:ring-teal-500 focus:border-teal-500">
+                        <option value="">Sin zona</option>
+                        {% for z in zonas_oym %}
+                        <option value="{{ z }}" {% if z == zona_default_alta %}selected{% endif %}>{{ z }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
                 {% endif %}
                 <input type="hidden" name="lada" value="{{ contacto_defaults.lada }}">
                 <input type="hidden" name="telefono" value="{{ contacto_defaults.telefono }}">

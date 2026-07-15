@@ -24,6 +24,12 @@ SHAREPOINT_CFE_TOOLS_FOLDER = "herramientas"
 # Módulos con acceso a esta funcionalidad
 CFE_MODULE_SLUGS = ["oym", "simulacion"]
 
+# Zonas validas para el filtro conmutable de OYM (tb_oym_zonas_usuarios.zona)
+ZONAS_OYM = ("Zona 1", "Zona 2")
+
+# Valor del filtro de zona que significa "ver todas las zonas" (no filtrar)
+ZONA_TODAS = "todas"
+
 # Umbral de duracion de una busqueda de periodos: minimo 300s, +90s por cada
 # periodo solicitado. Lo usan tanto el asyncio.wait_for() en procesar_pendientes
 # como el reaper SQL que rescata busquedas colgadas — deben coincidir.

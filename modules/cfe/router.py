@@ -16,7 +16,7 @@ from core.permissions import get_user_module_role, require_any_module_access, us
 from core.security import get_current_user_context
 from modules.shared.services.cfe import generar_excel_cfe_desde_uploads
 
-from .constants import CFE_MODULE_SLUGS, CFE_PUBLIC_FORM_DEFAULTS
+from .constants import CFE_MODULE_SLUGS, CFE_PUBLIC_FORM_DEFAULTS, ZONAS_OYM
 from .service import CfeZipFaltantesError, get_cfe_service
 
 logger = logging.getLogger("CfeRouter")
@@ -89,6 +89,7 @@ async def _get_servicio_accesible(svc, conn, servicio_id: UUID, user: dict) -> d
 async def cfe_ui(
     request: Request,
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -96,7 +97,9 @@ async def cfe_ui(
     svc = get_cfe_service()
     modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
     await svc.limpiar_errores_invalidos(conn)
-    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
+    servicios, ocultos_count = await svc.listar_servicios_visibles(
+        conn, user, modulo_activo, modulos_accesibles, zona
+    )
     estado_sesion = await svc.get_estado_sesion(conn)
     is_htmx = request.headers.get("hx-request")
     is_restore = request.headers.get("hx-history-restore-request")
@@ -105,6 +108,8 @@ async def cfe_ui(
         "estado_sesion": estado_sesion,
         "modulo": modulo_activo,
         "modulos_accesibles": modulos_accesibles,
+        "zona_activa": zona,
+        "zonas_oym": ZONAS_OYM,
         "user": user,
         "user_name": user.get("user_name"),
         "role": user.get("role"),
@@ -120,6 +125,7 @@ async def analisis_servicio(
     request: Request,
     servicio_id: UUID,
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -142,6 +148,7 @@ async def analisis_servicio(
     ctx = {
         "analisis": analisis,
         "modulo": modulo_activo,
+        "zona_activa": zona,
         "user": user,
         "user_name": user.get("user_name"),
         "role": user.get("role"),
@@ -157,10 +164,20 @@ async def analisis_servicio(
 async def modal_agregar(
     request: Request,
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
+    conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
 ):
     _, modulos_accesibles = _resolver_modulos(user, modulo)
+    # Default del <select name="zona"> del modal: resuelve la MISMA zona que el
+    # usuario esta viendo ahora mismo (incluida "mi zona" -> zona propia), no el
+    # query param crudo — si no, con el filtro por defecto (sin ?zona=) el select
+    # cae en "Sin zona" aunque el usuario tenga zona asignada.
+    zona_default_alta = None
+    if "oym" in modulos_accesibles:
+        svc = get_cfe_service()
+        zona_default_alta, _ = await svc.resolver_filtro_visibilidad(conn, user, "oym", zona)
     return templates.TemplateResponse(
         request,
         "cfe/partials/modal_agregar_servicio.html",
@@ -168,6 +185,9 @@ async def modal_agregar(
             "contacto_defaults": CFE_PUBLIC_FORM_DEFAULTS,
             "modulo": modulo,
             "modulos_accesibles": modulos_accesibles,
+            "zona_activa": zona,
+            "zona_default_alta": zona_default_alta,
+            "zonas_oym": ZONAS_OYM,
         },
     )
 
@@ -194,6 +214,7 @@ async def modal_xml_excel(
 async def modal_renovar_sesion(
     request: Request,
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -204,7 +225,7 @@ async def modal_renovar_sesion(
     return templates.TemplateResponse(
         request,
         "cfe/partials/modal_renovar_sesion.html",
-        {"estado_sesion": estado_sesion, "modulo": modulo_activo, "user": user},
+        {"estado_sesion": estado_sesion, "modulo": modulo_activo, "zona_activa": zona, "user": user},
     )
 
 
@@ -259,6 +280,8 @@ async def crear_servicio(
     lada: str = Form(CFE_PUBLIC_FORM_DEFAULTS["lada"]),
     telefono: str = Form(CFE_PUBLIC_FORM_DEFAULTS["telefono"]),
     email: str = Form(CFE_PUBLIC_FORM_DEFAULTS["email"]),
+    zona: str | None = Form(default=None),
+    zona_filtro: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -276,6 +299,7 @@ async def crear_servicio(
             conn, numero_servicio=numero_servicio.strip(), nombre=nombre.strip(),
             alias=alias.strip() or None, lada=lada.strip(), telefono=telefono.strip(),
             email=email.strip(), usuario_id=user["user_db_id"], modulo=modulo_guardado,
+            zona=zona,
         )
         toast_msg = {
             "creado": f"Servicio {numero_servicio} registrado.",
@@ -292,13 +316,17 @@ async def crear_servicio(
         toast_msg = "Error interno al registrar el servicio."
         toast_type = "error"
         status_code = 500
-    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
+    servicios, ocultos_count = await svc.listar_servicios_visibles(
+        conn, user, modulo_activo, modulos_accesibles, zona_filtro
+    )
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
         {
             "servicios": servicios,
             "modulo": modulo_activo,
             "modulos_accesibles": modulos_accesibles,
+            "zona_activa": zona_filtro,
+            "zonas_oym": ZONAS_OYM,
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
             "ocultos_count": ocultos_count,
@@ -317,6 +345,8 @@ async def crear_servicios_bulk(
     lada: str = Form(CFE_PUBLIC_FORM_DEFAULTS["lada"]),
     telefono: str = Form(CFE_PUBLIC_FORM_DEFAULTS["telefono"]),
     email: str = Form(CFE_PUBLIC_FORM_DEFAULTS["email"]),
+    zona: str | None = Form(default=None),
+    zona_filtro: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -350,6 +380,7 @@ async def crear_servicios_bulk(
                 email=email,
                 usuario_id=user["user_db_id"],
                 modulo=modulo_guardado,
+                zona=zona,
             )
             msg = {
                 "creado": "Registrado.",
@@ -365,7 +396,9 @@ async def crear_servicios_bulk(
             resultados.append({"numero": numero, "nombre": nombre, "ok": False, "error": "Error interno al registrar."})
 
     total_ok = sum(1 for r in resultados if r["ok"])
-    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
+    servicios, ocultos_count = await svc.listar_servicios_visibles(
+        conn, user, modulo_activo, modulos_accesibles, zona_filtro
+    )
     estado_sesion = await svc.get_estado_sesion(conn)
     return templates.TemplateResponse(
         request,
@@ -377,6 +410,8 @@ async def crear_servicios_bulk(
             "estado_sesion": estado_sesion,
             "modulo": modulo_activo,
             "modulos_accesibles": modulos_accesibles,
+            "zona_activa": zona_filtro,
+            "zonas_oym": ZONAS_OYM,
             "user": user,
             "user_name": user.get("user_name"),
             "role": user.get("role"),
@@ -393,6 +428,7 @@ async def ocultar_servicio(
     request: Request,
     servicio_id: UUID,
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -418,11 +454,14 @@ async def ocultar_servicio(
         toast_msg = "Error interno al ocultar el servicio."
         toast_type = "error"
         status_code = 500
-    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
+    servicios, ocultos_count = await svc.listar_servicios_visibles(
+        conn, user, modulo_activo, modulos_accesibles, zona
+    )
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
         {
             "servicios": servicios, "modulo": modulo_activo, "modulos_accesibles": modulos_accesibles,
+            "zona_activa": zona, "zonas_oym": ZONAS_OYM,
             "user": user, "_toast": {"message": toast_msg, "type": toast_type},
             "ocultos_count": ocultos_count,
         },
@@ -434,6 +473,7 @@ async def ocultar_servicio(
 async def modal_ocultos(
     request: Request,
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -444,7 +484,7 @@ async def modal_ocultos(
     ocultos = await svc.listar_servicios_ocultos(conn, user["user_db_id"], modulos_ctx)
     return templates.TemplateResponse(
         request, "cfe/partials/modal_ocultos.html",
-        {"ocultos": ocultos, "modulo": modulo_activo, "user": user},
+        {"ocultos": ocultos, "modulo": modulo_activo, "zona_activa": zona, "user": user},
     )
 
 
@@ -453,6 +493,7 @@ async def mostrar_servicio(
     request: Request,
     servicio_id: UUID,
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -467,13 +508,16 @@ async def mostrar_servicio(
         raise HTTPException(status_code=500, detail="Error interno al restaurar el servicio.")
 
     ocultos = await svc.listar_servicios_ocultos(conn, user["user_db_id"], modulos_ctx)
-    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
+    servicios, ocultos_count = await svc.listar_servicios_visibles(
+        conn, user, modulo_activo, modulos_accesibles, zona
+    )
     return templates.TemplateResponse(
         request, "cfe/partials/modal_ocultos.html",
         {
-            "ocultos": ocultos, "modulo": modulo_activo, "user": user,
+            "ocultos": ocultos, "modulo": modulo_activo, "zona_activa": zona, "user": user,
             "_toast": {"message": "Servicio visible de nuevo.", "type": "success"},
             "servicios": servicios, "modulos_accesibles": modulos_accesibles,
+            "zonas_oym": ZONAS_OYM,
             "ocultos_count": ocultos_count,
         },
     )
@@ -484,6 +528,7 @@ async def modal_editar_servicio(
     request: Request,
     servicio_id: UUID,
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -496,7 +541,7 @@ async def modal_editar_servicio(
     return templates.TemplateResponse(
         request,
         "cfe/partials/modal_editar_servicio.html",
-        {"servicio": servicio, "modulo": modulo_activo, "user": user},
+        {"servicio": servicio, "modulo": modulo_activo, "zona_activa": zona, "user": user},
     )
 
 
@@ -508,6 +553,7 @@ async def editar_servicio(
     nombre: str = Form(...),
     alias: str = Form(""),
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -531,13 +577,17 @@ async def editar_servicio(
         toast_msg = "Error interno al editar el servicio."
         toast_type = "error"
         status_code = 500
-    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
+    servicios, ocultos_count = await svc.listar_servicios_visibles(
+        conn, user, modulo_activo, modulos_accesibles, zona
+    )
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
         {
             "servicios": servicios,
             "modulo": modulo_activo,
             "modulos_accesibles": modulos_accesibles,
+            "zona_activa": zona,
+            "zonas_oym": ZONAS_OYM,
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
             "ocultos_count": ocultos_count,
@@ -551,6 +601,7 @@ async def modal_detalle_miespacio(
     request: Request,
     servicio_id: UUID,
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -561,7 +612,7 @@ async def modal_detalle_miespacio(
     return templates.TemplateResponse(
         request,
         "cfe/partials/modal_detalle_miespacio.html",
-        {"servicio": servicio, "modulo": modulo_activo, "user": user},
+        {"servicio": servicio, "modulo": modulo_activo, "zona_activa": zona, "user": user},
     )
 
 
@@ -571,6 +622,7 @@ async def registrar_manual(
     servicio_id: UUID,
     total: str = Form(...),
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -592,13 +644,17 @@ async def registrar_manual(
         toast_msg = "Error interno al encolar el registro."
         toast_type = "error"
         status_code = 500
-    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
+    servicios, ocultos_count = await svc.listar_servicios_visibles(
+        conn, user, modulo_activo, modulos_accesibles, zona
+    )
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
         {
             "servicios": servicios,
             "modulo": modulo_activo,
             "modulos_accesibles": modulos_accesibles,
+            "zona_activa": zona,
+            "zonas_oym": ZONAS_OYM,
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
             "ocultos_count": ocultos_count,
@@ -612,6 +668,7 @@ async def reintentar_alta_miespacio(
     request: Request,
     servicio_id: UUID,
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -633,13 +690,17 @@ async def reintentar_alta_miespacio(
         toast_msg = "Error interno al reencolar el registro."
         toast_type = "error"
         status_code = 500
-    servicios, ocultos_count = await svc.listar_servicios_visibles(conn, user, modulo_activo, modulos_accesibles)
+    servicios, ocultos_count = await svc.listar_servicios_visibles(
+        conn, user, modulo_activo, modulos_accesibles, zona
+    )
     return templates.TemplateResponse(
         request, "cfe/partials/lista_servicios.html",
         {
             "servicios": servicios,
             "modulo": modulo_activo,
             "modulos_accesibles": modulos_accesibles,
+            "zona_activa": zona,
+            "zonas_oym": ZONAS_OYM,
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
             "ocultos_count": ocultos_count,
@@ -741,6 +802,7 @@ async def iniciar_descarga(
 async def descargar_todos(
     request: Request,
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -748,14 +810,14 @@ async def descargar_todos(
     svc = get_cfe_service()
     modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
     modulos = [modulo_activo] if modulo_activo else modulos_accesibles
-    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
+    zona_filtro, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo, zona)
     toast_type = "success"
     toast_msg = ""
     status_code = 200
     try:
         encolados, omitidos = await svc.iniciar_descarga_masiva(
             conn, modulos=modulos, usuario_id=user["user_db_id"],
-            creado_por_ids=creado_por_ids, servicio_ids=servicio_ids,
+            zona=zona_filtro, servicio_ids=servicio_ids,
         )
         if encolados:
             toast_msg = f"{encolados} servicio(s) encolado(s) para descarga del último recibo."
@@ -774,7 +836,7 @@ async def descargar_todos(
         status_code = 500
     excluir_ids = await svc.resolver_ocultos(conn, user, modulos)
     servicios = await svc.listar_servicios(
-        conn, modulos=modulos, creado_por_ids=creado_por_ids, servicio_ids=servicio_ids,
+        conn, modulos=modulos, zona=zona_filtro, servicio_ids=servicio_ids,
         excluir_ids=excluir_ids,
     )
     estado_sesion = await svc.get_estado_sesion(conn)
@@ -785,6 +847,8 @@ async def descargar_todos(
             "estado_sesion": estado_sesion,
             "modulo": modulo_activo,
             "modulos_accesibles": modulos_accesibles,
+            "zona_activa": zona,
+            "zonas_oym": ZONAS_OYM,
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
             "ocultos_count": len(excluir_ids or []),
@@ -870,6 +934,7 @@ async def confirmar_busqueda_periodos(
     servicio_id: UUID,
     busqueda_id: UUID,
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_viewer,
@@ -915,6 +980,7 @@ async def confirmar_busqueda_periodos(
             "descargas": descargas,
             "tiene_activo": tiene_activo,
             "modulo": modulo_activo,
+            "zona_activa": zona,
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
         },
@@ -1160,6 +1226,7 @@ async def generar_excel(
 @router.get("/servicios/zip-global")
 async def descargar_zip_global(
     modulo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
     permitir_incompleto: bool = Query(default=False),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
@@ -1168,10 +1235,10 @@ async def descargar_zip_global(
     svc = get_cfe_service()
     modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
     modulos = [modulo_activo] if modulo_activo else modulos_accesibles
-    creado_por_ids, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo)
+    zona_filtro, servicio_ids = await svc.resolver_filtro_visibilidad(conn, user, modulo_activo, zona)
     try:
         zip_bytes, nombre = await svc.generar_zip_global(
-            conn, modulos=modulos, creado_por_ids=creado_por_ids,
+            conn, modulos=modulos, zona=zona_filtro,
             servicio_ids=servicio_ids, perfil_slug=modulo_activo or "oym",
             permitir_incompleto=permitir_incompleto,
         )
