@@ -206,33 +206,43 @@ async def crear_solicitud(
     if fecha_presentarse is None:
         fecha_presentarse = siguiente_dia_habil(fecha_fin, festivos)
 
-    solapadas = await db.get_solicitudes_activas_en_rango(conn, usuario_id, fecha_inicio, fecha_fin)
-    if solapadas:
-        raise ValueError("Ya existe una solicitud activa para ese rango de fechas")
-    compensatorios = await asistencia_db.get_he_compensatorio_activo_en_rango(
-        conn, usuario_id, fecha_inicio, fecha_fin
-    )
-    if compensatorios:
-        raise ValueError("Ya existe una solicitud activa de tiempo compensatorio en ese rango")
+    # Mismo lock por usuario que compensatorio (asistencia_db.lock_he_usuario): serializa
+    # la validacion de solapamiento + insercion contra creacion/aprobacion concurrente de
+    # cualquier otra ausencia o solicitud de tiempo compensatorio del mismo usuario.
+    async with conn.transaction():
+        await asistencia_db.lock_he_usuario(conn, usuario_id)
+        solapadas = await db.get_solicitudes_activas_en_rango(conn, usuario_id, fecha_inicio, fecha_fin)
+        if solapadas:
+            raise ValueError("Ya existe una solicitud activa para ese rango de fechas")
+        compensatorios = await asistencia_db.get_he_compensatorio_activo_en_rango(
+            conn, usuario_id, fecha_inicio, fecha_fin
+        )
+        if compensatorios:
+            raise ValueError("Ya existe una solicitud activa de tiempo compensatorio en ese rango")
 
-    balance_info = None
-    if tipo["afecta_saldo"] and tipo["slug"] in VACACIONES_SLUGS:
-        balance_info = await get_balance_usuario(conn, usuario_id)
-        await _validar_anticipo_vacaciones(conn, balance_info, dias)
+        balance_info = None
+        if tipo["afecta_saldo"] and tipo["slug"] in VACACIONES_SLUGS:
+            balance_info = await get_balance_usuario(conn, usuario_id)
+            await _validar_anticipo_vacaciones(conn, balance_info, dias)
 
-    firma = await signatures_db.get_firma_usuario(conn, usuario_id)
-    requiere_firma = firma is None
+        firma = await signatures_db.get_firma_usuario(conn, usuario_id)
+        requiere_firma = firma is None
 
-    solicitud = await db.create_solicitud(
-        conn, usuario_id, tipo_ausencia_id, fecha_inicio, fecha_fin,
-        dias, fecha_presentarse, observaciones,
-        firma_solicitante_pendiente=requiere_firma,
-    )
-    solicitud_id = solicitud["id"]
+        solicitud = await db.create_solicitud(
+            conn, usuario_id, tipo_ausencia_id, fecha_inicio, fecha_fin,
+            dias, fecha_presentarse, observaciones,
+            firma_solicitante_pendiente=requiere_firma,
+        )
+        solicitud_id = solicitud["id"]
 
+        if not requiere_firma:
+            await _registrar_consumos_si_aplica(conn, solicitud_id, usuario_id, tipo, dias, balance_info)
+            await db.insert_firma_solicitud(conn, solicitud_id, usuario_id, "solicitante")
+
+    # Repite la misma condicion a proposito, fuera del `with`: la notificacion debe
+    # correr solo despues del commit (no antes, por si la transaccion aun pudiera
+    # revertirse). No fusionar con el bloque `if not requiere_firma:` de arriba.
     if not requiere_firma:
-        await _registrar_consumos_si_aplica(conn, solicitud_id, usuario_id, tipo, dias, balance_info)
-        await db.insert_firma_solicitud(conn, solicitud_id, usuario_id, "solicitante")
         await _notificar_aprobadores(conn, solicitud_id, solicitud)
 
     return {
@@ -242,6 +252,18 @@ async def crear_solicitud(
     }
 
 
+async def _revalidar_solicitud_pendiente(conn, solicitud_id: UUID) -> dict:
+    """Revalida el estado de la solicitud -- el llamador debe invocar esto DESPUES de
+    adquirir `asistencia_db.lock_he_usuario`, nunca de forma standalone: esta funcion NO
+    toma el lock por si misma, solo reconfirma que la comprobacion previa (hecha antes de
+    esperar el lock) no quedo obsoleta porque otra transaccion concurrente (aprobar/
+    rechazar/cancelar) ya resolvio esta misma solicitud mientras esperabamos el lock."""
+    solicitud_actual = await db.get_solicitud(conn, solicitud_id)
+    if not solicitud_actual or solicitud_actual["estado"] != "pendiente":
+        raise ValueError("La solicitud ya fue resuelta")
+    return solicitud_actual
+
+
 async def cancelar_solicitud(conn, solicitud_id: UUID, current_user_id: UUID) -> None:
     solicitud = await db.get_solicitud(conn, solicitud_id)
     if not solicitud:
@@ -249,9 +271,21 @@ async def cancelar_solicitud(conn, solicitud_id: UUID, current_user_id: UUID) ->
     if not puede_cancelar(solicitud, current_user_id):
         raise ValueError("Solo puedes cancelar tus solicitudes pendientes")
 
-    await db.delete_consumos_solicitud(conn, solicitud_id)
-    await db.update_solicitud_estado(conn, solicitud_id, "cancelado")
-    await _recalcular_asistencia_por_solicitud(conn, solicitud)
+    async with conn.transaction():
+        await asistencia_db.lock_he_usuario(conn, solicitud["usuario_id"])
+        solicitud_actual = await _revalidar_solicitud_pendiente(conn, solicitud_id)
+        if solicitud_actual["usuario_id"] != current_user_id:
+            # No deberia poder pasar (usuario_id es inmutable para una misma solicitud_id) --
+            # si se dispara, es senal de un bug real (ej. IDs de solicitud reutilizados).
+            logger.warning(
+                "[VACACIONES_ANOMALIA] cancelar_solicitud: usuario_id post-lock (%s) distinto "
+                "al pre-lock (%s) para solicitud_id=%s",
+                solicitud_actual["usuario_id"], current_user_id, solicitud_id,
+            )
+            raise ValueError("Solo puedes cancelar tus solicitudes pendientes")
+        await db.delete_consumos_solicitud(conn, solicitud_id)
+        await db.update_solicitud_estado(conn, solicitud_id, "cancelado")
+        await _recalcular_asistencia_por_solicitud(conn, solicitud_actual)
 
 
 async def aprobar_solicitud(
@@ -274,10 +308,13 @@ async def aprobar_solicitud(
     if not firma_aprobador:
         raise ValueError("Registra tu firma en Mi Firma antes de aprobar solicitudes")
 
-    await db.insert_firma_solicitud(conn, solicitud_id, aprobador_id, "aprobador")
-    await db.update_solicitud_estado(conn, solicitud_id, "aprobado", aprobado_por=aprobador_id)
-    aprobada = await db.get_solicitud(conn, solicitud_id)
-    await _recalcular_asistencia_por_solicitud(conn, aprobada)
+    async with conn.transaction():
+        await asistencia_db.lock_he_usuario(conn, solicitud["usuario_id"])
+        await _revalidar_solicitud_pendiente(conn, solicitud_id)
+        await db.insert_firma_solicitud(conn, solicitud_id, aprobador_id, "aprobador")
+        await db.update_solicitud_estado(conn, solicitud_id, "aprobado", aprobado_por=aprobador_id)
+        aprobada = await db.get_solicitud(conn, solicitud_id)
+        await _recalcular_asistencia_por_solicitud(conn, aprobada)
 
     from core.workflow.notification_service import get_notification_service
     notif = get_notification_service()
@@ -305,12 +342,15 @@ async def rechazar_solicitud(
     if solicitud["estado"] != "pendiente":
         raise ValueError("La solicitud ya fue resuelta")
 
-    await db.delete_consumos_solicitud(conn, solicitud_id)
-    await db.update_solicitud_estado(
-        conn, solicitud_id, "rechazado", aprobado_por=aprobador_id, motivo_rechazo=motivo_limpio
-    )
-    rechazada = await db.get_solicitud(conn, solicitud_id)
-    await _recalcular_asistencia_por_solicitud(conn, rechazada)
+    async with conn.transaction():
+        await asistencia_db.lock_he_usuario(conn, solicitud["usuario_id"])
+        await _revalidar_solicitud_pendiente(conn, solicitud_id)
+        await db.delete_consumos_solicitud(conn, solicitud_id)
+        await db.update_solicitud_estado(
+            conn, solicitud_id, "rechazado", aprobado_por=aprobador_id, motivo_rechazo=motivo_limpio
+        )
+        rechazada = await db.get_solicitud(conn, solicitud_id)
+        await _recalcular_asistencia_por_solicitud(conn, rechazada)
     from core.workflow.notification_service import get_notification_service
     notif = get_notification_service()
     await notif.notify_vacation_rejected(conn, rechazada, motivo_limpio)
@@ -490,13 +530,11 @@ async def _notificar_aprobadores(conn, solicitud_id: UUID, solicitud: dict) -> N
 
 
 async def _recalcular_asistencia_por_solicitud(conn, solicitud: dict | None) -> None:
+    """Recalcula el rango de la solicitud sin importar si su tipo justifica el dia completo:
+    home_office/permiso_llegar_tarde/permiso_salir_temprano (justifica_asistencia_dia=false)
+    tambien deben reclasificarse al aprobar/rechazar/cancelar, porque su estado depende de
+    checadas reales, no de la sola aprobacion."""
     if not solicitud:
-        return
-    justifica_asistencia = (
-        solicitud.get("justifica_asistencia_dia")
-        or solicitud.get("tipo_slug") in VACACIONES_SLUGS
-    )
-    if not justifica_asistencia:
         return
     fecha_inicio = solicitud["fecha_inicio"]
     fecha_fin = solicitud["fecha_fin"]
