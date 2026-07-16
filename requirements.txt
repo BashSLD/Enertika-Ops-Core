@@ -34,6 +34,9 @@ Pillow>=10.0,<12.0
 defusedxml>=0.7,<1.0
 sentry-sdk[fastapi]>=2.0,<3.0
 
+# IA (Claude API - status IA módulo Operación, Fase 3)
+anthropic>=0.40,<1.0
+
 # Testing
 pytest>=7.0,<9.0
 pytest-asyncio>=0.21,<1.0

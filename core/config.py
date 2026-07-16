@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     DB_POOL_MAX_SIZE: int = int(os.getenv("DB_POOL_MAX_SIZE", "20"))
     DB_POOL_TIMEOUT: int = int(os.getenv("DB_POOL_TIMEOUT", "30"))
 
+    # --- OAuth: correlación de intento (state/nonce) y reconexión ---
+    OAUTH_ATTEMPT_TTL_SECONDS: int = int(os.getenv("OAUTH_ATTEMPT_TTL_SECONDS", "600"))  # 10 min
+    TOKEN_REFRESH_LOCK_TTL_SECONDS: int = int(os.getenv("TOKEN_REFRESH_LOCK_TTL_SECONDS", "20"))
+
     # --- Cron Jobs ---
     CRON_SECRET: str = os.getenv("CRON_SECRET", "")
 
@@ -87,5 +91,9 @@ class Settings(BaseSettings):
 
     # --- Sentry (error monitoring) ---
     SENTRY_DSN: str = os.getenv("SENTRY_DSN", "")
+
+    # --- Claude API (status IA módulo Operación, bajo demanda) ---
+    # Vacío = IA deshabilitada, cae al fallback determinista (ver fase-3-ia-benchmark.md)
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 
 settings = Settings()
