@@ -9,7 +9,7 @@ import pytest
 import pytest_asyncio
 import asyncpg
 from dotenv import load_dotenv
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 
@@ -148,4 +148,20 @@ def user_context():
         "email": "user@test.com",
         "role": "USER",
         "module_roles": {"comercial": "viewer"},
+    }
+
+
+@pytest.fixture
+def anonymous_context():
+    """Contexto sin sesion activa: lo que retorna get_current_user_context()
+    cuando no hay email en la cookie (ver core/security.py)."""
+    return {
+        "user_name": None,
+        "email": None,
+        "is_admin": False,
+        "role": None,
+        "access_token": None,
+        "department": None,
+        "puesto": None,
+        "user_db_id": None,
     }

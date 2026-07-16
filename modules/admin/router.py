@@ -14,6 +14,7 @@ from core.jinja_filters import register_timezone_filters
 from .service import AdminService, get_admin_service
 from .permission_utils import extract_module_roles
 from core.tipo_cambio.service import TipoCambioService
+from modules.shared.utils import is_htmx
 import asyncpg
 import httpx
 
@@ -117,7 +118,8 @@ async def admin_dashboard(
         if email in active_emails
     ]
 
-    return templates.TemplateResponse(request, "admin/dashboard.html", {"users": users_enriched,
+    template = "admin/partials/content.html" if is_htmx(request) else "admin/dashboard.html"
+    return templates.TemplateResponse(request, template, {"users": users_enriched,
         "rules": rules,
         "defaults": defaults,
         "departments": departments_dict,

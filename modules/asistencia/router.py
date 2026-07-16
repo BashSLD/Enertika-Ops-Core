@@ -15,7 +15,12 @@ from fastapi.templating import Jinja2Templates
 from core.database import get_db_connection
 from core.integrations.sharepoint import SharePointService
 from core.microsoft import get_ms_auth
-from core.permissions import require_manager_access, require_module_access, user_has_module_access
+from core.permissions import (
+    require_authenticated_session,
+    require_manager_access,
+    require_module_access,
+    user_has_module_access,
+)
 from core.security import get_current_user_context
 from core.timezone import today_mx
 from core.workflow.notification_service import NotificationService
@@ -104,9 +109,8 @@ async def aprobar_horas_extra(
     comentario: str = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
 
     try:
@@ -166,9 +170,8 @@ async def omitir_horas_extra(
     comentario: str = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
 
     try:
@@ -207,9 +210,8 @@ async def recuperar_horas_extra(
     asistencia_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
 
     try:
@@ -252,8 +254,6 @@ async def revertir_correccion_horas_extra(
 
     Sin boton en UI todavia — invocar directamente (ver PENDIENTES_RH.md seccion 4).
     """
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     revertido_por = UUID(str(context["user_db_id"]))
     try:
         result = await revertir_dia_horas_extra_svc(
@@ -278,9 +278,8 @@ async def horas_extra_form(
     asistencia_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     usuario_id = UUID(str(context["user_db_id"]))
     row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
     if not row or row["usuario_id"] != usuario_id:
@@ -306,9 +305,8 @@ async def solicitar_aprobacion_horas_extra(
     evidencias: list[UploadFile] | None = File(default=None),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     usuario_id = UUID(str(context["user_db_id"]))
 
     try:
@@ -353,9 +351,8 @@ async def compensatorio_form(
     request: Request,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     usuario_id = UUID(str(context["user_db_id"]))
     bolsa = await get_he_bolsa_ctx(conn, usuario_id)
     return templates.TemplateResponse(
@@ -373,9 +370,8 @@ async def solicitar_compensatorio(
     motivo: str = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     usuario_id = UUID(str(context["user_db_id"]))
     try:
         await solicitar_compensatorio_svc(
@@ -406,9 +402,8 @@ async def aprobar_compensatorio(
     comentario: str = Form(""),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
     try:
         await aprobar_compensatorio_svc(
@@ -438,9 +433,8 @@ async def rechazar_compensatorio(
     comentario: str = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
     try:
         await rechazar_compensatorio_svc(
@@ -469,9 +463,8 @@ async def cancelar_compensatorio(
     solicitud_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     usuario_id = UUID(str(context["user_db_id"]))
     try:
         await cancelar_compensatorio_svc(conn, solicitud_id=solicitud_id, usuario_id=usuario_id)
@@ -493,9 +486,8 @@ async def preview_he_evidencia(
     documento_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     usuario_id = UUID(str(context["user_db_id"]))
     evidencia = await db.get_he_evidencia_for_preview(conn, documento_id)
     if not evidencia:
@@ -540,9 +532,8 @@ async def reporte_bolsa_horas_extra(
     scope: str = Query("propio", pattern="^(propio|equipo|global)$"),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     usuario_id = UUID(str(context["user_db_id"]))
     try:
         wb = await generar_reporte_bolsa_he_svc(conn, scope=scope, usuario_id=usuario_id, context=context)
@@ -557,9 +548,8 @@ async def reporte_bolsa_horas_extra(
 async def saldo_inicial_pendientes(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     usuario_id = UUID(str(context["user_db_id"]))
     fecha_corte = await get_he_bolsa_fecha_corte(conn)
     if user_has_module_access("rrhh", context, "editor"):
@@ -577,9 +567,8 @@ async def confirmar_saldo_inicial(
     minutos: int = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     confirmado_por = UUID(str(context["user_db_id"]))
     try:
         await confirmar_saldo_inicial_svc(
@@ -613,8 +602,6 @@ async def ajuste_manual_bolsa(
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "admin"),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     try:
         await ajuste_manual_svc(
             conn,
@@ -652,8 +639,6 @@ async def aprobar_solicitud_manual(
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "editor"),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
     equipo = await get_equipo_ids(conn, aprobador_id, context)
     if not equipo:
@@ -698,8 +683,6 @@ async def rechazar_solicitud_manual(
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "editor"),
 ):
-    if not context.get("user_db_id"):
-        raise HTTPException(status_code=401)
     aprobador_id = UUID(str(context["user_db_id"]))
     equipo = await get_equipo_ids(conn, aprobador_id, context)
     if not equipo:

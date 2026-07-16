@@ -1078,6 +1078,7 @@ def test_router_zip_servicio_faltantes_devuelve_409(monkeypatch):
     app.dependency_overrides[get_db_connection] = fake_conn
     app.dependency_overrides[get_current_user_context] = lambda: {
         "user_db_id": uuid4(),
+        "email": "user@enertika.mx",
         "role": "USER",
         "module_roles": {"oym": "viewer"},
     }

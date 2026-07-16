@@ -116,12 +116,7 @@ async def get_comercial_form(
     _ = require_module_access("comercial", "editor")
 ):
     """Shows the creation form (Partial or Full Page)."""
-    
-    # Validar email
-    if not user_context.get("email"):
-        # Retornamos 401 SIN redirección automática. HTMX lo atrapará.
-        return HTMLResponse(status_code=401)
-    
+
     # Validar token antes de mostrar formulario para prevenir pérdida de datos
     token = await get_valid_graph_token(request)
     if not token:
@@ -618,11 +613,6 @@ async def get_comercial_form_extraordinario(
     # Validación de Rol: Delegada a require_manager_access
     role = user_context.get("role")
 
-    
-    # Validación de sesión
-    if not user_context.get("email"):
-        return HTMLResponse(status_code=401)
-    
     # Validar token
     token = await get_valid_graph_token(request)
     if not token:
@@ -1272,8 +1262,6 @@ async def crear_seguimiento(
     _auth = require_module_access("comercial", "editor")
 ):
     """Acción del Historial: Crea seguimiento y salta directo al correo."""
-    if not user_context.get("email"):
-        return HTMLResponse(status_code=401)
 
     # Valida Token Graph antes de procesar
     token = await get_valid_graph_token(request)

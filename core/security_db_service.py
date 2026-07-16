@@ -16,6 +16,12 @@ class SecurityDBService:
         )
         return dict(row) if row else None
 
+    async def get_user_is_active(self, conn, email: str) -> Optional[bool]:
+        return await conn.fetchval(
+            "SELECT is_active FROM tb_usuarios WHERE email = $1",
+            email,
+        )
+
     async def create_user(self, conn, nombre: str, email: str):
         return await conn.fetchval(
             """
@@ -57,10 +63,14 @@ class SecurityDBService:
         refresh_token: str,
         token_expires_at: int,
     ) -> None:
+        # COALESCE($2, refresh_token): si Microsoft omite refresh_token en la
+        # respuesta de renovacion, conservamos el ultimo valido en vez de
+        # pisarlo con NULL (Graph no siempre reemite uno nuevo). Defensa a
+        # nivel SQL complementaria a la de core/security.py::get_valid_graph_token.
         await conn.execute(
             """
             UPDATE tb_usuarios
-            SET access_token = $1, refresh_token = $2, token_expires_at = $3
+            SET access_token = $1, refresh_token = COALESCE($2, refresh_token), token_expires_at = $3
             WHERE email = $4
             """,
             access_token,

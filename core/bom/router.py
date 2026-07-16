@@ -14,10 +14,11 @@ import logging
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
-from core.permissions import require_module_access, require_manager_access, require_role, require_any_module_access
+from core.permissions import require_module_access, require_manager_access, require_role, require_any_module_access, require_authenticated_session
 from core.config import settings
 from core.timezone import now_mx
 from core.materials.normalizer import normalizar_descripcion
+from modules.shared.utils import is_htmx
 from .compras_service import ESTATUS_COTIZABLE
 from .service import (
     BomService,
@@ -224,6 +225,7 @@ async def bom_ui(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
+    _=require_authenticated_session(),
 ):
     """Vista principal del BOM de un proyecto."""
     module_roles = context.get("module_roles", {})
@@ -369,8 +371,7 @@ async def bom_ui(
         puede_gestionar_bom_ingenieria=puede_gestionar_bom_ingenieria,
     )
 
-    is_htmx = request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request")
-    template = "bom/partials/content.html" if is_htmx else "bom/dashboard.html"
+    template = "bom/partials/content.html" if is_htmx(request) else "bom/dashboard.html"
     return templates.TemplateResponse(request, template, ctx)
 
 
@@ -447,6 +448,7 @@ async def agregar_item(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
+    _=require_authenticated_session(),
 ):
     """Agrega un item al BOM. Permite Ingenieria y Construccion."""
     form = await request.form()
@@ -817,6 +819,7 @@ async def eliminar_item(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
+    _=require_authenticated_session(),
 ):
     """Elimina (soft) un item del BOM. Permite Ingenieria y Construccion."""
     user_id = context.get("user_db_id")

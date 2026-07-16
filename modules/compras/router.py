@@ -268,9 +268,7 @@ async def upload_comprobantes(
         HTML con resultado de la carga (toast + tabla actualizada)
     """
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Usuario no identificado")
-    
+
     pdf_files = [f for f in files if f.filename.lower().endswith('.pdf')]
 
     # Validar tamano de cada archivo (max 50MB por PDF)
@@ -631,8 +629,6 @@ async def upload_xmls(
         HTML con resultado de procesamiento y matches pendientes
     """
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Usuario no identificado")
 
     xml_files = [f for f in files if f.filename and f.filename.lower().endswith('.xml')]
 
@@ -711,8 +707,6 @@ async def confirm_xml_match(
         HTML con resultado de confirmacion + toast OOB
     """
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Usuario no identificado")
 
     # Reconstruir cfdi_data como dict
     try:
@@ -908,8 +902,6 @@ async def confirm_xml_match_grupo(
 ):
     """Confirma la vinculacion en grupo: N facturas XML a M comprobantes de pago."""
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Usuario no identificado")
 
     try:
         body = await request.json()
@@ -1173,8 +1165,6 @@ async def cerrar_remanente(
 ):
     """Cierra un comprobante indicando que no habrá más facturas (remanente)."""
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Usuario no identificado")
 
     try:
         await service.cerrar_remanente(conn, id_comprobante, motivo, user_id)

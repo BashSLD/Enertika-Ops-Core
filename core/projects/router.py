@@ -6,7 +6,7 @@ Endpoints usados por múltiples módulos (Compras, Construcción, etc.)
 
 from fastapi import APIRouter, Depends, Request, Form, HTTPException, Query
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, Response
 from typing import Optional
 from uuid import UUID
 import asyncpg
@@ -14,7 +14,7 @@ import logging
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
-from core.permissions import user_has_module_access
+from core.permissions import require_authenticated_session
 
 from .service import ProjectsGateService, get_projects_gate_service
 from .schemas import ProyectoGateCreate
@@ -166,7 +166,8 @@ async def get_modal_crear_proyecto(
     id_sitio: Optional[UUID] = Query(default=None),
     conn = Depends(get_db_connection),
     service: ProjectsGateService = Depends(get_projects_gate_service),
-    context = Depends(get_current_user_context)
+    context = Depends(get_current_user_context),
+    _ = require_authenticated_session(),
 ):
     """
     Retorna el modal HTML para crear un proyecto.
@@ -207,7 +208,8 @@ async def crear_proyecto(
     nombre_corto: str = Form(...),
     conn = Depends(get_db_connection),
     service: ProjectsGateService = Depends(get_projects_gate_service),
-    context = Depends(get_current_user_context)
+    context = Depends(get_current_user_context),
+    _ = require_authenticated_session(),
 ):
     """
     Crea un nuevo proyecto Gate.
@@ -220,9 +222,7 @@ async def crear_proyecto(
         )
 
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Usuario no identificado")
-    
+
     try:
         proyecto = await service.crear_proyecto(
             conn=conn,
@@ -233,7 +233,7 @@ async def crear_proyecto(
             nombre_corto=nombre_corto.strip(),
             user_id=user_id
         )
-        
+
         return templates.TemplateResponse(
             request, "shared/partials/proyecto_creado_result.html",
             {                "success": True,
@@ -287,7 +287,8 @@ async def crear_proyecto_json(
     data: ProyectoGateCreate,
     conn = Depends(get_db_connection),
     service: ProjectsGateService = Depends(get_projects_gate_service),
-    context = Depends(get_current_user_context)
+    context = Depends(get_current_user_context),
+    _ = require_authenticated_session(),
 ):
     """
     Crea un proyecto y retorna JSON.
@@ -295,11 +296,9 @@ async def crear_proyecto_json(
     """
     if not check_puede_crear_proyecto(context):
         raise HTTPException(status_code=403, detail="Sin permisos para crear proyectos")
-    
+
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Usuario no identificado")
-    
+
     try:
         proyecto = await service.crear_proyecto(
             conn=conn,

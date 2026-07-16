@@ -77,13 +77,19 @@ def is_htmx(request: Request) -> bool:
     )
 
 
-def toast_error(request: Request, message: str, status_code: int = 400):
+def toast_error(
+    request: Request,
+    message: str,
+    status_code: int = 400,
+    title: str = "Error",
+    headers: dict | None = None,
+):
     return _templates.TemplateResponse(
         request,
         "shared/toast.html",
-        {"type": "error", "title": "Error", "message": message},
+        {"type": "error", "title": title, "message": message},
         status_code=status_code,
-        headers={"HX-Reswap": "none"},
+        headers={**(headers or {}), "HX-Reswap": "none"},
     )
 
 

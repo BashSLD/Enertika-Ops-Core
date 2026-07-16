@@ -9,7 +9,7 @@ from fastapi.templating import Jinja2Templates
 
 from core.database import get_db_connection
 from core.jinja_filters import register_timezone_filters
-from core.permissions import user_has_module_access
+from core.permissions import require_authenticated_session, user_has_module_access
 from core.security import get_current_user_context
 from core.timezone import fmt_time_mx, today_mx
 from modules.asistencia import db_service as asistencia_db
@@ -32,16 +32,6 @@ register_timezone_filters(templates.env)
 def _get_usuario_id(context: dict) -> UUID | None:
     user_db_id = context.get("user_db_id")
     return UUID(str(user_db_id)) if user_db_id else None
-
-
-def _redirect_to_login(request: Request) -> RedirectResponse | Response:
-    return_to = request.url.path
-    if request.url.query:
-        return_to = f"{return_to}?{request.url.query}"
-    request.session["post_login_redirect"] = return_to
-    if is_htmx(request):
-        return Response(status_code=401, headers={"HX-Redirect": "/auth/login"})
-    return RedirectResponse(url="/auth/login", status_code=303)
 
 
 def _perfil_detalle_url(solicitud_id: UUID, origen: str) -> str:
@@ -88,8 +78,9 @@ async def perfil_balance(
     request: Request,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     balance = await service.get_balance_usuario(conn, usuario_id)
     return templates.TemplateResponse(
         request, "vacaciones/partials/balance.html", {"balance": balance, "context": context}
@@ -105,8 +96,9 @@ async def mis_solicitudes(
     request: Request,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     solicitudes = await db.get_solicitudes_usuario(conn, usuario_id)
     return templates.TemplateResponse(
         request,
@@ -120,8 +112,9 @@ async def form_nueva_solicitud(
     request: Request,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     tipos = await db.get_tipos_ausencia(conn)
     balance = await service.get_balance_usuario(conn, usuario_id)
     firma = await signatures_db.get_firma_usuario(conn, usuario_id)
@@ -142,8 +135,9 @@ async def crear_solicitud(
     observaciones: str = Form(None),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     try:
         fecha_inicio_date = date.fromisoformat(fecha_inicio)
         fecha_fin_date = date.fromisoformat(fecha_fin)
@@ -196,10 +190,9 @@ async def abrir_solicitud_desde_cta(
     solicitud_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
     usuario_id = _get_usuario_id(context)
-    if not usuario_id:
-        return _redirect_to_login(request)
 
     solicitud = await db.get_solicitud(conn, solicitud_id)
     if not solicitud:
@@ -234,6 +227,7 @@ async def detalle_solicitud(
     solo_consulta: bool = False,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
     es_request_htmx = is_htmx(request)
     origenes_validos = {"solicitudes", "aprobaciones", "rrhh_aprobaciones", "rrhh_solicitudes"}
@@ -243,8 +237,6 @@ async def detalle_solicitud(
     if not solicitud:
         raise HTTPException(404)
     usuario_id = _get_usuario_id(context)
-    if not usuario_id:
-        return _redirect_to_login(request)
     es_dueno = solicitud["usuario_id"] == usuario_id
     es_aprobador_operativo = await service.es_aprobador_operativo(conn, solicitud_id, usuario_id, solicitud=solicitud)
     es_aprobador = await service.puede_aprobar(conn, solicitud_id, usuario_id, context, solicitud=solicitud)
@@ -327,8 +319,9 @@ async def cancelar_solicitud(
     solicitud_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     try:
         await service.cancelar_solicitud(conn, solicitud_id, usuario_id)
     except ValueError as exc:
@@ -353,8 +346,9 @@ async def recordar_aprobacion(
     solicitud_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     try:
         await service.enviar_recordatorio_manual(conn, solicitud_id, usuario_id)
     except ValueError as exc:
@@ -378,10 +372,9 @@ async def descargar_pdf(
     solicitud_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
     usuario_id = _get_usuario_id(context)
-    if not usuario_id:
-        raise HTTPException(status_code=401, detail="Inicia sesion para descargar el PDF")
     solicitud = await db.get_solicitud(conn, solicitud_id)
     if not solicitud:
         raise HTTPException(404)
@@ -426,8 +419,9 @@ async def historial_aprobaciones_pagina(
     pagina: int = Query(1, ge=1),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     historial, tiene_siguiente = await service.get_historial_aprobaciones_pagina_svc(conn, usuario_id, pagina)
     return templates.TemplateResponse(
         request,
@@ -447,8 +441,9 @@ async def aprobar_solicitud(
     solicitud_id: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     try:
         aprobada = await service.aprobar_solicitud(conn, solicitud_id, usuario_id, context)
     except ValueError as exc:
@@ -467,8 +462,9 @@ async def rechazar_solicitud(
     motivo: str = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     try:
         await service.rechazar_solicitud(conn, solicitud_id, usuario_id, motivo, context)
     except ValueError as exc:
@@ -489,8 +485,9 @@ async def mi_equipo(
     request: Request,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     equipo_ctx = await service.get_equipo_dashboard(conn, usuario_id, context)
     return templates.TemplateResponse(
         request,
@@ -504,8 +501,9 @@ async def horas_extra_omitidas(
     request: Request,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     ids_jefe = await db.get_empleados_donde_soy_jefe(conn, usuario_id)
     ids_aprobador = await db.get_empleados_donde_soy_aprobador(conn, usuario_id)
     equipo_ids = list({*ids_jefe, *ids_aprobador})
@@ -534,8 +532,9 @@ async def detalle_equipo_usuario(
     uid: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     if not (
         user_has_module_access("rrhh", context, "viewer")
         or uid in await db.get_empleados_donde_soy_jefe(conn, usuario_id)

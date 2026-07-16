@@ -10,10 +10,9 @@ import logging
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
-from core.permissions import user_has_module_access
+from core.permissions import user_has_module_access, require_authenticated_session
 from core.config import settings
 from .service import TransferService, get_transfer_service
-from .schemas import TraspasoEnviar, TraspasoRechazar
 
 logger = logging.getLogger("TransfersRouter")
 
@@ -38,6 +37,7 @@ async def get_checklist(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: TransferService = Depends(get_transfer_service),
+    _=require_authenticated_session(),
 ):
     docs = await service.get_documentos_checklist(conn, area_origen.upper(), area_destino.upper())
     proyecto = None
@@ -60,6 +60,7 @@ async def get_motivos_rechazo(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: TransferService = Depends(get_transfer_service),
+    _=require_authenticated_session(),
 ):
     motivos = await service.get_motivos_rechazo(conn, area.upper())
     traspaso = None
@@ -80,6 +81,7 @@ async def get_timeline(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: TransferService = Depends(get_transfer_service),
+    _=require_authenticated_session(),
 ):
     historial = await service.get_historial_traspasos(conn, id_proyecto)
     proyecto = await service.get_proyecto_detalle(conn, id_proyecto)
@@ -95,6 +97,7 @@ async def enviar_traspaso(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: TransferService = Depends(get_transfer_service),
+    _=require_authenticated_session(),
 ):
     form = await request.form()
     id_proyecto = UUID(form.get("id_proyecto"))
@@ -105,8 +108,6 @@ async def enviar_traspaso(
     docs_ids = [int(v) for k, v in form.multi_items() if k == "documentos_verificados"]
 
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Usuario no autenticado o sesion invalida")
     user_name = context.get("user_name", "Sistema")
 
     # Validar permisos en area origen
@@ -157,10 +158,9 @@ async def recibir_traspaso(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: TransferService = Depends(get_transfer_service),
+    _=require_authenticated_session(),
 ):
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Usuario no autenticado")
     user_name = context.get("user_name", "Sistema")
 
     # Obtener traspaso para saber area destino y validar permisos
@@ -215,14 +215,13 @@ async def rechazar_traspaso(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: TransferService = Depends(get_transfer_service),
+    _=require_authenticated_session(),
 ):
     form = await request.form()
     comentario = form.get("comentario", "").strip() or None
     motivos_ids = [int(v) for k, v in form.multi_items() if k == "motivos"]
 
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Usuario no autenticado")
     user_name = context.get("user_name", "Sistema")
 
     # Obtener traspaso para saber area destino y validar permisos

@@ -19,6 +19,46 @@ ORG_MANAGEMENT_ROLES = {
     "construccion": {"jefe_construccion"},
 }
 
+# Contrato estable que usa el manejador central de excepciones
+# (core/error_handlers.py) para reconocer "sin sesión" (401) y negociar la
+# respuesta según el tipo de solicitud (documento, HTMX, API). Cualquier
+# raise HTTPException(401, ...) por falta de sesión debe usar este detail
+# en vez de un literal propio, para no quedar fuera del contrato.
+SESSION_EXPIRED_DETAIL = "SESSION_EXPIRED"
+
+
+def _require_authenticated(context: dict) -> None:
+    """Corta con 401 antes de evaluar autorización si no hay sesión activa.
+
+    Separa "sin sesión" (401) de "sesión válida sin permiso" (403).
+    """
+    if not context.get("email"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=SESSION_EXPIRED_DETAIL,
+        )
+
+
+def require_authenticated_session() -> Callable:
+    """
+    Dependency factory para endpoints que solo requieren sesión activa,
+    sin exigir un rol de módulo específico (ej: acciones internas de un
+    módulo ya protegido a nivel de UI, formularios auxiliares).
+
+    Ejemplo de uso:
+        @router.get("/algo/parcial")
+        async def algo_parcial(
+            context = Depends(get_current_user_context),
+            _ = require_authenticated_session()
+        ):
+            ...
+    """
+    async def _validate(context = Depends(get_current_user_context)):
+        _require_authenticated(context)
+        return True
+
+    return Depends(_validate)
+
 
 def require_module_access(module_slug: str, min_role: str = "viewer") -> Callable:
     """
@@ -44,10 +84,12 @@ def require_module_access(module_slug: str, min_role: str = "viewer") -> Callabl
             ...
     """
     async def _validate(context = Depends(get_current_user_context)):
+        _require_authenticated(context)
+
         # Los ADMIN siempre tienen acceso total
         if context.get("role") == "ADMIN":
             return True
-        
+
         module_roles = context.get("module_roles", {})
         
         # Verificar si tiene el módulo asignado
@@ -136,6 +178,8 @@ def require_any_module_access(module_slugs: list[str], min_role: str = "viewer",
         HTTPException 403: Si el usuario no tiene el rol mínimo en ninguno de los módulos
     """
     async def _validate(context=Depends(get_current_user_context)):
+        _require_authenticated(context)
+
         if context.get("role") == "ADMIN":
             return True
         if allow_org_roles and context.get("rol_organizacional") in allow_org_roles:
@@ -158,6 +202,8 @@ def require_role(allowed_roles: list[str]) -> Callable:
     Valida que el usuario tenga uno de los roles globales permitidos.
     """
     async def _validate(context = Depends(get_current_user_context)):
+        _require_authenticated(context)
+
         user_role = context.get("role", "USER")
         if user_role not in allowed_roles:
             raise HTTPException(
@@ -193,6 +239,8 @@ def require_org_management_access(module_slug: str) -> Callable:
     con require_module_access(...) en el endpoint.
     """
     async def _validate(context=Depends(get_current_user_context)):
+        _require_authenticated(context)
+
         if has_org_management_access(context, module_slug):
             return True
 
@@ -213,9 +261,11 @@ def require_manager_access(module_slug: str, min_module_role: str = "editor") ->
     3. MANAGER Global + Rol de Módulo >= min_module_role -> Acceso
     """
     async def _validate(context = Depends(get_current_user_context)):
+        _require_authenticated(context)
+
         role = context.get("role")
         module_role = context.get("module_roles", {}).get(module_slug, "")
-        
+
         # 1. ADMIN Global
         if role == "ADMIN":
             return True

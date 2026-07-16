@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acceso denegado | Enertika Core Ops</title>
+  <meta name="theme-color" content="#123456">
+  <style>
+    :root {
+      --enertika-primary: #123456;
+      --enertika-secondary: #00babb;
+      --background: #f3f4f6;
+      --surface: #ffffff;
+      --text-primary: #111827;
+      --text-muted: #4b5563;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      color: var(--text-primary);
+      background: radial-gradient(circle at top right, #fee2e2 0%, var(--background) 50%);
+    }
+
+    .card {
+      width: 100%;
+      max-width: 520px;
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 20px 30px rgba(18, 52, 86, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    .dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 9999px;
+      background: #ef4444;
+      box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.12);
+      margin-bottom: 1rem;
+    }
+
+    h1 {
+      margin: 0 0 0.75rem;
+      color: var(--enertika-primary);
+      font-size: 1.5rem;
+      line-height: 1.2;
+    }
+
+    p {
+      margin: 0;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .actions {
+      margin-top: 1.5rem;
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .button {
+      border: 0;
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+      transition: transform 120ms ease, opacity 120ms ease;
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+    }
+
+    .button-primary {
+      background: var(--enertika-secondary);
+      color: #052a2b;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="dot" aria-hidden="true"></div>
+    <h1>Acceso denegado</h1>
+    <p>{{ detail or "No tienes permisos suficientes para ver esta pagina. Contacta al administrador si crees que esto es un error." }}</p>
+    <div class="actions">
+      <a class="button button-primary" href="/">Ir al inicio</a>
+    </div>
+  </main>
+</body>
+</html>

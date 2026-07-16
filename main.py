@@ -6,7 +6,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 
 import sentry_sdk
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -15,6 +15,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from core.config import settings
 from core.database import connect_to_db, close_db_connection, get_db_connection
+from core.error_handlers import auth_exception_handler
 from modules.admin import router as admin_router
 from modules.auth import router as auth_router
 from modules.comercial import router as comercial_router
@@ -51,9 +52,13 @@ if settings.SENTRY_DSN:
 
 app = FastAPI(title="Enertika Core Ops",on_startup=[connect_to_db],on_shutdown=[close_db_connection])
 
+# Negociacion de respuesta para 401 SESSION_EXPIRED / 403: documento vs HTMX vs API.
+# No reescribe otros HTTPException de negocio (ver core/error_handlers.py).
+app.add_exception_handler(HTTPException, auth_exception_handler)
+
 # Middleware de Sesión (Cookie Segura)
 app.add_middleware(
-    SessionMiddleware, 
+    SessionMiddleware,
     secret_key=settings.SECRET_KEY,
     max_age=settings.SESSION_MAX_AGE,
     same_site="lax",  # Permite cookies en redirects
@@ -61,6 +66,37 @@ app.add_middleware(
     # Si DEBUG_MODE es False (Producción) -> https_only = True (Obliga HTTPS)
     https_only=not settings.DEBUG_MODE
 )
+
+
+_DYNAMIC_VARY_SET = {"HX-Request", "HX-History-Restore-Request", "Cookie"}
+_DYNAMIC_VARY = ", ".join(sorted(_DYNAMIC_VARY_SET))
+
+
+@app.middleware("http")
+async def dynamic_html_cache_headers(request: Request, call_next):
+    """HTML dinamico (paginas/partials autenticados) nunca debe quedar en cache
+    de navegador/proxy compartido, ni servirse desde el cache HTTP sin
+    considerar el estado de sesion. Rutas que ya definen su propia politica
+    (login/callback/session, offline, manifest, sw.js, /static) se respetan
+    tal cual - no se sobrescribe un Cache-Control ya presente."""
+    response = await call_next(request)
+
+    if response.headers.get("cache-control"):
+        return response
+    if "text/html" not in response.headers.get("content-type", ""):
+        return response
+    if request.url.path.startswith("/static/"):
+        return response
+
+    response.headers["Cache-Control"] = "private, no-store"
+    current_vary = response.headers.get("Vary")
+    if not current_vary:
+        response.headers["Vary"] = _DYNAMIC_VARY
+    else:
+        existing_vary = {v.strip() for v in current_vary.split(",") if v.strip()}
+        existing_vary.update(_DYNAMIC_VARY_SET)
+        response.headers["Vary"] = ", ".join(sorted(existing_vary))
+    return response
 
 # Configuración de Jinja2 Templates (para HTMX/Tailwind)
 templates = Jinja2Templates(directory="templates")

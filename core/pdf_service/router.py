@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from core.security import get_current_user_context
+from core.permissions import require_authenticated_session
 from .service import PDFService, get_pdf_service
 
 logger = logging.getLogger("PDFRouter")
@@ -23,6 +24,7 @@ templates = Jinja2Templates(directory="templates")
 async def get_visita_obra_modal(
     request: Request,
     context=Depends(get_current_user_context),
+    _=require_authenticated_session(),
 ):
     """Modal compartido de Visita a Obra, accesible desde proyectos y construccion."""
     return templates.TemplateResponse(
@@ -41,6 +43,7 @@ async def generar_visita_obra(
     images: Optional[List[UploadFile]] = File(default=None),
     context=Depends(get_current_user_context),
     service: PDFService = Depends(get_pdf_service),
+    _=require_authenticated_session(),
 ):
     """
     Genera PDF de Formato de Visita a Obra.
@@ -49,9 +52,6 @@ async def generar_visita_obra(
         data: JSON string con campos de VisitaObraData.
         images: archivos de imagen opcionales.
     """
-    if not context.get("user_name") or context.get("user_name") == "Usuario":
-        return JSONResponse(status_code=401, content={"error": "Sesion requerida"})
-
     try:
         visita = service.parse_visita_obra_data(data)
     except ValueError as exc:

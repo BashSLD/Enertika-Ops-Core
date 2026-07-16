@@ -7,11 +7,10 @@ import re
 import time
 import logging
 
-import redis.asyncio as aioredis
 from redis.exceptions import RedisError
 
-from core.config import settings
 from core.config_db_service import get_config_db_service
+from core.redis_client import get_redis
 
 logger = logging.getLogger("ConfigService")
 
@@ -54,8 +53,8 @@ class ConfigService:
     _cache_lock: asyncio.Lock = asyncio.Lock()
     _db = get_config_db_service()
 
-    # Redis (caché compartida entre workers Gunicorn)
-    _redis: Optional[aioredis.Redis] = None
+    # Redis (caché compartida entre workers Gunicorn) — pool compartido con el
+    # resto de la infraestructura, ver core/redis_client.py.
     _REDIS_PREFIX = "eco:config:"
     _REDIS_TTL_SECONDS = 30
 
@@ -63,15 +62,9 @@ class ConfigService:
     _VALID_IDENTIFIER = re.compile(r'^[a-z_][a-z0-9_]*$')
 
     @classmethod
-    def _get_redis(cls) -> Optional[aioredis.Redis]:
+    def _get_redis(cls):
         """Retorna cliente Redis si está configurado, None si no hay REDIS_URL."""
-        if cls._redis is None and settings.REDIS_URL:
-            cls._redis = aioredis.from_url(
-                settings.REDIS_URL,
-                encoding="utf-8",
-                decode_responses=True,
-            )
-        return cls._redis
+        return get_redis()
 
     @classmethod
     async def get_cached_value(cls, key: str, ttl: float = 30.0) -> Optional[Any]:

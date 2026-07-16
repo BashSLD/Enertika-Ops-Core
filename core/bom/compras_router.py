@@ -145,8 +145,6 @@ async def crear_cotizacion(
 ):
     """Crea una nueva cotización (RFQ, simplificada o completa). Recibe JSON en el body."""
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401)
 
     body = await request.json()
     proveedor_id_str = body.get("proveedor_id")
@@ -200,8 +198,6 @@ async def crear_rfq_rapido(
     Filtra automaticamente items en AUTORIZADO/PAGADO/FACTURADO.
     """
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401)
 
     form = await request.form()
     raw_ids = form.getlist("item_ids")
@@ -264,8 +260,6 @@ async def solicitar_aclaracion(
 ):
     """Devuelve una cotización a BORRADOR con motivo de aclaración."""
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401)
     try:
         await service.solicitar_aclaracion_cotizacion(conn, cotizacion_id, user_id, motivo)
     except ValueError as e:
@@ -413,8 +407,6 @@ async def solicitar_aprobacion_cotizacion(
 ):
     """Solicita aprobación de Dirección para una cotización seleccionada (post-BOM)."""
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401)
     try:
         aprobacion = await service.solicitar_aprobacion_cotizacion(conn, cotizacion_id, user_id, comentarios)
     except ValueError as e:
@@ -438,8 +430,6 @@ async def aprobar_cotizacion_direccion(
 ):
     """Dirección aprueba la cotización; auto-avanza la autorización Fase D si aplica."""
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401)
     user_role = context.get("role")
     rol_org = context.get("rol_organizacional")
     try:
@@ -467,8 +457,6 @@ async def rechazar_cotizacion_direccion(
 ):
     """Dirección rechaza la cotización; cancela en cascada la autorización Fase D."""
     user_id = context.get("user_db_id")
-    if not user_id:
-        raise HTTPException(status_code=401)
     user_role = context.get("role")
     rol_org = context.get("rol_organizacional")
     try:

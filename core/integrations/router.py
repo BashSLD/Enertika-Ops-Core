@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
+from core.permissions import require_authenticated_session
 from .service import get_integrations_service
 
 logger = logging.getLogger("Integrations.Router")
@@ -25,15 +26,13 @@ async def listar_carpetas_sp(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     service=Depends(get_integrations_service),
+    _=require_authenticated_session(),
 ):
     """
     Lista subcarpetas de un folder en el SharePoint de Visitas a Obra.
     folder_id=None → raíz del drive configurado.
     Retorna JSON: {folders: [{id, name}], folder_id_actual}
     """
-    if not context.get("user_name") or context.get("user_name") == "Usuario":
-        return JSONResponse(status_code=401, content={"error": "Sesion requerida"})
-
     try:
         folders = await service.list_visitas_sharepoint_folders(conn, folder_id)
         return {"folders": folders, "folder_id_actual": folder_id}

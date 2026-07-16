@@ -155,8 +155,6 @@ async def save_equipo(
         raise HTTPException(status_code=403, detail="Sin permisos para editar el equipo")
 
     user_db_id = context.get("user_db_id")
-    if not user_db_id:
-        raise HTTPException(status_code=401, detail="Usuario no autenticado")
 
     try:
         form = await request.form()

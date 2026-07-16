@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Reconexion | Enertika Core Ops</title>
+  <meta name="robots" content="noindex">
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      color: #4b5563;
+      background: #f3f4f6;
+    }
+    p { font-size: 0.95rem; }
+  </style>
+</head>
+<body>
+  <p id="popup-message">Cerrando ventana...</p>
+  <script>
+    (function () {
+      var result = {{ payload | tojson }};
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage(result, window.location.origin);
+        }
+      } catch (e) {
+        // El opener puede haberse cerrado o navegado; no hay nada que hacer aqui.
+      }
+      window.close();
+      // Algunos navegadores bloquean window.close() en pestanas que no abrio JS
+      // (ej. el usuario pego la URL directo). Mostrar mensaje de respaldo.
+      setTimeout(function () {
+        document.getElementById('popup-message').textContent =
+          'Puedes cerrar esta ventana.';
+      }, 300);
+    })();
+  </script>
+</body>
+</html>

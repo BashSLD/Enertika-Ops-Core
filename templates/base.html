@@ -12,6 +12,11 @@
     <link rel="stylesheet" href="/static/css/tailwind.css?v={{ static_v | default('') }}">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/json-enc.js"></script>
+    <script>
+        // Un history-restore (Back/Forward con cache HTMX vacio) debe tratarse como
+        // documento completo, no como partial: evita perder sidebar/shell al navegar.
+        htmx.config.historyRestoreAsHxRequest = false;
+    </script>
 
     <script>
         const DEBUG_MODE = {{ DEBUG_MODE | default(false) | tojson }};
@@ -989,7 +994,7 @@
 
     <!-- Session Modal -->
     <div id="session-modal"
-        class="fixed inset-0 bg-gray-900/80 backdrop-blur-sm z-[9999] hidden flex items-center justify-center transition-opacity duration-300">
+        class="modal-overlay-layer fixed inset-0 bg-gray-900/80 backdrop-blur-sm z-[9999] hidden flex items-center justify-center transition-opacity duration-300">
         <div
             class="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full text-center border-t-8 border-orange-500 transform scale-100 animate-fade-in-down">
             <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-orange-100 mb-6">
@@ -1002,53 +1007,167 @@
             <p class="text-gray-600 mb-8">Tu conexión segura ha terminado. <br><strong>No recargues la página</strong>
                 para no perder tu avance.</p>
 
+            <p id="session-modal-message" class="text-sm text-orange-700 mb-4 hidden"></p>
+
             <div class="space-y-3">
                 <button onclick="reconnectAndWatch()" id="reconnect-btn"
-                    class="w-full inline-flex justify-center items-center px-4 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 shadow-lg transition">
-                    🔄 Re-conectar
+                    class="w-full inline-flex justify-center items-center gap-2 px-4 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 shadow-lg transition">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                    </svg>
+                    Re-conectar
                 </button>
-                <button onclick="document.getElementById('session-modal').classList.add('hidden')"
+                <button onclick="closeSessionModal()"
                     class="w-full inline-flex justify-center items-center px-4 py-3 border border-gray-300 shadow-sm text-base font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition">
-                    Ya inicié sesión, continuar!!!
+                    Ya inicié sesión, continuar
                 </button>
             </div>
         </div>
     </div>
 
     <script>
-        // === FUNCIÓN DE RECONEXIÓN ===
-        function reconnectAndWatch() {
+        // === IDENTIDAD DE SESION (cliente) ===
+        // No todos los templates pasan el email del usuario a base.html; en vez de
+        // tocar cada router, se cachea aqui desde /auth/session (que ya lo retorna)
+        // para comparar "misma cuenta vs cuenta distinta" tras una reconexion.
+        let currentSessionEmail = null;
+        let activeReconnect = null; // { popup, timeoutId, closeWatcherId, messageHandler, clientNonce }
+        function isReconnecting() { return activeReconnect !== null; }
+
+        function showSessionModalMessage(text) {
+            const el = document.getElementById('session-modal-message');
+            if (!el) return;
+            if (!text) { el.classList.add('hidden'); el.textContent = ''; return; }
+            el.textContent = text;
+            el.classList.remove('hidden');
+        }
+
+        function closeSessionModal() {
+            document.getElementById('session-modal').classList.add('hidden');
+            showSessionModalMessage('');
+        }
+
+        // Usado por fetch() manuales (fuera de HTMX) que reciben el mismo
+        // contrato JSON de error que core/error_handlers.py::auth_exception_handler.
+        // Retorna si el payload señala sesion expirada, para que el caller decida
+        // el resto (throw, mensaje local, etc.) sin repetir el check.
+        function handleSessionExpiredError(errorPayload) {
+            if (errorPayload && errorPayload.error === 'SESSION_EXPIRED') {
+                document.getElementById('session-modal')?.classList.remove('hidden');
+                return true;
+            }
+            return false;
+        }
+
+        function teardownReconnect() {
+            if (!activeReconnect) return;
+            clearTimeout(activeReconnect.timeoutId);
+            clearInterval(activeReconnect.closeWatcherId);
+            window.removeEventListener('message', activeReconnect.messageHandler);
+            activeReconnect = null;
             const btn = document.getElementById('reconnect-btn');
-            const originalText = btn.innerHTML;
+            btn.innerHTML = btn.dataset.originalHtml || btn.innerHTML;
+            btn.disabled = false;
+        }
+
+        // === FUNCIÓN DE RECONEXIÓN (popup + postMessage, ver core/oauth_repository.py) ===
+        function reconnectAndWatch() {
+            teardownReconnect(); // por si habia un intento previo sin cerrar
+
+            const btn = document.getElementById('reconnect-btn');
+            btn.dataset.originalHtml = btn.dataset.originalHtml || btn.innerHTML;
             btn.innerHTML = '<span class="animate-pulse">Esperando login...</span>';
             btn.disabled = true;
+            showSessionModalMessage('');
 
-            const popup = window.open('/auth/login', 'LoginPopup', 'width=500,height=600,left=200,top=200');
+            const clientNonce = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random();
+            const next = encodeURIComponent(window.location.pathname + window.location.search);
+            const emailHint = currentSessionEmail ? `&email_hint=${encodeURIComponent(currentSessionEmail)}` : '';
+            const loginUrl = `/auth/login?popup=1&next=${next}${emailHint}&client_nonce=${encodeURIComponent(clientNonce)}`;
 
-            const timer = setInterval(() => {
-                fetch('/auth/session')
-                    .then(res => {
-                        if (res.ok) {
-                            clearInterval(timer);
-                            if (popup) popup.close();
-                            htmx.ajax('GET', window.location.pathname, { target: '#main-content', swap: 'innerHTML' });
-                            document.getElementById('session-modal').classList.add('hidden');
-                        }
-                    })
-                    .catch(() => { });
+            const popup = window.open(loginUrl, 'EnertikaLoginPopup', 'width=500,height=650,left=200,top=100');
 
-                if (popup && popup.closed) {
-                    // Continuar intentando
+            if (!popup) {
+                // Bloqueado por el navegador: no hay forma de recuperar el estado de la
+                // pagina via postMessage, se cae a navegacion completa como antes.
+                window.location.href = `/auth/login?next=${next}`;
+                return;
+            }
+
+            const messageHandler = (event) => {
+                if (event.origin !== window.location.origin) return;
+                const data = event.data;
+                if (!data || data.source !== 'enertika-oauth') return;
+                // El nonce solo se exige para 'success' (la unica rama con privilegio
+                // real: fija currentSessionEmail y evita el reload completo). Si el
+                // state ya expiro/fue consumido, el servidor no tiene de donde leer
+                // el client_nonce original (ver _terminal_response en modules/auth/router.py)
+                // y responde con nonce=null -- exigir match ahi silenciaria el error real.
+                if (data.status === 'success' && data.nonce !== clientNonce) return;
+
+                teardownReconnect();
+
+                if (data.status === 'success') {
+                    const sameAccount = currentSessionEmail && data.email && currentSessionEmail === data.email;
+                    currentSessionEmail = data.email || currentSessionEmail;
+                    closeSessionModal();
+                    if (sameAccount) {
+                        // Misma cuenta: conservar formulario/URL/historial, solo refrescar contenido.
+                        htmx.ajax('GET', window.location.pathname + window.location.search, { target: '#main-content', swap: 'innerHTML' });
+                    } else {
+                        // Cuenta distinta (o sin forma de confirmar que es la misma):
+                        // reconstruir documento completo para no arrastrar sidebar/identidad viejos.
+                        window.location.href = '/';
+                    }
+                } else if (data.status === 'cancelled') {
+                    showSessionModalMessage('Inicio de sesion cancelado.');
+                } else {
+                    showSessionModalMessage(data.message || 'No se pudo completar el inicio de sesion. Intenta de nuevo.');
                 }
-            }, 1000);
+            };
+            window.addEventListener('message', messageHandler);
+
+            const timeoutId = setTimeout(() => {
+                if (!popup.closed) popup.close();
+                teardownReconnect();
+                showSessionModalMessage('Tiempo de espera agotado. Intenta de nuevo.');
+            }, 120000);
+
+            const closeWatcherId = setInterval(() => {
+                if (popup.closed) {
+                    teardownReconnect();
+                    showSessionModalMessage('Ventana de inicio de sesion cerrada. Intenta de nuevo si no completaste el login.');
+                }
+            }, 500);
+
+            activeReconnect = { popup, timeoutId, closeWatcherId, messageHandler, clientNonce };
         }
+
+        // === DESBLOQUEO DE SWAPS OOB EN RESPUESTAS DE ERROR ===
+        // htmx omite TODO el pipeline de swap (incluido hx-swap-oob) para
+        // respuestas con status >= 400 salvo que htmx:beforeSwap fuerce
+        // shouldSwap=true. El backend usa HX-Reswap: none justamente para
+        // señalar "no toques el target principal, pero sí traigo contenido
+        // OOB" (ver toast_error en modules/shared/utils.py y
+        // auth_exception_handler en core/error_handlers.py) — sin este
+        // listener esos toasts de error nunca llegan al DOM aunque el
+        // servidor los haya enviado. Forzar shouldSwap aquí es seguro: el
+        // swap style "none" ya deja intacto el target principal, así que
+        // esto solo desbloquea el procesamiento OOB.
+        document.body.addEventListener('htmx:beforeSwap', function (evt) {
+            var reswap = evt.detail.xhr && evt.detail.xhr.getResponseHeader('HX-Reswap');
+            if (reswap && reswap.toLowerCase() === 'none') {
+                evt.detail.shouldSwap = true;
+            }
+        });
 
         // === INTERCEPTOR DE ERRORES HTMX ===
         document.body.addEventListener('htmx:responseError', function (evt) {
-            if (evt.detail.xhr.status === 401) {
+            if (evt.detail.xhr.status === 401 && evt.detail.xhr.getResponseHeader('X-Auth-Reason') === 'SESSION_EXPIRED') {
                 evt.preventDefault();
                 evt.stopPropagation();
-                document.getElementById('session-modal').classList.remove('hidden');
+                if (!isReconnecting()) document.getElementById('session-modal').classList.remove('hidden');
             } else if (evt.detail.target.id === 'sat-global-banner' && evt.detail.xhr.status === 404) {
                 // Si el banner de descarga SAT retorna 404 (por no estar desplegado o inactivo),
                 // lo removemos del DOM para detener el polling de 15s y evitar spam en consola.
@@ -1152,43 +1271,109 @@
         })();
 
         // === HEARTBEAT ===
+        // Single-flight (no solapa fetches si el anterior sigue en vuelo) y
+        // suspendido mientras hay una reconexion activa (isReconnecting()=true) para
+        // no reabrir el modal ni pisar el intento en curso.
+        let heartbeatInFlight = false;
+        function applySessionData(data) {
+            if (data && data.email) currentSessionEmail = data.email;
+        }
+        function captureSessionEmail() {
+            return fetch('/auth/session').then(res => res.ok ? res.json() : null)
+                .then(data => { applySessionData(data); return data; })
+                .catch(() => null);
+        }
+        captureSessionEmail(); // identidad inicial, sin esperar el primer tick de 60s
+
         setInterval(() => {
+            if (isReconnecting() || heartbeatInFlight) return;
+            heartbeatInFlight = true;
             fetch('/auth/session').then(res => {
                 if (res.status === 401 || res.status === 403) {
-                    document.getElementById('session-modal').classList.remove('hidden');
+                    if (!isReconnecting()) document.getElementById('session-modal').classList.remove('hidden');
+                    return null;
                 }
-            }).catch(() => { });
+                return res.ok ? res.json() : null;
+            }).then(applySessionData)
+              .catch(() => { })
+              .finally(() => { heartbeatInFlight = false; });
         }, 60000);
 
         // === AUTO-SAVE ===
-        document.addEventListener('input', (e) => {
-            if (e.target.name && !e.target.type.match(/password|hidden|file/)) {
-                localStorage.setItem('draft_' + window.location.pathname + '_' + e.target.name, e.target.value);
+        // Clave por identidad + ruta/query + formulario + control (antes solo
+        // pathname + nombre de campo: dos cuentas o dos formularios distintos en
+        // la misma URL se pisaban entre si). Soporta checkbox/radio/select y
+        // campos repetidos (mismo name varias veces en el mismo formulario).
+        function draftFormId(el) {
+            const form = el.closest('form');
+            return (form && form.id) ? form.id : '_noform';
+        }
+        function draftFieldIndex(el) {
+            if (!el.name) return undefined;
+            const scope = el.closest('form') || document;
+            const siblings = Array.from(scope.querySelectorAll(`[name="${CSS.escape(el.name)}"]`));
+            return siblings.length > 1 ? siblings.indexOf(el) : undefined;
+        }
+        function draftKeyPrefix(formId) {
+            const email = currentSessionEmail || 'anon';
+            const scope = window.location.pathname + window.location.search;
+            return `draft:${email}:${scope}:${formId}:`;
+        }
+        function draftKey(el, indexed) {
+            const fieldIndex = indexed ? draftFieldIndex(el) : undefined;
+            const idx = fieldIndex !== undefined ? ':' + fieldIndex : '';
+            return `${draftKeyPrefix(draftFormId(el))}${el.name}${idx}`;
+        }
+        function saveDraftField(el) {
+            if (!el.name || (el.type && /password|hidden|file/.test(el.type))) return;
+            if (el.type === 'checkbox') {
+                localStorage.setItem(draftKey(el, true), el.checked ? '1' : '0');
+            } else if (el.type === 'radio') {
+                if (el.checked) localStorage.setItem(draftKey(el, false), el.value);
+            } else {
+                localStorage.setItem(draftKey(el, true), el.value);
             }
+        }
+        document.addEventListener('input', (e) => {
+            const el = e.target;
+            if (el.matches && el.matches('input, textarea, select')) saveDraftField(el);
         });
 
-        // === RESTORE ===
-        document.addEventListener("DOMContentLoaded", () => {
-            document.querySelectorAll('input, textarea, select').forEach(input => {
-                if (input.name) {
-                    const val = localStorage.getItem('draft_' + window.location.pathname + '_' + input.name);
-                    if (val && !input.value) {
-                        input.value = val;
-                        input.style.borderColor = "#FBBF24";
-                    }
+        // === RESTORE (carga inicial + tras cada swap HTMX) ===
+        function restoreDraftsWithin(root) {
+            if (!root || !root.querySelectorAll) return;
+            root.querySelectorAll('input, textarea, select').forEach(el => {
+                if (!el.name || (el.type && /password|hidden|file/.test(el.type))) return;
+                if (el.type === 'checkbox') {
+                    const val = localStorage.getItem(draftKey(el, true));
+                    if (val !== null) { el.checked = (val === '1'); el.style.borderColor = '#FBBF24'; }
+                } else if (el.type === 'radio') {
+                    const val = localStorage.getItem(draftKey(el, false));
+                    if (val !== null && val === el.value) { el.checked = true; }
+                } else {
+                    const val = localStorage.getItem(draftKey(el, true));
+                    if (val && !el.value) { el.value = val; el.style.borderColor = '#FBBF24'; }
                 }
             });
-        });
+        }
+        document.addEventListener('DOMContentLoaded', () => restoreDraftsWithin(document));
+        document.body.addEventListener('htmx:afterSwap', (evt) => restoreDraftsWithin(evt.detail.target));
 
         // === CLEANUP ===
+        // Solo limpia los drafts del formulario que efectivamente se envio (por
+        // identidad+ruta+formulario), nunca todos los de la pagina: un POST de un
+        // formulario pequeño ya no borraba el borrador de otro formulario abierto
+        // en la misma URL.
         document.body.addEventListener('htmx:afterOnLoad', (evt) => {
-            if (evt.detail.xhr.status >= 200 && evt.detail.xhr.status < 300) {
-                if (evt.detail.requestConfig.verb !== 'get') {
-                    Object.keys(localStorage).forEach(k => {
-                        if (k.startsWith('draft_' + window.location.pathname)) localStorage.removeItem(k);
-                    });
-                }
-            }
+            if (evt.detail.xhr.status < 200 || evt.detail.xhr.status >= 300) return;
+            if (evt.detail.requestConfig.verb === 'get') return;
+            const triggerEl = evt.detail.elt;
+            const form = triggerEl && triggerEl.closest ? triggerEl.closest('form') : null;
+            const formId = (form && form.id) ? form.id : '_noform';
+            const prefix = draftKeyPrefix(formId);
+            Object.keys(localStorage).forEach(k => {
+                if (k.startsWith(prefix)) localStorage.removeItem(k);
+            });
         });
 
         // === MOBILE HEADER ACTIONS SLOT ===
@@ -1200,6 +1385,19 @@
                 var sep = document.getElementById('mobile-actions-separator');
                 if (sep) sep.classList.add('hidden');
             }
+        });
+        // === DEFENSA: DOCUMENTO COMPLETO/SEGUNDO SHELL DENTRO DE #main-content ===
+        // Si un endpoint que deberia responder partial devuelve por error un
+        // documento completo (u otro #main-content anidado), cancela el swap y
+        // navega como documento en vez de duplicar sidebar/shell dentro de si mismo.
+        document.body.addEventListener('htmx:beforeSwap', function (e) {
+            if (!e.detail.target || e.detail.target.id !== 'main-content') return;
+            var html = e.detail.serverResponse || '';
+            var looksFullDocument = /<html[\s>]/i.test(html) || /<body[\s>]/i.test(html) || /id=["']main-content["']/i.test(html);
+            if (!looksFullDocument) return;
+            e.detail.shouldSwap = false;
+            e.detail.isError = false;
+            window.location.href = window.location.pathname + window.location.search;
         });
         // Cerrar bottom sheet al hacer click en cualquier acción del slot
         document.addEventListener('click', function (e) {

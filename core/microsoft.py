@@ -23,10 +23,15 @@ class MicrosoftAuth:
             
             # Inicialización de MSAL usando 'settings'
             # Asegúrate de que settings tenga estas variables en core/config.py
+            # timeout: MSAL no tiene limite por defecto (puede colgarse indefinidamente
+            # si el endpoint de Microsoft esta lento). Se acota por debajo del TTL del
+            # lock de renovacion (core/security.py) para que un refresh nunca sobreviva
+            # a su propio lock y dispare una renovacion duplicada sin bloqueo.
             cls._instance.app = msal.ConfidentialClientApplication(
                 settings.GRAPH_CLIENT_ID,
                 authority=settings.AUTHORITY_URL,
                 client_credential=settings.GRAPH_CLIENT_SECRET,
+                timeout=max(5, settings.TOKEN_REFRESH_LOCK_TTL_SECONDS - 5),
             )
             
             # Cliente HTTP persistente con connection pooling
@@ -37,17 +42,18 @@ class MicrosoftAuth:
         return cls._instance
 
     # --- Login (MSAL) ---
-    def get_auth_url(self):
+    def get_auth_url(self, state: str, nonce: str):
+        """state y nonce correlacionan este intento (ver core/oauth_repository.py):
+        state se re-emite tal cual en el callback (proteccion CSRF estandar de
+        OAuth), nonce se valida contra el claim del id_token en get_token_from_code."""
         return self.app.get_authorization_request_url(
-            settings.GRAPH_SCOPES.split(" "), # MSAL expects a list or space-separated string? check get_authorization_request_url docs. usually a list. Pydantic settings is string.
-            # wait, get_authorization_request_url source: scopes (list[str])
-            # ConfidentClientApplication source: scopes (list[str])
-            # In config.py: GRAPH_SCOPES: str = "email User.Read Mail.Send Files.ReadWrite.All Sites.Read.All"
-            # So I should split it.
-            redirect_uri=settings.REDIRECT_URI
+            settings.GRAPH_SCOPES.split(" "),
+            redirect_uri=settings.REDIRECT_URI,
+            state=state,
+            nonce=nonce,
         )
 
-    async def get_token_from_code(self, code):
+    async def get_token_from_code(self, code, nonce: str | None = None):
         # MSAL automáticamente incluye refresh_token para ConfidentialClientApplication
         # No necesitamos agregar 'offline_access' explícitamente
         import asyncio
@@ -55,7 +61,8 @@ class MicrosoftAuth:
             self.app.acquire_token_by_authorization_code,
             code,
             scopes=settings.GRAPH_SCOPES.split(" "),
-            redirect_uri=settings.REDIRECT_URI
+            redirect_uri=settings.REDIRECT_URI,
+            nonce=nonce,
         )
         if "error" in result:
             raise RuntimeError(f"Error login: {result.get('error_description')}")

@@ -72,7 +72,9 @@
                 const resp = await fetch(url);
                 const json = await resp.json();
                 if (!resp.ok) {
-                    this.spError = json.error || 'Error al cargar carpetas';
+                    this.spError = handleSessionExpiredError(json)
+                        ? 'Tu sesion expiro. Inicia sesion de nuevo.'
+                        : (json.error || 'Error al cargar carpetas');
                     this.spCarpetas = [];
                     return;
                 }
@@ -144,6 +146,9 @@
                 const resp = await fetch('/pdf/visita-obra/generar', { method: 'POST', body: fd });
                 if (!resp.ok) {
                     const err = await resp.json().catch(() => ({}));
+                    if (handleSessionExpiredError(err)) {
+                        throw new Error('Tu sesion expiro. Inicia sesion de nuevo.');
+                    }
                     throw new Error(err.error || 'Error generando PDF');
                 }
 

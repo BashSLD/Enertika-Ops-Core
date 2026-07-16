@@ -1,4 +1,7 @@
 from typing import Iterable, Optional
+from urllib.parse import unquote
+
+from core.security import safe_redirect_path
 
 from .db_service import NavigationDBService, get_navigation_db_service
 
@@ -30,8 +33,11 @@ class NavigationService:
         if not route:
             return False
 
-        route = route.strip()
-        return route.startswith("/") and not route.startswith("//")
+        try:
+            decoded = unquote(route).strip()
+        except (ValueError, UnicodeDecodeError):
+            return False
+        return safe_redirect_path(route) == decoded
 
 
 def get_navigation_service() -> NavigationService:

@@ -20,6 +20,7 @@ QUERY_UPSERT_AUTHENTICATED_USER = """
         nombre = COALESCE(tb_usuarios.nombre, EXCLUDED.nombre),
         department = COALESCE(EXCLUDED.department, tb_usuarios.department),
         puesto = COALESCE(EXCLUDED.puesto, tb_usuarios.puesto)
+    RETURNING is_active
 """
 
 
@@ -33,8 +34,11 @@ async def upsert_authenticated_user(
     expires_at: int,
     department: str | None,
     puesto: str | None,
-) -> None:
-    await conn.execute(
+) -> bool:
+    """Inserta o actualiza el usuario autenticado y retorna su is_active vigente
+    (no se reactiva una cuenta desactivada al hacer login: el UPDATE no toca esa
+    columna, solo el INSERT inicial la fija en TRUE)."""
+    return await conn.fetchval(
         QUERY_UPSERT_AUTHENTICATED_USER,
         name,
         email,
