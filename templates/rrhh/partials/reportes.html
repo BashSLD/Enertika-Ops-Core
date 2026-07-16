@@ -148,13 +148,13 @@
             <label class="block text-xs font-medium text-gray-600 mb-1">Fecha inicio</label>
             <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" :required="!esBolsaHe"
               title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"
-              class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+              class="w-full rounded-lg border border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
           </div>
           <div x-show="!esBolsaHe">
             <label class="block text-xs font-medium text-gray-600 mb-1">Fecha fin</label>
             <input type="date" name="fecha_fin" value="{{ fecha_fin }}" :required="!esBolsaHe"
               title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"
-              class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+              class="w-full rounded-lg border border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
           </div>
           <div x-show="!esBolsaHe">
             <label class="block text-xs font-medium text-gray-600 mb-1">Empleado</label>
@@ -166,7 +166,7 @@
           </div>
           <div x-show="esAsistencia">
             <label class="block text-xs font-medium text-gray-600 mb-1">Estado de asistencia</label>
-            <select name="estado" class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+            <select name="estado" class="w-full rounded-lg border border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
               <option value="">Todos</option>
               {% for estado in estados_asistencia | sort %}
               <option value="{{ estado }}">{{ estados_asistencia_labels.get(estado, estado.replace('_', ' ')) }}</option>
@@ -175,7 +175,7 @@
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Tipo de reporte</label>
-            <select x-model="tipoReporte" class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+            <select x-model="tipoReporte" class="w-full rounded-lg border border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
               <option value="consolidado">Consolidado de Horas</option>
               <option value="detalle">Asistencia completo</option>
               <option value="departamentos">Asistencia por Departamento</option>
@@ -231,13 +231,13 @@
             <label class="block text-xs font-medium text-gray-600 mb-1">Fecha inicio</label>
             <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" required
               title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"
-              class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+              class="w-full rounded-lg border border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Fecha fin</label>
             <input type="date" name="fecha_fin" value="{{ fecha_fin }}" required
               title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"
-              class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+              class="w-full rounded-lg border border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Empleado</label>
@@ -245,7 +245,7 @@
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Estado</label>
-            <select name="estado" class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+            <select name="estado" class="w-full rounded-lg border border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
               <option value="">Todos</option>
               {% for estado in estados_vacaciones %}
               <option value="{{ estado }}">{{ estado }}</option>
