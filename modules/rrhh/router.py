@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import List, Optional
 from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.templating import Jinja2Templates
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Font
 
 from core.database import get_db_connection
 from core.jinja_filters import register_timezone_filters
@@ -23,6 +23,7 @@ from modules.asistencia.constants import (
 )
 from modules.asistencia.logic import ensure_mx
 from modules.rrhh import service
+from modules.rrhh.excel_utils import autofit_columns, format_date, format_datetime, style_sheet
 from modules.shared.utils import excel_response, format_minutes, is_htmx, toast_error
 from modules.vacaciones import db_service as vac_db
 from modules.vacaciones import service as vac_service
@@ -151,7 +152,7 @@ async def _festivos_template_response(
     ctx = await service.get_festivos_ctx(conn, anio)
     validacion = ctx.get("validacion") or {}
     if validacion.get("validado_at"):
-        validacion["validado_at_fmt"] = _format_datetime(validacion["validado_at"])
+        validacion["validado_at_fmt"] = format_datetime(validacion["validado_at"])
     ctx.update({
         "context": context,
         "rrhh_perms": _get_rrhh_permissions(context),
@@ -159,19 +160,6 @@ async def _festivos_template_response(
         "toast_msg": toast_msg,
     })
     return templates.TemplateResponse(request, "rrhh/partials/festivos_lista.html", ctx)
-
-
-def _format_date(value) -> str:
-    return value.strftime("%d/%m/%Y") if value else ""
-
-
-def _format_datetime(value) -> str:
-    if not value:
-        return ""
-    if isinstance(value, datetime):
-        return ensure_mx(value).strftime("%d/%m/%Y %H:%M")
-    return str(value)
-
 
 
 def _build_horario_dias_form(
@@ -207,106 +195,17 @@ def _format_estado_aprobacion_he(horas_extra_estado: str | None) -> str:
     return _ESTADO_APROBACION_HE_LABELS.get(horas_extra_estado, "Pendiente")
 
 
-def _style_sheet(worksheet, headers: list[str]) -> None:
-    worksheet.append(headers)
-    worksheet.freeze_panes = "A2"
-    for cell in worksheet[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="123456")
-
-
-def _autofit_columns(worksheet) -> None:
-    for column in worksheet.columns:
-        width = max(len(str(cell.value or "")) for cell in column) + 2
-        worksheet.column_dimensions[column[0].column_letter].width = min(width, 36)
-
-
 def _build_workbook(title: str, headers: list[str], rows: list[list]):
     from openpyxl import Workbook
 
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = title
-    _style_sheet(worksheet, headers)
+    style_sheet(worksheet, headers)
     for row in rows:
         worksheet.append(row)
-    _autofit_columns(worksheet)
+    autofit_columns(worksheet)
     return workbook
-
-
-def _append_unmapped_biotime_sheet(workbook, rows: list[dict]) -> None:
-    if not rows:
-        return
-    worksheet = workbook.create_sheet("Checadas sin mapear")
-    _style_sheet(worksheet, [
-        "Codigo BioTime",
-        "Departamento",
-        "Checadas",
-        "Primera checada",
-        "Ultima checada",
-    ])
-    for row in rows:
-        worksheet.append([
-            row.get("biotime_emp_code") or "",
-            row.get("deptname") or "",
-            row.get("total") or 0,
-            _format_datetime(row.get("primera_checada")),
-            _format_datetime(row.get("ultima_checada")),
-        ])
-    _autofit_columns(worksheet)
-
-
-_ASISTENCIA_HEADERS = [
-    "Fecha",
-    "Empleado",
-    "Email",
-    "Sucursal",
-    "Departamento",
-    "Primera entrada",
-    "Ultima salida",
-    "Horas trabajadas",
-    "Horas a cubrir",
-    "Horas extra",
-    "Estado",
-    "Ausencia aprobada",
-    "Tipo de ausencia",
-    "Observaciones",
-]
-
-
-def _asistencia_row_values(row: dict) -> list:
-    return [
-        _format_date(row.get("fecha_laboral")),
-        row.get("empleado_nombre") or "",
-        row.get("empleado_email") or "",
-        row.get("sucursal_nombre") or "",
-        row.get("departamento") or "",
-        _format_datetime(row.get("primera_entrada")),
-        _format_datetime(row.get("ultima_salida")),
-        format_minutes(row.get("minutos_trabajados")),
-        format_minutes(row.get("minutos_programados")),
-        format_minutes(row.get("minutos_extra")),
-        formatear_estado_asistencia_label(row.get("estado"), row.get("tipo_ausencia_nombre")),
-        "Si" if row.get("tiene_ausencia_justificada") else "No",
-        row.get("tipo_ausencia_nombre") or "",
-        row.get("observaciones") or "",
-    ]
-
-
-def _append_por_empleado_sheet(workbook, rows: list[dict]) -> None:
-    worksheet = workbook.create_sheet("Por empleado")
-    _style_sheet(worksheet, _ASISTENCIA_HEADERS)
-    for row in sorted(rows, key=lambda r: (r.get("empleado_nombre") or "", r.get("fecha_laboral") or "")):
-        worksheet.append(_asistencia_row_values(row))
-    _autofit_columns(worksheet)
-
-
-def _append_por_departamento_sheet(workbook, rows: list[dict]) -> None:
-    worksheet = workbook.create_sheet("Por departamento")
-    _style_sheet(worksheet, _ASISTENCIA_HEADERS)
-    for row in sorted(rows, key=lambda r: (r.get("departamento") or "Sin departamento", r.get("empleado_nombre") or "", r.get("fecha_laboral") or "")):
-        worksheet.append(_asistencia_row_values(row))
-    _autofit_columns(worksheet)
 
 
 # ─────────────────────────────────────────────
@@ -488,6 +387,7 @@ async def reportes_panel(
 async def reporte_asistencia_excel(
     fecha_inicio: date,
     fecha_fin: date,
+    formato: str = "completo",
     usuario_id: List[str] = Query(default=[]),
     sucursal_id: List[str] = Query(default=[]),
     estado: List[str] = Query(default=[]),
@@ -502,6 +402,7 @@ async def reporte_asistencia_excel(
     estados_clean = [e for e in estado if e]
     try:
         service.validar_rango_reportes(fecha_inicio, fecha_fin)
+        service.validar_formato_reporte_asistencia(formato)
         rows = await asistencia_db.get_reporte_asistencia(
             conn,
             fecha_inicio=fecha_inicio,
@@ -518,20 +419,13 @@ async def reporte_asistencia_excel(
             fecha_inicio=fecha_inicio,
             fecha_fin=fecha_fin,
         )
+        workbook = service.build_reporte_asistencia_workbook(rows, unmapped, formato)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except asyncpg.PostgresError as exc:
         logger.exception("Error de BD generando reporte de asistencia")
         raise HTTPException(status_code=500, detail="No se pudo generar el reporte") from exc
 
-    workbook = _build_workbook(
-        "Asistencia",
-        _ASISTENCIA_HEADERS,
-        [_asistencia_row_values(row) for row in rows],
-    )
-    _append_unmapped_biotime_sheet(workbook, unmapped)
-    _append_por_empleado_sheet(workbook, rows)
-    _append_por_departamento_sheet(workbook, rows)
     filename = f"reporte_asistencia_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}.xlsx"
     return excel_response(workbook, filename)
 
@@ -586,13 +480,13 @@ async def reporte_vacaciones_excel(
                 row.get("empleado_email") or "",
                 row.get("numero_empleado") or "",
                 row.get("departamento") or "",
-                _format_date(row.get("fecha_inicio")),
-                _format_date(row.get("fecha_fin")),
+                format_date(row.get("fecha_inicio")),
+                format_date(row.get("fecha_fin")),
                 row.get("dias_solicitados") or 0,
-                _format_date(row.get("fecha_presentarse")),
+                format_date(row.get("fecha_presentarse")),
                 row.get("estado") or "",
-                _format_datetime(row.get("fecha_solicitud")),
-                _format_datetime(row.get("fecha_resolucion")),
+                format_datetime(row.get("fecha_solicitud")),
+                format_datetime(row.get("fecha_resolucion")),
                 row.get("aprobado_por_nombre") or "",
             ]
             for row in rows
@@ -642,11 +536,11 @@ async def reporte_vacaciones_aprobadas_excel(
                 row.get("empleado_email") or "",
                 row.get("numero_empleado") or "",
                 row.get("departamento") or "",
-                _format_date(row.get("fecha_inicio")),
-                _format_date(row.get("fecha_fin")),
+                format_date(row.get("fecha_inicio")),
+                format_date(row.get("fecha_fin")),
                 row.get("dias_solicitados") or 0,
-                _format_date(row.get("fecha_presentarse")),
-                _format_datetime(row.get("fecha_solicitud")),
+                format_date(row.get("fecha_presentarse")),
+                format_datetime(row.get("fecha_solicitud")),
                 row.get("aprobado_por_nombre") or "",
             ]
             for row in rows
@@ -708,11 +602,11 @@ async def reporte_horas_extra_excel(
         ],
         [
             [
-                _format_date(row["fecha_laboral"]),
+                format_date(row["fecha_laboral"]),
                 row.get("empleado_nombre") or "",
                 row.get("sucursal_nombre") or "",
-                _format_datetime(row.get("primera_entrada")),
-                _format_datetime(row.get("ultima_salida")),
+                format_datetime(row.get("primera_entrada")),
+                format_datetime(row.get("ultima_salida")),
                 format_minutes(row.get("minutos_trabajados")),
                 format_minutes(row.get("minutos_programados")),
                 format_minutes(row.get("minutos_extra")),

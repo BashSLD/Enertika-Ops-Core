@@ -124,7 +124,7 @@
     </button>
     <div x-show="open" x-transition>
       <form method="get" class="px-4 pb-4 pt-1 border-t border-gray-100 space-y-3">
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Fecha inicio</label>
             <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" required
@@ -152,6 +152,15 @@
               {% for estado in estados_asistencia | sort %}
               <option value="{{ estado }}">{{ estados_asistencia_labels.get(estado, estado.replace('_', ' ')) }}</option>
               {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Formato</label>
+            <select name="formato" class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+              <option value="detalle">Detalle diario</option>
+              <option value="detalle_consolidado">Detalle diario y consolidado</option>
+              <option value="departamentos">Consolidado por departamento</option>
+              <option value="completo" selected>Reporte completo</option>
             </select>
           </div>
         </div>

@@ -32,6 +32,10 @@ from modules.asistencia.constants import (
     ASISTENCIA_ESTADOS,
     HE_MINIMO_OPCIONES,
 )
+from modules.rrhh.asistencia_excel_builder import (
+    FORMATOS_REPORTE_ASISTENCIA,
+    build_asistencia_workbook,
+)
 from modules.rrhh import db_service as rrhh_db
 from modules.vacaciones import db_service as vac_db
 from modules.vacaciones.constants import ESTADOS_SOLICITUD
@@ -55,6 +59,15 @@ MIGRACION_PREVIEW_TTL_SECONDS = 20 * 60
 MIGRACION_MAX_FILE_BYTES = 5 * 1024 * 1024
 FESTIVOS_ANIO_MIN = 2026
 FESTIVOS_ANIO_MAX = 2100
+
+
+def validar_formato_reporte_asistencia(formato: str) -> None:
+    if formato not in FORMATOS_REPORTE_ASISTENCIA:
+        raise ValueError("Formato de asistencia no valido")
+
+
+def build_reporte_asistencia_workbook(rows: list[dict], unmapped: list[dict], formato: str):
+    return build_asistencia_workbook(rows, unmapped, formato)
 
 
 async def get_solicitudes_manuales_pendientes_todas_svc(conn) -> list[dict]:
