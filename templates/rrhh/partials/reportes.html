@@ -123,29 +123,48 @@
       </span>
     </button>
     <div x-show="open" x-transition>
-      <form method="get" class="px-4 pb-4 pt-1 border-t border-gray-100 space-y-3">
+      <form method="get" x-data="{
+        tipoReporte: 'completo',
+        descripciones: {
+          consolidado: 'Un total por empleado en todo el periodo: horas trabajadas en horario laboral, horas extra autorizadas y el total. Sin detalle dia por dia.',
+          detalle: 'Detalle dia por dia de todos los empleados: entrada, salida, horas trabajadas y extra, estado y ausencias. Sin resumen por empleado.',
+          departamentos: 'El detalle dia por dia separado en una hoja por departamento. No incluye la hoja de totales por empleado.',
+          completo: 'Incluye todo: totales por empleado, detalle dia por dia, el mismo detalle ordenado por empleado, y una hoja por departamento.',
+          horas_extra: 'Solo los dias con horas extra: motivo de solicitud, estado de aprobacion, horas aprobadas y comentario. No incluye dias normales ni ausencias.',
+          bolsa_he: 'Saldo actual de la bolsa de horas extra/compensatorio de toda la empresa. Sin filtro de fecha, empleado o sucursal.'
+        },
+        get esAsistencia() { return ['consolidado', 'detalle', 'departamentos', 'completo'].includes(this.tipoReporte); },
+        get esBolsaHe() { return this.tipoReporte === 'bolsa_he'; },
+        get formAction() {
+          if (this.tipoReporte === 'horas_extra') return '/rrhh/reportes/horas-extra.xlsx';
+          if (this.esBolsaHe) return '/asistencia/api/horas-extra/reporte.xlsx';
+          return '/rrhh/reportes/asistencia.xlsx';
+        }
+      }" class="px-4 pb-4 pt-1 border-t border-gray-100 space-y-3">
+        <input type="hidden" name="formato" :value="esAsistencia ? tipoReporte : ''">
+        <input type="hidden" name="scope" value="global">
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-          <div>
+          <div x-show="!esBolsaHe">
             <label class="block text-xs font-medium text-gray-600 mb-1">Fecha inicio</label>
-            <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" required
+            <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" :required="!esBolsaHe"
               title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"
               class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
           </div>
-          <div>
+          <div x-show="!esBolsaHe">
             <label class="block text-xs font-medium text-gray-600 mb-1">Fecha fin</label>
-            <input type="date" name="fecha_fin" value="{{ fecha_fin }}" required
+            <input type="date" name="fecha_fin" value="{{ fecha_fin }}" :required="!esBolsaHe"
               title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"
               class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
           </div>
-          <div>
+          <div x-show="!esBolsaHe">
             <label class="block text-xs font-medium text-gray-600 mb-1">Empleado</label>
             {{ filtro_multi("usuario_id", ns_u.items | tojson, "Todos") }}
           </div>
-          <div>
+          <div x-show="!esBolsaHe">
             <label class="block text-xs font-medium text-gray-600 mb-1">Sucursal</label>
             {{ filtro_multi("sucursal_id", ns_s.items | tojson, "Todas") }}
           </div>
-          <div>
+          <div x-show="esAsistencia">
             <label class="block text-xs font-medium text-gray-600 mb-1">Estado de asistencia</label>
             <select name="estado" class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
               <option value="">Todos</option>
@@ -155,41 +174,36 @@
             </select>
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">Formato</label>
-            <select name="formato" class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
-              <option value="detalle">Detalle diario</option>
-              <option value="detalle_consolidado">Detalle diario y consolidado</option>
-              <option value="departamentos">Consolidado por departamento</option>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Tipo de reporte</label>
+            <select x-model="tipoReporte" class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+              <option value="consolidado">Consolidado de Horas</option>
+              <option value="detalle">Asistencia completo</option>
+              <option value="departamentos">Asistencia por Departamento</option>
               <option value="completo" selected>Reporte completo</option>
+              <option value="horas_extra">Reporte de horas extra</option>
+              <option value="bolsa_he">Reporte bolsa de horas</option>
             </select>
+            <p class="mt-1 text-xs text-gray-400" x-text="descripciones[tipoReporte]"></p>
           </div>
         </div>
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="flex flex-wrap gap-4">
-            <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+            <label x-show="!esBolsaHe" class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
               <input type="checkbox" name="incluir_dados_de_baja" value="true"
                 class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">
               Incluir usuarios dados de baja
             </label>
-            <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+            <label x-show="esAsistencia" class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
               <input type="checkbox" name="incluir_descanso" value="true"
                 class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">
               Incluir días de descanso
             </label>
           </div>
           <div class="flex flex-wrap gap-2">
-            <button type="submit" formaction="/rrhh/reportes/asistencia.xlsx"
+            <button type="submit" formaction="/rrhh/reportes/asistencia.xlsx" :formaction="formAction"
               class="rounded-lg bg-[#123456] px-4 py-2 text-sm font-medium text-white hover:bg-[#0e2a45] transition-colors">
-              Descargar asistencia
+              Descargar reporte
             </button>
-            <button type="submit" formaction="/rrhh/reportes/horas-extra.xlsx"
-              class="rounded-lg bg-[#00BABB] px-4 py-2 text-sm font-medium text-white hover:bg-[#009999] transition-colors">
-              Descargar horas extra
-            </button>
-            <a href="/asistencia/api/horas-extra/reporte.xlsx?scope=global"
-              class="rounded-lg border border-[#00BABB]/30 bg-[#00BABB]/10 px-4 py-2 text-sm font-medium text-[#007C7D] hover:bg-[#00BABB]/20 transition-colors">
-              Descargar bolsa HE
-            </a>
           </div>
         </div>
       </form>

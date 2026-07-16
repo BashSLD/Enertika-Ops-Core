@@ -45,6 +45,32 @@ def format_minutes(value) -> str:
     return f"{m}m"
 
 
+_INVALID_SHEET_TITLE_CHARS = re.compile(r"[\\/?*\[\]:]")
+
+
+def safe_sheet_title(title: str, used_titles: set[str], fallback: str = "Hoja") -> str:
+    """
+    Sanitiza un titulo de hoja de Excel: reemplaza caracteres invalidos por "_",
+    trunca a 31 caracteres y evita colisiones (Excel no permite hojas
+    duplicadas por mayus/minus) agregando el sufijo " (2)", " (3)", etc.
+
+    `used_titles` debe contener los titulos ya usados en `casefold()` y se
+    actualiza con el titulo devuelto.
+    """
+    sanitized = _INVALID_SHEET_TITLE_CHARS.sub("_", (title or "").strip())
+    base_title = sanitized[:31] if sanitized.strip("_") else fallback
+
+    candidate = base_title
+    suffix_number = 2
+    while candidate.casefold() in used_titles:
+        suffix = f" ({suffix_number})"
+        candidate = f"{base_title[:31 - len(suffix)]}{suffix}"
+        suffix_number += 1
+
+    used_titles.add(candidate.casefold())
+    return candidate
+
+
 def is_htmx(request: Request) -> bool:
     return bool(
         request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request")

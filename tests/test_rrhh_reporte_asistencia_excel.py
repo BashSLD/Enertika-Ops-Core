@@ -7,9 +7,9 @@ import pytest
 
 from modules.rrhh.asistencia_excel_builder import (
     _duration_formula,
-    _safe_sheet_title,
     build_asistencia_workbook,
 )
+from modules.shared.utils import safe_sheet_title
 
 
 def _row(**overrides) -> dict:
@@ -40,8 +40,8 @@ def _row(**overrides) -> dict:
     ("formato", "sheetnames"),
     [
         ("detalle", ["Asistencia", "Checadas sin mapear"]),
-        ("detalle_consolidado", ["Consolidado", "Asistencia", "Checadas sin mapear"]),
-        ("departamentos", ["Consolidado", "Operaciones", "Checadas sin mapear"]),
+        ("consolidado", ["Consolidado", "Checadas sin mapear"]),
+        ("departamentos", ["Operaciones", "Checadas sin mapear"]),
         (
             "completo",
             ["Consolidado", "Asistencia", "Por empleado", "Operaciones", "Checadas sin mapear"],
@@ -59,27 +59,28 @@ def test_workbook_generates_only_the_sheets_for_each_format(formato, sheetnames)
 
 
 def test_consolidado_separa_laboral_he_autorizada_y_total_sin_duplicar():
-    workbook = build_asistencia_workbook([_row()], [], "detalle_consolidado")
+    workbook = build_asistencia_workbook([_row()], [], "consolidado")
     worksheet = workbook["Consolidado"]
 
     assert worksheet["D2"].value == "8h"
     assert worksheet["E2"].value == "1h 30m"
-    assert worksheet["F2"].value == "9h 30m"
+    assert worksheet["F2"].value == _duration_formula("G2,H2")
     assert worksheet["D3"].value.startswith("=IF(AND(INT(SUM(")
     assert worksheet.column_dimensions["G"].hidden is True
     assert worksheet.column_dimensions["H"].hidden is True
-    assert worksheet.column_dimensions["I"].hidden is True
 
 
 def test_feriado_no_se_suma_como_hora_extra_autorizada():
     workbook = build_asistencia_workbook(
         [_row(horas_extra_estado="feriado", minutos_aprobados=120)],
         [],
-        "detalle_consolidado",
+        "consolidado",
     )
+    worksheet = workbook["Consolidado"]
 
-    assert workbook["Consolidado"]["E2"].value == "0m"
-    assert workbook["Consolidado"]["F2"].value == "8h"
+    assert worksheet["E2"].value == "0m"
+    assert worksheet["H2"].value == 0
+    assert worksheet["F2"].value == _duration_formula("G2,H2")
 
 
 def test_detalle_agrega_formulas_y_oculta_las_columnas_auxiliares():
@@ -104,7 +105,7 @@ def test_departamentos_usa_nombres_validos_y_sin_colisiones():
         "departamentos",
     )
 
-    department_sheets = workbook.sheetnames[1:]
+    department_sheets = workbook.sheetnames
     assert all(len(title) <= 31 for title in department_sheets)
     assert all(not set(title) & set("\\/?*[]:") for title in department_sheets)
     assert len({title.casefold() for title in department_sheets}) == 2
@@ -113,7 +114,11 @@ def test_departamentos_usa_nombres_validos_y_sin_colisiones():
 def test_safe_sheet_title_reserves_fixed_titles_case_insensitively():
     used_titles = {"consolidado", "asistencia", "por empleado", "checadas sin mapear"}
 
-    assert _safe_sheet_title("Asistencia", used_titles) == "Asistencia (2)"
+    assert safe_sheet_title("Asistencia", used_titles) == "Asistencia (2)"
+
+
+def test_safe_sheet_title_usa_fallback_cuando_todo_es_invalido():
+    assert safe_sheet_title(":::", set(), fallback="Sin departamento") == "Sin departamento"
 
 
 def test_invalid_format_is_rejected():

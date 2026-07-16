@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from datetime import date
 
 from openpyxl import Workbook
@@ -9,11 +8,11 @@ from openpyxl.utils import get_column_letter
 
 from modules.asistencia.constants import formatear_estado_asistencia_label
 from modules.rrhh.excel_utils import autofit_columns, format_date, format_datetime, style_sheet
-from modules.shared.utils import format_minutes
+from modules.shared.utils import format_minutes, safe_sheet_title
 
 FORMATOS_REPORTE_ASISTENCIA = frozenset({
+    "consolidado",
     "detalle",
-    "detalle_consolidado",
     "departamentos",
     "completo",
 })
@@ -43,7 +42,6 @@ _CONSOLIDADO_HEADERS = [
     "Total autorizado",
 ]
 _RESERVED_SHEET_TITLES = {"checadas sin mapear"}
-_INVALID_SHEET_TITLE_CHARS = re.compile(r"[\\\\/?*\[\]:]")
 
 
 def build_asistencia_workbook(
@@ -59,9 +57,9 @@ def build_asistencia_workbook(
     workbook.calculation.fullCalcOnLoad = True
     workbook.calculation.forceFullCalc = True
 
-    if formato in {"detalle_consolidado", "departamentos", "completo"}:
+    if formato in {"consolidado", "completo"}:
         _append_consolidado_sheet(workbook, rows)
-    if formato in {"detalle", "detalle_consolidado", "completo"}:
+    if formato in {"detalle", "completo"}:
         _append_detail_sheet(workbook, "Asistencia", rows)
     if formato == "completo":
         _append_detail_sheet(
@@ -106,32 +104,49 @@ def _append_consolidado_sheet(workbook: Workbook, rows: list[dict]) -> None:
     )
     minutos_laboral_list: list[int] = []
     minutos_aprobados_list: list[int] = []
-    minutos_total_list: list[int] = []
     for row in ordered_rows:
         minutos_laboral = row["minutos_laboral"]
         minutos_aprobados = row["minutos_aprobados"]
-        minutos_total = minutos_laboral + minutos_aprobados
         worksheet.append([
             row["empleado_nombre"],
             row["empleado_email"],
             row["departamento"],
             format_minutes(minutos_laboral),
             format_minutes(minutos_aprobados),
-            format_minutes(minutos_total),
+            None,
         ])
         minutos_laboral_list.append(minutos_laboral)
         minutos_aprobados_list.append(minutos_aprobados)
-        minutos_total_list.append(minutos_total)
+
+    column_laboral = _header_column_letter(_CONSOLIDADO_HEADERS, "Horas trabajadas horario laboral")
+    column_aprobadas = _header_column_letter(_CONSOLIDADO_HEADERS, "Horas extra autorizadas")
+    column_total_index = _header_column_index(_CONSOLIDADO_HEADERS, "Total autorizado")
+    column_total = get_column_letter(column_total_index)
 
     helper_columns = _append_minutes_helper_columns(
         worksheet,
         {
-            "D": ("minutos_laboral", minutos_laboral_list),
-            "E": ("minutos_aprobados", minutos_aprobados_list),
-            "F": ("minutos_total_autorizado", minutos_total_list),
+            column_laboral: ("minutos_laboral", minutos_laboral_list),
+            column_aprobadas: ("minutos_aprobados", minutos_aprobados_list),
         },
     )
-    _append_duration_total_row(worksheet, helper_columns)
+    helper_laboral = helper_columns[column_laboral]
+    helper_aprobadas = helper_columns[column_aprobadas]
+    for row_number in range(2, len(ordered_rows) + 2):
+        worksheet.cell(
+            row=row_number,
+            column=column_total_index,
+            value=_duration_formula(f"{helper_laboral}{row_number},{helper_aprobadas}{row_number}"),
+        )
+
+    _append_duration_total_row(
+        worksheet,
+        {
+            column_laboral: [helper_laboral],
+            column_aprobadas: [helper_aprobadas],
+            column_total: [helper_laboral, helper_aprobadas],
+        },
+    )
     autofit_columns(worksheet, visible_columns=len(_CONSOLIDADO_HEADERS))
 
 
@@ -147,15 +162,21 @@ def _append_detail_sheet(workbook: Workbook, title: str, rows: list[dict]) -> No
         minutos_programados_list.append(int(row.get("minutos_programados") or 0))
         minutos_extra_list.append(int(row.get("minutos_extra") or 0))
 
+    column_trabajadas = _header_column_letter(_ASISTENCIA_HEADERS, "Horas trabajadas")
+    column_programadas = _header_column_letter(_ASISTENCIA_HEADERS, "Horas a cubrir")
+    column_extra = _header_column_letter(_ASISTENCIA_HEADERS, "Horas extra")
+
     helper_columns = _append_minutes_helper_columns(
         worksheet,
         {
-            "H": ("minutos_trabajados", minutos_trabajados_list),
-            "I": ("minutos_programados", minutos_programados_list),
-            "J": ("minutos_extra", minutos_extra_list),
+            column_trabajadas: ("minutos_trabajados", minutos_trabajados_list),
+            column_programadas: ("minutos_programados", minutos_programados_list),
+            column_extra: ("minutos_extra", minutos_extra_list),
         },
     )
-    _append_duration_total_row(worksheet, helper_columns)
+    _append_duration_total_row(
+        worksheet, {column: [helper] for column, helper in helper_columns.items()}
+    )
     autofit_columns(worksheet, visible_columns=len(_ASISTENCIA_HEADERS))
 
 
@@ -167,7 +188,7 @@ def _append_departamento_sheets(workbook: Workbook, rows: list[dict]) -> None:
 
     used_titles = _RESERVED_SHEET_TITLES | {worksheet.title.casefold() for worksheet in workbook.worksheets}
     for department in sorted(grouped_rows, key=str.casefold):
-        title = _safe_sheet_title(department, used_titles)
+        title = safe_sheet_title(department, used_titles, fallback="Sin departamento")
         _append_detail_sheet(workbook, title, sorted(grouped_rows[department], key=_employee_date_sort_key))
 
 
@@ -210,16 +231,19 @@ def _append_minutes_helper_columns(
     return helper_columns
 
 
-def _append_duration_total_row(worksheet, helper_columns: dict[str, str]) -> None:
+def _append_duration_total_row(
+    worksheet, helper_columns: dict[str, list[str]]
+) -> None:
     last_data_row = worksheet.max_row
     has_data_rows = last_data_row > 1
     total_row = last_data_row + 1
     worksheet.cell(row=total_row, column=1, value="Total")
-    for visible_column, helper_column in helper_columns.items():
+    for visible_column, helper_column_list in helper_columns.items():
         if has_data_rows:
-            worksheet[f"{visible_column}{total_row}"] = _duration_formula(
-                f"{helper_column}2:{helper_column}{last_data_row}"
+            ranges = ",".join(
+                f"{column}2:{column}{last_data_row}" for column in helper_column_list
             )
+            worksheet[f"{visible_column}{total_row}"] = _duration_formula(ranges)
         else:
             worksheet[f"{visible_column}{total_row}"] = "0m"
     for cell in worksheet[total_row]:
@@ -254,17 +278,12 @@ def _asistencia_row_values(row: dict) -> list:
     ]
 
 
-def _safe_sheet_title(title: str, used_titles: set[str]) -> str:
-    base_title = _INVALID_SHEET_TITLE_CHARS.sub("", title).strip() or "Sin departamento"
-    base_title = base_title[:31]
-    candidate = base_title
-    suffix_number = 2
-    while candidate.casefold() in used_titles:
-        suffix = f" ({suffix_number})"
-        candidate = f"{base_title[:31 - len(suffix)]}{suffix}"
-        suffix_number += 1
-    used_titles.add(candidate.casefold())
-    return candidate
+def _header_column_index(headers: list[str], header_name: str) -> int:
+    return headers.index(header_name) + 1
+
+
+def _header_column_letter(headers: list[str], header_name: str) -> str:
+    return get_column_letter(_header_column_index(headers, header_name))
 
 
 def _department_name(row: dict) -> str:

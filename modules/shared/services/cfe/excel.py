@@ -11,6 +11,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from core.timezone import now_mx
+from modules.shared.utils import safe_sheet_title
 
 from .extractor import MAX_XML_SIZE_BYTES, extraer_datos_xml
 from .profiles import obtener_perfil_cfe
@@ -156,7 +157,7 @@ def generar_excel_cfe(
     for index, servicio in enumerate(servicios_ordenados):
         recibos = grupos[servicio]
         ws = hoja_inicial if index == 0 else wb.create_sheet()
-        ws.title = _nombre_hoja(servicio, nombres_usados)
+        ws.title = safe_sheet_title(servicio, nombres_usados, fallback="Sin servicio")
         ws.append([col.header for col in perfil.columns])
 
         for recibo in recibos:
@@ -552,23 +553,6 @@ def _recibo_con_historial(recibos: Sequence[CfeReceipt]) -> CfeReceipt | None:
     return None
 
 
-def _nombre_hoja(servicio: str, usados: set[str]) -> str:
-    invalidos = "[]:*?/\\"
-    nombre = "".join("_" if caracter in invalidos else caracter for caracter in servicio).strip()
-    nombre = nombre or "Sin servicio"
-    nombre = nombre[:31]
-
-    candidato = nombre
-    contador = 2
-    while candidato in usados:
-        sufijo = f"_{contador}"
-        candidato = f"{nombre[:31 - len(sufijo)]}{sufijo}"
-        contador += 1
-
-    usados.add(candidato)
-    return candidato
-
-
 def _agregar_hoja_historial(
     wb: Workbook,
     servicio: str,
@@ -579,7 +563,7 @@ def _agregar_hoja_historial(
         return
 
     ws = wb.create_sheet()
-    ws.title = _nombre_hoja(f"{servicio} Historial", nombres_usados)
+    ws.title = safe_sheet_title(f"{servicio} Historial", nombres_usados, fallback="Sin servicio")
     headers = [
         "Mes",
         "Consumo kWh",
