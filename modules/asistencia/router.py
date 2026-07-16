@@ -17,6 +17,7 @@ from core.integrations.sharepoint import SharePointService
 from core.microsoft import get_ms_auth
 from core.permissions import require_manager_access, require_module_access, user_has_module_access
 from core.security import get_current_user_context
+from core.timezone import today_mx
 from core.workflow.notification_service import NotificationService
 from modules.asistencia import db_service as db
 from modules.asistencia.constants import ASISTENCIA_ESTADOS
@@ -527,6 +528,13 @@ async def preview_he_evidencia(
     )
 
 
+_BOLSA_HE_PREFIJOS = {
+    "propio": "Rep_BolsaHr",
+    "equipo": "Rep_BolsaHrEquipo",
+    "global": "Rep_BolsaHrFull",
+}
+
+
 @router.get("/api/horas-extra/reporte.xlsx")
 async def reporte_bolsa_horas_extra(
     scope: str = Query("propio", pattern="^(propio|equipo|global)$"),
@@ -540,7 +548,9 @@ async def reporte_bolsa_horas_extra(
         wb = await generar_reporte_bolsa_he_svc(conn, scope=scope, usuario_id=usuario_id, context=context)
     except PermissionError as exc:
         raise HTTPException(status_code=403) from exc
-    return excel_response(wb, f"bolsa_horas_extra_{scope}.xlsx")
+    prefijo = _BOLSA_HE_PREFIJOS[scope]
+    filename = f"{prefijo}_{today_mx():%y%m%d}.xlsx"
+    return excel_response(wb, filename)
 
 
 @router.get("/api/saldo-inicial/pendientes")

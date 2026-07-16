@@ -34,6 +34,13 @@ router = APIRouter(prefix="/rrhh", tags=["rrhh"])
 templates = Jinja2Templates(directory="templates")
 register_timezone_filters(templates.env)
 
+REPORTE_ASISTENCIA_PREFIJOS = {
+    "consolidado": "Rep_HorasConsolidado",
+    "detalle": "Rep_AsistenciaCompleto",
+    "departamentos": "Rep_AsistenciaDepto",
+    "completo": "FullReport",
+}
+
 RRHH_TAB_ENDPOINTS = {
     "asistencia": "/rrhh/asistencia",
     "ausencias": "/rrhh/ausencias",
@@ -426,7 +433,8 @@ async def reporte_asistencia_excel(
         logger.exception("Error de BD generando reporte de asistencia")
         raise HTTPException(status_code=500, detail="No se pudo generar el reporte") from exc
 
-    filename = f"reporte_asistencia_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}.xlsx"
+    prefijo = REPORTE_ASISTENCIA_PREFIJOS[formato]
+    filename = f"{prefijo}_{fecha_inicio:%y%m%d}_{fecha_fin:%y%m%d}.xlsx"
     return excel_response(workbook, filename)
 
 
@@ -626,7 +634,7 @@ async def reporte_horas_extra_excel(
         if row.get("horas_extra_estado") in ("aprobado", "omitido"):
             for cell in worksheet[offset]:
                 cell.font = bold_font
-    filename = f"reporte_horas_extra_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}.xlsx"
+    filename = f"Rep_HrExtra_{fecha_inicio:%y%m%d}_{fecha_fin:%y%m%d}.xlsx"
     return excel_response(workbook, filename)
 
 
