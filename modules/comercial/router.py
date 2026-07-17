@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Request, Depends, HTTPException, Form, UploadFile, File, status, Response
+from fastapi import APIRouter, Request, Depends, HTTPException, Form, UploadFile, File, Response
 from fastapi.templating import Jinja2Templates
 from datetime import date, time, datetime
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
-from uuid import UUID, uuid4
+from uuid import UUID
 from typing import Optional, List
 import io
 import logging
@@ -12,16 +12,24 @@ import asyncio
 import urllib.parse
 
 
+import jinja2
+
 from core.database import get_db_connection
 from core.microsoft import get_ms_auth
 from core.security import get_current_user_context, get_valid_graph_token
-from core.permissions import require_module_access, require_manager_access
+from core.permissions import require_module_access, require_manager_access, require_role
 from core.config import settings
-from .schemas import OportunidadCreateCompleta, DetalleBessCreate
+from core.pdf_service.service import PDFService, get_pdf_service
+from core.timezone import ensure_mx, now_mx
+from .schemas import OportunidadCreateCompleta
 from .service import ComercialService, get_comercial_service
-from .email_handler import EmailHandler, get_email_handler
+from .email_handler import get_email_handler
 from .file_utils import validate_file_size
 from .db_service import QUERY_BUSCAR_OPORTUNIDADES_PARA_RELACIONAR
+from . import reportes_service
+from .reportes_excel_builder import construir_bytes_general, construir_bytes_por_cliente, generar_nombre_archivo
+from modules.rrhh.excel_utils import format_date, format_datetime
+from modules.shared.utils import excel_bytes_response
 
 from core.workflow.service import get_workflow_service
 
@@ -96,6 +104,12 @@ async def get_comercial_ui(
     # Conteo de borradores para badge del tab
     borradores_count = await service.get_borradores_count(conn, context)
 
+    # ADMIN global (bypass, sin entrada en module_roles) o MANAGER con acceso viewer+ al módulo
+    puede_generar_reporte_comercial = role == "ADMIN" or (
+        role == "MANAGER" and context.get("module_roles", {}).get("comercial") in ("viewer", "editor", "admin")
+    )
+    reporte_fecha_inicio_default, reporte_fecha_fin_default = reportes_service.defaults_fecha_reporte()
+
     return templates.TemplateResponse(request, template, {"user_name": user_name,
         "role": role,
         "module_roles": context.get("module_roles", {}),
@@ -104,6 +118,9 @@ async def get_comercial_ui(
         "catalogos": catalogos,
         "show_custom_popup": show_popup,
         "borradores_count": borradores_count,
+        "puede_generar_reporte_comercial": puede_generar_reporte_comercial,
+        "reporte_fecha_inicio_default": reporte_fecha_inicio_default.isoformat(),
+        "reporte_fecha_fin_default": reporte_fecha_fin_default.isoformat(),
     }, headers={"HX-Title": "Enertika Core Ops | Comercial"})
 
 
@@ -1418,3 +1435,166 @@ async def cierre_venta(
             request, "comercial/partials/toasts/toast_error.html",
             {"title": "Error", "message": "Ocurrió un error al procesar el cierre de venta."}
         )
+
+
+# ----------------------------------------
+# Reporte de clientes/empresas (ADMIN global o MANAGER con acceso a Comercial)
+# ----------------------------------------
+
+_require_reporte_clientes_role = require_role(["ADMIN", "MANAGER"])
+
+
+def _formato_fecha_pdf(value) -> str:
+    if not value:
+        return ""
+    return format_date(ensure_mx(value))
+
+
+def _preparar_reporte_clientes(
+    context: dict,
+    *,
+    filtro_tipo_id: Optional[int],
+    filtro_tecnologia_id: Optional[int],
+    filtro_estatus_id: Optional[int],
+    filtro_fecha_inicio: Optional[str],
+    filtro_fecha_fin: Optional[str],
+    filtro_cliente_id: Optional[str],
+) -> tuple["reportes_service.FiltrosReporteClientes", str]:
+    """Parsea los filtros de query y resuelve el email del solicitante — compartido
+    entre los endpoints de Excel y PDF del reporte de clientes."""
+    filtros = reportes_service.parse_filtros_reporte_clientes(
+        filtro_tipo_id=filtro_tipo_id,
+        filtro_tecnologia_id=filtro_tecnologia_id,
+        filtro_estatus_id=filtro_estatus_id,
+        filtro_fecha_inicio=filtro_fecha_inicio,
+        filtro_fecha_fin=filtro_fecha_fin,
+        filtro_cliente_id=_safe_uuid(filtro_cliente_id),
+    )
+    solicitante = context.get("user_email") or context.get("email", "")
+    return filtros, solicitante
+
+
+@router.get("/reportes/clientes.xlsx", include_in_schema=False)
+async def reporte_clientes_excel(
+    filtro_tipo_id: Optional[int] = None,
+    filtro_tecnologia_id: Optional[int] = None,
+    filtro_estatus_id: Optional[int] = None,
+    filtro_fecha_inicio: Optional[str] = None,
+    filtro_fecha_fin: Optional[str] = None,
+    filtro_cliente_id: Optional[str] = None,
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_module_access("comercial"),
+    _role = _require_reporte_clientes_role,
+):
+    """Descarga el reporte de clientes/empresas en Excel (modo general o enfocado por cliente)."""
+    try:
+        filtros, solicitante = _preparar_reporte_clientes(
+            context,
+            filtro_tipo_id=filtro_tipo_id,
+            filtro_tecnologia_id=filtro_tecnologia_id,
+            filtro_estatus_id=filtro_estatus_id,
+            filtro_fecha_inicio=filtro_fecha_inicio,
+            filtro_fecha_fin=filtro_fecha_fin,
+            filtro_cliente_id=filtro_cliente_id,
+        )
+        loop = asyncio.get_running_loop()
+        if filtros.filtro_cliente_id:
+            dataset = await reportes_service.generar_dataset_por_cliente(
+                conn, filtros, formato="excel", solicitante_email=solicitante,
+            )
+            cliente_nombre = dataset.get("cliente_nombre")
+            content = await loop.run_in_executor(
+                None, construir_bytes_por_cliente, dataset["detalle"], cliente_nombre
+            )
+            nombre_archivo = generar_nombre_archivo(cliente_nombre)
+        else:
+            dataset = await reportes_service.generar_dataset_general(
+                conn, filtros, formato="excel", solicitante_email=solicitante,
+            )
+            content = await loop.run_in_executor(
+                None, construir_bytes_general, dataset["resumen"], dataset["detalle"]
+            )
+            nombre_archivo = generar_nombre_archivo()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error BD generando reporte de clientes (excel): {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error de base de datos generando el reporte.") from exc
+
+    return excel_bytes_response(content, nombre_archivo)
+
+
+@router.get("/reportes/clientes.pdf", include_in_schema=False)
+async def reporte_clientes_pdf(
+    filtro_tipo_id: Optional[int] = None,
+    filtro_tecnologia_id: Optional[int] = None,
+    filtro_estatus_id: Optional[int] = None,
+    filtro_fecha_inicio: Optional[str] = None,
+    filtro_fecha_fin: Optional[str] = None,
+    filtro_cliente_id: Optional[str] = None,
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    pdf_service: PDFService = Depends(get_pdf_service),
+    _ = require_module_access("comercial"),
+    _role = _require_reporte_clientes_role,
+):
+    """Descarga el reporte de clientes/empresas en PDF (modo general o enfocado por cliente)."""
+    try:
+        filtros, solicitante = _preparar_reporte_clientes(
+            context,
+            filtro_tipo_id=filtro_tipo_id,
+            filtro_tecnologia_id=filtro_tecnologia_id,
+            filtro_estatus_id=filtro_estatus_id,
+            filtro_fecha_inicio=filtro_fecha_inicio,
+            filtro_fecha_fin=filtro_fecha_fin,
+            filtro_cliente_id=filtro_cliente_id,
+        )
+        filtros_resumen = await reportes_service.describir_filtros(conn, filtros)
+        fecha_generacion = format_datetime(now_mx())
+
+        cliente_nombre = None
+        if filtros.filtro_cliente_id:
+            dataset = await reportes_service.generar_dataset_por_cliente(
+                conn, filtros, formato="pdf", solicitante_email=solicitante,
+            )
+            cliente_nombre = dataset.get("cliente_nombre")
+            detalle_pdf = [
+                {**row, "fecha_solicitud_display": _formato_fecha_pdf(row.get("fecha_solicitud"))}
+                for row in dataset["detalle"]
+            ]
+            pdf_context = {
+                "modo": "cliente",
+                "detalle": detalle_pdf,
+                "filtros_resumen": filtros_resumen,
+                "fecha_generacion": fecha_generacion,
+            }
+        else:
+            dataset = await reportes_service.generar_dataset_general(
+                conn, filtros, formato="pdf", solicitante_email=solicitante,
+            )
+            pdf_context = {
+                "modo": "general",
+                "resumen": dataset["resumen"],
+                "filtros_resumen": filtros_resumen,
+                "fecha_generacion": fecha_generacion,
+            }
+
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error BD generando reporte de clientes (pdf): {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error de base de datos generando el reporte.") from exc
+
+    try:
+        pdf_bytes = await pdf_service.generate("comercial/reporte_clientes.html", pdf_context)
+    except (OSError, RuntimeError, ValueError, jinja2.TemplateError) as exc:
+        logger.error(f"Error generando PDF de reporte de clientes: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error generando el PDF.") from exc
+
+    filename = pdf_service.generate_filename("reporte_clientes", suffix=cliente_nombre or "")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

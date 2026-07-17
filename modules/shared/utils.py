@@ -102,12 +102,16 @@ def toast_success(request: Request, message: str):
     )
 
 
-def excel_response(workbook, filename: str) -> StreamingResponse:
-    output = BytesIO()
-    workbook.save(output)
-    output.seek(0)
+def excel_bytes_response(content: bytes, filename: str) -> StreamingResponse:
+    """Respuesta de descarga xlsx a partir de bytes ya serializados (ej. workbook armado en un executor)."""
     return StreamingResponse(
-        output,
+        BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def excel_response(workbook, filename: str) -> StreamingResponse:
+    output = BytesIO()
+    workbook.save(output)
+    return excel_bytes_response(output.getvalue(), filename)

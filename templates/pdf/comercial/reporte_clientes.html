@@ -1,0 +1,64 @@
+{% extends "pdf/_base.html" %}
+
+{% block doc_title %}Reporte de clientes — Comercial{% endblock %}
+{% block doc_date %}Generado el {{ fecha_generacion }}{% endblock %}
+{% block footer_label %}Reporte de clientes de Comercial{% endblock %}
+
+{% block content %}
+<div class="section-title">Filtros aplicados</div>
+<p style="font-size: 9pt; color: #555; margin: 0 0 12px 0;">{{ filtros_resumen }}</p>
+
+{% if modo == "general" %}
+<div class="section-title">Resumen por cliente</div>
+<table class="data-table">
+    <thead>
+        <tr>
+            <th style="width: 45%;">Cliente</th>
+            <th style="width: 15%;">Total de solicitudes</th>
+            <th style="width: 40%;">Desglose por estatus</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for fila in resumen %}
+        <tr>
+            <td>{{ fila.cliente_nombre }}</td>
+            <td>{{ fila.total_solicitudes }}</td>
+            <td>{{ fila.desglose_estatus or "-" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3">No hay clientes que coincidan con los filtros aplicados.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="section-title">Detalle por cliente</div>
+<table class="data-table">
+    <thead>
+        <tr>
+            <th style="width: 14%;">Folio</th>
+            <th style="width: 12%;">Fecha</th>
+            <th style="width: 12%;">Estatus</th>
+            <th style="width: 16%;">Sitio</th>
+            <th style="width: 20%;">Dirección</th>
+            <th style="width: 14%;">Proyecto</th>
+            <th style="width: 12%;">Fase</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for fila in detalle %}
+        <tr>
+            <td>{{ fila.folio }}</td>
+            <td>{{ fila.fecha_solicitud_display }}</td>
+            <td>{{ fila.estatus_nombre }}</td>
+            <td>{{ fila.sitio_nombre }}</td>
+            <td>{{ fila.sitio_direccion }}</td>
+            <td>{{ fila.proyecto_id_estandar }}</td>
+            <td>{{ fila.fase_proyecto }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7">Este cliente no tiene solicitudes que coincidan con los filtros aplicados.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endblock %}

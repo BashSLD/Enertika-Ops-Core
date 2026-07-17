@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
-from zoneinfo import ZoneInfo
 
-MX_TZ = ZoneInfo("America/Mexico_City")
+from core.timezone import MX_TZ, ensure_mx
 
 IN_STATES = {"0", "i", "in", "entrada", "check in"}
 OUT_STATES = {"1", "o", "out", "salida", "check out"}
@@ -34,12 +33,6 @@ class ScheduleConfig:
 class LaborWindow:
     start: datetime
     end: datetime
-
-
-def ensure_mx(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=MX_TZ)
-    return dt.astimezone(MX_TZ)
 
 
 def _programmed_bounds(fecha_laboral: date, schedule: ScheduleConfig) -> tuple[datetime, datetime]:
