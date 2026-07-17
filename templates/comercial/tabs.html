@@ -147,119 +147,6 @@
         {% endif %}
     </div>
     <script>
-    window.comercialReportePanel = function (opts) {
-        return {
-            open: false,
-            formato: 'xlsx',
-            fechaInicio: opts.fechaInicioDefault || '',
-            fechaFin: opts.fechaFinDefault || '',
-            tipoId: '',
-            tecnologiaId: '',
-            estatusId: '',
-            clienteQuery: '',
-            clienteId: '',
-            clienteResultados: [],
-            clienteOpen: false,
-            clienteSeq: 0,
-            descargando: false,
-            errorMsg: '',
-            get fechaInicioFmt() {
-                if (!this.fechaInicio) return '';
-                var partes = this.fechaInicio.split('-');
-                return partes[2] + '/' + partes[1] + '/' + partes[0];
-            },
-            get fechaFinFmt() {
-                if (!this.fechaFin) return '';
-                var partes = this.fechaFin.split('-');
-                return partes[2] + '/' + partes[1] + '/' + partes[0];
-            },
-            abrir() {
-                this.errorMsg = '';
-                this.open = true;
-            },
-            onClienteInput() {
-                this.clienteId = '';
-                var term = this.clienteQuery.trim();
-                if (term.length < 2) {
-                    this.clienteResultados = [];
-                    this.clienteOpen = false;
-                    return;
-                }
-                this.buscarCliente(term);
-            },
-            buscarCliente(term) {
-                var seq = ++this.clienteSeq;
-                var self = this;
-                fetch('/comercial/api/clientes/search?q=' + encodeURIComponent(term))
-                    .then(function (r) { return r.json(); })
-                    .then(function (data) {
-                        if (seq !== self.clienteSeq) return; // respuesta fuera de orden, ignorar
-                        self.clienteResultados = data;
-                        self.clienteOpen = true;
-                    })
-                    .catch(function () {
-                        if (seq === self.clienteSeq) self.clienteResultados = [];
-                    });
-            },
-            seleccionarCliente(item) {
-                this.clienteId = item.id;
-                this.clienteQuery = item.nombre_fiscal;
-                this.clienteOpen = false;
-            },
-            limpiarCliente() {
-                this.clienteId = '';
-                this.clienteQuery = '';
-                this.clienteResultados = [];
-            },
-            descargar() {
-                if (this.descargando) return;
-                this.errorMsg = '';
-                if (this.clienteQuery.trim() && !this.clienteId) {
-                    this.errorMsg = 'Selecciona un cliente de la lista o borra el texto para el reporte general.';
-                    return;
-                }
-                this.descargando = true;
-                var params = new URLSearchParams();
-                if (this.tipoId) params.set('filtro_tipo_id', this.tipoId);
-                if (this.tecnologiaId) params.set('filtro_tecnologia_id', this.tecnologiaId);
-                if (this.estatusId) params.set('filtro_estatus_id', this.estatusId);
-                if (this.fechaInicio) params.set('filtro_fecha_inicio', this.fechaInicio);
-                if (this.fechaFin) params.set('filtro_fecha_fin', this.fechaFin);
-                if (this.clienteId) params.set('filtro_cliente_id', this.clienteId);
-                var url = '/comercial/reportes/clientes.' + this.formato + '?' + params.toString();
-                var self = this;
-
-                fetch(url)
-                    .then(function (resp) {
-                        if (!resp.ok) {
-                            return resp.json().catch(function () { return {}; }).then(function (data) {
-                                throw new Error(data.detail || 'No se pudo generar el reporte.');
-                            });
-                        }
-                        var disposition = resp.headers.get('content-disposition') || '';
-                        var match = disposition.match(/filename="?([^"]+)"?/);
-                        var filename = match ? match[1] : ('reporte_clientes.' + self.formato);
-                        return resp.blob().then(function (blob) { return { blob: blob, filename: filename }; });
-                    })
-                    .then(function (result) {
-                        var blobUrl = window.URL.createObjectURL(result.blob);
-                        var a = document.createElement('a');
-                        a.href = blobUrl;
-                        a.download = result.filename;
-                        document.body.appendChild(a);
-                        a.click();
-                        a.remove();
-                        window.URL.revokeObjectURL(blobUrl);
-                        self.descargando = false;
-                        self.open = false;
-                    })
-                    .catch(function (err) {
-                        self.errorMsg = err.message || 'Error al generar el reporte.';
-                        self.descargando = false;
-                    });
-            }
-        };
-    };
     (function() {
         var tmpl = document.getElementById('mobile-actions-template');
         var slot = document.getElementById('mobile-module-actions-slot');
@@ -559,10 +446,118 @@
 
             {% if puede_generar_reporte_comercial %}
             <!-- Reporte de clientes/empresas (ADMIN global o MANAGER con acceso a Comercial) -->
-            <div x-data="comercialReportePanel({
-                    fechaInicioDefault: $el.dataset.fechaInicio,
-                    fechaFinDefault: $el.dataset.fechaFin
-                })"
+            <div x-data="{
+                    open: false,
+                    formato: 'xlsx',
+                    fechaInicio: $el.dataset.fechaInicio || '',
+                    fechaFin: $el.dataset.fechaFin || '',
+                    tipoId: '',
+                    tecnologiaId: '',
+                    estatusId: '',
+                    clienteQuery: '',
+                    clienteId: '',
+                    clienteResultados: [],
+                    clienteOpen: false,
+                    clienteSeq: 0,
+                    descargando: false,
+                    errorMsg: '',
+                    get fechaInicioFmt() {
+                        if (!this.fechaInicio) return '';
+                        var partes = this.fechaInicio.split('-');
+                        return partes[2] + '/' + partes[1] + '/' + partes[0];
+                    },
+                    get fechaFinFmt() {
+                        if (!this.fechaFin) return '';
+                        var partes = this.fechaFin.split('-');
+                        return partes[2] + '/' + partes[1] + '/' + partes[0];
+                    },
+                    abrir() {
+                        this.errorMsg = '';
+                        this.open = true;
+                    },
+                    onClienteInput() {
+                        this.clienteId = '';
+                        var term = this.clienteQuery.trim();
+                        if (term.length < 2) {
+                            this.clienteResultados = [];
+                            this.clienteOpen = false;
+                            return;
+                        }
+                        this.buscarCliente(term);
+                    },
+                    buscarCliente(term) {
+                        var seq = ++this.clienteSeq;
+                        var self = this;
+                        fetch('/comercial/api/clientes/search?q=' + encodeURIComponent(term))
+                            .then(function (r) { return r.json(); })
+                            .then(function (data) {
+                                if (seq !== self.clienteSeq) return;
+                                self.clienteResultados = data;
+                                self.clienteOpen = true;
+                            })
+                            .catch(function () {
+                                if (seq === self.clienteSeq) self.clienteResultados = [];
+                            });
+                    },
+                    seleccionarCliente(item) {
+                        this.clienteId = item.id;
+                        this.clienteQuery = item.nombre_fiscal;
+                        this.clienteOpen = false;
+                    },
+                    limpiarCliente() {
+                        this.clienteId = '';
+                        this.clienteQuery = '';
+                        this.clienteResultados = [];
+                    },
+                    descargar() {
+                        if (this.descargando) return;
+                        this.errorMsg = '';
+                        if (this.clienteQuery.trim() && !this.clienteId) {
+                            this.errorMsg = 'Selecciona un cliente de la lista o borra el texto para el reporte general.';
+                            return;
+                        }
+                        this.descargando = true;
+                        var params = new URLSearchParams();
+                        if (this.tipoId) params.set('filtro_tipo_id', this.tipoId);
+                        if (this.tecnologiaId) params.set('filtro_tecnologia_id', this.tecnologiaId);
+                        if (this.estatusId) params.set('filtro_estatus_id', this.estatusId);
+                        if (this.fechaInicio) params.set('filtro_fecha_inicio', this.fechaInicio);
+                        if (this.fechaFin) params.set('filtro_fecha_fin', this.fechaFin);
+                        if (this.clienteId) params.set('filtro_cliente_id', this.clienteId);
+                        var url = '/comercial/reportes/clientes.' + this.formato + '?' + params.toString();
+                        var self = this;
+
+                        fetch(url)
+                            .then(function (resp) {
+                                if (!resp.ok) {
+                                    return resp.json().catch(function () { return {}; }).then(function (data) {
+                                        throw new Error(data.detail || 'No se pudo generar el reporte.');
+                                    });
+                                }
+                                var disposition = resp.headers.get('content-disposition') || '';
+                                // \x22 = comilla literal; evita cerrar el atributo x-data (HTML de comillas dobles) que envuelve este script.
+                                var match = disposition.match(/filename=\x22?([^\x22]+)\x22?/);
+                                var filename = match ? match[1] : ('reporte_clientes.' + self.formato);
+                                return resp.blob().then(function (blob) { return { blob: blob, filename: filename }; });
+                            })
+                            .then(function (result) {
+                                var blobUrl = window.URL.createObjectURL(result.blob);
+                                var a = document.createElement('a');
+                                a.href = blobUrl;
+                                a.download = result.filename;
+                                document.body.appendChild(a);
+                                a.click();
+                                a.remove();
+                                window.URL.revokeObjectURL(blobUrl);
+                                self.descargando = false;
+                                self.open = false;
+                            })
+                            .catch(function (err) {
+                                self.errorMsg = err.message || 'Error al generar el reporte.';
+                                self.descargando = false;
+                            });
+                    }
+                }"
                 data-fecha-inicio="{{ reporte_fecha_inicio_default }}"
                 data-fecha-fin="{{ reporte_fecha_fin_default }}"
                 class="relative">
@@ -577,7 +572,7 @@
                 </button>
 
                 <template x-teleport="body">
-                <div x-show="open" x-transition @keydown.escape.window="open = false" x-cloak
+                <div x-show="open" x-transition @click.self="open = false" @keydown.escape.window="open = false" x-cloak
                     class="modal-overlay-layer fixed inset-0 z-[10060] flex items-center justify-center bg-black bg-opacity-50 p-4">
                     <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90dvh] flex flex-col" @click.stop>
                         <div class="flex items-center justify-between px-5 py-4 border-b">
