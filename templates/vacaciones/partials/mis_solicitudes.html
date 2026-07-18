@@ -1,3 +1,5 @@
+{% from "shared/partials/_pager_cursor.html" import pager_cursor %}
+
 {% if toast_msg %}
 {% with type=toast_type, title="Aviso", message=toast_msg %}
 {% include "shared/toast.html" %}
@@ -61,6 +63,9 @@
           </td>
           <td class="px-4 py-3 text-gray-700 whitespace-nowrap">
             {{ s.fecha_inicio.strftime('%d/%m/%Y') }} — {{ s.fecha_fin.strftime('%d/%m/%Y') }}
+            <span class="block text-xs text-gray-400">
+              {% with solicitud=s %}{% include "vacaciones/partials/_horario_permiso_chips.html" %}{% endwith %}
+            </span>
           </td>
           <td class="px-4 py-3 text-right text-gray-700">{{ s.dias_solicitados }}</td>
           <td class="px-4 py-3">
@@ -99,6 +104,7 @@
             {% if s.estado == 'pendiente' and not s.firma_solicitante_pendiente %}
             <button
               hx-post="/vacaciones/solicitudes/{{ s.id }}/recordar"
+              hx-vals='{"pagina": {{ solicitudes_pagina }}}'
               hx-target="#tab-content"
               hx-swap="innerHTML"
               hx-confirm="¿Enviar un recordatorio de aprobación al responsable?"
@@ -107,6 +113,7 @@
             {% if s.estado == 'pendiente' %}
             <button
               hx-post="/vacaciones/solicitudes/{{ s.id }}/cancelar"
+              hx-vals='{"pagina": {{ solicitudes_pagina }}}'
               hx-target="#tab-content"
               hx-swap="innerHTML"
               hx-confirm="¿Cancelar esta solicitud?"
@@ -119,5 +126,7 @@
       </tbody>
     </table>
   </div>
+
+  {{ pager_cursor(solicitudes_pagina, solicitudes_tiene_siguiente, "/vacaciones/solicitudes", "#tab-content") }}
   {% endif %}
 </div>

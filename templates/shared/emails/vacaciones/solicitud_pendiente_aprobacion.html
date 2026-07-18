@@ -24,6 +24,7 @@
               <tr><td style="color:#123456;font-weight:600;font-size:14px;">Periodo:</td><td style="font-size:14px;">{{ fecha_inicio }} al {{ fecha_fin }}</td></tr>
               <tr><td style="color:#123456;font-weight:600;font-size:14px;">Dias habiles:</td><td style="font-size:14px;"><strong>{{ dias }}</strong></td></tr>
               <tr><td style="color:#123456;font-weight:600;font-size:14px;">Regreso:</td><td style="font-size:14px;">{{ fecha_presentarse }}</td></tr>
+              {% with color="#123456" %}{% include "shared/emails/vacaciones/_horas_rows.html" %}{% endwith %}
               {% if observaciones %}
               <tr><td style="color:#123456;font-weight:600;font-size:14px;">Observaciones:</td><td style="font-size:14px;color:#666;">{{ observaciones }}</td></tr>
               {% endif %}

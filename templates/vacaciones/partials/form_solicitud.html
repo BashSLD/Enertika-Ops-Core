@@ -2,7 +2,7 @@
      data-tipos='{{ tipos | tojson }}'
      data-saldo-disponible="{{ balance.total_disponible }}"
      x-data="{
-       tipoSlug: '',
+       tipoSeleccionado: null,
        afectaSaldo: false,
        fechaInicio: '',
        fechaFin: '',
@@ -13,10 +13,24 @@
        saldoDisponible: 0,
        tipos: [],
        enviando: false,
+       horaLlegada: '',
+       horaSalida: '',
+       tieneFirma: {{ 'true' if tiene_firma else 'false' }},
+       mostrarFirma: false,
        _calcularCtrl: null,
        init() {
          this.tipos = JSON.parse(this.$el.dataset.tipos || '[]');
          this.saldoDisponible = parseInt(this.$el.dataset.saldoDisponible || '0');
+         this.$refs.selectTipo.value = '';
+       },
+       get unSoloDia() {
+         return this.tipoSeleccionado ? !!this.tipoSeleccionado.un_solo_dia : false;
+       },
+       get requiereHoraLlegada() {
+         return this.tipoSeleccionado ? !!this.tipoSeleccionado.requiere_hora_llegada : false;
+       },
+       get requiereHoraSalida() {
+         return this.tipoSeleccionado ? !!this.tipoSeleccionado.requiere_hora_salida : false;
        },
        async calcularDias() {
          if (this._calcularCtrl) this._calcularCtrl.abort();
@@ -42,7 +56,7 @@
          }
        },
        get sinDiasHabiles() {
-         return this.fechaInicio && this.fechaFin && this.diasCalculados && this.diasHabiles === 0;
+         return !this.unSoloDia && this.fechaInicio && this.fechaFin && this.diasCalculados && this.diasHabiles === 0;
        },
        get discrepanciaFecha() {
          return this.fechaPresentarse && this.fechaPresentarseCalculada && this.fechaPresentarse !== this.fechaPresentarseCalculada;
@@ -52,30 +66,31 @@
          const [y, m, d] = iso.split('-');
          return d + '/' + m + '/' + y;
        }
-     }">
+     }"
+     @firma-registrada.window="tieneFirma = true; mostrarFirma = false"
+     @cerrar-firma-embed.window="mostrarFirma = false">
 
   <h2 class="text-lg font-bold text-gray-900 mb-5">Nueva Solicitud</h2>
 
-  {% if not tiene_firma %}
-  <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-sm text-amber-800">
-    No tienes firma registrada. Se te pedirá que la crees al enviar la solicitud.
-  </div>
-  {% endif %}
+  <template x-if="!tieneFirma">
+    <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-sm text-amber-800">
+      No tienes firma registrada. Cárgala antes de enviar esta solicitud.
+    </div>
+  </template>
 
   <form hx-post="/vacaciones/solicitudes"
         hx-target="#tab-content"
         hx-swap="innerHTML"
         hx-disabled-elt="find button[type='submit']"
         @submit="enviando = true"
-        @htmx:response-error="enviando = false"
-        @htmx:send-error="enviando = false"
+        @htmx:after-request="enviando = false"
         class="space-y-4">
 
     <!-- Tipo -->
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de solicitud *</label>
-      <select name="tipo_ausencia_id" required
-              @change="const t = tipos.find(x => x.id == $event.target.value); tipoSlug = t ? t.slug : ''; afectaSaldo = t ? t.afecta_saldo : false"
+      <select name="tipo_ausencia_id" required autocomplete="off" x-ref="selectTipo"
+              @change="const t = tipos.find(x => x.id == $event.target.value); tipoSeleccionado = t || null; afectaSaldo = t ? t.afecta_saldo : false; horaLlegada = ''; horaSalida = ''"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
         <option value="">Selecciona un tipo...</option>
         {% for t in tipos %}
@@ -84,32 +99,68 @@
       </select>
     </div>
 
-    <!-- Fechas -->
-    <div class="grid grid-cols-2 gap-3">
+    <!-- Fechas (rango) -->
+    <template x-if="!unSoloDia">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Fecha inicio *</label>
+          <input type="date" name="fecha_inicio" required
+                 x-model="fechaInicio"
+                 @change="calcularDias()"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
+          <span x-show="fechaInicio" x-text="formatFecha(fechaInicio)" x-cloak
+                class="mt-1 block cursor-help text-xs text-gray-400"
+                title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Fecha fin *</label>
+          <input type="date" name="fecha_fin" required
+                 x-model="fechaFin"
+                 @change="calcularDias()"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
+          <span x-show="fechaFin" x-text="formatFecha(fechaFin)" x-cloak
+                class="mt-1 block cursor-help text-xs text-gray-400"
+                title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
+        </div>
+      </div>
+    </template>
+
+    <!-- Fecha unica (permisos horarios) -->
+    <template x-if="unSoloDia">
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Fecha inicio *</label>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Fecha *</label>
         <input type="date" name="fecha_inicio" required
                x-model="fechaInicio"
-               @change="calcularDias()"
                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
         <span x-show="fechaInicio" x-text="formatFecha(fechaInicio)" x-cloak
               class="mt-1 block cursor-help text-xs text-gray-400"
               title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
+        <input type="hidden" name="fecha_fin" :value="fechaInicio">
       </div>
+    </template>
+
+    <!-- Hora (permisos horarios) -->
+    <template x-if="requiereHoraLlegada">
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Fecha fin *</label>
-        <input type="date" name="fecha_fin" required
-               x-model="fechaFin"
-               @change="calcularDias()"
+        <label class="block text-sm font-medium text-gray-700 mb-1">Hora estimada de llegada *</label>
+        <input type="time" name="hora_llegada" required
+               x-model="horaLlegada"
                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
-        <span x-show="fechaFin" x-text="formatFecha(fechaFin)" x-cloak
-              class="mt-1 block cursor-help text-xs text-gray-400"
-              title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
+        <p class="text-xs text-gray-400 mt-1">Estarás disponible a partir de esa hora el mismo día.</p>
       </div>
-    </div>
+    </template>
+    <template x-if="requiereHoraSalida">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Hora de salida *</label>
+        <input type="time" name="hora_salida" required
+               x-model="horaSalida"
+               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
+        <p class="text-xs text-gray-400 mt-1">Estarás disponible hasta esa hora; regresas el siguiente día hábil.</p>
+      </div>
+    </template>
 
     <!-- Días solicitados -->
-    <div>
+    <div x-show="!unSoloDia">
       <label class="block text-sm font-medium text-gray-700 mb-1">Días solicitados</label>
       <input type="number" readonly
              :value="diasHabiles || ''"
@@ -127,7 +178,7 @@
     </div>
 
     <!-- Fecha de presentarse -->
-    <div>
+    <div x-show="!unSoloDia">
       <label class="block text-sm font-medium text-gray-700 mb-1">Fecha de regreso</label>
       <input type="date" name="fecha_presentarse"
              x-model="fechaPresentarse"
@@ -156,7 +207,19 @@
               class="flex-1 border border-gray-200 text-gray-700 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
         Cancelar
       </button>
+      <button type="button"
+              x-show="!tieneFirma"
+              hx-get="/perfil/firma?embed_target_id=firma-inline-body"
+              hx-target="#firma-inline-body"
+              hx-swap="innerHTML"
+              hx-params="none"
+              hx-disabled-elt="this"
+              @click="mostrarFirma = true"
+              class="flex-1 bg-sky-600 hover:bg-sky-700 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">
+        Cargar Firma
+      </button>
       <button type="submit"
+              x-show="tieneFirma"
               :disabled="sinDiasHabiles || enviando"
               :class="(sinDiasHabiles || enviando) ? 'bg-gray-300 cursor-not-allowed hover:bg-gray-300' : 'bg-[#00BABB] hover:bg-[#009A9B]'"
               class="flex-1 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">
@@ -165,4 +228,9 @@
       </button>
     </div>
   </form>
+
+  <div x-show="mostrarFirma" x-cloak
+       class="modal-overlay-layer fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4">
+    <div class="w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-2xl" id="firma-inline-body"></div>
+  </div>
 </div>

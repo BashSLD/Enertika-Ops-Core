@@ -1,0 +1,6 @@
+{% if solicitud.hora_llegada %}
+<span>Disponible a partir de {{ solicitud.hora_llegada.strftime('%H:%M') }}</span>
+{% endif %}
+{% if solicitud.hora_salida %}
+<span>Disponible hasta {{ solicitud.hora_salida.strftime('%H:%M') }}</span>
+{% endif %}

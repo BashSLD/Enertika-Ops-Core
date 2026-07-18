@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Optional
 from uuid import UUID
 
@@ -77,6 +77,8 @@ class SolicitudOut(BaseModel):
     fecha_fin: date
     dias_solicitados: int
     fecha_presentarse: date
+    hora_llegada: Optional[time] = None
+    hora_salida: Optional[time] = None
     observaciones: Optional[str]
     estado: str
     aprobado_por: Optional[UUID]

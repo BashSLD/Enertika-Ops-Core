@@ -536,6 +536,8 @@ class TasksDBService:
                 sa.dias_solicitados,
                 sa.fecha_presentarse,
                 sa.observaciones,
+                sa.hora_llegada,
+                sa.hora_salida,
                 ta.nombre AS tipo_nombre,
                 ta.abreviatura AS tipo_abreviatura,
                 u.nombre AS solicitante_nombre,

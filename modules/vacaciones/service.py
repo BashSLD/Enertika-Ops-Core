@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import base64
 import logging
-from datetime import date, timedelta
+from datetime import date, time, timedelta
+from functools import partial
 from typing import Any, Optional
 from uuid import UUID
 
@@ -44,6 +45,16 @@ def _saldo_neto(balance: list[dict]) -> int:
     activos = [p for p in balance if not p.get("es_proximo") and not p.get("expirado")]
     adelantos = sum(p["dias_usados"] for p in balance if p.get("es_proximo"))
     return sum(_dias_usables(p) for p in activos) - adelantos
+
+
+async def _pagina(fetch, pagina: int, page_size: int) -> tuple[list, bool]:
+    """Aplica el patron fetch-N+1 (sin COUNT aparte) a un callable de BD que
+    acepta limit/offset. `fetch` debe ser un callable async que reciba esos
+    dos kwargs y devuelva las filas."""
+    offset = (pagina - 1) * page_size
+    rows = await fetch(limit=page_size + 1, offset=offset)
+    tiene_siguiente = len(rows) > page_size
+    return rows[:page_size], tiene_siguiente
 
 
 # ─────────────────────────────────────────────
@@ -181,6 +192,40 @@ async def _validar_anticipo_vacaciones(conn, balance_info: dict, dias_solicitado
         )
 
 
+def _validar_combo_horario_mismo_dia(
+    tipo: dict,
+    solapadas: list[dict],
+    fecha_inicio: date,
+    fecha_fin: date,
+    hora_llegada: time | None,
+    hora_salida: time | None,
+) -> None:
+    """Ademas del error generico de traslape, permite la unica excepcion valida:
+    dos permisos horarios combinables el mismo dia (ej. llegar tarde + salir
+    temprano), segun tb_cat_tipos_ausencia.combinable_con_tipo_id. Cualquier
+    otra combinacion sigue bloqueada."""
+    combinable_id = tipo.get("combinable_con_tipo_id")
+    if combinable_id is None or len(solapadas) != 1 or fecha_inicio != fecha_fin:
+        raise ValueError("Ya existe una solicitud activa para ese rango de fechas")
+
+    existente = solapadas[0]
+    es_combo_valido = (
+        existente["fecha_inicio"] == existente["fecha_fin"] == fecha_inicio
+        and existente["tipo_ausencia_id"] == combinable_id
+    )
+    if not es_combo_valido:
+        raise ValueError("Ya existe una solicitud activa para ese rango de fechas")
+
+    # existente puede ser una solicitud legacy anterior a este feature (creada antes de
+    # que el tipo exigiera hora_llegada/hora_salida) y no traer la hora esperada.
+    hora_llegada_final = hora_llegada if tipo.get("requiere_hora_llegada") else existente["hora_llegada"]
+    hora_salida_final = hora_salida if tipo.get("requiere_hora_salida") else existente["hora_salida"]
+    if hora_llegada_final is None or hora_salida_final is None:
+        raise ValueError("Ya existe una solicitud activa para ese rango de fechas")
+    if hora_llegada_final >= hora_salida_final:
+        raise ValueError("La hora de llegada debe ser anterior a la hora de salida del mismo día")
+
+
 async def crear_solicitud(
     conn,
     usuario_id: UUID,
@@ -189,6 +234,8 @@ async def crear_solicitud(
     fecha_fin: date,
     fecha_presentarse: date | None,
     observaciones: Optional[str],
+    hora_llegada: time | None = None,
+    hora_salida: time | None = None,
 ) -> dict[str, Any]:
     """
     Crea una solicitud de ausencia. Valida: tipo, solapamiento, días hábiles, firma.
@@ -196,8 +243,30 @@ async def crear_solicitud(
     Retorna {'solicitud': ..., 'requiere_firma': bool, 'dias': int}.
     """
     tipo = await db.get_tipo_ausencia_by_id(conn, tipo_ausencia_id)
-    if not tipo:
+    if not tipo or not tipo.get("is_active", True):
         raise ValueError("Tipo de ausencia no válido")
+
+    requiere_hora_llegada = tipo.get("requiere_hora_llegada", False)
+    requiere_hora_salida = tipo.get("requiere_hora_salida", False)
+
+    if requiere_hora_llegada or requiere_hora_salida:
+        if tipo.get("un_solo_dia") and fecha_inicio != fecha_fin:
+            raise ValueError("Este permiso debe cubrir un solo día")
+        if requiere_hora_llegada:
+            if hora_llegada is None:
+                raise ValueError("Indica la hora estimada de llegada")
+            if hora_salida is not None:
+                raise ValueError("Este permiso no admite hora de salida")
+            fecha_presentarse = fecha_inicio
+        else:
+            if hora_salida is None:
+                raise ValueError("Indica la hora de salida")
+            if hora_llegada is not None:
+                raise ValueError("Este permiso no admite hora de llegada")
+            fecha_presentarse = None  # se calcula abajo con siguiente_dia_habil
+    else:
+        hora_llegada = None
+        hora_salida = None
 
     festivos = await db.get_festivos_set(conn)
     dias = contar_dias_habiles(fecha_inicio, fecha_fin, festivos)
@@ -213,7 +282,9 @@ async def crear_solicitud(
         await asistencia_db.lock_he_usuario(conn, usuario_id)
         solapadas = await db.get_solicitudes_activas_en_rango(conn, usuario_id, fecha_inicio, fecha_fin)
         if solapadas:
-            raise ValueError("Ya existe una solicitud activa para ese rango de fechas")
+            _validar_combo_horario_mismo_dia(
+                tipo, solapadas, fecha_inicio, fecha_fin, hora_llegada, hora_salida
+            )
         compensatorios = await asistencia_db.get_he_compensatorio_activo_en_rango(
             conn, usuario_id, fecha_inicio, fecha_fin
         )
@@ -232,6 +303,8 @@ async def crear_solicitud(
             conn, usuario_id, tipo_ausencia_id, fecha_inicio, fecha_fin,
             dias, fecha_presentarse, observaciones,
             firma_solicitante_pendiente=requiere_firma,
+            hora_llegada=hora_llegada,
+            hora_salida=hora_salida,
         )
         solicitud_id = solicitud["id"]
 
@@ -356,6 +429,14 @@ async def rechazar_solicitud(
     await notif.notify_vacation_rejected(conn, rechazada, motivo_limpio)
 
 
+_MIS_SOLICITUDES_PAGE_SIZE = 10
+
+
+async def get_solicitudes_usuario_pagina_svc(conn, usuario_id: UUID, pagina: int) -> tuple[list, bool]:
+    fetch = partial(db.get_solicitudes_usuario, conn, usuario_id)
+    return await _pagina(fetch, pagina, _MIS_SOLICITUDES_PAGE_SIZE)
+
+
 # ─────────────────────────────────────────────
 # Aprobaciones — contexto de vista (jefe/aprobador)
 # ─────────────────────────────────────────────
@@ -368,16 +449,8 @@ def puede_ver_he_niveles_equipo(context: dict) -> bool:
 
 
 async def get_historial_aprobaciones_pagina_svc(conn, usuario_id: UUID, pagina: int) -> tuple[list, bool]:
-    offset = (pagina - 1) * _HISTORIAL_APROBACIONES_PAGE_SIZE
-    fetch = _HISTORIAL_APROBACIONES_PAGE_SIZE + 1
-    rows = await db.get_historial_aprobaciones(
-        conn,
-        limit=fetch,
-        offset=offset,
-        aprobador_id=usuario_id,
-    )
-    tiene_siguiente = len(rows) > _HISTORIAL_APROBACIONES_PAGE_SIZE
-    return rows[:_HISTORIAL_APROBACIONES_PAGE_SIZE], tiene_siguiente
+    fetch = partial(db.get_historial_aprobaciones, conn, aprobador_id=usuario_id)
+    return await _pagina(fetch, pagina, _HISTORIAL_APROBACIONES_PAGE_SIZE)
 
 
 async def get_aprobaciones_ctx_svc(conn, context: dict, **extra) -> dict:
@@ -406,7 +479,6 @@ async def get_aprobaciones_ctx_svc(conn, context: dict, **extra) -> dict:
     if puede_ver_he_niveles_equipo(context):
         he_niveles_equipo = await get_he_niveles_equipo_ctx(conn, equipo_ids)
     horas_extra_grupos, horas_extra_json = build_horas_extra_grupos(horas_extra_rows)
-    historial, tiene_siguiente = await get_historial_aprobaciones_pagina_svc(conn, usuario_id, 1)
     return {
         "pendientes": pendientes,
         "horas_extra_pendientes": horas_extra_rows,
@@ -415,9 +487,6 @@ async def get_aprobaciones_ctx_svc(conn, context: dict, **extra) -> dict:
         "comp_pendientes": comp_pendientes,
         "saldo_inicial_pendientes": saldo_inicial_pendientes,
         "he_niveles_equipo": he_niveles_equipo,
-        "historial": historial,
-        "historial_pagina": 1,
-        "historial_tiene_siguiente": tiene_siguiente,
         "context": context,
         **extra,
     }
@@ -448,22 +517,26 @@ async def activar_solicitud_tras_firma(
     conn,
     solicitud_id: UUID,
     usuario_id: UUID,
-) -> None:
+) -> Optional[str]:
+    """Completa la firma pendiente y notifica al aprobador. Devuelve el nombre
+    del tipo de ausencia si la solicitud realmente se activo, o None si no
+    habia firma pendiente (nada que enviar)."""
     solicitud = await db.get_solicitud(conn, solicitud_id)
     if not solicitud:
         raise ValueError("Solicitud no encontrada")
     if solicitud["usuario_id"] != usuario_id:
         raise ValueError("No puedes firmar esta solicitud")
     if not solicitud.get("firma_solicitante_pendiente"):
-        return
+        return None
     tipo = await db.get_tipo_ausencia_by_id(conn, solicitud["tipo_ausencia_id"])
-    if not tipo:
+    if not tipo or not tipo.get("is_active", True):
         raise ValueError("Tipo de ausencia no valido")
     await _registrar_consumos_si_aplica(
         conn, solicitud_id, usuario_id, tipo, solicitud["dias_solicitados"]
     )
     await db.completar_firma_solicitante(conn, solicitud_id)
     await _notificar_aprobadores(conn, solicitud_id, solicitud)
+    return tipo["nombre"]
 
 
 _RECORDATORIO_COOLDOWN_HORAS = 4

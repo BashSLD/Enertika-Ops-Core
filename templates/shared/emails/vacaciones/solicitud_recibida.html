@@ -36,6 +36,7 @@
                 <td style="color:#123456;font-weight:600;font-size:14px;">Regreso:</td>
                 <td style="font-size:14px;">{{ fecha_presentarse }}</td>
               </tr>
+              {% with color="#123456" %}{% include "shared/emails/vacaciones/_horas_rows.html" %}{% endwith %}
               {% if observaciones %}
               <tr>
                 <td style="color:#123456;font-weight:600;font-size:14px;">Observaciones:</td>

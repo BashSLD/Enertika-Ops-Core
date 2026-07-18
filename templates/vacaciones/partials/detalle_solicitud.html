@@ -69,6 +69,16 @@
       <span class="text-gray-500">Regreso</span>
       <span class="font-medium text-gray-800">{{ solicitud.fecha_presentarse.strftime('%d/%m/%Y') }}</span>
 
+      {% if solicitud.hora_llegada %}
+      <span class="text-gray-500">Hora estimada de llegada</span>
+      <span class="font-medium text-gray-800">{{ solicitud.hora_llegada.strftime('%H:%M') }}</span>
+      {% endif %}
+
+      {% if solicitud.hora_salida %}
+      <span class="text-gray-500">Hora de salida</span>
+      <span class="font-medium text-gray-800">{{ solicitud.hora_salida.strftime('%H:%M') }}</span>
+      {% endif %}
+
       <span class="text-gray-500">Estado</span>
       <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold
         {% if solicitud.firma_solicitante_pendiente %}bg-sky-100 text-sky-700

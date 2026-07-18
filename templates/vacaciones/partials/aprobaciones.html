@@ -72,9 +72,9 @@
 <span id="perfil-aprobaciones-badge" hx-swap-oob="true" class="ml-1.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-xs font-bold text-white {% if not total_pendientes %}hidden{% endif %}">{% if total_pendientes %}{{ total_pendientes }}{% endif %}</span>
 
 <div class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-  <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+  <div class="flex items-center justify-between border-b border-amber-100 bg-amber-50 px-5 py-3">
     <div class="flex items-center gap-2">
-      <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+      <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="m8.75 12.5 2.25 2.25 4.25-5M12 3.75l6.25 2.75v4.9c0 3.85-2.57 7.35-6.25 8.43-3.68-1.08-6.25-4.58-6.25-8.43V6.5L12 3.75Z"/>
         </svg>
@@ -104,6 +104,7 @@
           <span class="rounded-full bg-gray-100 px-2 py-0.5 font-semibold text-gray-700">{{ s.tipo_nombre }}</span>
           <span>{{ s.fecha_inicio.strftime('%d/%m/%Y') }} - {{ s.fecha_fin.strftime('%d/%m/%Y') }}</span>
           <span>{{ s.dias_solicitados }} días hábiles</span>
+          {% with solicitud=s %}{% include "vacaciones/partials/_horario_permiso_chips.html" %}{% endwith %}
         </div>
         {% if s.observaciones %}
         <p class="mt-2 truncate text-xs text-gray-400">{{ s.observaciones }}</p>
@@ -477,8 +478,8 @@
 </div>
 {% endif %}
 
-<div x-data="{ abierto: false }" class="mt-4 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-  <button @click="abierto = !abierto"
+<div x-data="{ abierto: false, cargado: false }" x-ref="historialWrapper" class="mt-4 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+  <button @click="abierto = !abierto; if (abierto && !cargado) { htmx.process($refs.historialWrapper); cargado = true; }"
           class="flex w-full items-center justify-between px-5 py-3 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
     <div class="flex items-center gap-2">
       <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-gray-500">
@@ -493,8 +494,11 @@
     </svg>
   </button>
   <div x-show="abierto" x-cloak class="border-t border-gray-100">
-    <div id="historial-aprobaciones-body">
-      {% include "vacaciones/partials/historial_aprobaciones.html" %}
+    <div id="historial-aprobaciones-body"
+         hx-get="/vacaciones/aprobaciones/historial"
+         hx-trigger="revealed"
+         hx-swap="innerHTML">
+      <p class="px-5 py-8 text-center text-sm text-gray-400">Cargando...</p>
     </div>
   </div>
 </div>

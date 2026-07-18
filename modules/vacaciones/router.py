@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+import json
+from datetime import date, time, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -32,6 +33,29 @@ register_timezone_filters(templates.env)
 def _get_usuario_id(context: dict) -> UUID | None:
     user_db_id = context.get("user_db_id")
     return UUID(str(user_db_id)) if user_db_id else None
+
+
+def _tab_sync_header(tab: str) -> dict:
+    return {"HX-Trigger": json.dumps({"perfil-tab-sync": {"tab": tab}})}
+
+
+async def _render_mis_solicitudes(
+    request: Request, conn, context: dict, pagina: int = 1, headers: dict | None = None, **extra
+):
+    usuario_id = _get_usuario_id(context)
+    solicitudes, tiene_siguiente = await service.get_solicitudes_usuario_pagina_svc(conn, usuario_id, pagina)
+    return templates.TemplateResponse(
+        request,
+        "vacaciones/partials/mis_solicitudes.html",
+        {
+            "solicitudes": solicitudes,
+            "solicitudes_pagina": pagina,
+            "solicitudes_tiene_siguiente": tiene_siguiente,
+            "context": context,
+            **extra,
+        },
+        headers=headers,
+    )
 
 
 def _perfil_detalle_url(solicitud_id: UUID, origen: str) -> str:
@@ -94,17 +118,12 @@ async def perfil_balance(
 @router.get("/solicitudes")
 async def mis_solicitudes(
     request: Request,
+    pagina: int = Query(1, ge=1),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_authenticated_session(),
 ):
-    usuario_id = _get_usuario_id(context)
-    solicitudes = await db.get_solicitudes_usuario(conn, usuario_id)
-    return templates.TemplateResponse(
-        request,
-        "vacaciones/partials/mis_solicitudes.html",
-        {"solicitudes": solicitudes, "context": context},
-    )
+    return await _render_mis_solicitudes(request, conn, context, pagina)
 
 
 @router.get("/solicitudes/nueva")
@@ -133,6 +152,8 @@ async def crear_solicitud(
     fecha_fin: str = Form(...),
     fecha_presentarse: str | None = Form(None),
     observaciones: str = Form(None),
+    hora_llegada: str | None = Form(None),
+    hora_salida: str | None = Form(None),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_authenticated_session(),
@@ -142,8 +163,10 @@ async def crear_solicitud(
         fecha_inicio_date = date.fromisoformat(fecha_inicio)
         fecha_fin_date = date.fromisoformat(fecha_fin)
         fecha_presentarse_date = date.fromisoformat(fecha_presentarse) if fecha_presentarse else None
+        hora_llegada_time = time.fromisoformat(hora_llegada) if hora_llegada else None
+        hora_salida_time = time.fromisoformat(hora_salida) if hora_salida else None
     except ValueError:
-        return toast_error(request, "Las fechas capturadas no son válidas", status_code=200)
+        return toast_error(request, "Las fechas u horas capturadas no son válidas", status_code=200)
 
     try:
         result = await service.crear_solicitud(
@@ -154,6 +177,8 @@ async def crear_solicitud(
             fecha_fin=fecha_fin_date,
             fecha_presentarse=fecha_presentarse_date,
             observaciones=observaciones or None,
+            hora_llegada=hora_llegada_time,
+            hora_salida=hora_salida_time,
         )
     except ValueError as exc:
         return toast_error(request, str(exc), status_code=200)
@@ -169,18 +194,14 @@ async def crear_solicitud(
                 "toast_msg": "Registra tu firma para completar la solicitud.",
                 "toast_type": "warning",
             },
+            headers=_tab_sync_header("firma"),
         )
 
-    solicitudes = await db.get_solicitudes_usuario(conn, usuario_id)
-    return templates.TemplateResponse(
-        request,
-        "vacaciones/partials/mis_solicitudes.html",
-        {
-            "solicitudes": solicitudes,
-            "context": context,
-            "toast_msg": f"Solicitud enviada ({result['dias']} días hábiles). El aprobador será notificado.",
-            "toast_type": "success",
-        },
+    return await _render_mis_solicitudes(
+        request, conn, context,
+        toast_msg=f"Solicitud enviada ({result['dias']} días hábiles). El aprobador será notificado.",
+        toast_type="success",
+        headers=_tab_sync_header("solicitudes"),
     )
 
 
@@ -317,6 +338,7 @@ async def detalle_solicitud(
 async def cancelar_solicitud(
     request: Request,
     solicitud_id: UUID,
+    pagina: int = Form(1),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_authenticated_session(),
@@ -327,16 +349,10 @@ async def cancelar_solicitud(
     except ValueError as exc:
         return toast_error(request, str(exc), status_code=200)
 
-    solicitudes = await db.get_solicitudes_usuario(conn, usuario_id)
-    return templates.TemplateResponse(
-        request,
-        "vacaciones/partials/mis_solicitudes.html",
-        {
-            "solicitudes": solicitudes,
-            "context": context,
-            "toast_msg": "Solicitud cancelada. Los días han sido liberados.",
-            "toast_type": "success",
-        },
+    return await _render_mis_solicitudes(
+        request, conn, context, pagina,
+        toast_msg="Solicitud cancelada. Los días han sido liberados.",
+        toast_type="success",
     )
 
 
@@ -344,6 +360,7 @@ async def cancelar_solicitud(
 async def recordar_aprobacion(
     request: Request,
     solicitud_id: UUID,
+    pagina: int = Form(1),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_authenticated_session(),
@@ -354,16 +371,10 @@ async def recordar_aprobacion(
     except ValueError as exc:
         return toast_error(request, str(exc), status_code=200)
 
-    solicitudes = await db.get_solicitudes_usuario(conn, usuario_id)
-    return templates.TemplateResponse(
-        request,
-        "vacaciones/partials/mis_solicitudes.html",
-        {
-            "solicitudes": solicitudes,
-            "context": context,
-            "toast_msg": "Recordatorio enviado al aprobador.",
-            "toast_type": "success",
-        },
+    return await _render_mis_solicitudes(
+        request, conn, context, pagina,
+        toast_msg="Recordatorio enviado al aprobador.",
+        toast_type="success",
     )
 
 

@@ -849,6 +849,8 @@ async def verificar_recordatorios_aprobacion_periodically(interval_seconds: int 
                         "dias_solicitados": row["dias_solicitados"],
                         "fecha_presentarse": row["fecha_presentarse"],
                         "observaciones": row["observaciones"],
+                        "hora_llegada": row["hora_llegada"],
+                        "hora_salida": row["hora_salida"],
                     }
                     to_emails, cc_emails = _vacaciones_recordatorio_destinatarios(
                         row["responsable_emails"],

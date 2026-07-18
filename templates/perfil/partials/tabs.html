@@ -1,6 +1,6 @@
 <div class="flex gap-1 border-b border-gray-200 mb-6 overflow-x-auto">
   <button @click="tab = 'asistencia'"
-    hx-get="/perfil/asistencia" hx-target="#tab-content" hx-swap="innerHTML" hx-push-url="/perfil/ui?tab=asistencia"
+    hx-get="/perfil/asistencia" hx-target="#tab-content" hx-swap="innerHTML" hx-push-url="/perfil/ui?tab=asistencia" hx-indicator="#perfil-tab-loading"
     :class="{'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold': tab === 'asistencia', 'text-gray-500 hover:text-gray-700': tab !== 'asistencia'}"
     class="inline-flex items-center gap-2 px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
     <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -9,7 +9,7 @@
     Asistencia
   </button>
   <button @click="tab = 'vacaciones'"
-    hx-get="/vacaciones/balance" hx-target="#tab-content" hx-swap="innerHTML" hx-push-url="/perfil/ui?tab=vacaciones"
+    hx-get="/vacaciones/balance" hx-target="#tab-content" hx-swap="innerHTML" hx-push-url="/perfil/ui?tab=vacaciones" hx-indicator="#perfil-tab-loading"
     :class="{'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold': tab === 'vacaciones', 'text-gray-500 hover:text-gray-700': tab !== 'vacaciones'}"
     class="inline-flex items-center gap-2 px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
     <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -18,29 +18,29 @@
     Mis Vacaciones
   </button>
   <button @click="tab = 'solicitudes'"
-    hx-get="/vacaciones/solicitudes" hx-target="#tab-content" hx-swap="innerHTML" hx-push-url="/perfil/ui?tab=solicitudes"
+    hx-get="/vacaciones/solicitudes" hx-target="#tab-content" hx-swap="innerHTML" hx-push-url="/perfil/ui?tab=solicitudes" hx-indicator="#perfil-tab-loading"
     :class="{'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold': tab === 'solicitudes', 'text-gray-500 hover:text-gray-700': tab !== 'solicitudes'}"
     class="inline-flex items-center gap-2 px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
     <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 7.75h6M9 11.75h6M9 15.75h3M6.75 3.75h10.5a2 2 0 0 1 2 2v12.5a2 2 0 0 1-2 2H6.75a2 2 0 0 1-2-2V5.75a2 2 0 0 1 2-2Z"/>
     </svg>
-    Solicitudes
+    Mis Solicitudes
   </button>
   {% if puede_ver_aprobaciones %}
   <button @click="tab = 'aprobaciones'"
-    hx-get="/vacaciones/aprobaciones" hx-target="#tab-content" hx-swap="innerHTML" hx-push-url="/perfil/ui?tab=aprobaciones"
+    hx-get="/vacaciones/aprobaciones" hx-target="#tab-content" hx-swap="innerHTML" hx-push-url="/perfil/ui?tab=aprobaciones" hx-indicator="#perfil-tab-loading"
     :class="{'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold': tab === 'aprobaciones', 'text-gray-500 hover:text-gray-700': tab !== 'aprobaciones'}"
     class="inline-flex items-center gap-2 px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
     <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="m8.75 12.5 2.25 2.25 4.25-5M12 3.75l6.25 2.75v4.9c0 3.85-2.57 7.35-6.25 8.43-3.68-1.08-6.25-4.58-6.25-8.43V6.5L12 3.75Z"/>
     </svg>
-    Aprobaciones
+    Por aprobar
     <span id="perfil-aprobaciones-badge" class="ml-1.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-xs font-bold text-white {% if not pendientes_aprobaciones_count %}hidden{% endif %}">{{ pendientes_aprobaciones_count or "" }}</span>
   </button>
   {% endif %}
   {% if puede_ver_equipo %}
   <button @click="tab = 'equipo'"
-    hx-get="/vacaciones/equipo" hx-target="#tab-content" hx-swap="innerHTML" hx-push-url="/perfil/ui?tab=equipo"
+    hx-get="/vacaciones/equipo" hx-target="#tab-content" hx-swap="innerHTML" hx-push-url="/perfil/ui?tab=equipo" hx-indicator="#perfil-tab-loading"
     :class="{'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold': tab === 'equipo', 'text-gray-500 hover:text-gray-700': tab !== 'equipo'}"
     class="inline-flex items-center gap-2 px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
     <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -50,7 +50,7 @@
   </button>
   {% endif %}
   <button @click="tab = 'firma'"
-    hx-get="/perfil/firma" hx-target="#tab-content" hx-swap="innerHTML" hx-push-url="/perfil/ui?tab=firma"
+    hx-get="/perfil/firma" hx-target="#tab-content" hx-swap="innerHTML" hx-push-url="/perfil/ui?tab=firma" hx-indicator="#perfil-tab-loading"
     :class="{'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold': tab === 'firma', 'text-gray-500 hover:text-gray-700': tab !== 'firma'}"
     class="inline-flex items-center gap-2 px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
     <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">

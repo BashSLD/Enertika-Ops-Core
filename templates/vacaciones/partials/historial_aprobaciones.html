@@ -1,3 +1,5 @@
+{% from "shared/partials/_pager_cursor.html" import pager_cursor %}
+
 {% if not historial and historial_pagina == 1 %}
 <p class="px-5 py-8 text-center text-sm text-gray-400">Sin resoluciones registradas.</p>
 {% else %}
@@ -17,6 +19,7 @@
         <span class="rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">{{ s.tipo_nombre }}</span>
         <span>{{ s.fecha_inicio.strftime('%d/%m/%Y') }} – {{ s.fecha_fin.strftime('%d/%m/%Y') }}</span>
         <span>{{ s.dias_solicitados }} días</span>
+        {% with solicitud=s %}{% include "vacaciones/partials/_horario_permiso_chips.html" %}{% endwith %}
       </div>
       {% if s.estado == 'rechazado' and s.motivo_rechazo %}
       <p class="mt-1 truncate text-xs text-red-400">{{ s.motivo_rechazo }}</p>
@@ -29,39 +32,5 @@
   {% endfor %}
 </div>
 
-{% if historial_pagina > 1 or historial_tiene_siguiente %}
-<div class="flex items-center justify-between border-t border-gray-100 px-5 py-3">
-  {% if historial_pagina > 1 %}
-  <button
-    hx-get="/vacaciones/aprobaciones/historial?pagina={{ historial_pagina - 1 }}"
-    hx-target="#historial-aprobaciones-body"
-    hx-swap="innerHTML"
-    class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors">
-    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 19.5 8.25 12l7.5-7.5"/>
-    </svg>
-    Anterior
-  </button>
-  {% else %}
-  <span></span>
-  {% endif %}
-
-  <span class="text-xs text-gray-400">Página {{ historial_pagina }}</span>
-
-  {% if historial_tiene_siguiente %}
-  <button
-    hx-get="/vacaciones/aprobaciones/historial?pagina={{ historial_pagina + 1 }}"
-    hx-target="#historial-aprobaciones-body"
-    hx-swap="innerHTML"
-    class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors">
-    Siguiente
-    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m8.25 4.5 7.5 7.5-7.5 7.5"/>
-    </svg>
-  </button>
-  {% else %}
-  <span></span>
-  {% endif %}
-</div>
-{% endif %}
+{{ pager_cursor(historial_pagina, historial_tiene_siguiente, "/vacaciones/aprobaciones/historial", "#historial-aprobaciones-body") }}
 {% endif %}

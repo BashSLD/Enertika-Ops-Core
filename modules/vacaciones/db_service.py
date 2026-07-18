@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, time
 import json
 from typing import Optional
 from uuid import UUID
@@ -35,7 +35,7 @@ async def get_catalogo_dias_admin(conn) -> list[dict]:
 async def get_tipos_ausencia(conn) -> list[dict]:
     rows = await conn.fetch(
         "SELECT id::text AS id, nombre, slug, abreviatura, afecta_saldo, requiere_aprobacion, "
-        "justifica_asistencia_dia, orden "
+        "justifica_asistencia_dia, requiere_hora_llegada, requiere_hora_salida, un_solo_dia, orden "
         "FROM tb_cat_tipos_ausencia WHERE is_active = true ORDER BY orden"
     )
     return [dict(r) for r in rows]
@@ -55,7 +55,9 @@ async def get_tipos_ausencia_admin(conn) -> list[dict]:
 
 async def get_tipo_ausencia_by_id(conn, tipo_id: UUID) -> Optional[dict]:
     row = await conn.fetchrow(
-        "SELECT id, nombre, slug, abreviatura, afecta_saldo, requiere_aprobacion, justifica_asistencia_dia "
+        "SELECT id, nombre, slug, abreviatura, afecta_saldo, requiere_aprobacion, "
+        "justifica_asistencia_dia, is_active, "
+        "requiere_hora_llegada, requiere_hora_salida, un_solo_dia, combinable_con_tipo_id "
         "FROM tb_cat_tipos_ausencia WHERE id = $1",
         tipo_id,
     )
@@ -715,19 +717,24 @@ async def create_solicitud(
     fecha_presentarse: date,
     observaciones: Optional[str],
     firma_solicitante_pendiente: bool = False,
+    hora_llegada: Optional[time] = None,
+    hora_salida: Optional[time] = None,
 ) -> dict:
     row = await conn.fetchrow(
         """
         INSERT INTO tb_solicitudes_ausencia
             (usuario_id, tipo_ausencia_id, fecha_inicio, fecha_fin, dias_solicitados,
-             fecha_presentarse, observaciones, firma_solicitante_pendiente)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+             fecha_presentarse, observaciones, firma_solicitante_pendiente,
+             hora_llegada, hora_salida)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
         RETURNING id, usuario_id, tipo_ausencia_id, fecha_inicio, fecha_fin,
                   dias_solicitados, fecha_presentarse, observaciones,
-                  estado, firma_solicitante_pendiente, fecha_solicitud
+                  estado, firma_solicitante_pendiente, fecha_solicitud,
+                  hora_llegada, hora_salida
         """,
         usuario_id, tipo_ausencia_id, fecha_inicio, fecha_fin, dias_solicitados,
         fecha_presentarse, observaciones, firma_solicitante_pendiente,
+        hora_llegada, hora_salida,
     )
     return dict(row)
 
@@ -740,7 +747,7 @@ async def get_solicitud(conn, solicitud_id: UUID) -> Optional[dict]:
                sa.estado, sa.aprobado_por, sa.motivo_rechazo,
                sa.fecha_solicitud, sa.fecha_resolucion,
                sa.ultima_notificacion_aprobador, sa.firma_solicitante_pendiente,
-               sa.es_migracion, sa.migrado_por,
+               sa.es_migracion, sa.migrado_por, sa.hora_llegada, sa.hora_salida,
                ta.nombre AS tipo_nombre, ta.abreviatura AS tipo_abreviatura,
                ta.slug AS tipo_slug, ta.afecta_saldo, ta.justifica_asistencia_dia,
                u.nombre AS solicitante_nombre, u.email AS solicitante_email,
@@ -758,13 +765,15 @@ async def get_solicitud(conn, solicitud_id: UUID) -> Optional[dict]:
     return dict(row) if row else None
 
 
-async def get_solicitudes_usuario(conn, usuario_id: UUID) -> list[dict]:
-    rows = await conn.fetch(
-        """
+async def get_solicitudes_usuario(
+    conn, usuario_id: UUID, limit: int | None = None, offset: int = 0
+) -> list[dict]:
+    query = """
         SELECT sa.id, sa.tipo_ausencia_id, sa.fecha_inicio, sa.fecha_fin,
                sa.dias_solicitados, sa.fecha_presentarse, sa.estado,
                sa.motivo_rechazo, sa.fecha_solicitud, sa.fecha_resolucion,
                sa.firma_solicitante_pendiente, sa.es_migracion, sa.migrado_por,
+               sa.hora_llegada, sa.hora_salida,
                vc.num_periodo AS migracion_num_periodo,
                ta.nombre AS tipo_nombre, ta.abreviatura AS tipo_abreviatura,
                a.nombre AS aprobado_por_nombre,
@@ -776,9 +785,12 @@ async def get_solicitudes_usuario(conn, usuario_id: UUID) -> list[dict]:
         LEFT JOIN tb_vacaciones_consumo vc ON vc.solicitud_id = sa.id AND sa.es_migracion = TRUE
         WHERE sa.usuario_id = $1
         ORDER BY COALESCE(sa.es_migracion, false) ASC, sa.created_at DESC
-        """,
-        usuario_id,
-    )
+    """
+    params = [usuario_id]
+    if limit is not None:
+        query += " LIMIT $2 OFFSET $3"
+        params += [limit, offset]
+    rows = await conn.fetch(query, *params)
     return [dict(r) for r in rows]
 
 
@@ -791,6 +803,7 @@ async def get_solicitudes_pendientes_para_aprobador(conn, aprobador_id: UUID) ->
         SELECT sa.id, sa.usuario_id, sa.tipo_ausencia_id, sa.fecha_inicio, sa.fecha_fin,
                sa.dias_solicitados, sa.fecha_presentarse, sa.observaciones,
                sa.estado, sa.fecha_solicitud, sa.firma_solicitante_pendiente,
+               sa.hora_llegada, sa.hora_salida,
                ta.nombre AS tipo_nombre, ta.abreviatura AS tipo_abreviatura,
                u.nombre AS solicitante_nombre, u.email AS solicitante_email
         FROM tb_solicitudes_ausencia sa
@@ -814,7 +827,7 @@ async def get_todas_solicitudes_pendientes(conn) -> list[dict]:
         SELECT sa.id, sa.usuario_id, sa.tipo_ausencia_id, sa.fecha_inicio, sa.fecha_fin,
                sa.dias_solicitados, sa.fecha_presentarse, sa.observaciones,
                sa.estado, sa.fecha_solicitud, sa.ultima_notificacion_aprobador,
-               sa.firma_solicitante_pendiente,
+               sa.firma_solicitante_pendiente, sa.hora_llegada, sa.hora_salida,
                ta.nombre AS tipo_nombre, ta.abreviatura AS tipo_abreviatura,
                u.nombre AS solicitante_nombre, u.email AS solicitante_email
         FROM tb_solicitudes_ausencia sa
@@ -837,6 +850,7 @@ async def get_historial_aprobaciones(
             SELECT sa.id, sa.usuario_id, sa.tipo_ausencia_id, sa.fecha_inicio, sa.fecha_fin,
                    sa.dias_solicitados, sa.estado, sa.motivo_rechazo,
                    sa.fecha_solicitud, sa.fecha_resolucion,
+                   sa.hora_llegada, sa.hora_salida,
                    ta.nombre AS tipo_nombre,
                    u.nombre AS solicitante_nombre
             FROM tb_solicitudes_ausencia sa
@@ -855,6 +869,7 @@ async def get_historial_aprobaciones(
             SELECT sa.id, sa.usuario_id, sa.tipo_ausencia_id, sa.fecha_inicio, sa.fecha_fin,
                    sa.dias_solicitados, sa.estado, sa.motivo_rechazo,
                    sa.fecha_solicitud, sa.fecha_resolucion,
+                   sa.hora_llegada, sa.hora_salida,
                    ta.nombre AS tipo_nombre,
                    u.nombre AS solicitante_nombre
             FROM tb_solicitudes_ausencia sa
@@ -961,7 +976,9 @@ async def get_solicitudes_activas_en_rango(
     )
     rows = await conn.fetch(
         f"""
-        SELECT sa.id FROM tb_solicitudes_ausencia sa
+        SELECT sa.id, sa.fecha_inicio, sa.fecha_fin, sa.tipo_ausencia_id,
+               sa.hora_llegada, sa.hora_salida
+        FROM tb_solicitudes_ausencia sa
         WHERE sa.usuario_id = $1
           AND sa.estado IN ('pendiente','aprobado')
           AND COALESCE(sa.es_migracion, false) = false

@@ -42,6 +42,7 @@
             <span class="rounded-full bg-gray-100 px-2 py-0.5 font-semibold text-gray-700">{{ sol.tipo_nombre }}</span>
             <span>{{ sol.fecha_inicio.strftime('%d/%m/%Y') }} - {{ sol.fecha_fin.strftime('%d/%m/%Y') }}</span>
             <span>{{ sol.dias_solicitados }} días hábiles</span>
+            {% with solicitud=sol %}{% include "vacaciones/partials/_horario_permiso_chips.html" %}{% endwith %}
             <span>Solicitada {{ sol.fecha_solicitud | time_mx("%d/%m/%Y") if sol.fecha_solicitud else '-' }}</span>
           </div>
           {% if sol.observaciones %}

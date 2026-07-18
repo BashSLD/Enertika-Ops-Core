@@ -107,7 +107,7 @@ def _preparar_asistencia_rows(
 
 def _build_heatmap(rows: list[dict], hoy) -> list[list[dict]]:
     por_fecha = {r["fecha_laboral"]: (r["estado"], r.get("tipo_ausencia_nombre")) for r in rows}
-    lunes_actual = hoy - timedelta(days=hoy.weekday())
+    lunes_actual, _ = _semana_actual(hoy)
     inicio = lunes_actual - timedelta(weeks=51)
     fin = lunes_actual + timedelta(days=6)
     semanas: list[list[dict]] = []
@@ -136,6 +136,28 @@ def _build_heatmap(rows: list[dict], hoy) -> list[list[dict]]:
 
 def _legacy_redirect(path: str) -> RedirectResponse:
     return RedirectResponse(url=f"/vacaciones{path}", status_code=301)
+
+
+def _semana_actual(hoy: date) -> tuple[date, date]:
+    lunes = hoy - timedelta(days=hoy.weekday())
+    return lunes, lunes + timedelta(days=6)
+
+
+def _sanear_rango_equipo_fuera(
+    fecha_inicio: str | None, fecha_fin: str | None
+) -> tuple[date, date]:
+    lunes, domingo = _semana_actual(today_mx())
+    try:
+        d_inicio = date.fromisoformat(fecha_inicio) if fecha_inicio else lunes
+    except ValueError:
+        d_inicio = lunes
+    try:
+        d_fin = date.fromisoformat(fecha_fin) if fecha_fin else domingo
+    except ValueError:
+        d_fin = domingo
+    if d_fin < d_inicio:
+        d_inicio, d_fin = d_fin, d_inicio
+    return d_inicio, d_fin
 
 
 def _get_usuario_id(context: dict) -> UUID:
@@ -194,6 +216,8 @@ async def perfil_ui(
     origen: str = "solicitudes",
     equipo_uid: UUID | None = None,
     solicitud_pendiente_id: UUID | None = None,
+    equipo_fuera_fecha_inicio: str | None = Query(None, alias="fecha_inicio"),
+    equipo_fuera_fecha_fin: str | None = Query(None, alias="fecha_fin"),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
@@ -241,6 +265,9 @@ async def perfil_ui(
         equipo_uid=equipo_uid,
         solicitud_pendiente_id=solicitud_pendiente_id,
     )
+    if initial_tab == "asistencia" and (equipo_fuera_fecha_inicio or equipo_fuera_fecha_fin):
+        d_inicio, d_fin = _sanear_rango_equipo_fuera(equipo_fuera_fecha_inicio, equipo_fuera_fecha_fin)
+        initial_endpoint = f"{initial_endpoint}?fecha_inicio={d_inicio.isoformat()}&fecha_fin={d_fin.isoformat()}"
 
     ctx = {
         "perfil": perfil or {},
@@ -270,6 +297,7 @@ async def perfil_ui(
 async def ver_firma(
     request: Request,
     solicitud_pendiente_id: str = None,
+    embed_target_id: str | None = None,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
@@ -285,6 +313,7 @@ async def ver_firma(
             "firma": firma,
             "firma_b64": firma_b64,
             "solicitud_pendiente_id": solicitud_pendiente_id,
+            "embed_target_id": embed_target_id,
             "context": context,
         },
     )
@@ -295,6 +324,7 @@ async def subir_firma(
     request: Request,
     firma_file: UploadFile = File(...),
     solicitud_pendiente_id: str = Form(None),
+    embed_target_id: str | None = Form(None),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
@@ -304,7 +334,9 @@ async def subir_firma(
     firma_bytes = await firma_file.read()
     pending_id = UUID(solicitud_pendiente_id) if solicitud_pendiente_id else None
     try:
-        firma_bytes = await perfil_service.guardar_firma(conn, usuario_id, firma_bytes, "subida", pending_id)
+        firma_bytes, tipo_nombre_enviado = await perfil_service.guardar_firma(
+            conn, usuario_id, firma_bytes, "subida", pending_id
+        )
     except ValueError as exc:
         return toast_error(request, str(exc), status_code=200)
 
@@ -316,9 +348,10 @@ async def subir_firma(
             "firma": {"tipo_firma": "subida"},
             "firma_b64": firma_b64,
             "solicitud_pendiente_id": solicitud_pendiente_id,
+            "embed_target_id": embed_target_id,
             "context": context,
-            "toast_msg": "Firma guardada correctamente.",
-            "toast_type": "success",
+            "firma_guardada": True,
+            "tipo_nombre_enviado": tipo_nombre_enviado,
         },
     )
 
@@ -328,6 +361,7 @@ async def guardar_firma_dibujada(
     request: Request,
     firma_b64: str = Form(...),
     solicitud_pendiente_id: str = Form(None),
+    embed_target_id: str | None = Form(None),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
@@ -340,7 +374,9 @@ async def guardar_firma_dibujada(
 
     pending_id = UUID(solicitud_pendiente_id) if solicitud_pendiente_id else None
     try:
-        firma_bytes = await perfil_service.guardar_firma(conn, usuario_id, firma_bytes, "dibujada", pending_id)
+        firma_bytes, tipo_nombre_enviado = await perfil_service.guardar_firma(
+            conn, usuario_id, firma_bytes, "dibujada", pending_id
+        )
     except ValueError as exc:
         return toast_error(request, str(exc), status_code=200)
 
@@ -351,9 +387,10 @@ async def guardar_firma_dibujada(
             "firma": {"tipo_firma": "dibujada"},
             "firma_b64": perfil_service.firma_bytes_to_base64(firma_bytes),
             "solicitud_pendiente_id": solicitud_pendiente_id,
+            "embed_target_id": embed_target_id,
             "context": context,
-            "toast_msg": "Firma guardada correctamente.",
-            "toast_type": "success",
+            "firma_guardada": True,
+            "tipo_nombre_enviado": tipo_nombre_enviado,
         },
     )
 
@@ -382,6 +419,8 @@ async def _build_asistencia_tab_context(
     usuario_id: UUID,
     context: dict,
     *,
+    equipo_fuera_fecha_inicio: date | None = None,
+    equipo_fuera_fecha_fin: date | None = None,
     toast_type: str | None = None,
     toast_title: str | None = None,
     toast_message: str | None = None,
@@ -401,6 +440,9 @@ async def _build_asistencia_tab_context(
     heatmap_raw = await perfil_db.get_mi_asistencia_heatmap(conn, usuario_id, desde_heatmap, hoy)
     bolsa = await get_he_bolsa_ctx(conn, usuario_id)
 
+    if equipo_fuera_fecha_inicio is None or equipo_fuera_fecha_fin is None:
+        equipo_fuera_fecha_inicio, equipo_fuera_fecha_fin = _semana_actual(hoy)
+
     return {
         "asistencia": rows,
         "bolsa": bolsa,
@@ -409,6 +451,8 @@ async def _build_asistencia_tab_context(
         "context": context,
         "heatmap_semanas": _build_heatmap(heatmap_raw, hoy),
         "hoy_iso": hoy.isoformat(),
+        "equipo_fuera_fecha_inicio": equipo_fuera_fecha_inicio,
+        "equipo_fuera_fecha_fin": equipo_fuera_fecha_fin,
         "toast_type": toast_type,
         "toast_title": toast_title,
         "toast_message": toast_message,
@@ -418,15 +462,46 @@ async def _build_asistencia_tab_context(
 @router.get("/asistencia")
 async def mi_asistencia(
     request: Request,
+    fecha_inicio: str | None = Query(None),
+    fecha_fin: str | None = Query(None),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
     usuario_id = _get_usuario_id(context)
-    ctx = await _build_asistencia_tab_context(conn, usuario_id, context)
+    d_inicio, d_fin = _sanear_rango_equipo_fuera(fecha_inicio, fecha_fin)
+    ctx = await _build_asistencia_tab_context(
+        conn, usuario_id, context,
+        equipo_fuera_fecha_inicio=d_inicio,
+        equipo_fuera_fecha_fin=d_fin,
+    )
     return templates.TemplateResponse(
         request,
         "perfil/partials/tab_asistencia.html",
         ctx,
+    )
+
+
+@router.get("/asistencia/equipo-fuera")
+async def equipo_fuera_oficina_widget(
+    request: Request,
+    fecha_inicio: str | None = Query(None),
+    fecha_fin: str | None = Query(None),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+):
+    d_inicio, d_fin = _sanear_rango_equipo_fuera(fecha_inicio, fecha_fin)
+    ctx = await perfil_service.get_equipo_fuera_oficina_ctx(conn, d_inicio, d_fin)
+    headers = {}
+    if request.headers.get("hx-trigger") == "equipo-fuera-filtro":
+        canonical_url = (
+            f"/perfil/ui?tab=asistencia&fecha_inicio={d_inicio.isoformat()}&fecha_fin={d_fin.isoformat()}"
+        )
+        headers["HX-Push-Url"] = canonical_url
+    return templates.TemplateResponse(
+        request,
+        "perfil/partials/equipo_fuera_oficina_widget.html",
+        {**ctx, "context": context},
+        headers=headers,
     )
 
 

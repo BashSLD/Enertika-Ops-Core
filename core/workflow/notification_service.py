@@ -1274,6 +1274,13 @@ class NotificationService:
     def _vacaciones_detalle_url(solicitud_id: UUID | str) -> str:
         return f"{settings.APP_BASE_URL}/vacaciones/solicitudes/{solicitud_id}/abrir"
 
+    @staticmethod
+    def _hora_fields(solicitud: dict) -> dict:
+        return {
+            "hora_llegada": solicitud["hora_llegada"].strftime("%H:%M") if solicitud.get("hora_llegada") else None,
+            "hora_salida": solicitud["hora_salida"].strftime("%H:%M") if solicitud.get("hora_salida") else None,
+        }
+
     async def notify_periodo_expira(self, conn, empleado: dict, periodo: dict) -> None:
         """Notifica por email al empleado y CC a RH cuando un periodo esta por expirar."""
         try:
@@ -1362,6 +1369,7 @@ class NotificationService:
                 "fecha_fin": solicitud["fecha_fin"].strftime("%d/%m/%Y"),
                 "dias": solicitud["dias_solicitados"],
                 "fecha_presentarse": solicitud["fecha_presentarse"].strftime("%d/%m/%Y"),
+                **self._hora_fields(solicitud),
                 "observaciones": solicitud.get("observaciones"),
                 "hito_label": hito_label,
                 "base_url": settings.APP_BASE_URL,
@@ -1441,6 +1449,7 @@ class NotificationService:
                 "fecha_fin": solicitud["fecha_fin"].strftime("%d/%m/%Y"),
                 "dias": solicitud["dias_solicitados"],
                 "fecha_presentarse": solicitud["fecha_presentarse"].strftime("%d/%m/%Y"),
+                **self._hora_fields(solicitud),
                 "observaciones": solicitud.get("observaciones"),
                 "solicitud_id": str(solicitud["id"]),
                 "base_url": settings.APP_BASE_URL,
@@ -1485,6 +1494,7 @@ class NotificationService:
                 "fecha_fin": solicitud["fecha_fin"].strftime("%d/%m/%Y"),
                 "dias": solicitud["dias_solicitados"],
                 "fecha_presentarse": solicitud["fecha_presentarse"].strftime("%d/%m/%Y"),
+                **self._hora_fields(solicitud),
                 "solicitud_id": str(solicitud["id"]),
                 "base_url": settings.APP_BASE_URL,
                 "detalle_url": self._vacaciones_detalle_url(solicitud["id"]),

@@ -139,12 +139,20 @@
 <table class="data-table compact-table request-table">
   <tr>
     <th>Tipo</th>
-    <th>Periodo</th>
+    <th>{% if solicitud.hora_llegada %}Fecha y hora de llegada{% elif solicitud.hora_salida %}Fecha y hora de salida{% else %}Periodo{% endif %}</th>
     <th>Días solicitados</th>
   </tr>
   <tr>
     <td>{{ solicitud.tipo_nombre }}</td>
-    <td>{{ solicitud.fecha_inicio.strftime('%d/%m/%Y') }} al {{ solicitud.fecha_fin.strftime('%d/%m/%Y') }}</td>
+    <td>
+      {%- if solicitud.hora_llegada -%}
+      {{ solicitud.fecha_inicio.strftime('%d/%m/%Y') }} · {{ solicitud.hora_llegada.strftime('%H:%M') }}
+      {%- elif solicitud.hora_salida -%}
+      {{ solicitud.fecha_inicio.strftime('%d/%m/%Y') }} · {{ solicitud.hora_salida.strftime('%H:%M') }}
+      {%- else -%}
+      {{ solicitud.fecha_inicio.strftime('%d/%m/%Y') }} al {{ solicitud.fecha_fin.strftime('%d/%m/%Y') }}
+      {%- endif -%}
+    </td>
     <td><strong>{{ solicitud.dias_solicitados }}</strong></td>
   </tr>
   <tr>

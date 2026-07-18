@@ -1,0 +1,89 @@
+<section class="mb-4 overflow-hidden rounded-2xl border border-gray-100 border-t-4 border-t-[#00BABB] bg-white shadow-sm">
+  <div class="bg-[#00BABB]/10 px-5 py-3 border-b border-gray-100">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[#00BABB]/20 text-[#007C7D]">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/>
+          </svg>
+        </span>
+        <div>
+          <h3 class="text-sm font-semibold text-gray-800">Equipo fuera de oficina</h3>
+          <p class="text-xs text-gray-500">Consulta quién estará fuera de oficina esta semana y coordina tus pendientes con anticipación.</p>
+        </div>
+      </div>
+      <form id="equipo-fuera-filtro"
+            class="flex flex-wrap items-end gap-2"
+            hx-get="/perfil/asistencia/equipo-fuera"
+            hx-target="#equipo-fuera-widget"
+            hx-swap="innerHTML"
+            hx-trigger="change">
+        <div class="flex items-center gap-1.5">
+          <label class="text-xs font-medium text-gray-500">Desde</label>
+          <input type="date" name="fecha_inicio" value="{{ fecha_inicio.isoformat() }}"
+                 class="border border-gray-300 rounded-lg px-2 py-1 text-xs bg-white focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
+        </div>
+        <div class="flex items-center gap-1.5">
+          <label class="text-xs font-medium text-gray-500">Hasta</label>
+          <input type="date" name="fecha_fin" value="{{ fecha_fin.isoformat() }}"
+                 class="border border-gray-300 rounded-lg px-2 py-1 text-xs bg-white focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {% if not eventos %}
+  <div class="px-5 py-8 text-center text-sm text-gray-400">
+    No hay personas fuera de oficina en el periodo.
+  </div>
+  {% else %}
+  {% set border_colors = {
+    'vacaciones':             'border-blue-300 text-blue-700',
+    'extraordinaria':         'border-orange-300 text-orange-700',
+    'home_office':            'border-green-300 text-green-700',
+    'incapacidad':            'border-red-300 text-red-700',
+    'permiso_con_goce':       'border-purple-300 text-purple-700',
+    'permiso_sin_goce':       'border-purple-300 text-purple-700',
+    'permiso_llegar_tarde':   'border-amber-300 text-amber-700',
+    'permiso_salir_temprano': 'border-amber-300 text-amber-700',
+    'compensatorio':          'border-purple-300 text-purple-700',
+  } %}
+  <div class="max-h-72 overflow-y-auto px-5 py-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+    {% for ev in eventos %}
+    {% set responsable_title = (('Responsable' if ev.responsables_nombres | length == 1 else 'Responsables') ~ ': ' ~ (ev.responsables_nombres | join(', '))) if ev.responsables_nombres else 'Responsable no asignado' %}
+    <div class="rounded-xl border border-[#00BABB]/10 bg-[#00BABB]/[0.03] px-3 py-2" x-data="{ showResp: false }">
+      <div class="flex flex-wrap items-center gap-2">
+        <p class="text-sm font-semibold text-gray-900">{{ ev.nombre_persona }}</p>
+        <span class="rounded-full bg-white px-2 py-0.5 text-xs font-semibold border {{ border_colors.get(ev.tipo_slug, 'border-gray-300 text-gray-700') }}">{{ ev.tipo_nombre }}</span>
+        <div class="relative ml-auto flex-shrink-0">
+          <button type="button"
+                  @click="showResp = !showResp"
+                  @click.away="showResp = false"
+                  class="inline-flex text-gray-400 hover:text-gray-600"
+                  aria-label="Ver responsable">
+            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/>
+            </svg>
+          </button>
+          <div x-show="showResp" x-cloak x-transition
+               class="absolute right-0 top-full z-10 mt-1 w-max max-w-[220px] rounded-lg bg-gray-800 px-2.5 py-1.5 text-xs text-white shadow-lg">
+            {{ responsable_title }}
+          </div>
+        </div>
+      </div>
+      <p class="mt-1 text-xs text-gray-600">
+        {% if ev.hora_llegada %}
+        {{ ev.fecha_inicio.strftime('%d/%m/%Y') }} · {% with solicitud=ev %}{% include "vacaciones/partials/_horario_permiso_chips.html" %}{% endwith %}
+        {% elif ev.hora_salida %}
+        {{ ev.fecha_inicio.strftime('%d/%m/%Y') }} · {% with solicitud=ev %}{% include "vacaciones/partials/_horario_permiso_chips.html" %}{% endwith %} · Regresa {{ ev.fecha_presentarse.strftime('%d/%m/%Y') }}
+        {% elif ev.origen == 'compensatorio' %}
+        Fecha de permiso: {{ ev.fecha_inicio.strftime('%d/%m/%Y') }}
+        {% else %}
+        {{ ev.fecha_inicio.strftime('%d/%m/%Y') }} – {{ ev.fecha_fin.strftime('%d/%m/%Y') }} · Regresa {{ ev.fecha_presentarse.strftime('%d/%m/%Y') }}
+        {% endif %}
+      </p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>

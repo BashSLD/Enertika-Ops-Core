@@ -1,4 +1,5 @@
 {% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+{% set firma_target = ('#' + embed_target_id) if embed_target_id else '#tab-content' %}
 
 {% if toast_msg %}
 {% with type=toast_type, title="Aviso", message=toast_msg %}
@@ -6,7 +7,38 @@
 {% endwith %}
 {% endif %}
 
-<div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 max-w-lg"
+{% if firma_guardada %}
+<div class="modal-overlay-layer fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4"
+     x-data="{ open: true }" x-show="open" x-cloak>
+  <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl text-center">
+    <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-green-600">
+      <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+    </div>
+    <p class="text-sm font-semibold text-gray-900">Firma guardada.</p>
+    {% if tipo_nombre_enviado %}
+    <p class="mt-1 text-sm text-gray-600">Tu solicitud de <strong>{{ tipo_nombre_enviado }}</strong> fue enviada para aprobación.</p>
+    <button type="button"
+            @click="open = false; tab = 'solicitudes'"
+            hx-get="/vacaciones/solicitudes"
+            hx-target="#tab-content"
+            hx-swap="innerHTML"
+            hx-push-url="/perfil/ui?tab=solicitudes"
+            class="mt-5 w-full rounded-xl bg-[#00BABB] py-2.5 text-sm font-semibold text-white hover:bg-[#009A9B] transition-colors">
+      Aceptar
+    </button>
+    {% else %}
+    <button type="button" @click="open = false; $dispatch('firma-registrada')"
+            class="mt-5 w-full rounded-xl bg-[#00BABB] py-2.5 text-sm font-semibold text-white hover:bg-[#009A9B] transition-colors">
+      Aceptar
+    </button>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="relative bg-white rounded-2xl shadow-sm border border-gray-100 p-6 max-w-lg"
      x-data="{
        modo: 'subir',
        canvasLimpio: true,
@@ -25,6 +57,15 @@
      }"
      x-init="$nextTick(() => initSignaturePad())"
      @signature-pad-ready.window="$nextTick(() => initSignaturePad())">
+
+  {% if embed_target_id %}
+  <button type="button" @click="$dispatch('cerrar-firma-embed')"
+          class="absolute top-3 right-3 text-gray-400 hover:text-gray-600" aria-label="Cerrar">
+    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 18L18 6M6 6l12 12"/>
+    </svg>
+  </button>
+  {% endif %}
 
   <div class="mb-1 flex items-center gap-2">
     <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#00BABB]/10 text-[#007C7D]">
@@ -74,13 +115,16 @@
     <form x-data="{ subiendo: false }"
           hx-post="/perfil/firma/upload"
           hx-encoding="multipart/form-data"
-          hx-target="#tab-content"
+          hx-target="{{ firma_target }}"
           hx-swap="innerHTML"
           hx-on::before-request="subiendo = true"
           hx-on::after-request="subiendo = false"
           class="space-y-4">
       {% if solicitud_pendiente_id %}
       <input type="hidden" name="solicitud_pendiente_id" value="{{ solicitud_pendiente_id }}">
+      {% endif %}
+      {% if embed_target_id %}
+      <input type="hidden" name="embed_target_id" value="{{ embed_target_id }}">
       {% endif %}
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Imagen PNG de tu firma</label>
@@ -110,7 +154,7 @@
     </div>
     <form x-data="{ dibujando: false }"
           hx-post="/perfil/firma/draw"
-          hx-target="#tab-content"
+          hx-target="{{ firma_target }}"
           hx-swap="innerHTML"
           data-firma-dibujada-form
           hx-on::before-request="dibujando = true"
@@ -124,6 +168,9 @@
           ">
       {% if solicitud_pendiente_id %}
       <input type="hidden" name="solicitud_pendiente_id" value="{{ solicitud_pendiente_id }}">
+      {% endif %}
+      {% if embed_target_id %}
+      <input type="hidden" name="embed_target_id" value="{{ embed_target_id }}">
       {% endif %}
       <button type="submit" :disabled="canvasLimpio || dibujando" :class="dibujando ? 'cursor-wait opacity-75' : ''"
               class="w-full inline-flex items-center justify-center gap-1.5 bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
