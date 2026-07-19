@@ -459,6 +459,7 @@
                     clienteResultados: [],
                     clienteOpen: false,
                     clienteSeq: 0,
+                    soloActivos: true,
                     descargando: false,
                     errorMsg: '',
                     get fechaInicioFmt() {
@@ -524,6 +525,7 @@
                         if (this.fechaInicio) params.set('filtro_fecha_inicio', this.fechaInicio);
                         if (this.fechaFin) params.set('filtro_fecha_fin', this.fechaFin);
                         if (this.clienteId) params.set('filtro_cliente_id', this.clienteId);
+                        if (this.soloActivos && !this.clienteId) params.set('solo_activos', 'true');
                         var url = '/comercial/reportes/clientes.' + this.formato + '?' + params.toString();
                         var self = this;
 
@@ -654,7 +656,7 @@
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Estatus</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Estatus Simulación</label>
                                     <select x-model="estatusId" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
                                         <option value="">Todos</option>
                                         {% for s in catalogos.estatus_global %}
@@ -662,6 +664,17 @@
                                         {% endfor %}
                                     </select>
                                 </div>
+                            </div>
+
+                            <div x-show="!clienteId" x-cloak class="flex items-start gap-2">
+                                <input type="checkbox" id="reporte-solo-activos" x-model="soloActivos"
+                                    class="mt-0.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500">
+                                <label for="reporte-solo-activos" class="text-sm text-gray-700">
+                                    Mostrar solo clientes con solicitudes en el rango
+                                    <span class="block text-xs text-gray-400">
+                                        Sin marcar, se listan todos los clientes registrados, incluso sin solicitudes en el rango (útil para detectar clientes inactivos).
+                                    </span>
+                                </label>
                             </div>
 
                             <p x-show="errorMsg" x-text="errorMsg" x-cloak class="text-sm text-red-600"></p>

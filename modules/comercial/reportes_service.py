@@ -46,6 +46,14 @@ class FiltrosReporteClientes:
     fecha_inicio: Optional[date] = None
     fecha_fin: Optional[date] = None
     filtro_cliente_id: Optional[UUID] = None
+    solo_activos: bool = False
+
+
+def _describir_vista(solo_activos: bool) -> str:
+    """Etiqueta legible del modo de vista del resumen general."""
+    if solo_activos:
+        return "Vista: solo clientes con actividad en el rango"
+    return "Vista: todos los clientes (incluye sin actividad en el rango)"
 
 
 def defaults_fecha_reporte() -> tuple[date, date]:
@@ -71,11 +79,14 @@ def parse_filtros_reporte_clientes(
     filtro_fecha_inicio: Optional[str] = None,
     filtro_fecha_fin: Optional[str] = None,
     filtro_cliente_id: Optional[UUID] = None,
+    solo_activos: bool = False,
 ) -> FiltrosReporteClientes:
     fecha_inicio = _parse_fecha(filtro_fecha_inicio, "filtro_fecha_inicio")
     fecha_fin = _parse_fecha(filtro_fecha_fin, "filtro_fecha_fin")
     if fecha_inicio and fecha_fin and fecha_inicio > fecha_fin:
         raise ValueError("filtro_fecha_inicio no puede ser posterior a filtro_fecha_fin")
+    if solo_activos and filtro_cliente_id:
+        raise ValueError("solo_activos no aplica cuando se especifica un cliente")
     return FiltrosReporteClientes(
         filtro_tipo_id=filtro_tipo_id,
         filtro_tecnologia_id=filtro_tecnologia_id,
@@ -83,6 +94,7 @@ def parse_filtros_reporte_clientes(
         fecha_inicio=fecha_inicio,
         fecha_fin=fecha_fin,
         filtro_cliente_id=filtro_cliente_id,
+        solo_activos=solo_activos,
     )
 
 
@@ -134,11 +146,13 @@ async def describir_filtros(conn: asyncpg.Connection, filtros: FiltrosReporteCli
     for filtro_id, etiqueta_clave, label in (
         (filtros.filtro_tipo_id, "tipo_nombre", "Tipo"),
         (filtros.filtro_tecnologia_id, "tecnologia_nombre", "Tecnología"),
-        (filtros.filtro_estatus_id, "estatus_nombre", "Estatus"),
+        (filtros.filtro_estatus_id, "estatus_nombre", "Estatus Simulación"),
         (filtros.filtro_cliente_id, "cliente_nombre", "Cliente"),
     ):
         if filtro_id:
             partes.append(f"{label}: {etiquetas.get(etiqueta_clave) or filtro_id}")
+    if not filtros.filtro_cliente_id:
+        partes.append(_describir_vista(filtros.solo_activos))
     return " | ".join(partes)
 
 
@@ -172,17 +186,36 @@ async def generar_dataset_general(
     limite_clave, limite_default = _LIMITES_RESUMEN_CLIENTES.get(
         formato, _LIMITES_RESUMEN_CLIENTES["excel"]
     )
-    total_filas_resumen = await db.contar_filas_resumen_general(
-        conn,
-        filtro_tipo_id=filtros.filtro_tipo_id,
-        filtro_tecnologia_id=filtros.filtro_tecnologia_id,
-        filtro_estatus_id=filtros.filtro_estatus_id,
-        fecha_inicio_mx=inicio_mx,
-        fecha_fin_mx_exclusive=fin_mx_exclusive,
-    )
-    # Los filtros de solicitud (fecha/tipo/estatus) nunca reducen el conteo de clientes
-    # canonicos sin solicitudes (contar_filas_resumen_general sigue el total de tb_clientes);
-    # acotarlos no ayuda a bajar del limite, solo el modo por cliente lo hace.
+    # Con solo_activos=True, contar primero y despues volver a filtrar en obtener_resumen_clientes
+    # escanearia tb_oportunidades dos veces para la misma respuesta; se trae el resumen una sola
+    # vez y el limite se valida con len() — mismo trade-off ya aceptado en generar_dataset_por_cliente.
+    if filtros.solo_activos:
+        resumen = await db.obtener_resumen_clientes(
+            conn,
+            filtro_tipo_id=filtros.filtro_tipo_id,
+            filtro_tecnologia_id=filtros.filtro_tecnologia_id,
+            filtro_estatus_id=filtros.filtro_estatus_id,
+            fecha_inicio_mx=inicio_mx,
+            fecha_fin_mx_exclusive=fin_mx_exclusive,
+            solo_activos=True,
+        )
+        total_filas_resumen = len(resumen)
+    else:
+        # Con solo_activos=False (default), los filtros de solicitud (fecha/tipo/estatus)
+        # no reducen el conteo de clientes canonicos sin solicitudes (contar_filas_resumen_general
+        # sigue el total de tb_clientes); acotarlos no ayuda a bajar del limite, solo el modo por
+        # cliente o marcar solo_activos lo hacen. Aqui el conteo si es mas barato que el fetch
+        # (COUNT(*) simple vs. el CTE completo), asi que se mantiene el chequeo previo.
+        total_filas_resumen = await db.contar_filas_resumen_general(
+            conn,
+            filtro_tipo_id=filtros.filtro_tipo_id,
+            filtro_tecnologia_id=filtros.filtro_tecnologia_id,
+            filtro_estatus_id=filtros.filtro_estatus_id,
+            fecha_inicio_mx=inicio_mx,
+            fecha_fin_mx_exclusive=fin_mx_exclusive,
+        )
+        resumen = None
+
     await _verificar_limite(
         conn,
         clave=limite_clave,
@@ -192,14 +225,16 @@ async def generar_dataset_general(
         sugerencia="Usa el modo por cliente.",
     )
 
-    resumen = await db.obtener_resumen_clientes(
-        conn,
-        filtro_tipo_id=filtros.filtro_tipo_id,
-        filtro_tecnologia_id=filtros.filtro_tecnologia_id,
-        filtro_estatus_id=filtros.filtro_estatus_id,
-        fecha_inicio_mx=inicio_mx,
-        fecha_fin_mx_exclusive=fin_mx_exclusive,
-    )
+    if resumen is None:
+        resumen = await db.obtener_resumen_clientes(
+            conn,
+            filtro_tipo_id=filtros.filtro_tipo_id,
+            filtro_tecnologia_id=filtros.filtro_tecnologia_id,
+            filtro_estatus_id=filtros.filtro_estatus_id,
+            fecha_inicio_mx=inicio_mx,
+            fecha_fin_mx_exclusive=fin_mx_exclusive,
+            solo_activos=False,
+        )
     # El PDF general solo presenta el resumen (ver templates/pdf/comercial/reporte_clientes.html);
     # el detalle de solicitudes es exclusivo de Excel — evita la consulta si no se va a usar.
     detalle = []
@@ -218,7 +253,13 @@ async def generar_dataset_general(
         "rango=%s..%s filas_resumen=%d filas_detalle=%d",
         solicitante_email, formato, filtros.fecha_inicio, filtros.fecha_fin, len(resumen), len(detalle),
     )
-    return {"modo": "general", "resumen": resumen, "detalle": detalle, "filtros": filtros}
+    return {
+        "modo": "general",
+        "resumen": resumen,
+        "detalle": detalle,
+        "filtros": filtros,
+        "nota_vista": _describir_vista(filtros.solo_activos),
+    }
 
 
 async def generar_dataset_por_cliente(

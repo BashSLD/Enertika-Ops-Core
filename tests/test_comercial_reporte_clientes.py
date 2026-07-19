@@ -55,6 +55,14 @@ def test_parse_filtros_rango_invertido_lanza_value_error():
         )
 
 
+def test_parse_filtros_solo_activos_con_cliente_lanza_value_error():
+    """solo_activos no aplica en modo por-cliente; combinarlos es un 400, no un no-op silencioso."""
+    with pytest.raises(ValueError, match="solo_activos"):
+        reportes_service.parse_filtros_reporte_clientes(
+            filtro_cliente_id=uuid4(), solo_activos=True
+        )
+
+
 def test_limites_timestamptz_fin_es_exclusivo_dia_siguiente():
     filtros = reportes_service.FiltrosReporteClientes(
         fecha_inicio=date(2026, 1, 1), fecha_fin=date(2026, 1, 31)
@@ -196,7 +204,10 @@ async def test_describir_filtros_sin_fechas_es_historico_completo():
     with patch("modules.comercial.reportes_service.db.obtener_etiquetas_filtros", return_value=etiquetas):
         resumen = await reportes_service.describir_filtros(conn, filtros)
 
-    assert resumen == "Fechas: histórico completo"
+    assert resumen == (
+        "Fechas: histórico completo | "
+        "Vista: todos los clientes (incluye sin actividad en el rango)"
+    )
 
 
 # ---------------------------------------------------------------------------

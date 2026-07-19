@@ -1459,6 +1459,7 @@ def _preparar_reporte_clientes(
     filtro_fecha_inicio: Optional[str],
     filtro_fecha_fin: Optional[str],
     filtro_cliente_id: Optional[str],
+    solo_activos: bool = False,
 ) -> tuple["reportes_service.FiltrosReporteClientes", str]:
     """Parsea los filtros de query y resuelve el email del solicitante — compartido
     entre los endpoints de Excel y PDF del reporte de clientes."""
@@ -1469,6 +1470,7 @@ def _preparar_reporte_clientes(
         filtro_fecha_inicio=filtro_fecha_inicio,
         filtro_fecha_fin=filtro_fecha_fin,
         filtro_cliente_id=_safe_uuid(filtro_cliente_id),
+        solo_activos=solo_activos,
     )
     solicitante = context.get("user_email") or context.get("email", "")
     return filtros, solicitante
@@ -1482,6 +1484,7 @@ async def reporte_clientes_excel(
     filtro_fecha_inicio: Optional[str] = None,
     filtro_fecha_fin: Optional[str] = None,
     filtro_cliente_id: Optional[str] = None,
+    solo_activos: bool = False,
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
     _ = require_module_access("comercial"),
@@ -1497,6 +1500,7 @@ async def reporte_clientes_excel(
             filtro_fecha_inicio=filtro_fecha_inicio,
             filtro_fecha_fin=filtro_fecha_fin,
             filtro_cliente_id=filtro_cliente_id,
+            solo_activos=solo_activos,
         )
         loop = asyncio.get_running_loop()
         if filtros.filtro_cliente_id:
@@ -1513,7 +1517,7 @@ async def reporte_clientes_excel(
                 conn, filtros, formato="excel", solicitante_email=solicitante,
             )
             content = await loop.run_in_executor(
-                None, construir_bytes_general, dataset["resumen"], dataset["detalle"]
+                None, construir_bytes_general, dataset["resumen"], dataset["detalle"], dataset.get("nota_vista")
             )
             nombre_archivo = generar_nombre_archivo()
     except ValueError as exc:
@@ -1533,6 +1537,7 @@ async def reporte_clientes_pdf(
     filtro_fecha_inicio: Optional[str] = None,
     filtro_fecha_fin: Optional[str] = None,
     filtro_cliente_id: Optional[str] = None,
+    solo_activos: bool = False,
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
     pdf_service: PDFService = Depends(get_pdf_service),
@@ -1549,6 +1554,7 @@ async def reporte_clientes_pdf(
             filtro_fecha_inicio=filtro_fecha_inicio,
             filtro_fecha_fin=filtro_fecha_fin,
             filtro_cliente_id=filtro_cliente_id,
+            solo_activos=solo_activos,
         )
         filtros_resumen = await reportes_service.describir_filtros(conn, filtros)
         fecha_generacion = format_datetime(now_mx())

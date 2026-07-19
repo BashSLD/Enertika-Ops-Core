@@ -8,18 +8,22 @@ from openpyxl.utils import get_column_letter
 from modules.asistencia.logic import ensure_mx
 
 
-def style_sheet(worksheet, headers: list[str]) -> None:
+def style_sheet(worksheet, headers: list[str], header_row: int = 1) -> None:
+    """Escribe `headers` en `header_row` (agregalos despues de cualquier fila previa,
+    ej. una nota) y congela los paneles justo debajo."""
     worksheet.append(headers)
-    worksheet.freeze_panes = "A2"
-    for cell in worksheet[1]:
+    worksheet.freeze_panes = f"A{header_row + 1}"
+    for cell in worksheet[header_row]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="123456")
 
 
-def autofit_columns(worksheet, visible_columns: int | None = None) -> None:
+def autofit_columns(worksheet, visible_columns: int | None = None, min_row: int = 1) -> None:
+    """`min_row` permite saltar filas previas al header (ej. una nota) que no deben
+    influir en el ancho de columna."""
     max_column = visible_columns or worksheet.max_column
     max_lengths = [0] * max_column
-    for row in worksheet.iter_rows(min_col=1, max_col=max_column, values_only=True):
+    for row in worksheet.iter_rows(min_row=min_row, min_col=1, max_col=max_column, values_only=True):
         for index, value in enumerate(row):
             length = len(str(value)) if value else 0
             if length > max_lengths[index]:

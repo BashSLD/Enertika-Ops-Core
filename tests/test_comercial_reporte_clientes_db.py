@@ -153,6 +153,41 @@ async def test_contar_filas_resumen_coincide_con_datos_reales(real_conn):
 
 
 # ---------------------------------------------------------------------------
+# solo_activos - excluye clientes canonicos sin solicitudes en el rango
+# ---------------------------------------------------------------------------
+
+async def test_resumen_solo_activos_excluye_clientes_sin_solicitudes(real_conn):
+    usuario_id = await _usuario_id(real_conn)
+    nombre_activo = f"TEST RCC Activo {uuid4().hex[:6]}"
+    nombre_inactivo = f"TEST RCC Inactivo {uuid4().hex[:6]}"
+    cliente_activo_id = await _insertar_cliente(real_conn, nombre_activo)
+    cliente_inactivo_id = await _insertar_cliente(real_conn, nombre_inactivo)
+    await _insertar_oportunidad(
+        real_conn, usuario_id=usuario_id, cliente_id=cliente_activo_id, cliente_nombre=nombre_activo,
+    )
+
+    filas_todas = await db.obtener_resumen_clientes(real_conn, **_SIN_FILTROS)
+    filas_activos = await db.obtener_resumen_clientes(real_conn, solo_activos=True, **_SIN_FILTROS)
+
+    assert any(f["grupo_id"] == str(cliente_inactivo_id) for f in filas_todas)
+    assert not any(f["grupo_id"] == str(cliente_inactivo_id) for f in filas_activos)
+    assert any(f["grupo_id"] == str(cliente_activo_id) for f in filas_activos)
+
+
+async def test_contar_filas_resumen_solo_activos_coincide_con_datos_reales(real_conn):
+    usuario_id = await _usuario_id(real_conn)
+    nombre = f"TEST RCC Conteo Activos {uuid4().hex[:6]}"
+    cliente_id = await _insertar_cliente(real_conn, nombre)
+    await _insertar_oportunidad(real_conn, usuario_id=usuario_id, cliente_id=cliente_id, cliente_nombre=nombre)
+    await _insertar_oportunidad(real_conn, usuario_id=usuario_id, cliente_id=None, cliente_nombre=f"{nombre} Legacy")
+
+    filas = await db.obtener_resumen_clientes(real_conn, solo_activos=True, **_SIN_FILTROS)
+    total = await db.contar_filas_resumen_general(real_conn, solo_activos=True, **_SIN_FILTROS)
+
+    assert len(filas) == total
+
+
+# ---------------------------------------------------------------------------
 # #12 - proyecto cuyo id_sitio pertenece a OTRA oportunidad no se pierde
 # ---------------------------------------------------------------------------
 

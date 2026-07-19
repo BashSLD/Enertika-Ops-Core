@@ -1,9 +1,12 @@
 """Consultas SQL puras del reporte de clientes/empresas de Comercial.
 
-Grano: una solicitud/oportunidad enviada (`id_oportunidad`). El resumen general
-incluye clientes canonicos (`tb_clientes`) aun con total cero, mas un grupo
-separado para oportunidades historicas sin `cliente_id` (legacy, sin fusion
-por nombre). El modo enfocado expande a sitio/proyecto para un solo cliente.
+Grano: una solicitud/oportunidad enviada (`id_oportunidad`). Por defecto, el
+resumen general incluye clientes canonicos (`tb_clientes`) aun con total cero
+(para detectar clientes inactivos), mas un grupo separado para oportunidades
+historicas sin `cliente_id` (legacy, sin fusion por nombre). Con
+`solo_activos=True` se omiten los clientes canonicos sin solicitudes en el
+rango filtrado. El modo enfocado expande a sitio/proyecto para un solo
+cliente.
 """
 
 from datetime import datetime
@@ -61,6 +64,21 @@ async def contar_oportunidades_filtradas(
     return int(total or 0)
 
 
+def _clausula_clientes_activos(solo_activos: bool) -> str:
+    """Fragmento opcional: exige que el cliente tenga al menos una oportunidad
+    que cumpla `_FILTROS_OPORTUNIDAD`. Vacio cuando no se pide filtrar."""
+    if not solo_activos:
+        return ""
+    return f"""
+              AND EXISTS (
+                  SELECT 1 FROM tb_oportunidades o
+                  WHERE o.cliente_id = c.id
+                    AND o.email_enviado = true
+                    {_FILTROS_OPORTUNIDAD}
+              )
+"""
+
+
 async def contar_filas_resumen_general(
     conn: asyncpg.Connection,
     *,
@@ -69,12 +87,18 @@ async def contar_filas_resumen_general(
     filtro_estatus_id: Optional[int],
     fecha_inicio_mx: Optional[datetime],
     fecha_fin_mx_exclusive: Optional[datetime],
+    solo_activos: bool = False,
 ) -> int:
-    """Cuenta filas de resumen: todos los clientes canonicos + grupos legacy filtrados."""
+    """Cuenta filas de resumen: clientes canonicos (todos, o solo con actividad en el
+    rango si `solo_activos`) + grupos legacy filtrados."""
     total = await conn.fetchval(
         f"""
         SELECT
-            (SELECT COUNT(*) FROM tb_clientes)
+            (
+                SELECT COUNT(*) FROM tb_clientes c
+                WHERE true
+                  {_clausula_clientes_activos(solo_activos)}
+            )
             + (
                 SELECT COUNT(DISTINCT {_legacy_grupo_id_expr('o.cliente_nombre')})
                 FROM tb_oportunidades o
@@ -100,8 +124,11 @@ async def obtener_resumen_clientes(
     filtro_estatus_id: Optional[int],
     fecha_inicio_mx: Optional[datetime],
     fecha_fin_mx_exclusive: Optional[datetime],
+    solo_activos: bool = False,
 ) -> list[dict]:
-    """Resumen general: una fila por cliente canonico o grupo legacy, con desglose de estatus."""
+    """Resumen general: una fila por cliente canonico o grupo legacy, con desglose de estatus.
+    Con `solo_activos`, se omiten los clientes canonicos con total_solicitudes en cero."""
+    clausula_activos = "WHERE t.total_solicitudes > 0" if solo_activos else ""
     rows = await conn.fetch(
         f"""
         WITH oportunidades_filtradas AS (
@@ -168,6 +195,7 @@ async def obtener_resumen_clientes(
             ) AS desglose_estatus
         FROM totales t
         LEFT JOIN estatus_counts ec ON ec.grupo_id = t.grupo_id AND ec.cliente_nombre = t.cliente_nombre
+        {clausula_activos}
         GROUP BY t.grupo_id, t.cliente_nombre, t.total_solicitudes
         ORDER BY t.cliente_nombre
         """,

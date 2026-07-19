@@ -7,6 +7,7 @@ from datetime import date, datetime
 from io import BytesIO
 
 from openpyxl import Workbook
+from openpyxl.styles import Font
 
 from core.timezone import ensure_mx, now_mx
 from modules.rrhh.excel_utils import autofit_columns, style_sheet
@@ -14,12 +15,12 @@ from modules.shared.utils import safe_sheet_title
 
 _CARACTERES_PELIGROSOS = ("=", "+", "-", "@")
 
-_RESUMEN_HEADERS = ["Cliente", "Total de solicitudes", "Desglose por estatus"]
-_DETALLE_GENERAL_HEADERS = ["Cliente", "Folio", "Fecha de solicitud", "Estatus", "Fase de proyecto"]
+_RESUMEN_HEADERS = ["Cliente", "Total de solicitudes", "Desglose por estatus de Simulación"]
+_DETALLE_GENERAL_HEADERS = ["Cliente", "Folio", "Fecha de solicitud", "Estatus Simulación", "Fase de proyecto"]
 _DETALLE_CLIENTE_HEADERS = [
     "Folio",
     "Fecha de solicitud",
-    "Estatus",
+    "Estatus Simulación",
     "Sitio",
     "Direccion",
     "Proyecto",
@@ -88,19 +89,27 @@ def _agregar_hoja_detalle(
     autofit_columns(ws, visible_columns=len(headers))
 
 
-def build_reporte_clientes_general_workbook(resumen: list[dict], detalle: list[dict]) -> Workbook:
+def build_reporte_clientes_general_workbook(
+    resumen: list[dict], detalle: list[dict], nota_vista: str | None = None
+) -> Workbook:
     workbook = Workbook()
     workbook.remove(workbook.active)
 
     ws_resumen = workbook.create_sheet("Resumen por cliente")
-    style_sheet(ws_resumen, _RESUMEN_HEADERS)
+    if nota_vista:
+        nota_cell = ws_resumen.cell(row=1, column=1, value=_texto_seguro(nota_vista))
+        nota_cell.font = Font(italic=True, color="666666")
+        ws_resumen.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(_RESUMEN_HEADERS))
+    style_sheet(ws_resumen, _RESUMEN_HEADERS, header_row=2 if nota_vista else 1)
     for row in resumen:
         ws_resumen.append([
             _texto_seguro(row.get("cliente_nombre")),
             int(row.get("total_solicitudes") or 0),
             _texto_seguro(row.get("desglose_estatus")),
         ])
-    autofit_columns(ws_resumen, visible_columns=len(_RESUMEN_HEADERS))
+    autofit_columns(
+        ws_resumen, visible_columns=len(_RESUMEN_HEADERS), min_row=2 if nota_vista else 1
+    )
 
     _agregar_hoja_detalle(
         workbook, "Detalle de solicitudes", _DETALLE_GENERAL_HEADERS, _DETALLE_GENERAL_COLUMNAS, detalle
@@ -129,9 +138,9 @@ def _workbook_to_bytes(workbook: Workbook) -> bytes:
     return buffer.getvalue()
 
 
-def construir_bytes_general(resumen: list[dict], detalle: list[dict]) -> bytes:
+def construir_bytes_general(resumen: list[dict], detalle: list[dict], nota_vista: str | None = None) -> bytes:
     """Sincrono: pensado para ejecutarse en un executor (CPU-bound, no bloquear el loop)."""
-    workbook = build_reporte_clientes_general_workbook(resumen, detalle)
+    workbook = build_reporte_clientes_general_workbook(resumen, detalle, nota_vista)
     return _workbook_to_bytes(workbook)
 
 
