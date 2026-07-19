@@ -45,6 +45,11 @@ def format_minutes(value) -> str:
     return f"{m}m"
 
 
+def sanitize_filename_slug(text: str, max_length: int = 40) -> str:
+    """Sanitiza texto libre para usarlo como fragmento de nombre de archivo."""
+    return re.sub(r"[^\w\-]", "_", text)[:max_length].strip("_")
+
+
 _INVALID_SHEET_TITLE_CHARS = re.compile(r"[\\/?*\[\]:]")
 
 

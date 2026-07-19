@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from datetime import date, datetime
 from io import BytesIO
 
@@ -11,7 +10,7 @@ from openpyxl.styles import Font
 
 from core.timezone import ensure_mx, now_mx
 from modules.rrhh.excel_utils import autofit_columns, style_sheet
-from modules.shared.utils import safe_sheet_title
+from modules.shared.utils import safe_sheet_title, sanitize_filename_slug
 
 _CARACTERES_PELIGROSOS = ("=", "+", "-", "@")
 
@@ -152,8 +151,6 @@ def construir_bytes_por_cliente(detalle: list[dict], cliente_nombre: str | None 
 
 def generar_nombre_archivo(cliente_nombre: str | None = None) -> str:
     ts = f"{now_mx():%Y%m%d_%H%M}"
-    if cliente_nombre:
-        slug = re.sub(r"[^\w\-]", "_", cliente_nombre).strip("_")[:40]
-        if slug:
-            return f"reporte_clientes_{slug}_{ts}.xlsx"
-    return f"reporte_clientes_{ts}.xlsx"
+    slug = sanitize_filename_slug(cliente_nombre or "")
+    parts = [p for p in ["reporte_clientes", ts, slug] if p]
+    return "_".join(parts) + ".xlsx"

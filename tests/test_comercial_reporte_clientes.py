@@ -280,7 +280,8 @@ def test_excel_por_cliente_hoja_incluye_nombre_cliente():
 def test_generar_nombre_archivo_incluye_cliente_sanitizado():
     nombre = generar_nombre_archivo("Acme / Ríos S.A.?")
 
-    assert nombre.startswith("reporte_clientes_Acme")
+    assert nombre.startswith("reporte_clientes_")
+    assert "Acme" in nombre
     assert nombre.endswith(".xlsx")
     assert not any(c in nombre for c in ("/", "?", " "))
 

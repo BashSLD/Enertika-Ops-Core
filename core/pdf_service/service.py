@@ -5,7 +5,6 @@ Renderiza templates Jinja2 a HTML y convierte a PDF en un executor (async-safe).
 """
 import asyncio
 import logging
-import re
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -17,6 +16,7 @@ from core.database import get_db_pool
 from core.integrations.sharepoint import SharePointService
 from core.microsoft import MicrosoftAuth
 from core.timezone import now_mx
+from modules.shared.utils import sanitize_filename_slug
 
 from .db_service import PDFDBService, get_pdf_db_service
 from .image_processor import ImageProcessor
@@ -89,7 +89,7 @@ class PDFService:
         Ejemplo: visita_obra_20260225_1430_Planta_Norte.pdf
         """
         ts = now_mx().strftime("%Y%m%d_%H%M")
-        clean_suffix = re.sub(r"[^\w\-]", "_", suffix)[:40].strip("_")
+        clean_suffix = sanitize_filename_slug(suffix)
         parts = [p for p in [prefix, ts, clean_suffix] if p]
         return "_".join(parts) + ".pdf"
 
