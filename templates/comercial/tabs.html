@@ -700,14 +700,21 @@
             });
             return count;
         },
+        searchValue: '',
         clearFilters() {
             document.querySelectorAll('.global-filter').forEach(el => {
-                if (!el || el.id === 'active_tab_input') return;
+                if (!el || el.id === 'active_tab_input' || el.name === 'q') return;
                 el.value = '';
             });
-            document.querySelectorAll('input.global-filter[name=q]').forEach(el => {
-                if (typeof htmx !== 'undefined') htmx.trigger(el, 'search');
-            });
+            this.clearSearch();
+        },
+        clearSearch() {
+            const el = document.querySelector('input.global-filter[name=q]');
+            if (!el) return;
+            el.value = '';
+            this.searchValue = '';
+            el.focus();
+            if (typeof htmx !== 'undefined') htmx.trigger(el, 'search');
         }
     }" x-init="init()" class="mb-3" @keydown.escape.window="showDesktopFilters = false">
         <input type="hidden" id="active_tab_input" name="tab" value="activos" class="global-filter">
@@ -722,10 +729,17 @@
                     </svg>
                 </span>
                 <input type="text" name="q"
-                    class="global-filter w-full pl-9 pr-3 py-1 bg-white/60 backdrop-blur-sm border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] transition-all"
+                    class="global-filter w-full pl-9 pr-8 py-1 bg-white/60 backdrop-blur-sm border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] transition-all"
                     placeholder="Buscar empresa o proyecto..." hx-get="/comercial/partials/graphs"
                     hx-trigger="keyup changed delay:500ms, search" hx-target="#tab-content"
-                    hx-include=".global-filter">
+                    hx-include=".global-filter" @input="searchValue = $event.target.value">
+                <button type="button" x-show="searchValue.length > 0" x-cloak @click="clearSearch()"
+                    class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600"
+                    aria-label="Limpiar búsqueda">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
             </div>
 
             <div class="relative hidden lg:block" @click.outside="showDesktopFilters = false">
@@ -842,14 +856,6 @@
                     </div>
                 </div>
             </div>
-
-            <button type="button" @click="clearFilters()"
-                class="hidden lg:inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-300 bg-white/70 hover:bg-white text-sm text-gray-700 transition-colors">
-                <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                Limpiar
-            </button>
         </div>
 
         <!-- Mobile toggle -->
