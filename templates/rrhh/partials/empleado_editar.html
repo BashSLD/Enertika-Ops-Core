@@ -52,10 +52,15 @@
     </div>
     <div>
       <label class="block text-xs font-medium text-gray-600 mb-1">Departamento</label>
-      <p class="text-sm text-gray-500 px-3 py-2 bg-gray-50 rounded-xl truncate"
-         title="Sincronizado desde Microsoft — no editable aquí">
-        {{ usuario.get('department') or 'Sin departamento en Microsoft' }}
-      </p>
+      <select name="department_slug"
+        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30 bg-white">
+        <option value="">— Sin departamento —</option>
+        {% for depto in departamentos %}
+        <option value="{{ depto.slug }}" {% if usuario.get('department') == depto.nombre %}selected{% endif %}>
+          {{ depto.nombre }}
+        </option>
+        {% endfor %}
+      </select>
     </div>
   </div>
 

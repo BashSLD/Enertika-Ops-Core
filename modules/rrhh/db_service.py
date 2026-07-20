@@ -293,7 +293,7 @@ async def get_reporte_vacaciones(
             u.nombre AS empleado_nombre,
             u.email AS empleado_email,
             ed.numero_empleado,
-            COALESCE(ed.departamento, u.department) AS departamento,
+            u.department AS departamento,
             aprobador.nombre AS aprobado_por_nombre
         FROM tb_solicitudes_ausencia sa
         JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
@@ -340,7 +340,7 @@ async def get_vacaciones_aprobadas(
             u.nombre AS empleado_nombre,
             u.email AS empleado_email,
             ed.numero_empleado,
-            COALESCE(ed.departamento, u.department) AS departamento,
+            u.department AS departamento,
             aprobador.nombre AS aprobado_por_nombre
         FROM tb_solicitudes_ausencia sa
         JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id

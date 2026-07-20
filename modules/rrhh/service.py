@@ -36,6 +36,7 @@ from modules.rrhh.asistencia_excel_builder import (
     FORMATOS_REPORTE_ASISTENCIA,
     build_asistencia_workbook,
 )
+from modules.admin.service import get_admin_service
 from modules.rrhh import db_service as rrhh_db
 from modules.vacaciones import db_service as vac_db
 from modules.vacaciones.constants import ESTADOS_SOLICITUD
@@ -127,6 +128,7 @@ async def get_empleado_edit_ctx(conn, usuario_id: UUID) -> dict:
     jefes = await vac_db.get_jefes_con_nombre(conn, usuario_id)
     usuarios = await vac_db.get_usuarios_activos_simples(conn)
     prorrogas = await vac_db.get_prorrogas_usuario(conn, usuario_id)
+    departamentos = await get_admin_service().get_departments_catalog(conn)
     jefes_ids = {j["id_usuario"] for j in jefes}
     return {
         "empleado": empleado,
@@ -136,6 +138,7 @@ async def get_empleado_edit_ctx(conn, usuario_id: UUID) -> dict:
         "usuarios": usuarios,
         "sucursales": await asistencia_db.get_sucursales(conn),
         "prorrogas": prorrogas,
+        "departamentos": departamentos,
     }
 
 
@@ -1364,7 +1367,7 @@ async def build_empleados_vacaciones_export(
             emp["nombre"],
             emp["email"],
             emp.get("numero_empleado"),
-            emp.get("departamento") or emp.get("department"),
+            emp.get("department"),
             fecha_contratacion,
         ]
         if not fecha_contratacion:
@@ -1702,7 +1705,7 @@ async def guardar_empleado(
     numero_empleado: str | None,
     fecha_contratacion,
     puesto: str | None,
-    departamento: str | None,
+    department_slug: str | None,
     id_aprobador_vacaciones: UUID | None,
     dias_vacaciones_ajuste: int | None,
     sucursal_id: UUID | None,
@@ -1736,7 +1739,6 @@ async def guardar_empleado(
             numero_empleado=numero_empleado,
             fecha_contratacion=fecha_contratacion,
             puesto=puesto,
-            departamento=departamento,
             id_aprobador_vacaciones=id_aprobador_vacaciones,
             dias_vacaciones_ajuste=dias_vacaciones_ajuste,
             sucursal_id=sucursal_id,
@@ -1744,6 +1746,8 @@ async def guardar_empleado(
             requiere_aprobador_he=requiere_aprobador_he,
             updated_by=updated_by,
         )
+        if department_slug is not None:
+            await get_admin_service().update_user_department(conn, usuario_id, department_slug)
         await vac_db.set_jefes(conn, usuario_id, jefes_ids)
 
     if sucursal_id != old_sucursal_id:
