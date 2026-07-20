@@ -30,9 +30,10 @@ def _svc_con_captura(monkeypatch):
     svc = NotificationService(db=FakeDB())
     captured = {}
 
-    async def fake_send_email(to_emails, cc_emails, subject, _html, _sender_email, **_kwargs):
+    async def fake_send_email(to_emails, cc_emails, subject, _html, _sender_email, **kwargs):
         captured["to"] = to_emails
         captured["cc"] = cc_emails
+        captured["bcc"] = kwargs.get("bcc_emails")
         captured["subject"] = subject
         return True
 
@@ -83,6 +84,26 @@ async def test_notify_horas_extra_solicitud_recordatorio_cambia_subject(monkeypa
     )
 
     assert captured["subject"] == "Recordatorio de horas extra pendiente: Empleado Test"
+
+
+async def test_notify_horas_extra_solicitud_propaga_bcc(monkeypatch):
+    svc, captured = _svc_con_captura(monkeypatch)
+
+    await svc.notify_horas_extra_solicitud(
+        None,
+        empleado_nombre="Empleado Test",
+        fecha_laboral=date(2026, 7, 1),
+        extra_fmt="2h",
+        motivo="Cierre urgente",
+        destinatarios={"jefe@enertika.mx"},
+        cc_emails={"rh@enertika.mx"},
+        bcc_emails={"admin@enertika.mx"},
+        url_aprobacion="https://app.test/perfil/ui?tab=aprobaciones",
+        label_boton="Revisar en Aprobaciones",
+    )
+
+    assert captured["cc"] == {"rh@enertika.mx"}
+    assert captured["bcc"] == {"admin@enertika.mx"}
 
 
 async def test_notify_compensatorio_solicitud_envia_y_notifica(monkeypatch):

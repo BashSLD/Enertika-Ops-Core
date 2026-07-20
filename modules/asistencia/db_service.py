@@ -18,7 +18,10 @@ from core.tasks_db_service import (
     _he_override_lateral_join,
     _jefe_emails_lateral_join,
 )
-from modules.asistencia.constants import ASISTENCIA_MODALIDAD_METADATA_SLUGS
+from modules.asistencia.constants import (
+    ASISTENCIA_MODALIDAD_METADATA_SLUGS,
+    HE_EVENTO_ESCALACION_DIRECTOR,
+)
 
 
 async def get_last_transaction_id(conn) -> int | None:
@@ -642,7 +645,7 @@ async def get_reporte_asistencia(
             u.nombre AS empleado_nombre,
             u.email AS empleado_email,
             s.nombre AS sucursal_nombre,
-            ed.departamento,
+            u.department AS departamento,
             hea.minutos_aprobados,
             hea.comentario AS aprobacion_comentario
         FROM tb_asistencia_diaria ad
@@ -650,7 +653,6 @@ async def get_reporte_asistencia(
         LEFT JOIN tb_solicitudes_ausencia sa ON sa.id = ad.solicitud_ausencia_id
         LEFT JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
         LEFT JOIN tb_cat_sucursales s ON s.id = ad.sucursal_id
-        LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = ad.usuario_id
         LEFT JOIN tb_horas_extra_aprobaciones hea ON hea.asistencia_id = ad.id
         WHERE ad.fecha_laboral >= $1
           AND ad.fecha_laboral <= $2
@@ -686,7 +688,7 @@ async def get_reporte_asistencia(
             u.nombre AS empleado_nombre,
             u.email AS empleado_email,
             s.nombre AS sucursal_nombre,
-            ed.departamento,
+            u.department AS departamento,
             NULL::int AS minutos_aprobados,
             NULL::text AS aprobacion_comentario
         FROM tb_solicitudes_ausencia sa
@@ -1999,7 +2001,11 @@ async def get_he_niveles_catalogo(conn) -> list[dict]:
 async def get_datos_resolucion_notificacion_he(conn, usuario_id: UUID) -> dict:
     """Todo lo necesario para el resolver unico de destinatarios HE/compensatorio en un round trip:
     aprobador exclusivo (si existe) + su estado, jefes activos + si alguno es director, aprobador de
-    vacaciones activo, y el fallback RH editor/admin + ADMIN global con correo."""
+    vacaciones activo, el fallback RH editor/admin + ADMIN global con correo, y el CC/CCO
+    configurado en Admin para la escalacion a director (se trae siempre en el mismo round trip
+    aunque no siempre se use, para no pagar una segunda query condicional en el path sincrono
+    de solicitud inmediata -- el worker batched de recordatorios, que si amortiza esta consulta
+    fuera de su loop, sigue usando get_escalacion_director_emails por separado)."""
     row = await conn.fetchrow(
         f"""
         WITH base AS (
@@ -2013,19 +2019,52 @@ async def get_datos_resolucion_notificacion_he(conn, usuario_id: UUID) -> dict:
                AND pm.modulo_slug = 'rrhh'
                AND pm.rol_modulo IN ('editor', 'admin')
             WHERE {_FALLBACK_RH_ADMIN_WHERE}
+        ),
+        escalacion AS (
+            SELECT type, array_agg(DISTINCT email_to_add) FILTER (WHERE email_to_add IS NOT NULL) AS emails
+            FROM tb_config_emails
+            WHERE trigger_field = 'EVENTO'
+              AND trigger_value = $2
+              AND type IN ('CC', 'CCO')
+            GROUP BY type
         )
         SELECT
             {_HE_OVERRIDE_SELECT_COLUMNS},
             jefes.emails AS jefe_emails,
             COALESCE(jefes.tiene_director, false) AS tiene_director,
-            (SELECT array_agg(DISTINCT email) FROM fallback) AS fallback_emails
+            (SELECT array_agg(DISTINCT email) FROM fallback) AS fallback_emails,
+            (SELECT emails FROM escalacion WHERE type = 'CC') AS escalacion_cc,
+            (SELECT emails FROM escalacion WHERE type = 'CCO') AS escalacion_cco
         FROM base
         {_jefe_emails_lateral_join("base.usuario_id")}
         {_he_override_lateral_join("base.usuario_id")}
         """,
         usuario_id,
+        HE_EVENTO_ESCALACION_DIRECTOR,
     )
     return dict(row)
+
+
+async def get_escalacion_director_emails(conn) -> dict:
+    """CC/CCO configurados en Admin > Reglas de correo (tb_config_emails, evento
+    HE_EVENTO_ESCALACION_DIRECTOR) para la visibilidad informativa cuando una aprobacion de
+    horas extra/compensatorio escala a un director. Un solo round trip agrupado por type --
+    no reusa get_emails_for_event (core/workflow/notification_db_service.py) porque ese trae
+    un solo type por llamada; aqui se necesitan CC y CCO juntos y agrupar por type en una
+    sola query evita el segundo round trip."""
+    rows = await conn.fetch(
+        """
+        SELECT type, array_agg(DISTINCT email_to_add) FILTER (WHERE email_to_add IS NOT NULL) AS emails
+        FROM tb_config_emails
+        WHERE trigger_field = 'EVENTO'
+          AND trigger_value = $1
+          AND type IN ('CC', 'CCO')
+        GROUP BY type
+        """,
+        HE_EVENTO_ESCALACION_DIRECTOR,
+    )
+    por_tipo = {row["type"]: set(row["emails"] or []) for row in rows}
+    return {"cc": por_tipo.get("CC", set()), "bcc": por_tipo.get("CCO", set())}
 
 
 async def get_fallback_rh_admin_emails(conn) -> set[str]:

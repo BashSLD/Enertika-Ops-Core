@@ -33,6 +33,8 @@ from modules.rrhh.service import _resolver_id_aprobador_horas_extra
 
 URL_PERFIL = f"{settings.APP_BASE_URL}/perfil/ui?tab=aprobaciones"
 URL_RH = f"{settings.APP_BASE_URL}/rrhh/ui?tab=aprobaciones"
+ESCALACION_CC = {"rh_config@enertika.mx"}
+ESCALACION_CCO = {"admin_config@enertika.mx"}
 
 
 # ───────────────────────── resolver_destinatarios_he_puro ─────────────────────────
@@ -46,10 +48,13 @@ def test_resolver_override_activo_con_email():
         tiene_director=False,
         aprobador_vac_email="miguel@enertika.mx",
         fallback_emails={"rh@enertika.mx"},
+        escalacion_cc=ESCALACION_CC,
+        escalacion_cco=ESCALACION_CCO,
     )
     assert resultado == {
         "to": {"sarel@enertika.mx"},
         "cc": set(),
+        "bcc": set(),
         "url": URL_PERFIL,
         "label_boton": "Revisar en Aprobaciones",
     }
@@ -66,6 +71,7 @@ def test_resolver_override_activo_pero_aprobador_inactivo_usa_fallback():
     )
     assert resultado["to"] == {"rh@enertika.mx", "admin@enertika.mx"}
     assert resultado["cc"] == set()
+    assert resultado["bcc"] == set()
     assert resultado["url"] == URL_RH
     assert resultado["label_boton"] == "Revisar en RRHH"
 
@@ -83,7 +89,7 @@ def test_resolver_override_inactivo_sin_fallback_to_vacio():
     assert resultado["url"] == URL_RH
 
 
-def test_resolver_regla_normal_con_director_agrega_cc():
+def test_resolver_regla_normal_con_director_usa_escalacion_cc_cco():
     resultado = resolver_destinatarios_he_puro(
         tiene_override=False,
         override_email=None,
@@ -91,11 +97,29 @@ def test_resolver_regla_normal_con_director_agrega_cc():
         tiene_director=True,
         aprobador_vac_email="vac@enertika.mx",
         fallback_emails={"rh@enertika.mx"},
+        escalacion_cc=ESCALACION_CC,
+        escalacion_cco=ESCALACION_CCO,
     )
     assert resultado["to"] == {"jefe1@enertika.mx", "jefe2@enertika.mx", "vac@enertika.mx"}
-    assert resultado["cc"] == {"rh@enertika.mx"}
+    assert resultado["cc"] == ESCALACION_CC
+    assert resultado["bcc"] == ESCALACION_CCO
     assert resultado["url"] == URL_PERFIL
     assert resultado["label_boton"] == "Revisar en Aprobaciones"
+
+
+def test_resolver_regla_normal_con_director_sin_config_no_agrega_nada():
+    """Si RH no configuro reglas CC/CCO en Admin para el evento de escalacion, no se
+    agrega nadie -- el resolver ya no cae al fallback RH/ADMIN por rol como antes."""
+    resultado = resolver_destinatarios_he_puro(
+        tiene_override=False,
+        override_email=None,
+        jefe_emails=["jefe1@enertika.mx"],
+        tiene_director=True,
+        aprobador_vac_email="vac@enertika.mx",
+        fallback_emails={"rh@enertika.mx"},
+    )
+    assert resultado["cc"] == set()
+    assert resultado["bcc"] == set()
 
 
 def test_resolver_regla_normal_sin_director_cc_vacio():
@@ -106,8 +130,11 @@ def test_resolver_regla_normal_sin_director_cc_vacio():
         tiene_director=False,
         aprobador_vac_email=None,
         fallback_emails={"rh@enertika.mx"},
+        escalacion_cc=ESCALACION_CC,
+        escalacion_cco=ESCALACION_CCO,
     )
     assert resultado["cc"] == set()
+    assert resultado["bcc"] == set()
 
 
 def test_resolver_regla_normal_sin_destinatarios_cae_a_fallback():
@@ -126,8 +153,8 @@ def test_resolver_regla_normal_sin_destinatarios_cae_a_fallback():
 
 def test_resolver_director_sin_correo_no_agrega_cc():
     """Director en la jerarquia pero sin correo registrado (jefe_emails vacio pese a
-    tiene_director=True): CC debe quedar vacio, ya que ningun correo de director llego a TO
-    (el TO se llena solo via aprobador de vacaciones)."""
+    tiene_director=True): CC/CCO deben quedar vacios, ya que ningun correo de director
+    llego a TO (el TO se llena solo via aprobador de vacaciones)."""
     resultado = resolver_destinatarios_he_puro(
         tiene_override=False,
         override_email=None,
@@ -135,9 +162,12 @@ def test_resolver_director_sin_correo_no_agrega_cc():
         tiene_director=True,
         aprobador_vac_email="vac@enertika.mx",
         fallback_emails={"rh@enertika.mx"},
+        escalacion_cc=ESCALACION_CC,
+        escalacion_cco=ESCALACION_CCO,
     )
     assert resultado["to"] == {"vac@enertika.mx"}
     assert resultado["cc"] == set()
+    assert resultado["bcc"] == set()
 
 
 def test_resolver_filtra_emails_nulos_en_lista_de_jefes():
@@ -670,6 +700,55 @@ async def test_retiro_propio_rechaza_estado_no_retirable(real_conn):
 
     with pytest.raises(ValueError, match="pendientes o solicitados"):
         await omitir_horas_extra_propio_svc(real_conn, asistencia_id=asistencia_id, usuario_id=empleado)
+
+
+@pytest.mark.asyncio
+async def test_notificar_retiro_horas_extra_incluye_escalacion_cc_y_bcc(real_conn, monkeypatch):
+    """Regression: _notificar_retiro_horas_extra unia solo to|cc antes de que
+    resolver_destinatarios_he_puro separara la escalacion a director en cc/bcc -- el
+    CCO (ADMIN) quedaba fuera del aviso de retiro. Debe incluir las tres."""
+    from core.timezone import today_mx
+
+    jefe_email = _email()
+    jefe = await _crear_usuario(real_conn, email=jefe_email)
+    await real_conn.execute(
+        "UPDATE tb_usuarios SET rol_organizacional = 'director' WHERE id_usuario = $1", jefe
+    )
+    empleado = await _crear_usuario(real_conn, email=_email())
+    await _crear_empleado_datos(real_conn, empleado)
+    await _crear_jefe(real_conn, empleado, jefe)
+
+    cc_email = _email()
+    bcc_email = _email()
+    await real_conn.execute(
+        """
+        INSERT INTO tb_config_emails (modulo, trigger_field, trigger_value, email_to_add, type)
+        VALUES ('ASISTENCIA', 'EVENTO', 'HORAS_EXTRA_ESCALACION_DIRECTOR', $1, 'CC'),
+               ('ASISTENCIA', 'EVENTO', 'HORAS_EXTRA_ESCALACION_DIRECTOR', $2, 'CCO')
+        """,
+        cc_email,
+        bcc_email,
+    )
+
+    capturado = {}
+
+    async def fake_notify(self, conn, *, empleado_nombre, fecha_laboral, extra_fmt, destinatarios):
+        capturado["destinatarios"] = destinatarios
+        return True
+
+    monkeypatch.setattr(
+        "core.workflow.notification_service.NotificationService.notify_he_solicitud_retirada",
+        fake_notify,
+    )
+
+    row = {"empleado_nombre": "Empleado Test", "fecha_laboral": today_mx(), "minutos_extra": 90}
+    await asistencia_service._notificar_retiro_horas_extra(real_conn, usuario_id=empleado, row=row)
+
+    # >= (no ==): la BD de pruebas puede tener otras filas CC/CCO preexistentes para el
+    # mismo evento (p.ej. la semilla de la migracion 154) que tambien deben incluirse --
+    # el punto de este test es que jefe_email (to), cc_email y bcc_email SI llegan, no que
+    # sean los unicos.
+    assert capturado["destinatarios"] >= {jefe_email, cc_email, bcc_email}
 
 
 # ───────────────────────── validacion formulario RH ─────────────────────────

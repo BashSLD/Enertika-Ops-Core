@@ -559,6 +559,7 @@ class NotificationService:
         template_context: dict,
         destinatarios: set[str],
         cc_emails: set[str] | None = None,
+        bcc_emails: set[str] | None = None,
         url_aprobacion: str,
         label_boton: str,
         es_recordatorio: bool = False,
@@ -592,7 +593,9 @@ class NotificationService:
             )
             subject = subject_recordatorio if es_recordatorio else subject_pendiente
             sender_config = await self._get_notification_sender(conn, "DEFAULT")
-            enviado = await self._send_email(destinatarios, cc_emails, subject, html, sender_config["email"])
+            enviado = await self._send_email(
+                destinatarios, cc_emails, subject, html, sender_config["email"], bcc_emails=bcc_emails
+            )
             if not enviado:
                 return False
 
@@ -626,6 +629,7 @@ class NotificationService:
         motivo: str,
         destinatarios: set[str],
         cc_emails: set[str] | None = None,
+        bcc_emails: set[str] | None = None,
         url_aprobacion: str,
         label_boton: str,
         es_recordatorio: bool = False,
@@ -648,6 +652,7 @@ class NotificationService:
             },
             destinatarios=destinatarios,
             cc_emails=cc_emails,
+            bcc_emails=bcc_emails,
             url_aprobacion=url_aprobacion,
             label_boton=label_boton,
             es_recordatorio=es_recordatorio,
@@ -665,6 +670,7 @@ class NotificationService:
         motivo: str,
         destinatarios: set[str],
         cc_emails: set[str] | None = None,
+        bcc_emails: set[str] | None = None,
         url_aprobacion: str,
         label_boton: str,
         es_recordatorio: bool = False,
@@ -687,6 +693,7 @@ class NotificationService:
             },
             destinatarios=destinatarios,
             cc_emails=cc_emails,
+            bcc_emails=bcc_emails,
             url_aprobacion=url_aprobacion,
             label_boton=label_boton,
             es_recordatorio=es_recordatorio,

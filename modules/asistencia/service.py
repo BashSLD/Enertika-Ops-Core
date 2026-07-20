@@ -854,7 +854,7 @@ async def _notificar_retiro_horas_extra(conn, *, usuario_id: UUID, row: dict) ->
     from core.workflow.notification_service import NotificationService
 
     resuelto = await resolver_destinatarios_he(conn, usuario_id)
-    destinatarios = resuelto["to"] | resuelto["cc"]
+    destinatarios = resuelto["to"] | resuelto["cc"] | resuelto["bcc"]
     if not destinatarios:
         return
     svc_notif = NotificationService()
@@ -1005,17 +1005,26 @@ def resolver_destinatarios_he_puro(
     tiene_director: bool,
     aprobador_vac_email: str | None,
     fallback_emails: set[str],
+    escalacion_cc: set[str] | None = None,
+    escalacion_cco: set[str] | None = None,
 ) -> dict:
-    """Logica pura del resolver unico de destinatarios TO/CC/motivo/URL para HE y compensatorio.
+    """Logica pura del resolver unico de destinatarios TO/CC/CCO/motivo/URL para HE y compensatorio.
 
     Sin acceso a BD: recibe columnas ya resueltas para poder reusarse tanto en la solicitud
     inmediata/retiro propio (round trip via resolver_destinatarios_he) como en los recordatorios
     batched del worker (columnas ya traidas por la query, sin N+1).
 
-    Prioridad: aprobador exclusivo activo (TO exclusivo, CC vacio) > aprobador exclusivo inactivo
-    (fallback RH/ADMIN, CC vacio) > regla normal: jefes activos union aprobador de vacaciones activo
-    (CC = fallback solo si algun jefe jerarquico es director Y su correo quedo en TO) > sin
-    destinatarios normales -> fallback.
+    Prioridad: aprobador exclusivo activo (TO exclusivo, CC/CCO vacios) > aprobador exclusivo
+    inactivo (fallback RH/ADMIN por rol, CC/CCO vacios) > regla normal: jefes activos union
+    aprobador de vacaciones activo (CC/CCO = reglas configurables en Admin > Reglas de correo,
+    evento HE_EVENTO_ESCALACION_DIRECTOR, solo si algun jefe jerarquico es director Y su correo
+    quedo en TO) > sin destinatarios normales -> fallback.
+
+    `fallback_emails` es el pool de enrutamiento real (RH editor/admin + ADMIN global por rol,
+    ver get_fallback_rh_admin_emails) -- se usa solo cuando no hay ningun destinatario valido,
+    porque alguien tiene que poder aprobar. `escalacion_cc`/`escalacion_cco` es una lista de
+    correos manual editable desde Admin (no atada a rol) para la visibilidad informativa cuando
+    la aprobacion escala a un director: si RH no configuro nada, no se agrega nadie.
 
     ATENCION: el input `tiene_override` codifica la misma regla de precedencia (exclusivo >
     jefe/aprobador de vacaciones) que modules.asistencia.db_service._HE_AUTORIZACION_PRECEDENCIA_QUERY
@@ -1033,6 +1042,7 @@ def resolver_destinatarios_he_puro(
         return {
             "to": set(fallback_emails),
             "cc": set(),
+            "bcc": set(),
             "url": url_rh,
             "label_boton": "Revisar en RRHH",
         }
@@ -1042,6 +1052,7 @@ def resolver_destinatarios_he_puro(
             return {
                 "to": {override_email},
                 "cc": set(),
+                "bcc": set(),
                 "url": url_perfil,
                 "label_boton": "Revisar en Aprobaciones",
             }
@@ -1051,9 +1062,11 @@ def resolver_destinatarios_he_puro(
     to_emails = jefe_emails_set | ({aprobador_vac_email} if aprobador_vac_email else set())
     if not to_emails:
         return _fallback_rh()
+    hay_escalacion = tiene_director and jefe_emails_set
     return {
         "to": to_emails,
-        "cc": set(fallback_emails) if (tiene_director and jefe_emails_set) else set(),
+        "cc": set(escalacion_cc or set()) if hay_escalacion else set(),
+        "bcc": set(escalacion_cco or set()) if hay_escalacion else set(),
         "url": url_perfil,
         "label_boton": "Revisar en Aprobaciones",
     }
@@ -1122,10 +1135,23 @@ async def notify_aprobador_he_inactivo(
         )
 
 
+async def get_escalacion_director_cc_cco(conn) -> tuple[set[str], set[str]]:
+    """CC/CCO configurables en Admin > Reglas de correo para el evento de escalacion a
+    director (HE_EVENTO_ESCALACION_DIRECTOR). Usado por resolver_destinatarios_he (solicitud
+    inmediata) y por el worker de recordatorios (core/tasks.py) una sola vez antes de su loop,
+    para no repetir la consulta por fila. Un solo round trip via db.get_escalacion_director_emails
+    (agrupa CC/CCO en una sola query, no dos)."""
+    resuelto = await db.get_escalacion_director_emails(conn)
+    return resuelto["cc"], resuelto["bcc"]
+
+
 async def resolver_destinatarios_he(conn, usuario_id: UUID) -> dict:
     """Wrapper con round trip a BD de resolver_destinatarios_he_puro; usar en solicitud
     inmediata y retiro propio. Los recordatorios batched del worker llaman la version pura
-    directamente con columnas ya traidas por su query (ver core/tasks.py)."""
+    directamente con columnas ya traidas por su query (ver core/tasks.py). El CC/CCO de
+    escalacion viene en el mismo round trip que el resto de datos (get_datos_resolucion_
+    notificacion_he) -- no se llama get_escalacion_director_cc_cco aqui para no pagar una
+    segunda query en un path sincrono de solicitud inmediata."""
     datos = await db.get_datos_resolucion_notificacion_he(conn, usuario_id)
     return resolver_destinatarios_he_puro(
         tiene_override=datos["tiene_override"],
@@ -1134,6 +1160,8 @@ async def resolver_destinatarios_he(conn, usuario_id: UUID) -> dict:
         tiene_director=datos.get("tiene_director", False),
         aprobador_vac_email=datos.get("aprobador_vac_email"),
         fallback_emails=set(datos.get("fallback_emails") or []),
+        escalacion_cc=set(datos.get("escalacion_cc") or []),
+        escalacion_cco=set(datos.get("escalacion_cco") or []),
     )
 
 
@@ -1158,6 +1186,7 @@ async def _notificar_solicitud_horas_extra(
         motivo=motivo,
         destinatarios=resuelto["to"],
         cc_emails=resuelto["cc"],
+        bcc_emails=resuelto["bcc"],
         url_aprobacion=resuelto["url"],
         label_boton=resuelto["label_boton"],
     )
@@ -1426,6 +1455,7 @@ async def _notificar_compensatorio_solicitud(conn, solicitud: dict | None) -> No
         motivo=solicitud["motivo"],
         destinatarios=resuelto["to"],
         cc_emails=resuelto["cc"],
+        bcc_emails=resuelto["bcc"],
         url_aprobacion=resuelto["url"],
         label_boton=resuelto["label_boton"],
     )

@@ -42,6 +42,8 @@ async def _procesar_recordatorios_pendientes(
     rows: list[dict],
     *,
     rh_emails: set[str],
+    escalacion_cc: set[str],
+    escalacion_cco: set[str],
     campo_contador: str,
     notify_fn,
     row_to_kwargs,
@@ -62,6 +64,8 @@ async def _procesar_recordatorios_pendientes(
             tiene_director=row.get("tiene_director", False),
             aprobador_vac_email=row.get("aprobador_vac_email"),
             fallback_emails=rh_emails,
+            escalacion_cc=escalacion_cc,
+            escalacion_cco=escalacion_cco,
         )
         destinatarios = resuelto["to"]
         if not destinatarios:
@@ -73,6 +77,7 @@ async def _procesar_recordatorios_pendientes(
             conn,
             destinatarios=destinatarios,
             cc_emails=cc_emails,
+            bcc_emails=resuelto["bcc"],
             url_aprobacion=resuelto["url"],
             label_boton=resuelto["label_boton"],
             es_recordatorio=True,
@@ -917,6 +922,7 @@ async def verificar_recordatorios_horas_extra_periodically(interval_seconds: int
             from core.config_service import ConfigService
             from core.database import get_db_pool
             from core.workflow.notification_service import get_notification_service
+            from modules.asistencia.service import get_escalacion_director_cc_cco
             from modules.shared.utils import format_minutes
 
             pool = await get_db_pool()
@@ -939,6 +945,7 @@ async def verificar_recordatorios_horas_extra_periodically(interval_seconds: int
 
                 rh_rows = await tasks_db.get_active_rh_contacts(conn)
                 rh_emails = {r["email"] for r in rh_rows if r["email"]}
+                escalacion_cc, escalacion_cco = await get_escalacion_director_cc_cco(conn)
 
                 recordatorios = await tasks_db.get_horas_extra_recordatorios_pendientes(
                     conn,
@@ -950,6 +957,8 @@ async def verificar_recordatorios_horas_extra_periodically(interval_seconds: int
                     conn,
                     recordatorios,
                     rh_emails=rh_emails,
+                    escalacion_cc=escalacion_cc,
+                    escalacion_cco=escalacion_cco,
                     campo_contador="horas_extra_recordatorios_enviados",
                     notify_fn=notif.notify_horas_extra_solicitud,
                     row_to_kwargs=lambda row: {
@@ -972,6 +981,8 @@ async def verificar_recordatorios_horas_extra_periodically(interval_seconds: int
                     conn,
                     comp_recordatorios,
                     rh_emails=rh_emails,
+                    escalacion_cc=escalacion_cc,
+                    escalacion_cco=escalacion_cco,
                     campo_contador="recordatorios_enviados",
                     notify_fn=notif.notify_compensatorio_solicitud,
                     row_to_kwargs=lambda row: {

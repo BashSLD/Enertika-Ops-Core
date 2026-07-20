@@ -93,6 +93,12 @@ def formatear_estado_asistencia_label(estado: str | None, tipo_ausencia_nombre: 
 
 HE_MINIMO_OPCIONES = (10, 15, 30, 60)
 
+# trigger_value en tb_config_emails (Admin > Reglas de correo) para el CC/CCO
+# informativo cuando la cadena de jefes de una solicitud de horas extra/compensatorio
+# incluye a alguien con rol_organizacional='director'. Compartido por HE y compensatorio
+# porque ambos usan el mismo resolver_destinatarios_he_puro.
+HE_EVENTO_ESCALACION_DIRECTOR = "HORAS_EXTRA_ESCALACION_DIRECTOR"
+
 BIOTIME_CONFIG_KEYS = {
     "sync_activo": "BIOTIME_SYNC_ACTIVO",
     "base_url": "BIOTIME_BASE_URL",
