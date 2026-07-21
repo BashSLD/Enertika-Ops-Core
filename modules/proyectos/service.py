@@ -117,6 +117,9 @@ class ProyectosService:
     async def get_kpis(self, conn) -> Dict[str, Any]:
         return await self.transfers.get_kpis_global(conn)
 
+    async def get_usuarios_activos_nombres(self, conn) -> List[str]:
+        return await self.db.get_usuarios_activos_nombres(conn)
+
     async def get_proyecto_detalle(
         self, conn, id_proyecto: UUID
     ) -> Dict[str, Any]:

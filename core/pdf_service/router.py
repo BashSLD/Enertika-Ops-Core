@@ -8,7 +8,6 @@ from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
-from fastapi.templating import Jinja2Templates
 
 from core.security import get_current_user_context
 from core.permissions import require_authenticated_session
@@ -17,21 +16,6 @@ from .service import PDFService, get_pdf_service
 logger = logging.getLogger("PDFRouter")
 
 router = APIRouter(prefix="/pdf", tags=["Reportes PDF"])
-templates = Jinja2Templates(directory="templates")
-
-
-@router.get("/visita-obra/modal", include_in_schema=False)
-async def get_visita_obra_modal(
-    request: Request,
-    context=Depends(get_current_user_context),
-    _=require_authenticated_session(),
-):
-    """Modal compartido de Visita a Obra, accesible desde proyectos y construccion."""
-    return templates.TemplateResponse(
-        request,
-        "shared/modals/visita_obra_modal.html",
-        {"user_name": context.get("user_name")},
-    )
 
 
 @router.post("/visita-obra/generar")

@@ -56,6 +56,76 @@
                     input.focus();
                 }
             }));
+
+            // Campo de texto/textarea que se contrae a una fila de solo lectura
+            // (con lapiz para reeditar) en cuanto tiene valor y pierde el foco —
+            // reduce el scroll en modales largos con muchos campos.
+            // model: objeto reactivo del x-data ancestro (ej. "form") pasado
+            // explicitamente — el componente no asume el nombre de esa propiedad.
+            // options.chips: true convierte el campo en chips con autocompletado
+            // desde data-system-users del elemento ancestro mas cercano que lo
+            // declare (mezclando sugerencias del sistema y texto libre); el valor
+            // real sigue siendo un string, los chips se unen con ", ".
+            Alpine.data('collapsibleField', (model, fieldKey, options = {}) => ({
+                editing: true,
+                open: false,
+                users: [],
+                query: '',
+                chips: [],
+                init() {
+                    if (options.chips) {
+                        const host = this.$el.closest('[data-system-users]');
+                        this.users = JSON.parse((host && host.dataset.systemUsers) || '[]');
+                        this.chips = this.splitChips(model[fieldKey]);
+                    }
+                    this.editing = !this.hasValue();
+                },
+                splitChips(v) {
+                    return (v || '').split(',').map(s => s.trim()).filter(Boolean);
+                },
+                hasValue() {
+                    const v = model[fieldKey];
+                    return v !== null && v !== undefined && String(v).trim() !== '';
+                },
+                get filtered() {
+                    if (!options.chips) return [];
+                    const taken = this.chips.map(c => c.toLowerCase());
+                    const pool = this.users.filter(u => !taken.includes(u.toLowerCase()));
+                    const q = this.query.trim().toLowerCase();
+                    const list = q ? pool.filter(u => u.toLowerCase().includes(q)) : pool;
+                    return list.slice(0, 8);
+                },
+                syncChips() {
+                    model[fieldKey] = this.chips.join(', ');
+                },
+                addChipValue(value) {
+                    const v = (value || '').trim();
+                    if (!v) return;
+                    if (!this.chips.some(c => c.toLowerCase() === v.toLowerCase())) this.chips.push(v);
+                    this.query = '';
+                    this.open = false;
+                    this.syncChips();
+                },
+                addFromQuery() {
+                    this.addChipValue(this.query);
+                },
+                removeChipAt(idx) {
+                    this.chips.splice(idx, 1);
+                    this.syncChips();
+                },
+                pick(nombre) {
+                    this.addChipValue(nombre);
+                },
+                confirmar() {
+                    if (options.chips) this.addFromQuery();
+                    this.open = false;
+                    if (this.hasValue()) this.editing = false;
+                },
+                editar() {
+                    this.editing = true;
+                    this.$nextTick(() => this.$refs.campo && this.$refs.campo.focus());
+                }
+            }));
         });
     </script>
 

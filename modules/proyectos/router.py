@@ -102,8 +102,12 @@ async def get_visita_obra_modal(
     request: Request,
     context=Depends(get_current_user_context),
     _=require_module_access("proyectos"),
+    conn=Depends(get_db_connection),
+    service: ProyectosService = Depends(get_service),
 ):
+    system_users = await service.get_usuarios_activos_nombres(conn)
     return templates.TemplateResponse(request, "shared/modals/visita_obra_modal.html", {"user_name": context.get("user_name"),
+        "system_users": system_users,
     })
 
 

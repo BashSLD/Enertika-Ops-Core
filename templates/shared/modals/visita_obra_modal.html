@@ -1,6 +1,8 @@
 {% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+{% from "shared/partials/_collapsible_field.html" import collapsible_text, collapsible_textarea, collapsible_chips %}
 {# templates/shared/modals/visita_obra_modal.html #}
-<div id="modal-visita-obra" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+<div id="modal-visita-obra" class="modal-overlay-layer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+    data-system-users='{{ system_users | default([]) | tojson }}'
     x-data="{
         form: {
             nombre_planta: '',
@@ -397,10 +399,7 @@
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Nombre de la planta <span
                                 class="text-red-500">*</span></label>
-                        <input type="text" x-model="form.nombre_planta"
-                            class="w-full text-sm border rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB]"
-                            :class="errors.nombre_planta ? 'border-red-400' : 'border-gray-300'"
-                            placeholder="Ej. Planta Solar Norte">
+                        {{ collapsible_text('nombre_planta', 'Ej. Planta Solar Norte') }}
                         <p x-show="errors.nombre_planta" x-text="errors.nombre_planta"
                             class="text-red-500 text-xs mt-1"></p>
                     </div>
@@ -408,28 +407,20 @@
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">ID de Proyecto <span
                                 class="text-red-500">*</span></label>
-                        <input type="text" x-model="form.id_proyecto"
-                            class="w-full text-sm border rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB]"
-                            :class="errors.id_proyecto ? 'border-red-400' : 'border-gray-300'"
-                            placeholder="Ej. MX-50055-FV">
+                        {{ collapsible_text('id_proyecto', 'Ej. MX-50055-FV') }}
                         <p x-show="errors.id_proyecto" x-text="errors.id_proyecto" class="text-red-500 text-xs mt-1">
                         </p>
                     </div>
 
                     <div class="col-span-2">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Ubicacion</label>
-                        <input type="text" x-model="form.ubicacion"
-                            class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB]"
-                            placeholder="Ciudad, Estado">
+                        {{ collapsible_text('ubicacion', 'Ciudad, Estado') }}
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Responsable interno <span
                                 class="text-red-500">*</span></label>
-                        <input type="text" x-model="form.persona_responsable_interna"
-                            class="w-full text-sm border rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB]"
-                            :class="errors.persona_responsable_interna ? 'border-red-400' : 'border-gray-300'"
-                            placeholder="Nombre completo">
+                        {{ collapsible_chips('persona_responsable_interna', 'Escribe o elige...') }}
                         <p x-show="errors.persona_responsable_interna" x-text="errors.persona_responsable_interna"
                             class="text-red-500 text-xs mt-1"></p>
                     </div>
@@ -437,10 +428,7 @@
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Responsable de obra <span
                                 class="text-red-500">*</span></label>
-                        <input type="text" x-model="form.responsable_obra"
-                            class="w-full text-sm border rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB]"
-                            :class="errors.responsable_obra ? 'border-red-400' : 'border-gray-300'"
-                            placeholder="Nombre completo">
+                        {{ collapsible_chips('responsable_obra', 'Escribe o elige...') }}
                         <p x-show="errors.responsable_obra" x-text="errors.responsable_obra"
                             class="text-red-500 text-xs mt-1"></p>
                     </div>
@@ -496,10 +484,7 @@
                     <div class="col-span-2">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Motivo de visita <span
                                 class="text-red-500">*</span></label>
-                        <textarea x-model="form.motivo_visita" rows="3"
-                            class="w-full text-sm border rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] resize-none"
-                            :class="errors.motivo_visita ? 'border-red-400' : 'border-gray-300'"
-                            placeholder="Describe el motivo de esta visita..."></textarea>
+                        {{ collapsible_textarea('motivo_visita', 'Describe el motivo de esta visita...', 3) }}
                         <p x-show="errors.motivo_visita" x-text="errors.motivo_visita"
                             class="text-red-500 text-xs mt-1"></p>
                     </div>
@@ -525,26 +510,19 @@
                     <div class="col-span-2" x-show="!form.avances_conforme_cronograma" x-cloak>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Razon de no conformidad <span
                                 class="text-red-500">*</span></label>
-                        <textarea x-model="form.razon_no_conforme" rows="2"
-                            class="w-full text-sm border rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] resize-none"
-                            :class="errors.razon_no_conforme ? 'border-red-400' : 'border-gray-300'"
-                            placeholder="Explica la razon..."></textarea>
+                        {{ collapsible_textarea('razon_no_conforme', 'Explica la razon...', 2) }}
                         <p x-show="errors.razon_no_conforme" x-text="errors.razon_no_conforme"
                             class="text-red-500 text-xs mt-1"></p>
                     </div>
 
                     <div class="col-span-2">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Acuerdos</label>
-                        <textarea x-model="form.acuerdos" rows="2"
-                            class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] resize-none"
-                            placeholder="Acuerdos y compromisos de la visita..."></textarea>
+                        {{ collapsible_textarea('acuerdos', 'Acuerdos y compromisos de la visita...', 2) }}
                     </div>
 
                     <div class="col-span-2">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Lugar de elaboracion</label>
-                        <input type="text" x-model="form.lugar_elaboracion"
-                            class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB]"
-                            placeholder="Ej. Oficina Central, CDMX">
+                        {{ collapsible_text('lugar_elaboracion', 'Ej. Oficina Central, CDMX') }}
                     </div>
 
                 </div>

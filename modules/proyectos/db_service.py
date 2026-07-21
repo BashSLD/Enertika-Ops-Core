@@ -59,6 +59,17 @@ class ProyectosDBService:
         )
         return [dict(r) for r in rows]
 
+    async def get_usuarios_activos_nombres(self, conn) -> List[str]:
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT nombre
+            FROM tb_usuarios
+            WHERE is_active = TRUE AND nombre != ''
+            ORDER BY nombre ASC
+            """
+        )
+        return [r["nombre"] for r in rows]
+
     async def get_department_slug(
         self, conn, department_name: Optional[str]
     ) -> Optional[str]:

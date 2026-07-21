@@ -85,16 +85,6 @@ async def get_proyectos_partial(
     })
 
 
-@router.get("/partials/visita-obra-modal", include_in_schema=False)
-async def get_visita_obra_modal(
-    request: Request,
-    context=Depends(get_current_user_context),
-    _=require_module_access("construccion"),
-):
-    return templates.TemplateResponse(request, "shared/modals/visita_obra_modal.html", {"user_name": context.get("user_name"),
-    })
-
-
 @router.get("/modal/recibir/{id_traspaso}", include_in_schema=False)
 async def modal_recibir(
     request: Request,
