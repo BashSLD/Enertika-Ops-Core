@@ -4,6 +4,7 @@ from fastapi.templating import Jinja2Templates
 from typing import Optional
 from uuid import UUID
 import logging
+import asyncpg
 
 # IMPORTS OBLIGATORIOS para permisos
 from core.security import get_current_user_context
@@ -327,7 +328,7 @@ async def change_status_endpoint(
 
     except HTTPException as e:
         raise e
-    except Exception as e:
+    except asyncpg.PostgresError as e:
         logger.error(f"[STATUS] Error cambiando estado lev {id_levantamiento}: {e}", exc_info=True)
         data = await service.get_kanban_data(conn)
         can_edit = (
