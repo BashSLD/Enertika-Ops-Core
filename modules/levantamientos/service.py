@@ -577,16 +577,19 @@ class LevantamientoService:
         id_en_proceso = _estatus_map.get('en_proceso')
         id_completado = _estatus_map.get('completado')
 
+        limpiar_en_proceso = (nuevo_estado == id_en_proceso)
+        limpiar_completado = (nuevo_estado == id_completado)
+
         async with conn.transaction():
             await conn.execute("""
                 UPDATE tb_levantamientos
                 SET id_estatus_global = $1,
                     updated_at = $2,
                     updated_by_id = $3,
-                    recordatorio_en_proceso_at = CASE WHEN $1 = $5 THEN NULL ELSE recordatorio_en_proceso_at END,
-                    recordatorio_completado_at = CASE WHEN $1 = $6 THEN NULL ELSE recordatorio_completado_at END
+                    recordatorio_en_proceso_at = CASE WHEN $5 THEN NULL ELSE recordatorio_en_proceso_at END,
+                    recordatorio_completado_at = CASE WHEN $6 THEN NULL ELSE recordatorio_completado_at END
                 WHERE id_levantamiento = $4
-            """, nuevo_estado, now_mx, user_context['user_db_id'], id_levantamiento, id_en_proceso, id_completado)
+            """, nuevo_estado, now_mx, user_context['user_db_id'], id_levantamiento, limpiar_en_proceso, limpiar_completado)
 
             # Insertar en Historial (Reemplazo de Trigger)
             await self._registrar_en_historial(
