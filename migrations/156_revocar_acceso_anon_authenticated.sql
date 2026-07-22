@@ -3,9 +3,12 @@
 -- Supabase client/PostgREST (conexion directa asyncpg como rol postgres, que bypassea RLS);
 -- estos roles no se usan en ningun flujo. Objetivo: eliminar los advisories de seguridad
 -- pg_graphql_anon_table_exposed / pg_graphql_authenticated_table_exposed / rls_enabled_no_policy.
+-- Incluye PUBLIC porque tb_cat_estatus_oportunidades, tb_levantamientos y
+-- tb_levantamientos_historial tenian un GRANT ... TO PUBLIC legado (anon/authenticated heredan
+-- privilegios de PUBLIC por ser miembros implicitos).
 
 -- Parte 1: revocar privilegios actuales sobre todas las tablas/vistas existentes en public
-REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM anon, authenticated, PUBLIC;
 
 -- Evitar que las tablas futuras hereden estos grants automaticamente
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;
