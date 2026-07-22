@@ -9,7 +9,7 @@ from uuid import UUID
 
 from core.config_service import ConfigService
 from core.permissions import user_has_module_access
-from core.timezone import fmt_time_mx, now_mx, today_mx
+from core.timezone import ensure_mx, fmt_time_mx, now_mx, today_mx
 from modules.asistencia import db_service as asistencia_db
 from modules.asistencia.service import (
     attach_he_evidencias,
@@ -667,7 +667,7 @@ async def generar_pdf_solicitud(conn, solicitud_id: UUID) -> bytes:
 
 def _generar_folio(solicitud: dict) -> str:
     abrev = solicitud.get("tipo_abreviatura", "SOL")
-    ts = solicitud["fecha_solicitud"]
+    ts = ensure_mx(solicitud["fecha_solicitud"])
     return f"FO-ADM-002-{abrev}{ts.strftime('%d%m%y%H%M')}"
 
 

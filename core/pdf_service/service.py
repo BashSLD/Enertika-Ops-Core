@@ -14,6 +14,7 @@ import jinja2
 
 from core.database import get_db_pool
 from core.integrations.sharepoint import SharePointService
+from core.jinja_filters import register_timezone_filters
 from core.microsoft import MicrosoftAuth
 from core.timezone import now_mx
 from modules.shared.utils import sanitize_filename_slug
@@ -39,6 +40,7 @@ class PDFService:
             loader=jinja2.FileSystemLoader(str(TEMPLATES_PDF_PATH)),
             autoescape=True,
         )
+        register_timezone_filters(self._env)
         self._email_env = jinja2.Environment(
             loader=jinja2.FileSystemLoader(str(EMAIL_TEMPLATES_PATH)),
             autoescape=True,

@@ -102,7 +102,7 @@
 {% block content %}
 
 <p style="font-size:9pt; color:#666; margin: 6px 0 14px 0;">
-  Fecha de solicitud: {{ solicitud.fecha_solicitud.strftime('%d/%m/%Y %H:%M') }}
+  Fecha de solicitud: {{ solicitud.fecha_solicitud | time_mx }}
 </p>
 
 <div class="section-title">Datos del Empleado</div>
@@ -166,7 +166,7 @@
         {{ solicitud.estado | upper }}
       </strong>
       {% if solicitud.fecha_resolucion %}
-      <br>{{ solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') }}
+      <br>{{ solicitud.fecha_resolucion | time_mx }}
       {% endif %}
     </td>
   </tr>
@@ -214,7 +214,7 @@
           <strong>Solicitante</strong><br>
           {{ solicitud.solicitante_nombre }}<br>
           {% if firma_solicitante_info %}
-          Fecha: {{ firma_solicitante_info.fecha_firma.strftime('%d/%m/%Y %H:%M') }}
+          Fecha: {{ firma_solicitante_info.fecha_firma | time_mx }}
           {% endif %}
         </div>
       </td>
@@ -229,7 +229,7 @@
           {% if solicitud.aprobado_por_nombre %}
           {{ solicitud.aprobado_por_nombre }}<br>
           {% if firma_aprobador_info %}
-          Fecha: {{ firma_aprobador_info.fecha_firma.strftime('%d/%m/%Y %H:%M') }}
+          Fecha: {{ firma_aprobador_info.fecha_firma | time_mx }}
           {% endif %}
           {% else %}
           Pendiente de aprobación
