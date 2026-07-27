@@ -1,7 +1,7 @@
-from datetime import datetime, timedelta, date, time as dt_time
+from datetime import datetime, timedelta
 from core.timezone import today_mx, now_mx
 from uuid import UUID, uuid4
-from typing import List, Optional, Tuple
+from typing import List, Optional
 import json
 import logging
 import asyncpg
@@ -17,6 +17,7 @@ import asyncio
 from core.config_service import ConfigService
 from .db_service import (
     build_usuario_comercial_filter_sql,
+    QUERY_GET_MOTIVOS_CIERRE_ACTIVOS,
     QUERY_GET_OPORTUNIDADES_LIST,
     QUERY_INSERT_OPORTUNIDAD,
     QUERY_INSERT_FOLLOWUP,
@@ -24,7 +25,6 @@ from .db_service import (
     QUERY_GET_TECNOLOGIAS,
     QUERY_GET_TIPOS_SOLICITUD,
     QUERY_GET_ESTATUS_GLOBAL,
-    QUERY_GET_OPORTUNIDAD_OWNER,
     QUERY_GET_OPORTUNIDAD_FROM_SITIO,
     QUERY_GET_USUARIOS_COMERCIAL,
     QUERY_GET_USUARIOS_RESPONSABLES_COMERCIAL,
@@ -106,10 +106,8 @@ from modules.proyectos.service import ROL_COORDINADOR_OBRA, ROL_ENCARGADO_OYM
 # Sub-Services
 from .services import DashboardService, NotificationService
 from .sla_calculator import SLACalculator
-from core.config_service import ConfigService
 from core.workflow.notification_service import get_notification_service as get_workflow_notification_service
 from core.workflow.db_service import WorkflowDBService
-import logging
 
 logger = logging.getLogger("ComercialModule")
 from core.permissions import user_has_module_access, ROLE_HIERARCHY
@@ -292,7 +290,7 @@ class ComercialService:
         # Ejecución secuencial para evitar "InterfaceError: cannot perform operation: another operation is in progress"
         estatus_map = await ConfigService.get_catalog_map(conn, "tb_cat_estatus_oportunidades", "nombre", "id")
         tipos_map = await ConfigService.get_catalog_map(conn, "tb_cat_tipos_solicitud", "codigo_interno", "id")
-        
+
         return {
             "estatus": estatus_map,
             "tipos": tipos_map
@@ -862,6 +860,21 @@ class ComercialService:
                 params.extend(ids_realizados)
                 param_idx += len(ids_realizados)
 
+            elif subtab == 'cancelados':
+                # "lev" es DISTINCT ON (id_oportunidad) ordenado por id_estatus_global ASC
+                # (representante = hermano MENOS avanzado). Filtrar por el id de 'cancelado'
+                # (resuelto por codigo, no hardcodeado) solo hace match cuando TODOS los
+                # levantamientos hermanos de la OP estan cancelados -- no requiere dedup
+                # adicional para multisitio, ver _Planes_Activos/2026-07-23-...-PLAN.md Paso 7.
+                # Fetch propio (no en get_catalog_ids): ese loader es compartido por 8+
+                # call sites y este catalogo solo lo usa esta rama.
+                estatus_lev_map = await ConfigService.get_catalog_map(conn, "tb_cat_estatus_levantamiento", "codigo", "id")
+                id_cancelado_lev = estatus_lev_map.get('cancelado')
+                if id_cancelado_lev:
+                    query += f" AND lev.id_estatus_global = ${param_idx}"
+                    params.append(id_cancelado_lev)
+                    param_idx += 1
+
             else:
                 # Solicitados (Default): Pendiente (1), Agendado (2), En Proceso (3), Pospuesto (4) — tb_cat_estatus_levantamiento
                 ids_solicitados = [1, 2, 3, 4]
@@ -1368,6 +1381,85 @@ class ComercialService:
             # en vez de duplicar el calculo aqui - ver WorkflowDBService.
             result["es_ultimo_del_grupo"] = await WorkflowDBService().es_ultimo_del_grupo(conn, id_oportunidad)
         return result
+
+    async def get_motivos_cierre(self, conn) -> list:
+        """Motivos de cierre activos, sin filtrar por aplicacion — espejo del
+        dropdown de Simulación (get_motivos_cierre en simulacion/db_service.py)."""
+        rows = await conn.fetch(QUERY_GET_MOTIVOS_CIERRE_ACTIVOS)
+        return [dict(r) for r in rows]
+
+    async def cerrar_oportunidad_levantamiento_cancelado(
+        self, conn, id_oportunidad: UUID, id_motivo_cierre: int, user_context: dict
+    ) -> None:
+        """
+        Cierre manual desde la subpestaña "Cancelados" (tab=levantamientos): la OP
+        aparece ahí porque TODOS sus levantamientos ya están cancelados (ver filtro
+        en get_oportunidades_list), pero no cerró sola porque el motivo de
+        cancelación no era "inviable" (caso 4 de
+        LevantamientoService._propagar_estatus_op — Comercial decide).
+        Espejo del contrato de cierre de Simulación: id_motivo_cierre obligatorio.
+
+        Guarda POSITIVA (solo procede si la OP sigue exactamente Pendiente), no un
+        exclude-list de Ganada/Perdido: esta acción manual solo tiene sentido sobre
+        una OP que nunca se propagó ni cerró por otra vía. Un exclude-list la dejaría
+        sobrescribir silenciosamente una OP ya Entregada por _propagar_estatus_op
+        (caso 2). Mismo criterio que gatea el botón en cards.html (puede_cerrar_lev_cancelado).
+        """
+        estatus_op_map = await ConfigService.get_catalog_map(conn, "tb_cat_estatus_oportunidades", "nombre", "id")
+        id_cancelado_op = estatus_op_map.get('cancelado')
+        id_pendiente_op = estatus_op_map.get('pendiente')
+        if not id_cancelado_op or not id_pendiente_op:
+            raise HTTPException(status_code=500, detail="Estatus 'Cancelado'/'Pendiente' no configurados en catalogo")
+
+        row = await conn.fetchrow(
+            "SELECT id_oportunidad, id_estatus_global FROM tb_oportunidades WHERE id_oportunidad = $1 FOR UPDATE",
+            id_oportunidad
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
+
+        if row['id_estatus_global'] != id_pendiente_op:
+            raise HTTPException(
+                status_code=400,
+                detail="La oportunidad ya no está en Pendiente (fue cerrada por otra vía); no se puede sobrescribir."
+            )
+
+        # Revalidar en el momento del cierre, no confiar en que la subpestaña seguia
+        # vigente cuando se cargo: entre el GET que mostro el boton y este POST, un
+        # levantamiento pudo reactivarse (TOCTOU). FOR UPDATE ya bloquea la fila de
+        # la OP; _propagar_estatus_op usa el mismo criterio (todos cancelado).
+        codigos_lev = await conn.fetch("""
+            SELECT cel.codigo
+            FROM tb_levantamientos l
+            JOIN tb_cat_estatus_levantamiento cel ON cel.id = l.id_estatus_global
+            WHERE l.id_oportunidad = $1
+        """, id_oportunidad)
+        if not codigos_lev or any(r['codigo'] != 'cancelado' for r in codigos_lev):
+            raise HTTPException(
+                status_code=400,
+                detail="Ya no todos los levantamientos de esta oportunidad están cancelados; refresca la lista."
+            )
+
+        estatus_anterior = row['id_estatus_global']
+
+        await conn.execute(
+            "UPDATE tb_oportunidades SET id_estatus_global = $1, id_motivo_cierre = $2 WHERE id_oportunidad = $3",
+            id_cancelado_op, id_motivo_cierre, id_oportunidad
+        )
+
+        # SSE (campana in-app) — consistencia con el resto de cambios de estatus,
+        # ver notify_status_change (core/workflow/notification_service.py). Best-effort:
+        # un fallo de correo/SSE no debe revertir el cierre ya confirmado en BD.
+        try:
+            await self.workflow_notif_service.notify_status_change(
+                conn=conn,
+                id_oportunidad=id_oportunidad,
+                old_status_id=estatus_anterior,
+                new_status_id=id_cancelado_op,
+                changed_by_ctx=user_context,
+            )
+        except (asyncpg.PostgresError, KeyError, RuntimeError, TypeError, ValueError) as notif_error:
+            logger.error(f"[CIERRE LEVANTAMIENTO] Error en notificacion (no critico): {notif_error}")
 
     async def create_followup_oportunidad(self, parent_id: UUID, nuevo_tipo_solicitud: str, prioridad: str, conn, user_id: UUID, user_name: str, sitios_json_pendiente: str = None, id_tecnologia: Optional[int] = None) -> UUID:
         """Crea seguimiento clonando padre + sitios. Si sitios_json_pendiente se provee, guarda conversión diferida.

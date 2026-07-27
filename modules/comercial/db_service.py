@@ -6,6 +6,10 @@ from core.workflow.db_service import CTE_ROOT_OPORTUNIDAD
 def build_usuario_comercial_filter_sql(param_ref: str, opportunity_alias: str = "o") -> str:
     return f"COALESCE({opportunity_alias}.responsable_comercial_id, {opportunity_alias}.creado_por_id) = {param_ref}"
 
+QUERY_GET_MOTIVOS_CIERRE_ACTIVOS = """
+    SELECT id, motivo FROM tb_cat_motivos_cierre WHERE activo = true ORDER BY motivo
+"""
+
 QUERY_GET_OPORTUNIDADES_LIST = """
     SELECT
         o.id_oportunidad, o.op_id_estandar, o.nombre_proyecto, o.cliente_nombre, o.canal_venta,

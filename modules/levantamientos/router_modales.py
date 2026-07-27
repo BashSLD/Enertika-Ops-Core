@@ -7,8 +7,6 @@
 import logging
 from typing import List, Optional
 from uuid import UUID
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
 from fastapi.templating import Jinja2Templates
@@ -215,8 +213,11 @@ def register_modal_endpoints(router: APIRouter):
         if not lev:
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
 
+        motivos_cancelacion = await db_svc.get_motivos_cancelacion(conn)
+
         return templates.TemplateResponse(request, "levantamientos/modals/cancelar_modal.html", {"lev_data": lev,
             "id_levantamiento": id_levantamiento,
+            "motivos_cancelacion": motivos_cancelacion,
         })
 
     # ----------------------------------------------------------

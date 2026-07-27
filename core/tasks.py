@@ -909,6 +909,110 @@ async def verificar_recordatorios_aprobacion_periodically(interval_seconds: int 
             logger.error("[VAC_RECORDATORIO] Error inesperado: %s", e, exc_info=True)
 
 
+def _primer_aviso_lev_cancelado_vencido(ultima_transicion, hoy, festivos: set) -> bool:
+    """Primer aviso: 2 dias habiles desde la ultima transicion a terminal de los
+    levantamientos de la OP (_Planes_Activos/2026-07-23-...-PLAN.md Paso 8-M)."""
+    from modules.vacaciones.logic import siguiente_dia_habil
+
+    due = siguiente_dia_habil(siguiente_dia_habil(ultima_transicion, festivos), festivos)
+    return hoy >= due
+
+
+def _dia_cadencia_semanal_lev_cancelado(hoy, festivos: set):
+    """Lunes de la semana actual; si es festivo, el siguiente dia habil."""
+    from modules.vacaciones.logic import es_dia_habil, siguiente_dia_habil
+
+    lunes = hoy - timedelta(days=hoy.weekday())
+    return lunes if es_dia_habil(lunes, festivos) else siguiente_dia_habil(lunes, festivos)
+
+
+def _recordatorio_lev_cancelado_vencido(ultima_transicion, ultimo_envio, hoy, festivos: set) -> bool:
+    """True si toca enviar hoy: primer aviso via umbral de dias habiles, luego
+    cadencia semanal (lunes habil) mientras la OP siga sin cerrarse."""
+    if ultimo_envio is None:
+        return _primer_aviso_lev_cancelado_vencido(ultima_transicion, hoy, festivos)
+    dia_cadencia = _dia_cadencia_semanal_lev_cancelado(hoy, festivos)
+    return hoy == dia_cadencia and ultimo_envio.date() < dia_cadencia
+
+
+async def check_op_levantamiento_sin_cerrar_periodically(interval_seconds: int = 3600):
+    """
+    Tarea periodica (cada hora) que recuerda a Comercial cerrar oportunidades tipo
+    LEVANTAMIENTO cuyos levantamientos ya quedaron TODOS cancelados pero la OP
+    sigue abierta -- ver _Planes_Activos/2026-07-23-propagacion-estatus-levantamientos-PLAN.md
+    Paso 8. Se detiene solo: al cerrar la OP (deja de cumplir la query) o reactivar
+    el levantamiento (dispara G-6: ya no todos terminales).
+
+    Cadencia: primer aviso a 2 dias habiles desde la ultima transicion a terminal,
+    luego cada lunes habil. CC dinamico (admin Comercial / MANAGER+editor), no
+    tb_config_emails. Anti-spam propio en tb_oportunidades.recordatorio_lev_cancelado_at.
+    """
+    logger.info("[OP_LEV_SIN_CERRAR] Tarea inicializada (intervalo: %sh)", interval_seconds // 3600)
+
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            from core.database import get_db_pool
+            from core.timezone import today_mx
+            from core.workflow.notification_service import get_notification_service
+            from modules.vacaciones.db_service import get_festivos_set
+
+            pool = await get_db_pool()
+            notif = get_notification_service()
+
+            async with pool.acquire() as conn:
+                hoy = today_mx()
+                festivos = await get_festivos_set(conn)
+                rows = await tasks_db.get_op_levantamiento_sin_cerrar_candidatas(conn)
+
+                if not rows:
+                    logger.debug("[OP_LEV_SIN_CERRAR] Sin oportunidades pendientes de cierre")
+                    continue
+
+                cc_emails = await tasks_db.get_comercial_admin_manager_emails(conn)
+
+                for row in rows:
+                    try:
+                        if not row["to_email"] or not row["ultima_transicion_terminal"]:
+                            continue
+
+                        if not _recordatorio_lev_cancelado_vencido(
+                            row["ultima_transicion_terminal"].date(), row["ultimo_envio"], hoy, festivos
+                        ):
+                            continue
+
+                        # Enviar primero, marcar despues solo si tuvo exito (direccion
+                        # segura: un fallo de mark tras envio exitoso puede duplicar un
+                        # correo la proxima corrida, aceptado — nunca al reves).
+                        enviado = await notif.notify_op_levantamiento_cancelado_sin_cerrar(
+                            conn,
+                            id_oportunidad=row["id_oportunidad"],
+                            opp={
+                                "op_id_estandar": row["op_id_estandar"],
+                                "nombre_proyecto": row["nombre_proyecto"],
+                                "cliente_nombre": row["cliente_nombre"],
+                            },
+                            to_email=row["to_email"],
+                            cc_emails=cc_emails,
+                            motivos=row["motivos_cancelacion"] or [],
+                        )
+                        if enviado:
+                            await tasks_db.mark_recordatorio_lev_cancelado_op(conn, row["id_oportunidad"])
+                            logger.info(
+                                "[OP_LEV_SIN_CERRAR] Recordatorio enviado OP=%s", row["op_id_estandar"]
+                            )
+                    except TASK_ROW_RUNTIME_ERRORS as row_err:
+                        logger.error(
+                            "[OP_LEV_SIN_CERRAR] Error procesando OP=%s: %s",
+                            row.get("op_id_estandar"), row_err, exc_info=True,
+                        )
+
+        except asyncpg.PostgresError as e:
+            logger.error("[OP_LEV_SIN_CERRAR] Error de BD: %s", e)
+        except TASK_RUNTIME_ERRORS as e:
+            logger.error("[OP_LEV_SIN_CERRAR] Error inesperado: %s", e, exc_info=True)
+
+
 async def verificar_recordatorios_horas_extra_periodically(interval_seconds: int = 3600):
     """
     Envia recordatorios de horas extra solicitadas y un resumen a RH cuando ya

@@ -580,6 +580,7 @@ def register_operaciones_endpoints(router: APIRouter):
         request: Request,
         id_levantamiento: UUID,
         motivo: str = Form(...),
+        id_motivo_cancelacion: int = Form(...),
         conn=Depends(get_db_connection),
         service: LevantamientoService = Depends(get_service),
         db_svc: LevantamientosDBService = Depends(get_db_service),
@@ -587,7 +588,10 @@ def register_operaciones_endpoints(router: APIRouter):
         _=require_org_management_access("levantamientos"),
     ):
         """
-        Cancela un levantamiento. NO afecta la oportunidad comercial.
+        Cancela un levantamiento. Si el motivo catalogado marca es_no_viable y
+        TODOS los levantamientos hermanos de la oportunidad quedan cancelados por
+        el mismo motivo, la oportunidad también se cierra (ver
+        LevantamientoService._propagar_estatus_op).
         Limpia viáticos, registra historial y notifica a jefe + solicitante.
         Solo Jefe de Ingeniería, Jefe de Construcción o ADMIN global pueden cancelar.
         """
@@ -605,6 +609,7 @@ def register_operaciones_endpoints(router: APIRouter):
             id_levantamiento=id_levantamiento,
             motivo=motivo.strip(),
             user_context=context,
+            id_motivo_cancelacion=id_motivo_cancelacion,
         )
 
         estatus_map = await db_svc.get_estatus_map(conn)

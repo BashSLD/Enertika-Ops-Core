@@ -17,7 +17,7 @@ import jinja2
 from core.database import DB_REPORT_ERRORS, get_db_connection
 from core.microsoft import get_ms_auth
 from core.security import get_current_user_context, get_valid_graph_token
-from core.permissions import require_module_access, require_manager_access, require_role
+from core.permissions import require_module_access, require_manager_access, require_role, user_has_module_access
 from core.config import settings
 from core.pdf_service.service import PDFService, get_pdf_service
 from core.timezone import ensure_mx, now_mx
@@ -195,6 +195,89 @@ async def get_graphs_partial(
     )
     return templates.TemplateResponse(request, "comercial/partials/graphs.html", {"stats": stats})
 
+async def _render_cards_partial(
+    request: Request,
+    service: ComercialService,
+    conn,
+    user_context: dict,
+    *,
+    tab: str,
+    subtab: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 20,
+    page: int = 1,
+    filtro_usuario_id: Optional[UUID] = None,
+    filtro_tipo_id: Optional[int] = None,
+    filtro_estatus_id: Optional[int] = None,
+    filtro_tecnologia_id: Optional[int] = None,
+    filtro_fecha_inicio: Optional[str] = None,
+    filtro_fecha_fin: Optional[str] = None,
+    check_token: bool = True,
+    toast: Optional[dict] = None,
+):
+    """Contexto + render compartido entre GET /partials/cards y las acciones que
+    devuelven la misma lista actualizada (ej. cierre manual de la subpestaña
+    Cancelados) — evita mantener dos copias del armado de TemplateResponse."""
+    # Validar existencia de token sin exponerlo (para botón de envío).
+    # Evita llamadas innecesarias a Graph API en cada carga.
+    has_valid_token = await service.check_user_has_access_token(
+        conn, user_context['user_db_id']
+    ) if check_token else False
+
+    result = await service.get_oportunidades_list(
+        conn,
+        user_context=user_context,
+        tab=tab,
+        q=q,
+        limit=limit,
+        page=page,
+        subtab=subtab,
+        filtro_usuario_id=filtro_usuario_id,
+        filtro_tipo_id=filtro_tipo_id,
+        filtro_estatus_id=filtro_estatus_id,
+        filtro_tecnologia_id=filtro_tecnologia_id,
+        filtro_fecha_inicio=filtro_fecha_inicio,
+        filtro_fecha_fin=filtro_fecha_fin,
+    )
+
+    es_cancelados = (tab == "levantamientos" and subtab == "cancelados")
+    ops_processed = [
+        {
+            **op,
+            'es_multisitio': ComercialService.is_originally_multisite(op),
+            # Decision de negocio resuelta aqui, no en el template (ver Paso 12 del PLAN):
+            # solo se puede cerrar manualmente si la OP sigue exactamente Pendiente -- espejo
+            # de la guarda en cerrar_oportunidad_levantamiento_cancelado.
+            'puede_cerrar_lev_cancelado': es_cancelados and op.get("status_global") == "Pendiente",
+        }
+        for op in result["items"]
+    ]
+    can_edit = user_has_module_access("comercial", user_context, "editor")
+    motivos_cierre = await service.get_motivos_cierre(conn) if es_cancelados else []
+
+    return templates.TemplateResponse(
+        request, "comercial/partials/cards.html",
+        {
+            "oportunidades": ops_processed,
+            "user_token": has_valid_token,
+            "current_tab": tab,
+            "subtab": subtab,
+            "q": q,
+            "is_global_search": bool(q and q.strip()),
+            "limit": result["limit"],
+            "page": result["page"],
+            "total": result["total"],
+            "total_pages": result["total_pages"],
+            "base_url": "/comercial/partials/cards",
+            "hx_target": "#tab-content",
+            "hx_include": ".global-filter",
+            "can_edit": can_edit,
+            "motivos_cierre": motivos_cierre,
+            "toast": toast,
+        }
+    )
+
+
 @router.get("/partials/cards", include_in_schema=False)
 async def get_cards_partial(
     request: Request,
@@ -215,55 +298,50 @@ async def get_cards_partial(
     _ = require_module_access("comercial")
 ):
     """Partial: List of Opportunities (Cards/Grid)"""
-    f_user = _safe_uuid(filtro_usuario_id)
-    f_tipo = _safe_int(filtro_tipo_id)
-    f_estatus = _safe_int(filtro_estatus_id)
-    f_tecnologia = _safe_int(filtro_tecnologia_id)
-    f_inicio = filtro_fecha_inicio if filtro_fecha_inicio and filtro_fecha_inicio.strip() else None
-    f_fin = filtro_fecha_fin if filtro_fecha_fin and filtro_fecha_fin.strip() else None
-    
-    # Validar existencia de token sin exponerlo (para botón de envío)
-    # Evita llamadas innecesarias a Graph API en cada carga
-    has_valid_token = await service.check_user_has_access_token(
-        conn, 
-        user_context['user_db_id']
-    )
-    
-    result = await service.get_oportunidades_list(
-        conn,
-        user_context=user_context,
-        tab=tab,
-        q=q,
-        limit=limit,
-        page=page,
-        subtab=subtab,
-        filtro_usuario_id=f_user,
-        filtro_tipo_id=f_tipo,
-        filtro_estatus_id=f_estatus,
-        filtro_tecnologia_id=f_tecnologia,
-        filtro_fecha_inicio=f_inicio,
-        filtro_fecha_fin=f_fin
+    return await _render_cards_partial(
+        request, service, conn, user_context,
+        tab=tab, subtab=subtab, q=q, limit=limit, page=page,
+        filtro_usuario_id=_safe_uuid(filtro_usuario_id),
+        filtro_tipo_id=_safe_int(filtro_tipo_id),
+        filtro_estatus_id=_safe_int(filtro_estatus_id),
+        filtro_tecnologia_id=_safe_int(filtro_tecnologia_id),
+        filtro_fecha_inicio=filtro_fecha_inicio if filtro_fecha_inicio and filtro_fecha_inicio.strip() else None,
+        filtro_fecha_fin=filtro_fecha_fin if filtro_fecha_fin and filtro_fecha_fin.strip() else None,
     )
 
-    ops_processed = [{**op, 'es_multisitio': ComercialService.is_originally_multisite(op)} for op in result["items"]]
 
-    return templates.TemplateResponse(
-        request, "comercial/partials/cards.html",
-        {
-            "oportunidades": ops_processed,
-            "user_token": has_valid_token,
-            "current_tab": tab,
-            "subtab": subtab,
-            "q": q,
-            "is_global_search": bool(q and q.strip()),
-            "limit": result["limit"],
-            "page": result["page"],
-            "total": result["total"],
-            "total_pages": result["total_pages"],
-            "base_url": "/comercial/partials/cards",
-            "hx_target": "#tab-content",
-            "hx_include": ".global-filter",
-        }
+# ----------------------------------------
+# Cierre manual de OP con todos los levantamientos cancelados (subpestaña "Cancelados")
+# ----------------------------------------
+
+@router.post("/levantamientos/cerrar-cancelado/{id_oportunidad}", include_in_schema=False)
+async def cerrar_levantamiento_cancelado(
+    request: Request,
+    id_oportunidad: UUID,
+    id_motivo_cierre: int = Form(...),
+    limit: int = 20,
+    page: int = 1,
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection),
+    user_context: dict = Depends(get_current_user_context),
+    _ = require_module_access("comercial", "editor"),
+):
+    """Cierra manualmente una OP tipo LEVANTAMIENTO cuyos levantamientos ya están
+    todos cancelados (subpestaña "Cancelados") pero no cerró sola porque el motivo
+    de cancelación no era "inviable"."""
+    toast = None
+    try:
+        await service.cerrar_oportunidad_levantamiento_cancelado(
+            conn, id_oportunidad, id_motivo_cierre, user_context
+        )
+        toast = {"type": "success", "title": "Oportunidad cerrada", "message": "La oportunidad fue marcada como Cancelada."}
+    except HTTPException as he:
+        toast = {"type": "error", "title": "Error", "message": he.detail}
+
+    return await _render_cards_partial(
+        request, service, conn, user_context,
+        tab="levantamientos", subtab="cancelados", limit=limit, page=page,
+        check_token=False, toast=toast,
     )
 
 @router.get("/partials/sitios/{id_oportunidad}", include_in_schema=False)

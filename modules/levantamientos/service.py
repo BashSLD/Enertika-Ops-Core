@@ -502,9 +502,83 @@ class LevantamientoService:
             )
     
     # ========================================
+    # PROPAGACIÓN DE ESTATUS A LA OPORTUNIDAD
+    # ========================================
+
+    async def _propagar_estatus_op(self, conn, id_levantamiento: UUID, id_oportunidad: UUID) -> None:
+        """
+        Punto único de propagación Levantamiento -> Oportunidad. Invocada por
+        cambiar_estado() y cancelar_levantamiento() dentro de la transacción del
+        caller (no abre la suya). Decide en función de TODOS los levantamientos que
+        comparten id_oportunidad (multisitio), nunca de uno solo:
+
+        1. No todos terminales                                  -> no propaga
+        2. Todos terminales y ≥1 con codigo='entregado'          -> OP -> Entregado
+        3. Todos codigo='cancelado' y todos con motivo inviable  -> OP -> Cancelado + motivo
+        4. Cualquier otro caso (mezclas, cancelados no-inviables,
+           todos Completado sin entrega formal)                 -> no propaga
+        """
+        # SELECT ... FOR UPDATE serializa multisitio: dos transacciones cerrando dos
+        # sitios de la misma OP en paralelo verían, sin este lock, cada una al hermano
+        # como no-terminal y ninguna propagaría (write-skew bajo READ COMMITTED).
+        op_row = await conn.fetchrow(
+            "SELECT id_oportunidad, id_estatus_global FROM tb_oportunidades WHERE id_oportunidad = $1 FOR UPDATE",
+            id_oportunidad
+        )
+        if not op_row:
+            return
+
+        hermanos = await conn.fetch("""
+            SELECT l.id_levantamiento, cel.codigo, cel.es_estatus_final,
+                   l.id_motivo_cancelacion, mc.es_no_viable
+            FROM tb_levantamientos l
+            JOIN tb_cat_estatus_levantamiento cel ON cel.id = l.id_estatus_global
+            LEFT JOIN tb_cat_motivos_cierre mc ON mc.id = l.id_motivo_cancelacion
+            WHERE l.id_oportunidad = $1
+        """, id_oportunidad)
+
+        if not hermanos or not all(h['es_estatus_final'] for h in hermanos):
+            return  # Caso 1
+
+        codigos = {h['codigo'] for h in hermanos}
+        estatus_op_map = await ConfigService.get_catalog_map(conn, "tb_cat_estatus_oportunidades", "nombre", "id")
+
+        id_motivo_cierre = None
+        if 'entregado' in codigos:
+            nuevo_estatus_op_id = estatus_op_map.get('entregado')  # Caso 2
+        elif codigos == {'cancelado'} and all(h['es_no_viable'] for h in hermanos):
+            nuevo_estatus_op_id = estatus_op_map.get('cancelado')  # Caso 3
+            disparador = next((h for h in hermanos if h['id_levantamiento'] == id_levantamiento), hermanos[0])
+            id_motivo_cierre = disparador['id_motivo_cancelacion']
+        else:
+            return  # Caso 4
+
+        if not nuevo_estatus_op_id:
+            logger.warning("[PROPAGACION] Estatus de OP no resuelto en catalogo, se omite propagacion")
+            return
+
+        # Guarda POSITIVA (whitelist de un solo estado), no un exclude-list de
+        # Ganada/Perdido: un exclude-list dejaria pisar silenciosamente una OP ya
+        # Cancelada (con motivo distinto) si un hermano reactivado llega despues a
+        # 'entregado' sin pasar por reactivar_levantamiento (que ya revierte la OP a
+        # Pendiente primero). Solo se propaga si la OP sigue exactamente Pendiente.
+        id_pendiente_op = estatus_op_map.get('pendiente')
+        if op_row['id_estatus_global'] != id_pendiente_op:
+            return
+
+        await conn.execute(
+            "UPDATE tb_oportunidades SET id_estatus_global = $1, id_motivo_cierre = COALESCE($2, id_motivo_cierre) WHERE id_oportunidad = $3",
+            nuevo_estatus_op_id, id_motivo_cierre, id_oportunidad
+        )
+        logger.info(
+            "[PROPAGACION] OP %s -> estatus_op=%s por levantamiento %s",
+            id_oportunidad, nuevo_estatus_op_id, id_levantamiento
+        )
+
+    # ========================================
     # CAMBIO DE ESTADO
     # ========================================
-    
+
     async def cambiar_estado(
         self,
         conn,
@@ -603,27 +677,8 @@ class LevantamientoService:
 
             _id_a_codigo = {v: k for k, v in _estatus_map.items()}
             if _id_a_codigo.get(nuevo_estado) in {'completado', 'entregado', 'cancelado'}:
-                _estatus_op_map = await ConfigService.get_catalog_map(
-                    conn, "tb_cat_estatus_oportunidades", "nombre", "id"
-                )
-                _nombre_op = 'cancelado' if nuevo_estado == _estatus_map.get('cancelado') else 'entregado'
-                _nuevo_estatus_op_id = _estatus_op_map.get(_nombre_op)
-                if _nuevo_estatus_op_id:
-                    await conn.execute(
-                        """UPDATE tb_oportunidades
-                           SET id_estatus_global = $1
-                           WHERE id_oportunidad = $2
-                             AND id_estatus_global NOT IN (
-                                 SELECT id FROM tb_cat_estatus_oportunidades
-                                 WHERE es_estatus_final = true
-                             )""",
-                        _nuevo_estatus_op_id,
-                        current['id_oportunidad']
-                    )
-                    logger.info(
-                        "[ESTADO] OP %s sincronizada a estatus_op=%s por levantamiento %s",
-                        current['id_oportunidad'], _nuevo_estatus_op_id, id_levantamiento
-                    )
+                if current['id_oportunidad']:
+                    await self._propagar_estatus_op(conn, id_levantamiento, current['id_oportunidad'])
 
             # Al completar: si el levantamiento está en una visita de campo con viáticos
             # y aún no tiene registro en el historico individual, auto-confirmar con prorrateo.
@@ -1094,14 +1149,21 @@ class LevantamientoService:
         id_levantamiento: UUID,
         motivo: str,
         user_context: dict,
+        id_motivo_cancelacion: Optional[int] = None,
     ):
         """
         Cancela un levantamiento:
         1. Cambia estado a 'cancelado'
         2. Limpia viáticos activos
         3. Registra en historial
-        4. Fire & Forget: notificación a jefe de área + solicitante
-        La oportunidad comercial NO se toca — cada solicitud tiene su propio ciclo de vida.
+        4. Propaga a la oportunidad si corresponde (ver _propagar_estatus_op:
+           solo cierra la OP cuando TODOS los levantamientos hermanos quedan
+           cancelados con motivo inviable — no en cada cancelación individual)
+        5. Fire & Forget: notificación a jefe de área + solicitante
+
+        id_motivo_cancelacion es el motivo catalogado (tb_cat_motivos_cierre);
+        motivo sigue siendo el texto libre y se conserva en motivo_pospone —
+        no se reemplaza, ver Paso 5 del PLAN.
         """
         from .db_service import get_db_service as _get_db
         _db = _get_db()
@@ -1124,15 +1186,16 @@ class LevantamientoService:
         now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
 
         async with conn.transaction():
-            # 1. Cancelar levantamiento (reutilizamos motivo_pospone para guardar el motivo)
+            # 1. Cancelar levantamiento (motivo_pospone = texto libre, id_motivo_cancelacion = catalogado)
             await conn.execute("""
                 UPDATE tb_levantamientos
-                SET id_estatus_global = $1,
-                    motivo_pospone    = $2,
-                    updated_at        = $3,
-                    updated_by_id     = $4
-                WHERE id_levantamiento = $5
-            """, id_cancelado, motivo, now_mx, user_context['user_db_id'], id_levantamiento)
+                SET id_estatus_global     = $1,
+                    motivo_pospone         = $2,
+                    id_motivo_cancelacion  = $3,
+                    updated_at             = $4,
+                    updated_by_id          = $5
+                WHERE id_levantamiento = $6
+            """, id_cancelado, motivo, id_motivo_cancelacion, now_mx, user_context['user_db_id'], id_levantamiento)
 
             # 2. Limpiar viáticos activos
             await _db.clear_viaticos_activos(conn, id_levantamiento)
@@ -1148,7 +1211,11 @@ class LevantamientoService:
                 metadata={"tipo_cambio": "cancelacion"}
             )
 
-        # 4. Notificación Fire & Forget
+            # 4. Propagacion (no-op hasta que id_motivo_cancelacion se capture, ver Paso 6)
+            if lev['id_oportunidad']:
+                await self._propagar_estatus_op(conn, id_levantamiento, lev['id_oportunidad'])
+
+        # 5. Notificación Fire & Forget
         asyncio.create_task(
             self._execute_notification_background(
                 self._notificar_cancelacion_impl,
@@ -1168,8 +1235,11 @@ class LevantamientoService:
         user_context: dict,
     ):
         """
-        Reactiva un levantamiento cancelado, devolviéndolo a 'pendiente'.
-        La oportunidad queda en estado cancelado — el equipo comercial decide qué hacer.
+        Reactiva un levantamiento cancelado, devolviéndolo a 'pendiente'. Si la
+        oportunidad asociada sigue exactamente en el estatus 'cancelado' que la
+        propagación fijó, también se revierte a 'pendiente' (ver
+        _revertir_estatus_op_si_corresponde) — pero no si Comercial ya la movió a
+        Ganada/Perdido/otro estatus, esa decisión se respeta.
         """
         from .db_service import get_db_service as _get_db
         _db = _get_db()
@@ -1178,7 +1248,7 @@ class LevantamientoService:
         id_pendiente = estatus_map.get('pendiente')
 
         lev = await conn.fetchrow("""
-            SELECT id_levantamiento, id_estatus_global
+            SELECT id_levantamiento, id_oportunidad, id_estatus_global
             FROM tb_levantamientos
             WHERE id_levantamiento = $1
         """, id_levantamiento)
@@ -1190,26 +1260,63 @@ class LevantamientoService:
 
         now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
 
-        await conn.execute("""
-            UPDATE tb_levantamientos
-            SET id_estatus_global = $1,
-                motivo_pospone    = NULL,
-                updated_at        = $2,
-                updated_by_id     = $3
-            WHERE id_levantamiento = $4
-        """, id_pendiente, now_mx, user_context['user_db_id'], id_levantamiento)
+        # Los 3 writes (estado, historial, reversion de OP) deben ser atomicos: antes
+        # de esta transaccion, un fallo en el historial dejaba el levantamiento ya
+        # reactivado sin registro (split state) -- ver test de caracterizacion G-5.
+        async with conn.transaction():
+            await conn.execute("""
+                UPDATE tb_levantamientos
+                SET id_estatus_global = $1,
+                    motivo_pospone    = NULL,
+                    id_motivo_cancelacion = NULL,
+                    updated_at        = $2,
+                    updated_by_id     = $3
+                WHERE id_levantamiento = $4
+            """, id_pendiente, now_mx, user_context['user_db_id'], id_levantamiento)
 
-        await self._registrar_en_historial(
-            conn=conn,
-            id_levantamiento=id_levantamiento,
-            estatus_anterior=id_cancelado,
-            estatus_nuevo=id_pendiente,
-            user_context=user_context,
-            observaciones="Levantamiento reactivado manualmente",
-            metadata={"tipo_cambio": "reactivacion"}
-        )
+            await self._registrar_en_historial(
+                conn=conn,
+                id_levantamiento=id_levantamiento,
+                estatus_anterior=id_cancelado,
+                estatus_nuevo=id_pendiente,
+                user_context=user_context,
+                observaciones="Levantamiento reactivado manualmente",
+                metadata={"tipo_cambio": "reactivacion"}
+            )
+
+            if lev['id_oportunidad']:
+                await self._revertir_estatus_op_si_corresponde(conn, lev['id_oportunidad'])
 
         logger.info(f"[REACTIVAR] Levantamiento {id_levantamiento} reactivado por {user_context['user_name']}")
+
+    async def _revertir_estatus_op_si_corresponde(self, conn, id_oportunidad: UUID) -> None:
+        """
+        Reactivar un levantamiento puede requerir revertir la OP que la propagación
+        había cerrado (Paso 4 del plan). Solo revierte si la OP sigue exactamente en
+        'cancelado' — si Comercial ya la movió a Ganada/Perdido/otro estatus, esa
+        decisión se respeta y no se toca (misma guarda C-2 que _propagar_estatus_op).
+        """
+        op_row = await conn.fetchrow(
+            "SELECT id_oportunidad, id_estatus_global FROM tb_oportunidades WHERE id_oportunidad = $1 FOR UPDATE",
+            id_oportunidad
+        )
+        if not op_row:
+            return
+
+        estatus_op_map = await ConfigService.get_catalog_map(conn, "tb_cat_estatus_oportunidades", "nombre", "id")
+        id_cancelado_op = estatus_op_map.get('cancelado')
+        id_pendiente_op = estatus_op_map.get('pendiente')
+        if not id_cancelado_op or not id_pendiente_op:
+            return
+
+        if op_row['id_estatus_global'] != id_cancelado_op:
+            return
+
+        await conn.execute(
+            "UPDATE tb_oportunidades SET id_estatus_global = $1, id_motivo_cierre = NULL WHERE id_oportunidad = $2",
+            id_pendiente_op, id_oportunidad
+        )
+        logger.info("[REACTIVAR] OP %s revertida a Pendiente tras reactivar levantamiento", id_oportunidad)
 
     async def _notificar_cancelacion_impl(
         self,

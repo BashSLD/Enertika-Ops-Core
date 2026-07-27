@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oportunidad pendiente de cerrar</title>
+</head>
+
+<body
+    style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4; color: #333333;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0"
+                    style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+
+                    <!-- Header Ambar -->
+                    <tr>
+                        <td
+                            style="background-color: #d97706; background: linear-gradient(135deg, #b45309 0%, #d97706 100%); padding: 30px 40px; text-align: center;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 26px; font-weight: 600;">
+                                Oportunidad pendiente de cerrar
+                            </h1>
+                            <p style="margin: 10px 0 0 0; color: #fde68a; font-size: 14px;">
+                                Todos los levantamientos de esta oportunidad quedaron cancelados
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Contenido -->
+                    <tr>
+                        <td style="padding: 40px;">
+
+                            <p style="margin: 0 0 25px 0; color: #333333; font-size: 15px; line-height: 1.6;">
+                                Esta oportunidad sigue abierta pero ya no tiene levantamientos activos:
+                            </p>
+
+                            <!-- Card de Oportunidad -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #fffbeb; border-left: 4px solid #d97706; border-radius: 4px; margin-bottom: 25px;">
+                                <tr>
+                                    <td style="padding: 20px;">
+                                        <div style="margin-bottom: 15px;">
+                                            <span
+                                                style="display: inline-block; background-color: #d97706; color: #ffffff; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                                                {{ oportunidad.op_id_estandar }}
+                                            </span>
+                                        </div>
+                                        <table width="100%" cellpadding="8" cellspacing="0">
+                                            <tr>
+                                                <td width="140"
+                                                    style="color: #92400e; font-weight: 600; font-size: 14px; vertical-align: top;">
+                                                    Cliente:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px;">
+                                                    {{ oportunidad.cliente_nombre }}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    style="color: #92400e; font-weight: 600; font-size: 14px; vertical-align: top;">
+                                                    Proyecto:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px;">
+                                                    {{ oportunidad.nombre_proyecto or 'Sin nombre de proyecto' }}
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Motivos de cancelacion -->
+                            {% if motivos %}
+                            <div
+                                style="background-color: #fff7ed; border: 1px solid #fed7aa; border-radius: 6px; padding: 16px; margin-bottom: 25px;">
+                                <p
+                                    style="margin: 0 0 8px 0; color: #9a3412; font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">
+                                    Motivo(s) de cancelacion:
+                                </p>
+                                <ul style="margin: 0; padding-left: 20px; color: #374151; font-size: 14px; line-height: 1.8;">
+                                    {% for m in motivos %}
+                                    <li>{{ m }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                            {% endif %}
+
+                            <!-- Leyenda -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #fef2f2; border-radius: 6px; margin-bottom: 30px;">
+                                <tr>
+                                    <td style="padding: 16px 20px;">
+                                        <p style="margin: 0; color: #7f1d1d; font-size: 13px; line-height: 1.7;">
+                                            Esta oportunidad debe cerrarse para evitar impacto en reportes y KPIs.
+                                            Al cerrarla podrás volver a solicitar un levantamiento o simulación.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- CTA -->
+                            <table width="100%" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{{ base_url }}/comercial/ui?tab=levantamientos&subtab=cancelados"
+                                            style="display: inline-block; background-color: #d97706; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-size: 15px; font-weight: 600; box-shadow: 0 2px 4px rgba(217,119,6,0.3);">
+                                            Cerrar Oportunidad
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td
+                            style="background-color: #f8f9fa; padding: 25px 40px; text-align: center; border-top: 1px solid #e0e0e0;">
+                            <p style="margin: 0 0 5px 0; color: #d97706; font-weight: 700; font-size: 16px;">
+                                ECO
+                            </p>
+                            <p style="margin: 0; color: #999999; font-size: 12px;">
+                                Sistema de Gestión de Operaciones
+                            </p>
+                            <p style="margin: 15px 0 0 0; color: #cccccc; font-size: 11px;">
+                                Este es un correo automatico. Por favor no responder.
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

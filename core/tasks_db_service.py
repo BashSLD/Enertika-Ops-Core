@@ -284,6 +284,94 @@ class TasksDBService:
         )
         return [dict(row) for row in rows]
 
+    async def get_op_levantamiento_sin_cerrar_candidatas(self, conn) -> list[dict]:
+        """OPs tipo LEVANTAMIENTO en estatus no terminal cuyos levantamientos estan
+        TODOS cancelados -- candidatas al recordatorio de cierre manual (ver
+        check_op_levantamiento_sin_cerrar_periodically). Debe coincidir EXACTO con
+        el filtro de la subpestaña "Cancelados" de Comercial (unico lugar con el
+        boton de cierre): si aqui se incluyera "todos terminales + >=1 cancelado"
+        (que tambien cubre mezclas como completado+cancelado), el correo llevaria a
+        una lista donde la OP no aparece y no hay forma de actuar. El caso
+        "todos Completado sin entrega formal" (G-6) se queda bloqueado a proposito
+        hasta la entrega manual -- no le corresponde este recordatorio. "Terminal"
+        de OP se resuelve igual que QUERY_CHECK_GRUPO_BLOQUEADOR (es_estatus_final=true
+        OR nombre='Ganada'), no solo por el flag."""
+        rows = await conn.fetch(
+            """
+            SELECT
+                o.id_oportunidad,
+                o.op_id_estandar,
+                o.nombre_proyecto,
+                o.cliente_nombre,
+                o.recordatorio_lev_cancelado_at AT TIME ZONE 'America/Mexico_City' AS ultimo_envio,
+                COALESCE(u_resp.email, u_creador.email) AS to_email,
+                (
+                    SELECT MAX(lh.fecha_transicion) AT TIME ZONE 'America/Mexico_City'
+                    FROM tb_levantamientos_historial lh
+                    JOIN tb_levantamientos l2 ON l2.id_levantamiento = lh.id_levantamiento
+                    JOIN tb_cat_estatus_levantamiento cel2 ON cel2.id = lh.id_estatus_nuevo
+                    WHERE l2.id_oportunidad = o.id_oportunidad AND cel2.es_estatus_final = true
+                ) AS ultima_transicion_terminal,
+                ARRAY(
+                    SELECT l3.motivo_pospone
+                    FROM tb_levantamientos l3
+                    JOIN tb_cat_estatus_levantamiento cel3 ON cel3.id = l3.id_estatus_global
+                    WHERE l3.id_oportunidad = o.id_oportunidad
+                      AND cel3.codigo = 'cancelado'
+                      AND l3.motivo_pospone IS NOT NULL
+                ) AS motivos_cancelacion
+            FROM tb_oportunidades o
+            JOIN tb_cat_tipos_solicitud ts ON ts.id = o.id_tipo_solicitud AND ts.codigo_interno = 'LEVANTAMIENTO'
+            JOIN tb_usuarios u_creador ON u_creador.id_usuario = o.creado_por_id
+            LEFT JOIN tb_usuarios u_resp ON u_resp.id_usuario = o.responsable_comercial_id AND u_resp.is_active = true
+            WHERE o.email_enviado = true
+              AND o.id_estatus_global NOT IN (
+                  SELECT id FROM tb_cat_estatus_oportunidades
+                  WHERE es_estatus_final = true OR LOWER(nombre) = 'ganada'
+              )
+              AND EXISTS (
+                  SELECT 1 FROM tb_levantamientos l
+                  WHERE l.id_oportunidad = o.id_oportunidad
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM tb_levantamientos l
+                  JOIN tb_cat_estatus_levantamiento cel ON cel.id = l.id_estatus_global
+                  WHERE l.id_oportunidad = o.id_oportunidad AND cel.codigo <> 'cancelado'
+              )
+            """
+        )
+        return [dict(row) for row in rows]
+
+    async def get_comercial_admin_manager_emails(self, conn) -> set[str]:
+        """CC del recordatorio de cierre: admin de Comercial, o MANAGER global con
+        editor/admin en Comercial -- excluyendo ADMIN global (ya recibe TO via
+        otros canales). No usa tb_config_emails: esa tabla guarda direcciones
+        estaticas y no puede expresar este OR entre rol de sistema y rol de modulo."""
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT u.email
+            FROM tb_usuarios u
+            JOIN tb_permisos_modulos pm ON pm.usuario_id = u.id_usuario
+            WHERE u.is_active = true
+              AND u.email IS NOT NULL
+              AND pm.modulo_slug = 'comercial'
+              AND (
+                  pm.rol_modulo = 'admin'
+                  OR (u.rol_sistema = 'MANAGER' AND pm.rol_modulo IN ('editor', 'admin'))
+              )
+              AND u.rol_sistema <> 'ADMIN'
+            """
+        )
+        return {row["email"] for row in rows}
+
+    async def mark_recordatorio_lev_cancelado_op(self, conn, id_oportunidad: UUID) -> None:
+        """Anti-spam propio de tb_oportunidades.recordatorio_lev_cancelado_at --
+        NO reusa mark_recordatorio_enviado, que esta hardcodeado a tb_levantamientos."""
+        await conn.execute(
+            "UPDATE tb_oportunidades SET recordatorio_lev_cancelado_at = NOW() WHERE id_oportunidad = $1",
+            id_oportunidad,
+        )
+
     async def get_estatus_ganada_id(self, conn) -> int | None:
         return await conn.fetchval(
             """

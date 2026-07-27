@@ -302,6 +302,57 @@ class NotificationService:
         except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as e:
             logger.error(f"[NOTIFY] Error inesperado en notificacion cancelacion {id_levantamiento}: {e}", exc_info=True)
 
+    async def notify_op_levantamiento_cancelado_sin_cerrar(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        opp: dict,
+        to_email: str,
+        cc_emails: Set[str],
+        motivos: list[str],
+    ) -> bool:
+        """
+        Recordatorio periódico (worker): todos los levantamientos de la OP quedaron
+        cancelados pero la OP sigue abierta (ver check_op_levantamiento_sin_cerrar_periodically
+        en core/tasks.py). TO: responsable comercial (fallback creador). CC: resuelto
+        dinámicamente contra tb_permisos_modulos+tb_usuarios por el caller — NO usa
+        tb_config_emails (no puede expresar la regla admin-comercial OR manager+editor).
+        `opp` (op_id_estandar/cliente_nombre/nombre_proyecto) viene de la misma query
+        que ya produjo el candidato -- evita un fetchrow adicional por OP, por tick.
+        Retorna True si el envío tuvo éxito, para que el caller decida si marca el
+        anti-spam (tb_oportunidades.recordatorio_lev_cancelado_at).
+        """
+        try:
+            html = self._render_template('shared/emails/workflow/op_levantamiento_cancelado_sin_cerrar.html', {
+                'oportunidad': opp,
+                'motivos': motivos,
+                'base_url': settings.APP_BASE_URL,
+            })
+
+            subject = f"Accion requerida: cerrar oportunidad cancelada {opp['op_id_estandar']} - {opp['cliente_nombre']}"
+            sender_config = await self._get_notification_sender(conn, 'DEFAULT')
+            await self._send_email({to_email}, cc_emails, subject, html, sender_config['email'])
+
+            await self._save_and_broadcast(
+                conn=conn,
+                recipient_email=to_email,
+                tipo='LEV_CANCELADO_SIN_CERRAR',
+                titulo=f'Accion requerida: {opp["op_id_estandar"]}',
+                mensaje=f'{opp["cliente_nombre"]}: todos los levantamientos quedaron cancelados, cierra la oportunidad para liberar el hilo.',
+                id_oportunidad=id_oportunidad,
+                modulo_origen='levantamientos',
+            )
+            logger.info(f"[NOTIFY] Recordatorio OP levantamiento cancelado sin cerrar enviado: {id_oportunidad}")
+            return True
+
+        except asyncpg.PostgresError as e:
+            logger.error(f"[NOTIFY] Error BD en recordatorio OP levantamiento cancelado {id_oportunidad}: {e}", exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error(f"[NOTIFY] Error red/Graph API en recordatorio OP levantamiento cancelado {id_oportunidad}: {e}", exc_info=True)
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as e:
+            logger.error(f"[NOTIFY] Error inesperado en recordatorio OP levantamiento cancelado {id_oportunidad}: {e}", exc_info=True)
+        return False
+
     async def notify_reassignment_request(
         self,
         conn,

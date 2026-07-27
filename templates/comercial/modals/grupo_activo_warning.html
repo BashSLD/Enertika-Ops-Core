@@ -1,4 +1,12 @@
 {% set es_borrador_solo = sim and sim.es_borrador and not lev %}
+{# sim y lev vienen de subqueries LIMIT 1 independientes (QUERY_CHECK_GRUPO_BLOQUEADOR) y
+   pueden referir a OPs distintas del mismo grupo (multi-OP, raro pero valido). Se separan
+   dos decisiones: (1) el rotulo de la tarjeta de sim se corrige siempre que sim sea tipo
+   Levantamiento, sin importar si lev coincide; (2) la tarjeta "lev" solo se OCULTA
+   (dedup) cuando de verdad es la misma OP que sim -- si no, ambas tarjetas se muestran
+   por separado (ver _Planes_Activos/2026-07-23-...-PLAN.md Paso 12). #}
+{% set es_tipo_levantamiento = sim and not sim.es_borrador and sim.tipo_solicitud == 'Levantamiento' %}
+{% set mismo_op_que_lev = lev and sim and lev.op_id == sim.op_id %}
 <div id="modal-backdrop-grupo-activo"
     class="modal-overlay-layer fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-[10001] backdrop-blur-sm animate-fade-in">
 
@@ -53,6 +61,21 @@
                         <p class="text-xs text-amber-700 mt-0.5">{{ sim.tipo_solicitud }}</p>
                     </div>
                 </div>
+                {% elif es_tipo_levantamiento %}
+                <!-- Bloqueador es una OP tipo Levantamiento: rotulo corregido (no "Simulación
+                     en proceso"). Si ademas es la misma OP que "lev", se usa su estado exacto
+                     y esa tarjeta se oculta abajo para no repetir la info dos veces. -->
+                <div class="flex items-start gap-3 bg-purple-50 border border-purple-100 rounded-lg p-4">
+                    <svg class="w-5 h-5 text-purple-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <div>
+                        <p class="text-xs font-bold text-purple-800 uppercase tracking-wide mb-1">El proceso de levantamiento aún no concluye</p>
+                        <p class="text-sm text-purple-900 font-mono font-bold">{{ sim.op_id }}</p>
+                        <p class="text-xs text-purple-700 mt-0.5">Estado: <span class="font-semibold">{{ lev.estado if mismo_op_que_lev else sim.estado }}</span></p>
+                    </div>
+                </div>
                 {% else %}
                 <div class="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-lg p-4">
                     <svg class="w-5 h-5 text-blue-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -71,7 +94,7 @@
                 {% endif %}
             {% endif %}
 
-            {% if lev %}
+            {% if lev and not mismo_op_que_lev %}
             <div class="flex items-start gap-3 bg-purple-50 border border-purple-100 rounded-lg p-4">
                 <svg class="w-5 h-5 text-purple-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"

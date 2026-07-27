@@ -897,6 +897,18 @@ class LevantamientosDBService:
         )
         return [dict(r) for r in rows]
 
+    async def get_motivos_cancelacion(self, conn) -> List[dict]:
+        """Motivos catalogados para el modal de cancelación, filtrados a los
+        aplicables a cancelación (a diferencia de Simulación, que no filtra —
+        ver G-17 en el PLAN de propagación de estatus)."""
+        rows = await conn.fetch("""
+            SELECT id, motivo, es_no_viable
+            FROM tb_cat_motivos_cierre
+            WHERE activo = true AND aplicacion IN ('CANCELACION', 'AMBOS')
+            ORDER BY motivo
+        """)
+        return [dict(r) for r in rows]
+
     async def get_usuarios_tecnicos(self, conn) -> List[dict]:
         """Lista de técnicos para el filtro de la vista lista."""
         rows = await conn.fetch("""
