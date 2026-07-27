@@ -27,6 +27,7 @@ from core.workflow.notification_service import NotificationService
 from modules.asistencia import db_service as db
 from modules.asistencia.constants import ASISTENCIA_ESTADOS
 from modules.asistencia.service import (
+    BIOTIME_CONNECTION_ERRORS,
     HEAutorizacionError,
     ajuste_manual_svc,
     aprobar_compensatorio_svc,
@@ -97,6 +98,9 @@ async def ejecutar_sync_biotime(
         raise HTTPException(status_code=502, detail="No se pudo consultar BioTime") from exc
     except asyncpg.PostgresError as exc:
         logger.error("Error de BD ejecutando sync BioTime: %s", exc)
+        raise HTTPException(status_code=500, detail="No se pudo guardar la asistencia") from exc
+    except BIOTIME_CONNECTION_ERRORS as exc:
+        logger.error("Error de conexion ejecutando sync BioTime: %s", exc)
         raise HTTPException(status_code=500, detail="No se pudo guardar la asistencia") from exc
     return JSONResponse(jsonable_encoder(result))
 

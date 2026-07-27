@@ -88,6 +88,29 @@ async def finish_sync_run(
     )
 
 
+async def reap_stale_sync_runs(conn, *, minutos: int = 30, minutos_backfill: int = 360) -> int:
+    """Marca error los runs atascados en 'running' (worker reiniciado o freeze a mitad).
+
+    Los runs de backfill manual (from_transaction_id NULL) usan un umbral mas
+    largo (minutos_backfill): pueden correr legitimamente varias horas, pero
+    deben reaperse igual si quedan huerfanos (worker reiniciado a mitad).
+    """
+    result = await conn.execute(
+        """
+        UPDATE tb_asistencia_sync_runs
+        SET status = 'error',
+            finished_at = now(),
+            error_message = 'Sincronizacion interrumpida (worker reiniciado o timeout).'
+        WHERE status = 'running'
+          AND started_at < now() - make_interval(
+              mins => CASE WHEN from_transaction_id IS NULL THEN $2::int ELSE $1::int END
+          )
+        """,
+        minutos, minutos_backfill,
+    )
+    return int(result.split()[-1]) if result else 0
+
+
 async def get_employee_map(conn, emp_codes: list[str]) -> dict[str, dict]:
     if not emp_codes:
         return {}

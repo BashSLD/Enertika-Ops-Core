@@ -13,6 +13,7 @@ _GENERIC_EXCEPTION_RE = re.compile(
     r"^\s*except\s+Exception(?:\s+as\s+[A-Za-z_]\w*)?\s*:"
 )
 _BARE_EXCEPTION_RE = re.compile(r"^\s*except\s*:")
+_ALLOW_BROAD_EXCEPT_RE = re.compile(r"#\s*devtools:\s*allow-broad-except\b")
 _PRINT_RE = re.compile(r"(?<![\w.])print\s*\(")
 _OLD_TEMPLATE_RESPONSE_RE = re.compile(r"TemplateResponse\(\s*['\"]")
 _ASYNC_GATHER_RE = re.compile(r"\basyncio\.gather\s*\(")
@@ -51,7 +52,15 @@ def _check_lines(path: str, lines: Iterable[AddedLine]) -> list[Finding]:
                     "datetime.now() sin zona horaria esta prohibido; usar now_mx().",
                 )
             )
-        if _GENERIC_EXCEPTION_RE.search(line.text) or _BARE_EXCEPTION_RE.search(
+        if _BARE_EXCEPTION_RE.search(line.text):
+            findings.append(
+                _finding(
+                    "EXC001",
+                    line,
+                    "Usar excepciones especificas; 'except:' desnudo nunca permitido.",
+                )
+            )
+        elif _GENERIC_EXCEPTION_RE.search(line.text) and not _ALLOW_BROAD_EXCEPT_RE.search(
             line.text
         ):
             findings.append(

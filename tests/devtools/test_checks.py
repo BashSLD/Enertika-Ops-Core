@@ -41,6 +41,22 @@ def test_python_rules_report_project_violations():
     assert all(finding.severity is Severity.ERROR for finding in findings)
 
 
+def test_exc001_allow_broad_except_marker_suppresses_only_generic_exception():
+    snapshot = _snapshot(
+        _changed_file(
+            "modules/demo/service.py",
+            "except Exception as exc:  # devtools: allow-broad-except",
+            "except Exception as exc:",
+            "except:",
+        )
+    )
+
+    findings = run_checks(snapshot)
+
+    assert [finding.line for finding in findings] == [2, 3]
+    assert all(finding.code == "EXC001" for finding in findings)
+
+
 def test_rules_do_not_scan_test_helpers_or_devtools():
     snapshot = _snapshot(
         _changed_file("tests/test_example.py", "print(date.today())"),

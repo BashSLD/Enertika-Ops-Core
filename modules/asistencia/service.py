@@ -43,6 +43,12 @@ from modules.vacaciones import db_service as vacaciones_db
 
 logger = logging.getLogger("asistencia.service")
 
+# Fallas de conexion/timeout post-freeze (command_timeout del pool compartido);
+# se agrupan aqui porque se repiten en varios puntos de entrada de BioTime.
+BIOTIME_CONNECTION_ERRORS = (TimeoutError, OSError, asyncpg.InterfaceError)
+_BIOTIME_FINISH_ERRORS = (asyncpg.PostgresError,) + BIOTIME_CONNECTION_ERRORS
+_BIOTIME_SYNC_ERRORS = (httpx.HTTPError, ValueError, TypeError, RuntimeError) + _BIOTIME_FINISH_ERRORS
+
 
 class HEAutorizacionError(Exception):
     """El actor no tiene permiso para autorizar HE/compensatorio de un tercero (403)."""
@@ -292,6 +298,13 @@ async def sync_biotime_once(conn, *, force: bool = False) -> dict:
         if recalc_days > 0:
             await recalcular_asistencia_reciente(conn, days=recalc_days)
 
+        # Se calcula antes de cerrar el run en 'success': si esta consulta informativa
+        # falla, no debe revertir a 'error' un run cuyo trabajo real ya se completo.
+        unmapped = await db.get_unmapped_biotime_checks_summary(
+            conn,
+            fecha_inicio=ensure_mx(window_start).date(),
+            fecha_fin=ensure_mx(window_end).date(),
+        )
         to_id = _max_transaction_id(normalized) or last_id
         await db.finish_sync_run(
             conn,
@@ -301,11 +314,6 @@ async def sync_biotime_once(conn, *, force: bool = False) -> dict:
             records_read=len(items),
             records_inserted=len(inserted),
             records_skipped=max(0, len(normalized) - len(inserted)),
-        )
-        unmapped = await db.get_unmapped_biotime_checks_summary(
-            conn,
-            fecha_inicio=ensure_mx(window_start).date(),
-            fecha_fin=ensure_mx(window_end).date(),
         )
         insert_metrics = _check_insert_metrics(inserted)
         return {
@@ -320,14 +328,20 @@ async def sync_biotime_once(conn, *, force: bool = False) -> dict:
             "unmapped_biotime_count": sum(row["total"] for row in unmapped),
             **employee_sync,
         }
-    except (httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
-        await db.finish_sync_run(
-            conn,
-            run_id=run_id,
-            status="error",
-            records_read=0,
-            error_message=str(exc)[:1000],
-        )
+    except _BIOTIME_SYNC_ERRORS as exc:
+        try:
+            await db.finish_sync_run(
+                conn,
+                run_id=run_id,
+                status="error",
+                records_read=0,
+                error_message=str(exc)[:1000],
+            )
+        except _BIOTIME_FINISH_ERRORS as finish_exc:
+            logger.error(
+                "[BIOTIME_SYNC] No se pudo marcar run %s como error: %s",
+                run_id, finish_exc,
+            )
         raise
 
 
@@ -416,6 +430,13 @@ async def backfill_biotime_chunk(
         if targets:
             await recalcular_asistencia(conn, targets)
 
+        # Se calcula antes de cerrar el run en 'success': si esta consulta informativa
+        # falla, no debe revertir a 'error' un run cuyo trabajo real ya se completo.
+        unmapped = await db.get_unmapped_biotime_checks_summary(
+            conn,
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+        )
         to_id = _max_transaction_id(normalized)
         await db.finish_sync_run(
             conn,
@@ -425,11 +446,6 @@ async def backfill_biotime_chunk(
             records_read=len(items),
             records_inserted=len(inserted),
             records_skipped=max(0, len(normalized) - len(inserted)),
-        )
-        unmapped = await db.get_unmapped_biotime_checks_summary(
-            conn,
-            fecha_inicio=fecha_inicio,
-            fecha_fin=fecha_fin,
         )
         return {
             "chunk_label": chunk_label,
@@ -443,14 +459,20 @@ async def backfill_biotime_chunk(
             "targets_recalculated": len(targets),
             **employee_sync,
         }
-    except (httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
-        await db.finish_sync_run(
-            conn,
-            run_id=run_id,
-            status="error",
-            records_read=0,
-            error_message=str(exc)[:1000],
-        )
+    except _BIOTIME_SYNC_ERRORS as exc:
+        try:
+            await db.finish_sync_run(
+                conn,
+                run_id=run_id,
+                status="error",
+                records_read=0,
+                error_message=str(exc)[:1000],
+            )
+        except _BIOTIME_FINISH_ERRORS as finish_exc:
+            logger.error(
+                "[BIOTIME_SYNC] No se pudo marcar run %s como error: %s",
+                run_id, finish_exc,
+            )
         raise
 
 
@@ -2175,6 +2197,9 @@ async def sync_biotime_periodically() -> None:
         try:
             pool = await get_db_pool()
             async with pool.acquire() as conn:
+                reaped = await db.reap_stale_sync_runs(conn)
+                if reaped:
+                    logger.warning("[BIOTIME_SYNC] %s run(s) atascado(s) en 'running' marcados como error", reaped)
                 interval_seconds = await ConfigService.get_global_config(
                     conn, BIOTIME_CONFIG_KEYS["interval_seconds"], 900, int
                 )
@@ -2185,6 +2210,8 @@ async def sync_biotime_periodically() -> None:
                     logger.info("[BIOTIME_SYNC] Resultado: %s", result)
         except asyncpg.PostgresError as exc:
             logger.error("[BIOTIME_SYNC] Error de BD: %s", exc)
+        except BIOTIME_CONNECTION_ERRORS as exc:
+            logger.error("[BIOTIME_SYNC] Error de conexion (post-freeze?): %s: %s", type(exc).__name__, exc)
         except httpx.HTTPError as exc:
             logger.error("[BIOTIME_SYNC] Error HTTP BioTime: %s: %s", type(exc).__name__, exc or "(sin mensaje)")
         except (ValueError, TypeError, RuntimeError) as exc:

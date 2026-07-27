@@ -3,8 +3,7 @@
 import asyncpg
 import logging
 from core.config import settings
-from typing import Optional, Dict, List
-from uuid import UUID
+from typing import Optional
 
 logger = logging.getLogger("Database")
 
@@ -23,6 +22,7 @@ async def connect_to_db():
                 min_size=2,
                 max_size=settings.DB_POOL_MAX_SIZE,
                 timeout=settings.DB_POOL_TIMEOUT,
+                command_timeout=settings.DB_COMMAND_TIMEOUT,  # corte cliente determinista ante un cuelgue
                 statement_cache_size=0,  # OBLIGATORIO para Transaction Mode (6543)
                 max_inactive_connection_lifetime=300  # Cierra conexiones inactivas tras 5 min
             )

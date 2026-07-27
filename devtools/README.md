@@ -41,7 +41,9 @@ venv\Scripts\python.exe -m devtools quality --no-tests
 
 - Fechas sin zona horaria: `date.today()` y `datetime.now()`.
 - Extraccion de fecha local mediante `toISOString()`.
-- Capturas genericas de excepciones y `print()` en backend.
+- Capturas genericas de excepciones y `print()` en backend. `except Exception` puede
+  suprimirse con el marker `# devtools: allow-broad-except` (visible, greppable);
+  `except:` desnudo nunca se permite, con o sin marker.
 - Firma antigua de `TemplateResponse`.
 - Riesgo de `asyncio.gather()` en servicios de base de datos.
 - Ternarios de cadenas en `:class` de tabs Alpine.

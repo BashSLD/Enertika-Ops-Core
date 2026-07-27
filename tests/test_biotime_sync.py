@@ -1,6 +1,10 @@
 import asyncio
 import sys
 import types
+from uuid import uuid4
+
+import asyncpg
+import pytest
 
 
 def _install_redis_stub() -> None:
@@ -115,6 +119,228 @@ def test_get_employee_map_does_not_fallback_to_employee_number():
 
     assert "tb_biotime_empleado_map" in conn.query
     assert "numero_empleado" not in conn.query
+
+
+@pytest.mark.asyncio
+async def test_reap_stale_sync_runs_uses_longer_threshold_for_manual_backfill(real_conn):
+    stale_periodic_id = uuid4()
+    fresh_backfill_id = uuid4()  # atascado 60min: bajo el umbral largo de backfill
+    orphaned_backfill_id = uuid4()  # atascado 400min: huerfano, debe reaperse igual
+    fresh_periodic_id = uuid4()
+
+    await real_conn.execute(
+        """
+        INSERT INTO tb_asistencia_sync_runs
+            (id, started_at, status, from_transaction_id, records_read, records_inserted, records_skipped)
+        VALUES
+            ($1, now() - interval '60 minutes', 'running', 100, 0, 0, 0),
+            ($2, now() - interval '60 minutes', 'running', NULL, 0, 0, 0),
+            ($3, now() - interval '400 minutes', 'running', NULL, 0, 0, 0),
+            ($4, now(), 'running', 100, 0, 0, 0)
+        """,
+        stale_periodic_id, fresh_backfill_id, orphaned_backfill_id, fresh_periodic_id,
+    )
+
+    reaped = await db_service.reap_stale_sync_runs(real_conn, minutos=30, minutos_backfill=360)
+
+    rows = {
+        row["id"]: row["status"]
+        for row in await real_conn.fetch(
+            "SELECT id, status FROM tb_asistencia_sync_runs WHERE id = ANY($1::uuid[])",
+            [stale_periodic_id, fresh_backfill_id, orphaned_backfill_id, fresh_periodic_id],
+        )
+    }
+    assert reaped == 2
+    assert rows[stale_periodic_id] == "error"
+    assert rows[fresh_backfill_id] == "running"
+    assert rows[orphaned_backfill_id] == "error"
+    assert rows[fresh_periodic_id] == "running"
+
+
+class _FakeBioTimeClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return False
+
+    async def fetch_transactions(self, **_kwargs):
+        return []
+
+
+def _patch_common_sync_deps(monkeypatch, *, recalc_days: int = 0):
+    run_id = uuid4()
+
+    async def fake_get_global_config(_conn, key, default, _cast):
+        if key == asistencia_service.BIOTIME_CONFIG_KEYS["sync_activo"]:
+            return True
+        if key == asistencia_service.BIOTIME_CONFIG_KEYS["recalc_days"]:
+            return recalc_days
+        return default
+
+    async def fake_load_config(_conn):
+        return {
+            "base_url": "http://biotime.local",
+            "username": "user",
+            "password": "pass",
+            "page_size": 200,
+            "timeout_seconds": 30,
+        }
+
+    async def fake_get_last_transaction_id(_conn):
+        return 100
+
+    async def fake_create_sync_run(_conn, **_kwargs):
+        return run_id
+
+    async def fake_employee_sync(_conn, _client):
+        return {"employees_read": 0, "employee_mappings": 0}
+
+    async def fake_normalize(_conn, items):
+        return items
+
+    async def fake_assign_unmapped(_conn):
+        return []
+
+    async def fake_unmapped_summary(_conn, **_kwargs):
+        return []
+
+    monkeypatch.setattr(asistencia_service.ConfigService, "get_global_config", fake_get_global_config)
+    monkeypatch.setattr(asistencia_service, "_load_biotime_client_config", fake_load_config)
+    monkeypatch.setattr(asistencia_service.db, "get_last_transaction_id", fake_get_last_transaction_id)
+    monkeypatch.setattr(asistencia_service.db, "create_sync_run", fake_create_sync_run)
+    monkeypatch.setattr(asistencia_service, "BioTimeClient", lambda *_a, **_k: _FakeBioTimeClient())
+    monkeypatch.setattr(asistencia_service, "_sync_employee_mappings_from_biotime", fake_employee_sync)
+    monkeypatch.setattr(asistencia_service, "_normalize_transactions", fake_normalize)
+    monkeypatch.setattr(asistencia_service.db, "assign_unmapped_checks_from_mappings", fake_assign_unmapped)
+    monkeypatch.setattr(asistencia_service.db, "get_unmapped_biotime_checks_summary", fake_unmapped_summary)
+    return run_id
+
+
+def test_sync_biotime_once_marks_run_success(monkeypatch):
+    run_id = _patch_common_sync_deps(monkeypatch)
+    finish_calls = []
+
+    async def fake_insert_checks_batch(_conn, _normalized):
+        return []
+
+    async def fake_finish_sync_run(_conn, **kwargs):
+        finish_calls.append(kwargs)
+
+    monkeypatch.setattr(asistencia_service.db, "insert_checks_batch", fake_insert_checks_batch)
+    monkeypatch.setattr(asistencia_service.db, "finish_sync_run", fake_finish_sync_run)
+
+    result = asyncio.run(asistencia_service.sync_biotime_once(None, force=True))
+
+    assert result["status"] == "success"
+    assert finish_calls == [{
+        "run_id": run_id,
+        "status": "success",
+        "to_transaction_id": 100,
+        "records_read": 0,
+        "records_inserted": 0,
+        "records_skipped": 0,
+    }]
+
+
+def test_sync_biotime_once_marks_run_error_on_postgres_error(monkeypatch):
+    run_id = _patch_common_sync_deps(monkeypatch)
+    finish_calls = []
+
+    async def fake_insert_checks_batch(_conn, _normalized):
+        raise asyncpg.PostgresError("conexion perdida")
+
+    async def fake_finish_sync_run(_conn, **kwargs):
+        finish_calls.append(kwargs)
+
+    monkeypatch.setattr(asistencia_service.db, "insert_checks_batch", fake_insert_checks_batch)
+    monkeypatch.setattr(asistencia_service.db, "finish_sync_run", fake_finish_sync_run)
+
+    with pytest.raises(asyncpg.PostgresError, match="conexion perdida"):
+        asyncio.run(asistencia_service.sync_biotime_once(None, force=True))
+
+    assert finish_calls == [{
+        "run_id": run_id,
+        "status": "error",
+        "records_read": 0,
+        "error_message": "conexion perdida",
+    }]
+
+
+def test_sync_biotime_once_propagates_original_error_if_finish_sync_run_also_fails(monkeypatch):
+    _patch_common_sync_deps(monkeypatch)
+    finish_attempts = []
+
+    async def fake_insert_checks_batch(_conn, _normalized):
+        raise asyncpg.PostgresError("conexion perdida")
+
+    async def fake_finish_sync_run_fails(_conn, **kwargs):
+        finish_attempts.append(kwargs)
+        raise asyncpg.PostgresError("tambien perdida")
+
+    monkeypatch.setattr(asistencia_service.db, "insert_checks_batch", fake_insert_checks_batch)
+    monkeypatch.setattr(asistencia_service.db, "finish_sync_run", fake_finish_sync_run_fails)
+
+    with pytest.raises(asyncpg.PostgresError, match="conexion perdida"):
+        asyncio.run(asistencia_service.sync_biotime_once(None, force=True))
+
+    assert len(finish_attempts) == 1
+
+
+def test_sync_biotime_once_marks_run_error_on_timeout_error(monkeypatch):
+    run_id = _patch_common_sync_deps(monkeypatch)
+    finish_calls = []
+
+    async def fake_insert_checks_batch(_conn, _normalized):
+        raise TimeoutError("query excedio el limite")
+
+    async def fake_finish_sync_run(_conn, **kwargs):
+        finish_calls.append(kwargs)
+
+    monkeypatch.setattr(asistencia_service.db, "insert_checks_batch", fake_insert_checks_batch)
+    monkeypatch.setattr(asistencia_service.db, "finish_sync_run", fake_finish_sync_run)
+
+    with pytest.raises(TimeoutError, match="query excedio el limite"):
+        asyncio.run(asistencia_service.sync_biotime_once(None, force=True))
+
+    assert finish_calls == [{
+        "run_id": run_id,
+        "status": "error",
+        "records_read": 0,
+        "error_message": "query excedio el limite",
+    }]
+
+
+def test_sync_biotime_once_does_not_overwrite_success_when_unmapped_summary_fails(monkeypatch):
+    run_id = _patch_common_sync_deps(monkeypatch)
+    finish_calls = []
+
+    async def fake_insert_checks_batch(_conn, _normalized):
+        return []
+
+    async def fake_finish_sync_run(_conn, **kwargs):
+        finish_calls.append(kwargs)
+
+    async def fake_unmapped_summary_fails(_conn, **_kwargs):
+        raise asyncpg.PostgresError("conexion perdida")
+
+    monkeypatch.setattr(asistencia_service.db, "insert_checks_batch", fake_insert_checks_batch)
+    monkeypatch.setattr(asistencia_service.db, "finish_sync_run", fake_finish_sync_run)
+    monkeypatch.setattr(
+        asistencia_service.db, "get_unmapped_biotime_checks_summary", fake_unmapped_summary_fails
+    )
+
+    with pytest.raises(asyncpg.PostgresError, match="conexion perdida"):
+        asyncio.run(asistencia_service.sync_biotime_once(None, force=True))
+
+    # La consulta informativa fallo ANTES de escribir 'success': el run debe
+    # marcarse 'error' una sola vez, nunca 'success' seguido de un overwrite a 'error'.
+    assert finish_calls == [{
+        "run_id": run_id,
+        "status": "error",
+        "records_read": 0,
+        "error_message": "conexion perdida",
+    }]
 
 
 def test_biotime_client_url_sanitization():

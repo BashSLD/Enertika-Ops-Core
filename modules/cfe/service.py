@@ -2200,6 +2200,8 @@ async def procesar_descargas_cfe_periodically():
             await svc.procesar_pendientes(pool)
         except asyncio.CancelledError:
             raise
-        except Exception:
-            logger.exception("[CFE] Error en ciclo de descargas")
+        except asyncpg.PostgresError as exc:
+            logger.error("[CFE] Error de BD en ciclo de descargas: %s", exc)
+        except (RuntimeError, TypeError, ValueError) as exc:
+            logger.error("[CFE] Error en ciclo de descargas: %s", exc, exc_info=True)
         await asyncio.sleep(30)

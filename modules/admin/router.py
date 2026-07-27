@@ -616,6 +616,9 @@ async def backfill_biotime_chunk_endpoint(
     except asyncpg.PostgresError:
         logger.exception("Error de BD en backfill BioTime chunk %s-%s", chunk_inicio, chunk_fin)
         ctx.update({"chunk_label": fallback_label, "error": "Error de base de datos al procesar el chunk"})
+    except asistencia_service.BIOTIME_CONNECTION_ERRORS:
+        logger.exception("Error de conexion en backfill BioTime chunk %s-%s", chunk_inicio, chunk_fin)
+        ctx.update({"chunk_label": fallback_label, "error": "Error de conexion al procesar el chunk"})
 
     return templates.TemplateResponse(request, "admin/partials/biotime_backfill_resultado.html", ctx)
 

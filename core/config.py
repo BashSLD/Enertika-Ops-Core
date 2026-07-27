@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     TOKEN_REFRESH_MARGIN_SECONDS: int = int(os.getenv("TOKEN_REFRESH_MARGIN", "300"))  # 5 min
     DB_POOL_MAX_SIZE: int = int(os.getenv("DB_POOL_MAX_SIZE", "20"))
     DB_POOL_TIMEOUT: int = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+    DB_COMMAND_TIMEOUT: int = int(os.getenv("DB_COMMAND_TIMEOUT", "120"))  # iguala statement_timeout de Supabase
 
     # --- OAuth: correlación de intento (state/nonce) y reconexión ---
     OAUTH_ATTEMPT_TTL_SECONDS: int = int(os.getenv("OAUTH_ATTEMPT_TTL_SECONDS", "600"))  # 10 min
