@@ -158,6 +158,14 @@ class BomService(BomComprasServiceMixin):
             conn, id_proyecto, user_id, "ingeniero_asignado", "INGENIERIA"
         )
 
+    async def get_permiso_configurar_paneles(
+        self, conn, id_proyecto: UUID, user_id: Optional[UUID],
+    ) -> tuple[bool, Optional[str]]:
+        """Resuelve si el usuario puede configurar el panel FV y, si no, el label del jefe a contactar."""
+        puede_configurar = await self.puede_crear_o_retomar_bom(conn, id_proyecto, user_id)
+        jefe_label = await self.get_jefe_ingenieria_label(conn) if not puede_configurar else None
+        return puede_configurar, jefe_label
+
     async def get_ingeniero_asignado(self, conn, id_proyecto: UUID) -> Optional[dict]:
         """Asignacion activa de ingeniero_asignado (INGENIERIA) del proyecto."""
         return await self.db.get_asignacion_proyecto(
@@ -2633,6 +2641,30 @@ class BomService(BomComprasServiceMixin):
             'usuarios_const_jefes': usuarios_const_jefes, # Solo jefes (para Jefe de Construccion)
             'grupos_bom': grupos_bom,
         }
+
+    # ─── PANELES FV DEL PROYECTO ────────────────────────────
+
+    async def paneles_configurados(self, conn, id_proyecto: UUID) -> bool:
+        return await self.db.existen_paneles_proyecto(conn, id_proyecto)
+
+    async def get_paneles_proyecto(self, conn, id_proyecto: UUID) -> list[dict]:
+        return await self.db.get_paneles_proyecto(conn, id_proyecto)
+
+    async def get_paneles_fv_activos(self, conn) -> list[dict]:
+        return await self.db.get_paneles_fv_activos(conn)
+
+    async def guardar_paneles_proyecto(
+        self, conn, id_proyecto: UUID, paneles: list[dict], user_id: UUID
+    ) -> None:
+        """Reemplaza los paneles FV del proyecto. Solo Ingenieria (mismo guard que el BOM)."""
+        await self._validar_retomar_bom_ingenieria(conn, id_proyecto, user_id)
+        if not paneles:
+            raise ValueError("Agrega al menos un panel")
+        for p in paneles:
+            if p["cantidad"] <= 0:
+                raise ValueError("La cantidad debe ser mayor a 0")
+        async with conn.transaction():
+            await self.db.reemplazar_paneles_proyecto(conn, id_proyecto, paneles, user_id)
 
     # ─── EXPORT EXCEL ────────────────────────────────────────
 

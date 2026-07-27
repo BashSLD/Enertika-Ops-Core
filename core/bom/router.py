@@ -3,7 +3,7 @@ Router compartido de BOM (Lista de Materiales).
 Endpoints HTMX para CRUD de items, workflow de aprobaciones y exportacion Excel.
 """
 
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException, Form
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import Response
 from uuid import UUID
@@ -143,6 +143,18 @@ def _toast_response(
         status_code=status_code,
         headers={"HX-Reswap": "none", "HX-Push-Url": "false"},
     )
+
+
+def _redirigir_a_bom(id_proyecto: UUID) -> Response:
+    """Redirige el navegador al BOM del proyecto (recarga completa via HX-Redirect).
+
+    Usado cuando el panel FV ya esta configurado (o se acaba de guardar): evita
+    llamar a bom_ui() directamente (que se saltaria sus propios Depends()) y evita
+    reconstruir a mano la respuesta para cerrar el modal de origen — el navegador
+    hace una navegacion nueva, entra por el routing normal, y el modal desaparece
+    junto con la pagina anterior.
+    """
+    return Response(status_code=200, headers={"HX-Redirect": f"/bom/{id_proyecto}/ui"})
 
 
 def _parse_grupo_ids(form) -> list[int]:
@@ -373,6 +385,127 @@ async def bom_ui(
 
     template = "bom/partials/content.html" if is_htmx(request) else "bom/dashboard.html"
     return templates.TemplateResponse(request, template, ctx)
+
+
+# ========================================
+# GATE DE ACCESO (panel FV del proyecto)
+# ========================================
+
+@router.get("/{id_proyecto}/acceso", include_in_schema=False)
+async def bom_acceso(
+    request: Request,
+    id_proyecto: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(
+        ["ingenieria", "construccion", "compras", "finanzas"], "viewer", allow_org_roles={"director"}
+    ),
+):
+    """Gate de entrada al BOM: si ya existe un BOM para el proyecto, exige capturar
+    el panel FV antes de continuar; si aun no existe BOM, lo sugiere pero permite
+    continuar sin configurarlo."""
+    proyecto = await service.get_proyecto_info(conn, id_proyecto)
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    if await service.paneles_configurados(conn, id_proyecto):
+        return _redirigir_a_bom(id_proyecto)
+
+    tiene_bom = await service.get_bom_proyecto(conn, id_proyecto) is not None
+    user_id = context.get("user_db_id")
+    puede_configurar, jefe_label = await service.get_permiso_configurar_paneles(conn, id_proyecto, user_id)
+    return templates.TemplateResponse(request, "bom/partials/modal_gate_paneles.html", {
+        "id_proyecto": id_proyecto,
+        "bloqueante": tiene_bom,
+        "puede_configurar": puede_configurar,
+        "jefe_label": jefe_label,
+    })
+
+
+@router.get("/{id_proyecto}/paneles-modal", include_in_schema=False)
+async def paneles_modal(
+    request: Request,
+    id_proyecto: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(
+        ["ingenieria", "construccion", "compras", "finanzas"], "viewer", allow_org_roles={"director"}
+    ),
+):
+    """Modal de captura/edicion del panel FV del proyecto."""
+    proyecto = await service.get_proyecto_info(conn, id_proyecto)
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    catalogo = await service.get_paneles_fv_activos(conn)
+    paneles_actuales = await service.get_paneles_proyecto(conn, id_proyecto)
+
+    # Si un panel ya capturado fue desactivado despues en el catalogo, se agrega
+    # igual a las opciones (marcado como inactivo) para que el <select> no quede
+    # sin coincidencia y el usuario vea que modelo tiene realmente capturado.
+    catalogo_ids = {c["id"] for c in catalogo}
+    for p in paneles_actuales:
+        if p["id_panel"] not in catalogo_ids:
+            catalogo.append({
+                "id": p["id_panel"], "marca": p["marca"], "modelo": p["modelo"],
+                "potencia_w": p["potencia_w"], "inactivo": True,
+            })
+            catalogo_ids.add(p["id_panel"])
+
+    user_id = context.get("user_db_id")
+    puede_configurar, jefe_label = await service.get_permiso_configurar_paneles(conn, id_proyecto, user_id)
+
+    return templates.TemplateResponse(request, "bom/partials/modal_paneles_fv.html", {
+        "id_proyecto": id_proyecto,
+        "proyecto": proyecto,
+        "catalogo": catalogo,
+        "paneles_actuales": paneles_actuales,
+        "puede_configurar": puede_configurar,
+        "jefe_label": jefe_label,
+    })
+
+
+@router.post("/{id_proyecto}/paneles", include_in_schema=False)
+async def guardar_paneles(
+    request: Request,
+    id_proyecto: UUID,
+    id_panel: list[int] = Form(default=[]),
+    cantidad: list[int] = Form(default=[]),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(
+        ["ingenieria", "construccion", "compras", "finanzas"], "viewer", allow_org_roles={"director"}
+    ),
+):
+    """Guarda el set de paneles FV del proyecto y navega directo al BOM."""
+    if len(id_panel) != len(cantidad):
+        return _toast_response(
+            request, "Datos de paneles incompletos, intenta de nuevo", "error", status_code=400
+        )
+    if len(set(id_panel)) != len(id_panel):
+        return _toast_response(
+            request, "No repitas el mismo modelo de panel, ajusta la cantidad en una sola fila",
+            "error", status_code=400,
+        )
+
+    user_id = context.get("user_db_id")
+    paneles = [{"id_panel": p, "cantidad": c} for p, c in zip(id_panel, cantidad)]
+
+    try:
+        await service.guardar_paneles_proyecto(conn, id_proyecto, paneles, user_id)
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al guardar paneles FV del proyecto")
+        return _toast_response(request, "Error interno al guardar el panel FV", "error", status_code=500)
+
+    return _toast_response(
+        request, "Panel FV guardado correctamente", "success",
+        redirect_url=f"/bom/{id_proyecto}/ui",
+    )
 
 
 # ========================================

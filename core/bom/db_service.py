@@ -1612,3 +1612,68 @@ class BomDBService(BomComprasDBMixin):
             GROUP BY e.current_id
         """, item_ids)
         return {str(r['current_id']): r['total_gastado'] for r in rows}
+
+    # ─── PANELES FV DEL PROYECTO ────────────────────────────
+
+    async def get_paneles_fv_activos(self, conn) -> List[dict]:
+        """Catalogo de modelos de panel FV activos, para el selector de captura."""
+        rows = await conn.fetch("""
+            SELECT id, marca, modelo, potencia_w
+            FROM tb_cat_paneles_fv
+            WHERE activo = TRUE
+            ORDER BY marca, modelo
+        """)
+        return [dict(r) for r in rows]
+
+    async def existen_paneles_proyecto(self, conn, id_proyecto: UUID) -> bool:
+        """True si el proyecto ya tiene al menos un panel FV capturado."""
+        return bool(await conn.fetchval(
+            "SELECT 1 FROM tb_proyecto_paneles WHERE id_proyecto = $1 LIMIT 1",
+            id_proyecto,
+        ))
+
+    async def get_paneles_proyecto(self, conn, id_proyecto: UUID) -> List[dict]:
+        """Paneles FV capturados para el proyecto, con datos del catalogo.
+
+        potencia_w se castea a float: NUMERIC llega como Decimal via asyncpg, y el
+        template lo serializa con tojson (json.dumps no soporta Decimal).
+        """
+        rows = await conn.fetch("""
+            SELECT pp.id_panel, pp.cantidad, c.marca, c.modelo, c.potencia_w::float AS potencia_w
+            FROM tb_proyecto_paneles pp
+            JOIN tb_cat_paneles_fv c ON c.id = pp.id_panel
+            WHERE pp.id_proyecto = $1
+            ORDER BY c.marca, c.modelo
+        """, id_proyecto)
+        return [dict(r) for r in rows]
+
+    async def reemplazar_paneles_proyecto(
+        self, conn, id_proyecto: UUID, paneles: List[dict], user_id: UUID
+    ) -> None:
+        """Sincroniza el set de paneles del proyecto: quita los que ya no estan, hace
+        upsert de los enviados. El upsert preserva creado_por en ediciones (solo
+        ON CONFLICT actualiza cantidad/actualizado_por/updated_at) para no perder
+        quien capturo originalmente el panel.
+        """
+        if not paneles:
+            raise ValueError("paneles no puede estar vacio")
+        id_paneles = [p["id_panel"] for p in paneles]
+        await conn.execute(
+            "DELETE FROM tb_proyecto_paneles WHERE id_proyecto = $1 AND id_panel <> ALL($2::int[])",
+            id_proyecto, id_paneles,
+        )
+        await conn.executemany(
+            """
+            INSERT INTO tb_proyecto_paneles
+                (id_proyecto, id_panel, cantidad, creado_por, actualizado_por)
+            VALUES ($1, $2, $3, $4, $4)
+            ON CONFLICT (id_proyecto, id_panel) DO UPDATE
+                SET cantidad = EXCLUDED.cantidad,
+                    actualizado_por = EXCLUDED.actualizado_por,
+                    updated_at = now()
+            """,
+            [
+                (id_proyecto, p["id_panel"], p["cantidad"], user_id)
+                for p in paneles
+            ],
+        )

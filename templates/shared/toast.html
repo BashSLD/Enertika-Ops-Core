@@ -85,7 +85,8 @@
         setTimeout(function() {
             htmx.ajax('GET', '{{ redirect_url }}', {
                 target: '#main-content',
-                swap: 'innerHTML'
+                swap: 'innerHTML',
+                pushUrl: true
             });
         }, 800);
     })();
