@@ -14,7 +14,7 @@ from core.jinja_filters import register_timezone_filters
 from .service import AdminService, get_admin_service
 from .permission_utils import extract_module_roles
 from core.tipo_cambio.service import TipoCambioService
-from modules.shared.utils import is_htmx
+from modules.shared.utils import is_htmx, toast_error
 import asyncpg
 import httpx
 
@@ -100,6 +100,7 @@ async def admin_dashboard(
     modules_dict = await service.get_modules_catalog(conn)
     catalogos = await service.get_catalogos_reglas(conn)
     ubicaciones = await service.get_ubicaciones(conn)
+    paneles_fv = await service.get_paneles_fv(conn)
     global_config = await service.get_global_config(conn)
     cfe_cfg = await service.get_cfe_config(conn)
     global_config.update(cfe_cfg)
@@ -127,6 +128,7 @@ async def admin_dashboard(
         "catalogos": catalogos,
         "sucursales": ubicaciones["sucursales"],
         "zonas_compra": ubicaciones["zonas_compra"],
+        "paneles_fv": paneles_fv,
         "config_global": global_config,
         "comercial_popup_target_emails": comercial_popup_target_emails,
         "comercial_popup_users": comercial_popup_users,
@@ -1329,6 +1331,54 @@ async def toggle_zona_compra(
         toast = ("error", "No se pudo actualizar la zona")
     ub = await service.get_ubicaciones(conn)
     return templates.TemplateResponse(request, "admin/partials/ubicaciones.html", _ubicaciones_ctx(ub, *toast))
+
+
+# --- PANELES FV ---
+
+def _paneles_fv_ctx(paneles_fv: list, toast_type: str = "", toast_msg: str = "") -> dict:
+    return {"paneles_fv": paneles_fv, "toast_type": toast_type, "toast_msg": toast_msg}
+
+
+@router.post("/catalogos/paneles-fv")
+async def create_panel_fv(
+    request: Request,
+    marca: str = Form(...),
+    modelo: str = Form(...),
+    potencia_w: float = Form(...),
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("admin", "admin"),
+):
+    try:
+        await service.create_panel_fv(conn, marca, modelo, potencia_w)
+    except ValueError as exc:
+        return toast_error(request, str(exc))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD creando panel FV")
+        return toast_error(request, "No se pudo guardar el panel", status_code=500)
+    paneles_fv = await service.get_paneles_fv(conn)
+    toast = ("success", f"Panel '{marca.strip()} {modelo.strip()}' creado")
+    return templates.TemplateResponse(request, "admin/partials/paneles_fv.html", _paneles_fv_ctx(paneles_fv, *toast))
+
+
+@router.post("/catalogos/paneles-fv/{panel_id}/toggle")
+async def toggle_panel_fv(
+    request: Request,
+    panel_id: int,
+    current_status: bool = Form(...),
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("admin", "admin"),
+):
+    try:
+        await service.toggle_panel_fv(conn, panel_id, current_status)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD toggling panel FV")
+        return toast_error(request, "No se pudo actualizar el panel", status_code=500)
+    paneles_fv = await service.get_paneles_fv(conn)
+    return templates.TemplateResponse(request, "admin/partials/paneles_fv.html", _paneles_fv_ctx(paneles_fv))
 
 
 # Include sub-routers

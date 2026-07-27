@@ -512,6 +512,7 @@ class AdminDBService:
         "tb_cat_estatus_oportunidades",
         "tb_cat_origenes_adjuntos",
         "tb_cat_zonas_compra",
+        "tb_cat_paneles_fv",
     })
 
     async def toggle_catalogo_status(self, conn, table: str, item_id: int, new_status: bool) -> None:
@@ -568,6 +569,25 @@ class AdminDBService:
         await conn.execute(
             "INSERT INTO tb_cat_zonas_compra (nombre, activo, orden) VALUES ($1, true, $2)",
             nombre, orden,
+        )
+
+    async def fetch_paneles_fv(self, conn) -> list:
+        rows = await conn.fetch(
+            "SELECT id, marca, modelo, potencia_w, activo FROM tb_cat_paneles_fv ORDER BY marca, modelo"
+        )
+        return [dict(r) for r in rows]
+
+    async def check_panel_fv_exists(self, conn, marca: str, modelo: str) -> bool:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM tb_cat_paneles_fv WHERE marca ILIKE $1 AND modelo ILIKE $2",
+            marca, modelo,
+        )
+        return bool(exists)
+
+    async def insert_panel_fv(self, conn, marca: str, modelo: str, potencia_w: float) -> None:
+        await conn.execute(
+            "INSERT INTO tb_cat_paneles_fv (marca, modelo, potencia_w, activo) VALUES ($1, $2, $3, true)",
+            marca, modelo, potencia_w,
         )
 
     async def fetch_users_missing_profile(self, conn) -> list:

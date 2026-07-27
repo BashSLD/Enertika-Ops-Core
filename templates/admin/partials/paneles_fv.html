@@ -1,0 +1,73 @@
+{# templates/admin/partials/paneles_fv.html #}
+<div id="paneles-fv-container" class="mt-8">
+
+    {% if toast_type %}
+    {% with type=toast_type, message=toast_msg, title="" %}
+    {% include "shared/toast.html" %}
+    {% endwith %}
+    {% endif %}
+
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 flex flex-col">
+        <div class="p-4 border-b bg-gray-50 flex justify-between items-center rounded-t-lg">
+            <h4 class="font-semibold text-gray-700 flex items-center gap-2 text-sm">
+                <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>
+                Paneles FV
+            </h4>
+            <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                {{ paneles_fv | selectattr('activo') | list | length }} activos
+            </span>
+        </div>
+
+        <div class="p-4 flex-1">
+            <form hx-post="/admin/catalogos/paneles-fv"
+                hx-target="#paneles-fv-container" hx-swap="outerHTML"
+                class="mb-4 space-y-2">
+                <div class="flex gap-2">
+                    <input type="text" name="marca" required placeholder="Marca (ej. Trina Solar)"
+                        class="flex-1 text-sm rounded-lg border-gray-300 focus:border-amber-500 focus:ring-amber-500">
+                    <input type="text" name="modelo" required placeholder="Modelo"
+                        class="flex-1 text-sm rounded-lg border-gray-300 focus:border-amber-500 focus:ring-amber-500">
+                    <input type="number" name="potencia_w" required min="1" step="1" placeholder="W"
+                        class="w-24 text-sm rounded-lg border-gray-300 focus:border-amber-500 focus:ring-amber-500 text-center">
+                    <button type="submit"
+                        class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-lg transition-colors flex items-center justify-center shadow-sm"
+                        title="Agregar panel">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                    </button>
+                </div>
+            </form>
+
+            <ul class="space-y-1.5 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
+                {% for p in paneles_fv %}
+                <li class="flex items-center justify-between p-2 rounded {% if p.activo %}bg-gray-50 hover:bg-amber-50{% else %}bg-gray-100 opacity-60{% endif %} transition-colors">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="text-sm text-gray-700 truncate">{{ p.marca }} {{ p.modelo }}</span>
+                        <span class="text-xs font-mono text-gray-400 flex-shrink-0">{{ p.potencia_w }} W</span>
+                    </div>
+                    <form hx-post="/admin/catalogos/paneles-fv/{{ p.id }}/toggle"
+                        hx-target="#paneles-fv-container" hx-swap="outerHTML"
+                        class="flex-shrink-0 ml-2">
+                        <input type="hidden" name="current_status" value="{{ p.activo | lower }}">
+                        <button type="submit"
+                            class="text-xs px-2 py-0.5 rounded border transition-colors
+                            {% if p.activo %}border-green-300 text-green-700 bg-green-50 hover:bg-red-50 hover:text-red-600 hover:border-red-300
+                            {% else %}border-gray-300 text-gray-500 bg-white hover:bg-green-50 hover:text-green-700 hover:border-green-300{% endif %}"
+                            title="{{ 'Desactivar' if p.activo else 'Activar' }}">
+                            {{ 'Activo' if p.activo else 'Inactivo' }}
+                        </button>
+                    </form>
+                </li>
+                {% else %}
+                <li class="text-xs text-gray-400 italic text-center py-4">
+                    No hay paneles FV registrados.
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>

@@ -13,7 +13,7 @@ import time
 
 import asyncpg
 from fastapi import UploadFile
-from .schemas import ConfiguracionGlobalUpdate, EmailRuleCreate
+from .schemas import ConfiguracionGlobalUpdate
 from .db_service import AdminDBService
 from .constants import ROLES_ORGANIZACIONALES_VALIDOS
 from core.config_service import ConfigService
@@ -892,6 +892,28 @@ class AdminService:
 
     async def toggle_zona_compra(self, conn, zona_id: int, current_status: bool) -> None:
         await self.db.toggle_catalogo_status(conn, "tb_cat_zonas_compra", zona_id, not current_status)
+
+    # --- Paneles FV ---
+
+    async def get_paneles_fv(self, conn) -> list:
+        return await self.db.fetch_paneles_fv(conn)
+
+    async def create_panel_fv(self, conn, marca: str, modelo: str, potencia_w: float) -> None:
+        marca_clean = marca.strip()
+        modelo_clean = modelo.strip()
+        if not marca_clean or not modelo_clean:
+            raise ValueError("Marca y modelo son requeridos")
+        if potencia_w <= 0:
+            raise ValueError("La potencia debe ser mayor a 0")
+        if await self.db.check_panel_fv_exists(conn, marca_clean, modelo_clean):
+            raise ValueError(f"El panel '{marca_clean} {modelo_clean}' ya existe.")
+        try:
+            await self.db.insert_panel_fv(conn, marca_clean, modelo_clean, potencia_w)
+        except asyncpg.UniqueViolationError as exc:
+            raise ValueError(f"El panel '{marca_clean} {modelo_clean}' ya existe.") from exc
+
+    async def toggle_panel_fv(self, conn, panel_id: int, current_status: bool) -> None:
+        await self.db.toggle_catalogo_status(conn, "tb_cat_paneles_fv", panel_id, not current_status)
 
     async def sync_ms_profiles(self, conn) -> dict:
         ms_auth = MicrosoftAuth()
