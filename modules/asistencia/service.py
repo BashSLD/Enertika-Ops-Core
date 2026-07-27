@@ -15,7 +15,7 @@ from openpyxl.styles import Font, PatternFill
 
 from core.config import settings
 from core.config_service import ConfigService
-from core.database import get_db_pool
+from core.database import DB_TIMEOUT_ERRORS, get_db_pool
 from core.integrations.sharepoint import SharePointService
 from core.microsoft import get_ms_auth
 from core.permissions import user_has_module_access
@@ -45,7 +45,9 @@ logger = logging.getLogger("asistencia.service")
 
 # Fallas de conexion/timeout post-freeze (command_timeout del pool compartido);
 # se agrupan aqui porque se repiten en varios puntos de entrada de BioTime.
-BIOTIME_CONNECTION_ERRORS = (TimeoutError, OSError, asyncpg.InterfaceError)
+# OSError se agrega aparte: aqui tambien cubre fallas de red del cliente httpx hacia BioTime,
+# no solo la BD (a diferencia de DB_TIMEOUT_ERRORS, que es BD-only).
+BIOTIME_CONNECTION_ERRORS = DB_TIMEOUT_ERRORS + (OSError,)
 _BIOTIME_FINISH_ERRORS = (asyncpg.PostgresError,) + BIOTIME_CONNECTION_ERRORS
 _BIOTIME_SYNC_ERRORS = (httpx.HTTPError, ValueError, TypeError, RuntimeError) + _BIOTIME_FINISH_ERRORS
 

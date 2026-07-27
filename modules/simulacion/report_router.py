@@ -6,19 +6,17 @@ Este archivo contiene SOLO la orquestación HTTP.
 Toda la lógica de negocio está en report_service.py
 """
 
-from fastapi import APIRouter, Request, Depends, Query, HTTPException
+from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Optional
 from uuid import UUID
 import logging
 
-import asyncpg
-
 from dataclasses import asdict
 
-from core.database import get_db_connection
+from core.database import DB_REPORT_ERRORS, get_db_connection
 from core.security import get_current_user_context
 from core.permissions import require_module_access
 from core.timezone import today_mx
@@ -581,7 +579,7 @@ async def generar_reporte_pdf(
             service=service,
             pdf_service=pdf_service,
         )
-    except asyncpg.PostgresError as exc:
+    except DB_REPORT_ERRORS as exc:
         logger.error("DB error generando PDF simulacion: %s", exc)
         return JSONResponse(status_code=500, content={"success": False, "error": "Error de base de datos"})
     except ValueError as exc:
@@ -619,7 +617,7 @@ async def generar_reporte_pdf_automatico(
             service=service,
             pdf_service=pdf_service,
         )
-    except asyncpg.PostgresError as exc:
+    except DB_REPORT_ERRORS as exc:
         logger.error("DB error generando PDF automatico: %s", exc)
         return JSONResponse(status_code=500, content={"error": "Error de base de datos"})
     except ValueError as exc:

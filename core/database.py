@@ -10,6 +10,15 @@ logger = logging.getLogger("Database")
 # Almacenamos el pool de conexiones globalmente
 _connection_pool: Optional[asyncpg.Pool] = None
 
+# Excepciones que puede lanzar el corte cliente (command_timeout) sin ser
+# asyncpg.PostgresError: no llegan envueltas por Postgres, hay que capturarlas aparte.
+# OJO: TimeoutError es el builtin generico (alias de asyncio.TimeoutError desde 3.11), no
+# exclusivo de asyncpg. Si un endpoint que usa DB_REPORT_ERRORS agrega una llamada no-BD con
+# su propio timeout (ej. asyncio.wait_for a un servicio externo) dentro del mismo try, ese
+# TimeoutError tambien caeria aqui y se reportaria como "Error de base de datos" sin serlo.
+DB_TIMEOUT_ERRORS = (TimeoutError, asyncpg.InterfaceError)
+DB_REPORT_ERRORS = (asyncpg.PostgresError,) + DB_TIMEOUT_ERRORS
+
 async def connect_to_db():
     """Inicializa el pool de conexiones al inicio de la aplicación (startup)."""
     global _connection_pool

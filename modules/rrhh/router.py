@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.templating import Jinja2Templates
 from openpyxl.styles import Font
 
-from core.database import get_db_connection
+from core.database import DB_REPORT_ERRORS, get_db_connection
 from core.jinja_filters import register_timezone_filters
 from core.permissions import require_manager_access, require_module_access
 from core.security import get_current_user_context
@@ -429,7 +429,7 @@ async def reporte_asistencia_excel(
         workbook = service.build_reporte_asistencia_workbook(rows, unmapped, formato)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except asyncpg.PostgresError as exc:
+    except DB_REPORT_ERRORS as exc:
         logger.exception("Error de BD generando reporte de asistencia")
         raise HTTPException(status_code=500, detail="No se pudo generar el reporte") from exc
 
@@ -462,7 +462,7 @@ async def reporte_vacaciones_excel(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except asyncpg.PostgresError as exc:
+    except DB_REPORT_ERRORS as exc:
         logger.exception("Error de BD generando reporte de vacaciones")
         raise HTTPException(status_code=500, detail="No se pudo generar el reporte") from exc
 
@@ -520,7 +520,7 @@ async def reporte_vacaciones_aprobadas_excel(
             usuario_ids=uids or None,
             incluir_dados_de_baja=incluir_dados_de_baja,
         )
-    except asyncpg.PostgresError as exc:
+    except DB_REPORT_ERRORS as exc:
         logger.exception("Error de BD generando reporte de vacaciones aprobadas")
         raise HTTPException(status_code=500, detail="No se pudo generar el reporte") from exc
 
@@ -586,7 +586,7 @@ async def reporte_horas_extra_excel(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except asyncpg.PostgresError as exc:
+    except DB_REPORT_ERRORS as exc:
         logger.exception("Error de BD generando reporte de horas extra")
         raise HTTPException(status_code=500, detail="No se pudo generar el reporte") from exc
 

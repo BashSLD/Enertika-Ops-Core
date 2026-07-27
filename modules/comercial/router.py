@@ -14,7 +14,7 @@ import urllib.parse
 
 import jinja2
 
-from core.database import get_db_connection
+from core.database import DB_REPORT_ERRORS, get_db_connection
 from core.microsoft import get_ms_auth
 from core.security import get_current_user_context, get_valid_graph_token
 from core.permissions import require_module_access, require_manager_access, require_role
@@ -1522,7 +1522,7 @@ async def reporte_clientes_excel(
             nombre_archivo = generar_nombre_archivo()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except asyncpg.PostgresError as exc:
+    except DB_REPORT_ERRORS as exc:
         logger.error(f"Error BD generando reporte de clientes (excel): {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error de base de datos generando el reporte.") from exc
 
@@ -1588,7 +1588,7 @@ async def reporte_clientes_pdf(
 
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except asyncpg.PostgresError as exc:
+    except DB_REPORT_ERRORS as exc:
         logger.error(f"Error BD generando reporte de clientes (pdf): {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error de base de datos generando el reporte.") from exc
 
