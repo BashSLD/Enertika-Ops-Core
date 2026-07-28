@@ -3,6 +3,7 @@
 {# templates/shared/modals/visita_obra_modal.html #}
 <div id="modal-visita-obra" class="modal-overlay-layer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
     data-system-users='{{ system_users | default([]) | tojson }}'
+    data-id-proyecto="{{ id_proyecto | default('') }}"
     x-data="{
         form: {
             nombre_planta: '',
@@ -24,6 +25,11 @@
         dragging: false,
         generando: false,
         errors: {},
+
+        init() {
+            const idProyecto = this.$el.dataset.idProyecto;
+            if (idProyecto) this.form.id_proyecto = idProyecto;
+        },
 
         guardarEnSP: false,
         spFolderId: '',
@@ -67,6 +73,7 @@
             this.guardarEnSP = !this.guardarEnSP;
             if (this.guardarEnSP && !this.spFolderId) {
                 this.spAbierto = true;
+                this.spBreadcrumb = [{id: null, name: 'Inicio'}];
                 this.busquedaCarpeta = '';
                 await this.cargarCarpetas(null);
             }
@@ -176,7 +183,7 @@
                     toastEl.id = 'toast-sp-ok';
                     toastEl.className = 'flex items-center gap-2 bg-green-600 text-white text-sm px-4 py-2.5 rounded-lg shadow-lg';
                     toastEl.textContent = 'PDF guardando en SharePoint: ' + carpetaLabel;
-                    const container = document.getElementById('toast-container');
+                    const container = document.getElementById('global-toast-container');
                     if (container) {
                         container.prepend(toastEl);
                         setTimeout(function() { const t = document.getElementById('toast-sp-ok'); if (t) t.remove(); }, 5000);

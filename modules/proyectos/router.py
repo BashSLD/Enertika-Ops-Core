@@ -100,6 +100,7 @@ async def get_proyectos_partial(
 @router.get("/partials/visita-obra-modal", include_in_schema=False)
 async def get_visita_obra_modal(
     request: Request,
+    proyecto_id_estandar: Optional[str] = Query(None),
     context=Depends(get_current_user_context),
     _=require_module_access("proyectos"),
     conn=Depends(get_db_connection),
@@ -108,6 +109,7 @@ async def get_visita_obra_modal(
     system_users = await service.get_usuarios_activos_nombres(conn)
     return templates.TemplateResponse(request, "shared/modals/visita_obra_modal.html", {"user_name": context.get("user_name"),
         "system_users": system_users,
+        "id_proyecto": proyecto_id_estandar or "",
     })
 
 
