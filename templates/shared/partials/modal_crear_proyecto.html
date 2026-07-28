@@ -1,16 +1,9 @@
 {% from "shared/partials/_tecnologia_select.html" import tecnologia_options %}
 <!-- Modal Crear Proyecto Gate -->
-<div class="fixed inset-0 z-[10100] overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-    <!-- Overlay -->
-    <!-- El z-[10100] se repite aquí (ya lo tiene el wrapper, necesario para el stacking real
-         entre modales) porque modal-overlay-layer necesita vivir en el mismo <div> que pinta
-         el tinte para que el normalizador de base.html pueda leer y neutralizar su
-         background-color/backdrop-filter — el wrapper no tiene tinte propio que neutralizar. -->
-    <div class="modal-overlay-layer fixed inset-0 z-[10100] bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity animate-fade-in"
-        onclick="cerrarModalProyecto()"></div>
+<div class="modal-overlay-layer fixed inset-0 z-[10100] overflow-y-auto bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+    aria-labelledby="modal-title" role="dialog" aria-modal="true"
+    onclick="if (event.target === event.currentTarget) cerrarModalProyecto()">
 
-    <!-- Modal Content -->
-    <div class="flex min-h-full items-center justify-center p-4">
         <div
             class="relative transform overflow-hidden rounded-xl bg-white shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-lg animate-scale-in">
             <!-- Header -->
@@ -140,7 +133,6 @@
                 </button>
             </div>
         </div>
-    </div>
 </div>
 
 <script>
