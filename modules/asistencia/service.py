@@ -1904,6 +1904,7 @@ def _validar_fechas_manual(
     max_horas: int,
     labor_window,
     huecos: dict,
+    schedule: ScheduleConfig | None,
 ) -> None:
     hoy = today_mx()
     if fecha_laboral > hoy:
@@ -1923,6 +1924,7 @@ def _validar_fechas_manual(
         max_horas=max_horas,
         labor_window=labor_window,
         huecos=huecos,
+        schedule=schedule,
     )
 
 
@@ -1935,6 +1937,7 @@ def _validar_tiempos_manual(
     max_horas: int,
     labor_window,
     huecos: dict,
+    schedule: ScheduleConfig | None,
 ) -> None:
     ahora = now_mx()
     if solicita_entrada:
@@ -1950,7 +1953,15 @@ def _validar_tiempos_manual(
             raise ValueError("La fecha y hora de salida son obligatorias")
         if salida_tiempo > ahora:
             raise ValueError("La fecha y hora capturada no puede ser futura.")
-        if not labor_window.start <= salida_tiempo <= labor_window.end:
+        limite_salida = labor_window.end
+        if not schedule or not schedule.es_laboral or not schedule.hora_entrada or not schedule.hora_salida:
+            # build_labor_window corta en medianoche para dias de descanso/sin horario (para no
+            # arrastrar la entrada del dia siguiente al bucketing automatico) -- aqui si extendemos
+            # el limite con el margen de salida, igual que ya hace el recalculo automatico via
+            # extender_salida_descanso_medianoche, para permitir capturar una salida real pasada medianoche.
+            margen = schedule.margen_salida_despues_min if schedule else 0
+            limite_salida = limite_salida + timedelta(minutes=margen)
+        if not labor_window.start <= salida_tiempo <= limite_salida:
             raise ValueError("La salida esta fuera de la ventana laboral esperada")
 
     entrada_ref = entrada_tiempo if solicita_entrada else huecos.get("entrada_real")
@@ -2077,6 +2088,7 @@ async def crear_solicitud_manual_svc(conn, usuario_id: UUID, payload) -> dict:
         max_horas=max_horas,
         labor_window=deteccion["labor_window"],
         huecos=huecos,
+        schedule=deteccion["schedule"],
     )
 
     row = await db.insert_solicitud_manual(
@@ -2123,6 +2135,7 @@ async def aprobar_solicitud_manual_svc(
             max_horas=max_horas,
             labor_window=deteccion["labor_window"],
             huecos=deteccion["huecos"],
+            schedule=deteccion["schedule"],
         )
 
         emp_code = await db.get_biotime_emp_code_para_manual(conn, solicitud["usuario_id"])
