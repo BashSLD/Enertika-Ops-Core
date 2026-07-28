@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
+from starlette.datastructures import MutableHeaders
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -77,31 +78,46 @@ _DYNAMIC_VARY_SET = {"HX-Request", "HX-History-Restore-Request", "Cookie"}
 _DYNAMIC_VARY = ", ".join(sorted(_DYNAMIC_VARY_SET))
 
 
-@app.middleware("http")
-async def dynamic_html_cache_headers(request: Request, call_next):
+class DynamicHtmlCacheHeadersMiddleware:
     """HTML dinamico (paginas/partials autenticados) nunca debe quedar en cache
     de navegador/proxy compartido, ni servirse desde el cache HTTP sin
     considerar el estado de sesion. Rutas que ya definen su propia politica
     (login/callback/session, offline, manifest, sw.js, /static) se respetan
-    tal cual - no se sobrescribe un Cache-Control ya presente."""
-    response = await call_next(request)
+    tal cual - no se sobrescribe un Cache-Control ya presente.
 
-    if response.headers.get("cache-control"):
-        return response
-    if "text/html" not in response.headers.get("content-type", ""):
-        return response
-    if request.url.path.startswith("/static/"):
-        return response
+    Implementado como middleware ASGI puro (no BaseHTTPMiddleware / @app.middleware)
+    porque BaseHTTPMiddleware corre la app downstream en un task en segundo plano y
+    lanza RuntimeError("No response returned.") si el cliente se desconecta antes del
+    primer mensaje ASGI - algo frecuente en el stream SSE de larga duracion
+    /notifications/stream (ver Railway logs 2026-07-28).
+    """
 
-    response.headers["Cache-Control"] = "private, no-store"
-    current_vary = response.headers.get("Vary")
-    if not current_vary:
-        response.headers["Vary"] = _DYNAMIC_VARY
-    else:
-        existing_vary = {v.strip() for v in current_vary.split(",") if v.strip()}
-        existing_vary.update(_DYNAMIC_VARY_SET)
-        response.headers["Vary"] = ", ".join(sorted(existing_vary))
-    return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["path"].startswith("/static/"):
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                if not headers.get("cache-control") and "text/html" in headers.get("content-type", ""):
+                    headers["Cache-Control"] = "private, no-store"
+                    current_vary = headers.get("Vary")
+                    if not current_vary:
+                        headers["Vary"] = _DYNAMIC_VARY
+                    else:
+                        existing_vary = {v.strip() for v in current_vary.split(",") if v.strip()}
+                        existing_vary.update(_DYNAMIC_VARY_SET)
+                        headers["Vary"] = ", ".join(sorted(existing_vary))
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+app.add_middleware(DynamicHtmlCacheHeadersMiddleware)
 
 # Configuración de Jinja2 Templates (para HTMX/Tailwind)
 templates = Jinja2Templates(directory="templates")
