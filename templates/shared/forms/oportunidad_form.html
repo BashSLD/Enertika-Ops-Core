@@ -1,4 +1,4 @@
-{% if not request.headers.get('hx-request') %}
+{% if not request.headers.get('hx-request') or request.headers.get('hx-history-restore-request') %}
 {% extends "base.html" %}
 {% endif %}
 

@@ -5,7 +5,7 @@
     onclick="if (event.target === event.currentTarget) cerrarModalProyecto()">
 
         <div
-            class="relative transform overflow-hidden rounded-xl bg-white shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-lg animate-scale-in">
+            class="relative transform overflow-hidden rounded-xl bg-white shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-lg animate-scale-in max-h-[90dvh] flex flex-col">
             <!-- Header -->
             <div class="bg-gradient-to-r from-[#00BABB] to-[#123456] px-6 py-4">
                 <div class="flex items-center justify-between">
@@ -29,7 +29,7 @@
             </div>
 
             <!-- Body -->
-            <div class="px-6 py-4">
+            <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4">
                 <form id="crear-proyecto-form" hx-post="/projects/crear" hx-target="#proyecto-result"
                     hx-swap="innerHTML" class="space-y-4">
 

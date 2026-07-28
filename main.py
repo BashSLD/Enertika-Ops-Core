@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from core.config import settings
@@ -66,6 +67,10 @@ app.add_middleware(
     # Si DEBUG_MODE es False (Producción) -> https_only = True (Obliga HTTPS)
     https_only=not settings.DEBUG_MODE
 )
+
+# Comprime respuestas (incluye tailwind.css ~129KB) para reducir la ventana de
+# transferencia expuesta a cortes de red intermitentes.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 _DYNAMIC_VARY_SET = {"HX-Request", "HX-History-Restore-Request", "Cookie"}
