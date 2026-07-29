@@ -81,7 +81,7 @@ async def stream_notifications(
 
     try:
         usuario_id = await service.get_user_id_by_email(user_email)
-    except (asyncpg.PostgresError, RuntimeError) as e:
+    except (asyncpg.PostgresError, OSError, RuntimeError) as e:
         logger.error(f"[SSE] Error obteniendo user_db_id: {e}")
         async def _db_err():
             yield {"event": "error", "data": json.dumps({"error": "db_unavailable"}), "retry": 15000}
