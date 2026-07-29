@@ -1,10 +1,10 @@
 from typing import Any, List, Optional
 from uuid import UUID, uuid4
 import asyncio
-import asyncpg
 import logging
 import time
 
+from core.database import DB_REPORT_ERRORS
 from core.integrations.sharepoint import SharePointService
 from core.microsoft import MicrosoftAuth
 from core.permissions import ROLE_HIERARCHY, user_has_module_access
@@ -397,7 +397,7 @@ class WorkflowService:
                     sender_ctx=sender_ctx,
                     departamento=depto.upper(),
                 )
-        except asyncpg.PostgresError as exc:
+        except DB_REPORT_ERRORS as exc:
             logger.error(
                 "[NOTIFY] Error de BD notificando comentario %s: %s",
                 id_oportunidad,

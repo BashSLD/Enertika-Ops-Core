@@ -10,13 +10,12 @@ from fastapi import APIRouter, Depends, Request
 from sse_starlette.sse import AppStatus, EventSourceResponse
 from uuid import UUID
 import asyncio
-import asyncpg
 import anyio
 import json
 import logging
 
 from core.security import get_current_user_context
-from core.database import get_db_connection
+from core.database import DB_REPORT_ERRORS, get_db_connection
 from .service import get_notifications_service, NotificationsService
 
 logger = logging.getLogger("NotificationsRouter")
@@ -81,7 +80,7 @@ async def stream_notifications(
 
     try:
         usuario_id = await service.get_user_id_by_email(user_email)
-    except (asyncpg.PostgresError, OSError, RuntimeError) as e:
+    except DB_REPORT_ERRORS + (RuntimeError,) as e:
         logger.error(f"[SSE] Error obteniendo user_db_id: {e}")
         async def _db_err():
             yield {"event": "error", "data": json.dumps({"error": "db_unavailable"}), "retry": 15000}
