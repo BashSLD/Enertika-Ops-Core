@@ -1,5 +1,5 @@
-{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 {% from "shared/partials/_collapsible_field.html" import collapsible_text, collapsible_textarea, collapsible_chips %}
+{% from "shared/partials/_sharepoint_folder_navigator.html" import render as render_sp_navigator %}
 {# templates/shared/modals/visita_obra_modal.html #}
 <div id="modal-visita-obra" class="modal-overlay-layer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
     data-system-users='{{ system_users | default([]) | tojson }}'
@@ -34,20 +34,8 @@
         guardarEnSP: false,
         spFolderId: '',
         spFolderPath: '',
-        spCarpetas: [],
-        spBreadcrumb: [{id: null, name: 'Inicio'}],
-        spCargando: false,
-        spError: '',
-        spAbierto: false,
-        busquedaCarpeta: '',
 
         get totalFotos() { return this.archivos.length; },
-
-        get carpetasFiltradas() {
-            const q = this.busquedaCarpeta.trim().toLowerCase();
-            if (!q) return this.spCarpetas;
-            return this.spCarpetas.filter(f => f.name.toLowerCase().includes(q));
-        },
 
         get fechaFmt() {
             if (!this.form.fecha) return '';
@@ -69,71 +57,22 @@
 
         quitarFoto(idx) { this.archivos.splice(idx, 1); },
 
-        async toggleSP() {
+        toggleSP() {
             this.guardarEnSP = !this.guardarEnSP;
             if (this.guardarEnSP && !this.spFolderId) {
-                this.spAbierto = true;
-                this.spBreadcrumb = [{id: null, name: 'Inicio'}];
-                this.busquedaCarpeta = '';
-                await this.cargarCarpetas(null);
+                this.$dispatch('sp-abrir-navegador');
             }
         },
 
-        async cargarCarpetas(folderId) {
-            this.spCargando = true;
-            this.spError = '';
-            try {
-                const url = folderId
-                    ? '/integraciones/sharepoint/carpetas?folder_id=' + encodeURIComponent(folderId)
-                    : '/integraciones/sharepoint/carpetas';
-                const resp = await fetch(url);
-                const json = await resp.json();
-                if (!resp.ok) {
-                    this.spError = handleSessionExpiredError(json)
-                        ? 'Tu sesion expiro. Inicia sesion de nuevo.'
-                        : (json.error || 'Error al cargar carpetas');
-                    this.spCarpetas = [];
-                    return;
-                }
-                this.spCarpetas = json.folders || [];
-            } catch(e) {
-                this.spError = 'Error de conexión al cargar carpetas';
-                this.spCarpetas = [];
-            } finally {
-                this.spCargando = false;
-            }
+        onCarpetaSeleccionada(e) {
+            this.spFolderId = e.detail.id;
+            this.spFolderPath = e.detail.path;
         },
 
-        async entrarCarpeta(folder) {
-            this.spBreadcrumb.push({id: folder.id, name: folder.name});
-            this.busquedaCarpeta = '';
-            await this.cargarCarpetas(folder.id);
-        },
-
-        async navBreadcrumb(item, idx) {
-            this.spBreadcrumb = this.spBreadcrumb.slice(0, idx + 1);
-            this.busquedaCarpeta = '';
-            await this.cargarCarpetas(item.id);
-        },
-
-        usarEstaCarpeta() {
-            const actual = this.spBreadcrumb[this.spBreadcrumb.length - 1];
-            if (!actual.id) {
-                this.spError = 'Entra a una subcarpeta para seleccionarla como destino';
-                return;
-            }
-            this.spFolderId = actual.id;
-            this.spFolderPath = this.spBreadcrumb.slice(1).map(b => b.name).join(' / ');
-            this.spAbierto = false;
-        },
-
-        cambiarCarpeta() {
+        cambiarCarpetaSP() {
             this.spFolderId = '';
             this.spFolderPath = '';
-            this.spAbierto = true;
-            this.spBreadcrumb = [{id: null, name: 'Inicio'}];
-            this.busquedaCarpeta = '';
-            this.cargarCarpetas(null);
+            this.$dispatch('sp-abrir-navegador');
         },
 
         validate() {
@@ -233,7 +172,7 @@
         cerrar() {
             document.getElementById('modal-visita-obra').remove();
         }
-    }" @keydown.escape.window="cerrar()">
+    }" @carpeta-seleccionada="onCarpetaSeleccionada($event)" @keydown.escape.window="cerrar()">
 
     <!-- Panel -->
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-3 max-h-[90dvh] flex flex-col">
@@ -276,6 +215,8 @@
                     </div>
                 </button>
 
+                <!-- Navegador de carpetas SharePoint (componente compartido) -->
+                <div x-data="sharepointFolderNavigator()" @sp-abrir-navegador.window="abrirNavegador()">
                 <!-- Carpeta seleccionada -->
                 <template x-if="guardarEnSP && spFolderId && !spAbierto">
                     <div class="px-4 py-3 flex items-center justify-between bg-blue-50 border-t border-blue-100">
@@ -285,7 +226,7 @@
                             </svg>
                             <span class="text-sm text-blue-800 font-medium truncate" x-text="spFolderPath"></span>
                         </div>
-                        <button type="button" @click="cambiarCarpeta()"
+                        <button type="button" @click="cambiarCarpetaSP()"
                             class="text-xs text-blue-600 hover:text-blue-800 font-medium shrink-0 ml-3">Cambiar</button>
                     </div>
                 </template>
@@ -293,102 +234,7 @@
                 <!-- Navegador de carpetas -->
                 <template x-if="guardarEnSP && spAbierto">
                     <div class="border-t border-gray-200">
-                        <!-- Breadcrumb -->
-                        <div class="flex items-center gap-1 px-4 py-2 bg-gray-50 border-b border-gray-100 flex-wrap">
-                            <template x-for="(item, idx) in spBreadcrumb" :key="idx">
-                                <div class="flex items-center gap-1">
-                                    <template x-if="idx > 0">
-                                        <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                                        </svg>
-                                    </template>
-                                    <button type="button" @click="navBreadcrumb(item, idx)"
-                                        class="text-xs font-medium transition-colors"
-                                        :class="idx === spBreadcrumb.length - 1
-                                            ? 'text-gray-700 cursor-default'
-                                            : 'text-blue-600 hover:text-blue-800'"
-                                        x-text="item.name"></button>
-                                </div>
-                            </template>
-                        </div>
-
-                        <!-- Buscador de carpetas (filtra el nivel actual) -->
-                        <template x-if="!spCargando && !spError && spCarpetas.length > 0">
-                            <div class="px-4 py-2 bg-white border-b border-gray-100">
-                                <div class="relative">
-                                    <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35m1.35-5.65a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                    </svg>
-                                    <input type="text" x-model="busquedaCarpeta"
-                                        placeholder="Buscar carpeta en este nivel..."
-                                        class="w-full text-sm border border-gray-300 rounded-lg pl-8 pr-3 py-1.5 focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB]">
-                                </div>
-                            </div>
-                        </template>
-
-                        <!-- Lista carpetas -->
-                        <div class="max-h-44 overflow-y-auto">
-                            <!-- Cargando -->
-                            <template x-if="spCargando">
-                                <div class="flex items-center justify-center py-6 gap-2 text-gray-400">
-                                    {{ spinner_icon('w-4 h-4') }}
-                                    <span class="text-sm">Cargando carpetas...</span>
-                                </div>
-                            </template>
-
-                            <!-- Error -->
-                            <template x-if="!spCargando && spError">
-                                <div class="px-4 py-3 text-sm text-red-600 bg-red-50 border-b border-red-100" x-text="spError"></div>
-                            </template>
-
-                            <!-- Sin carpetas en este nivel -->
-                            <template x-if="!spCargando && !spError && spCarpetas.length === 0">
-                                <div class="px-4 py-4 text-sm text-gray-400 text-center">Sin subcarpetas en este nivel</div>
-                            </template>
-
-                            <!-- Sin resultados de busqueda -->
-                            <template x-if="!spCargando && !spError && spCarpetas.length > 0 && carpetasFiltradas.length === 0">
-                                <div class="px-4 py-4 text-sm text-gray-400 text-center">Sin resultados para "<span x-text="busquedaCarpeta"></span>"</div>
-                            </template>
-
-                            <!-- Carpetas -->
-                            <template x-if="!spCargando && carpetasFiltradas.length > 0">
-                                <div>
-                                    <template x-for="folder in carpetasFiltradas" :key="folder.id">
-                                        <button type="button" @click="entrarCarpeta(folder)"
-                                            class="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left border-b border-gray-50 last:border-0">
-                                            <svg class="w-4 h-4 text-yellow-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                                <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
-                                            </svg>
-                                            <span class="text-sm text-gray-700 truncate" x-text="folder.name"></span>
-                                            <svg class="w-3 h-3 text-gray-400 ml-auto shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                                            </svg>
-                                        </button>
-                                    </template>
-                                </div>
-                            </template>
-                        </div>
-
-                        <!-- Acciones del navegador -->
-                        <div class="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-t border-gray-100">
-                            <p class="text-xs text-gray-500">
-                                <template x-if="spBreadcrumb.length > 1">
-                                    <span>Carpeta actual: <strong x-text="spBreadcrumb[spBreadcrumb.length-1].name"></strong></span>
-                                </template>
-                                <template x-if="spBreadcrumb.length <= 1">
-                                    <span>Entra a una carpeta para seleccionarla</span>
-                                </template>
-                            </p>
-                            <button type="button" @click="usarEstaCarpeta()"
-                                :disabled="spBreadcrumb.length <= 1"
-                                class="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors"
-                                :class="spBreadcrumb.length > 1
-                                    ? 'bg-blue-600 text-white hover:bg-blue-700'
-                                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'">
-                                Usar esta carpeta
-                            </button>
-                        </div>
+                        {{ render_sp_navigator('max-h-44') }}
                     </div>
                 </template>
 
@@ -396,6 +242,7 @@
                 <template x-if="errors.sp">
                     <p class="px-4 py-2 text-xs text-red-600 bg-red-50 border-t border-red-100" x-text="errors.sp"></p>
                 </template>
+                </div>
             </div>
 
             <!-- Datos Generales -->

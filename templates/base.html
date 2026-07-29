@@ -28,9 +28,26 @@
     </script>
 
     <script>
+        // Compartida entre sharepointFolderButton.abrirPicker() y el boton "Cambiar
+        // carpeta" del mini-modal spSinMatch (store global, sin acceso al x-data del
+        // boton que originó la busqueda) — una sola implementacion del round-trip.
+        function abrirPickerSharePoint(idProyecto, proyectoIdEstandar) {
+            const params = new URLSearchParams({ proyecto_id_estandar: proyectoIdEstandar || '' });
+            htmx.ajax('GET', '/integraciones/sharepoint/proyecto/' + idProyecto + '/modal-picker?' + params.toString(), {
+                target: '#modal-action-container',
+                swap: 'innerHTML'
+            });
+        }
+
         document.addEventListener('alpine:init', () => {
             Alpine.store('notifications', { count: 0 });
             Alpine.store('activeModule', { slug: '' });
+            // Mini-modal de advertencia cuando resolver_carpeta_proyecto no encuentra
+            // match: ofrece abrir la carpeta administrativa "Proyectos sin expediente"
+            // o ir directo a Cambiar carpeta. Store global porque el boton que lo
+            // dispara (sharepointFolderButton) vive dentro de una fila de tabla y el
+            // overlay necesita renderizarse a nivel de pagina completa.
+            Alpine.store('spSinMatch', { visible: false, idProyecto: '', proyectoIdEstandar: '', fallbackUrl: '', fallbackLabel: '' });
 
             // Autocompletar destinatarios (Para/CC) sobre chips existentes (ver addChip/removeChip abajo).
             // Usuarios se leen de data-system-users en el <form> ancestro (una sola vez por formulario).
@@ -124,6 +141,159 @@
                 editar() {
                     this.editing = true;
                     this.$nextTick(() => this.$refs.campo && this.$refs.campo.focus());
+                }
+            }));
+
+            // Navegador de carpetas de SharePoint (drive de Visitas), compartido entre
+            // el modal de Visita a Obra y el picker de carpeta de Pendientes de Recepcion.
+            // No lee ni escribe ningun "form" ancestro — al seleccionar, dispara
+            // 'carpeta-seleccionada' y el consumidor decide que hacer con el valor.
+            Alpine.data('sharepointFolderNavigator', () => ({
+                spCarpetas: [],
+                spBreadcrumb: [{ id: null, name: 'Inicio' }],
+                spCargando: false,
+                spError: '',
+                spAbierto: false,
+                busquedaCarpeta: '',
+
+                get carpetasFiltradas() {
+                    const q = this.busquedaCarpeta.trim().toLowerCase();
+                    if (!q) return this.spCarpetas;
+                    return this.spCarpetas.filter(f => f.name.toLowerCase().includes(q));
+                },
+
+                abrirNavegador() {
+                    this.spAbierto = true;
+                    this.spBreadcrumb = [{ id: null, name: 'Inicio' }];
+                    this.busquedaCarpeta = '';
+                    this.cargarCarpetas(null);
+                },
+
+                async cargarCarpetas(folderId) {
+                    this.spCargando = true;
+                    this.spError = '';
+                    try {
+                        const url = folderId
+                            ? '/integraciones/sharepoint/carpetas?folder_id=' + encodeURIComponent(folderId)
+                            : '/integraciones/sharepoint/carpetas';
+                        const resp = await fetch(url);
+                        const json = await resp.json();
+                        if (!resp.ok) {
+                            this.spError = handleSessionExpiredError(json)
+                                ? 'Tu sesion expiro. Inicia sesion de nuevo.'
+                                : (json.error || 'Error al cargar carpetas');
+                            this.spCarpetas = [];
+                            return;
+                        }
+                        this.spCarpetas = json.folders || [];
+                    } catch (e) {
+                        this.spError = 'Error de conexión al cargar carpetas';
+                        this.spCarpetas = [];
+                    } finally {
+                        this.spCargando = false;
+                    }
+                },
+
+                async entrarCarpeta(folder) {
+                    this.spBreadcrumb.push({ id: folder.id, name: folder.name });
+                    this.busquedaCarpeta = '';
+                    await this.cargarCarpetas(folder.id);
+                },
+
+                async navBreadcrumb(item, idx) {
+                    this.spBreadcrumb = this.spBreadcrumb.slice(0, idx + 1);
+                    this.busquedaCarpeta = '';
+                    await this.cargarCarpetas(item.id);
+                },
+
+                usarEstaCarpeta() {
+                    const actual = this.spBreadcrumb[this.spBreadcrumb.length - 1];
+                    if (!actual.id) {
+                        this.spError = 'Entra a una subcarpeta para seleccionarla como destino';
+                        return;
+                    }
+                    const folderId = actual.id;
+                    const folderPath = this.spBreadcrumb.slice(1).map(b => b.name).join(' / ');
+                    this.spAbierto = false;
+                    this.$dispatch('carpeta-seleccionada', { id: folderId, path: folderPath });
+                }
+            }));
+
+            // Boton "Ver Expediente" (SharePoint), usado en Pendientes de Recepcion y en
+            // el menu Acciones. Lee sus datos de data-sp (JSON.parse, nunca tojson
+            // directo en x-data — ver memoria feedback_alpine). Si ya hay mapeo, abre
+            // directo; si no, pide resolucion al backend: en SIN_MATCH muestra el
+            // mini-modal de advertencia (store spSinMatch), en AMBIGUO cae al picker.
+            Alpine.data('sharepointFolderButton', () => ({
+                idProyecto: '',
+                proyectoIdEstandar: '',
+                nombreProyecto: '',
+                nombreCorto: '',
+                webUrl: '',
+                resolviendo: false,
+
+                init() {
+                    const data = JSON.parse(this.$el.dataset.sp || '{}');
+                    this.idProyecto = data.idProyecto || '';
+                    this.proyectoIdEstandar = data.proyectoIdEstandar || '';
+                    this.nombreProyecto = data.nombreProyecto || '';
+                    this.nombreCorto = data.nombreCorto || '';
+                    this.webUrl = data.webUrl || '';
+                },
+
+                get mapeado() { return !!this.webUrl; },
+
+                abrirPicker() {
+                    abrirPickerSharePoint(this.idProyecto, this.proyectoIdEstandar);
+                },
+
+                async verCarpeta() {
+                    if (this.webUrl) {
+                        window.open(this.webUrl, '_blank');
+                        return;
+                    }
+                    this.resolviendo = true;
+                    try {
+                        const params = new URLSearchParams({ proyecto_id_estandar: this.proyectoIdEstandar || '' });
+                        if (this.nombreProyecto) params.set('nombre_proyecto', this.nombreProyecto);
+                        if (this.nombreCorto) params.set('nombre_corto', this.nombreCorto);
+                        const resp = await fetch('/integraciones/sharepoint/proyecto/' + this.idProyecto + '/resolver?' + params.toString());
+                        const json = await resp.json();
+                        if (!resp.ok) {
+                            showToast({ title: 'SharePoint', message: handleSessionExpiredError(json)
+                                ? 'Tu sesion expiro. Inicia sesion de nuevo.'
+                                : (json.error || 'Error al buscar la carpeta') });
+                            this.abrirPicker();
+                            return;
+                        }
+                        if (json.status === 'MAPEADO') {
+                            this.webUrl = json.web_url;
+                            window.open(json.web_url, '_blank');
+                        } else if (json.status === 'SIN_MATCH') {
+                            // Store global: si el mini-modal ya esta abierto para OTRO proyecto
+                            // (resolucion concurrente de otra fila que aterrizo primero), no lo
+                            // pisamos en silencio -- avisamos y dejamos que el usuario cierre el
+                            // aviso actual antes de revisar este. Evita mostrar el fallback del
+                            // proyecto equivocado si dos filas resuelven casi al mismo tiempo.
+                            const spStore = Alpine.store('spSinMatch');
+                            if (spStore.visible && spStore.idProyecto !== this.idProyecto) {
+                                showToast({ title: 'SharePoint', message: 'No se encontro carpeta para este proyecto. Cierra el aviso actual para revisarlo.' });
+                            } else {
+                                spStore.visible = true;
+                                spStore.idProyecto = this.idProyecto;
+                                spStore.proyectoIdEstandar = this.proyectoIdEstandar;
+                                spStore.fallbackUrl = json.fallback_web_url || '';
+                                spStore.fallbackLabel = json.fallback_label || 'Proyectos sin expediente';
+                            }
+                        } else if (json.status === 'AMBIGUO') {
+                            showToast({ title: 'SharePoint', message: 'Hay varias carpetas que podrian coincidir — selecciona la correcta.' });
+                            this.abrirPicker();
+                        }
+                    } catch (e) {
+                        showToast({ title: 'SharePoint', message: 'Error de conexion al buscar la carpeta' });
+                    } finally {
+                        this.resolviendo = false;
+                    }
                 }
             }));
         });
@@ -1936,6 +2106,53 @@
     <div id="modal-action-container"></div>
     <div id="modal-secondary-container"></div>
     <div id="modal-docs-container"></div>
+
+    <!-- Mini-modal de advertencia: no se encontro carpeta SharePoint del proyecto -->
+    <div x-data x-show="$store.spSinMatch.visible" x-cloak
+        class="modal-overlay-layer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+        @keydown.escape.window="$store.spSinMatch.visible = false">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-3 p-5 relative" @click.outside="$store.spSinMatch.visible = false">
+            <button type="button" @click="$store.spSinMatch.visible = false"
+                class="absolute top-3 right-3 text-gray-400 hover:text-gray-600 p-1.5 rounded-full hover:bg-gray-100 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <div class="flex items-start gap-3 pr-6">
+                <svg class="w-6 h-6 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                </svg>
+                <template x-if="$store.spSinMatch.fallbackUrl">
+                    <p class="text-sm text-gray-700">
+                        No se ha encontrado una carpeta de este proyecto, se abrira la carpeta
+                        "<span x-text="$store.spSinMatch.fallbackLabel"></span>" o puede actualizar
+                        la carpeta desde la opcion Cambiar carpeta.
+                    </p>
+                </template>
+                <template x-if="!$store.spSinMatch.fallbackUrl">
+                    <p class="text-sm text-gray-700">
+                        No se ha encontrado una carpeta de este proyecto, y la carpeta de respaldo
+                        "<span x-text="$store.spSinMatch.fallbackLabel"></span>" tampoco existe en
+                        SharePoint. Selecciona la carpeta correspondiente desde Cambiar carpeta.
+                    </p>
+                </template>
+            </div>
+            <div class="flex items-center justify-end gap-2 mt-4">
+                <button type="button"
+                    @click="abrirPickerSharePoint($store.spSinMatch.idProyecto, $store.spSinMatch.proyectoIdEstandar); $store.spSinMatch.visible = false"
+                    class="text-xs px-3 py-1.5 rounded-lg font-medium text-gray-600 border border-gray-300 hover:bg-gray-50 transition-colors">
+                    Cambiar carpeta
+                </button>
+                <template x-if="$store.spSinMatch.fallbackUrl">
+                    <button type="button"
+                        @click="window.open($store.spSinMatch.fallbackUrl, '_blank'); $store.spSinMatch.visible = false"
+                        class="text-xs px-3 py-1.5 rounded-lg font-medium text-white bg-[#00BABB] hover:bg-[#009a9b] transition-colors">
+                        Abrir carpeta sin expediente
+                    </button>
+                </template>
+            </div>
+        </div>
+    </div>
 
     <!-- Modal de Documentación (Compartido) -->
     <!-- Modal de Documentación (Cargado dinámicamente) -->

@@ -32,6 +32,73 @@
 </span>
 {% endmacro %}
 
+{# --- Boton "Ver Expediente" (SharePoint) --- #}
+{# Payload data-sp compartido por las 2 variantes: menu (dropdown "Mas") y compact (fila/tarjeta de pendientes) #}
+{% macro _sp_data(p) %}{{ {"idProyecto": p.id_proyecto|string, "proyectoIdEstandar": p.proyecto_id_estandar, "nombreProyecto": p.nombre_proyecto, "nombreCorto": p.nombre_corto, "webUrl": p.sharepoint_url or ""}|tojson }}{% endmacro %}
+
+{% macro sharepoint_folder_button_menu(p) %}
+<div class="relative"
+    x-data="sharepointFolderButton()"
+    data-sp='{{ _sp_data(p) }}'>
+    <div x-show="resolviendo" x-cloak
+        class="absolute inset-0 z-10 flex items-center gap-1.5 px-2 bg-white rounded-md">
+        {{ spinner_icon('w-3.5 h-3.5', 'text-[#00BABB]') }}
+        <span class="text-xs text-gray-500">Buscando carpeta...</span>
+    </div>
+    <button type="button" @click="verCarpeta().then(() => { openMore = false })" :disabled="resolviendo"
+        title="Si la carpeta que se abre no corresponde, selecciona la opcion de Cambiar carpeta."
+        class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-gray-100 transition-colors font-medium disabled:opacity-60">
+        <template x-if="resolviendo">{{ spinner_icon('w-3 h-3') }}</template>
+        <template x-if="!resolviendo">
+            <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+            </svg>
+        </template>
+        Ver Expediente
+    </button>
+    <template x-if="mapeado">
+        <button type="button" @click="abrirPicker(); openMore = false"
+            title="Si la carpeta que se abre no corresponde, desde aqui selecciona la carpeta correspondiente."
+            class="flex w-full items-center gap-1.5 text-[11px] px-2 py-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+            Cambiar carpeta
+        </button>
+    </template>
+</div>
+{% endmacro %}
+
+{# Variante compacta usada en filas/tarjetas de "Pendientes de Recepcion": el
+   wrapper x-data es compartido con los botones Rechazar/Aceptar del llamador
+   (misma fila), por eso recibe esos botones via {% call %} en vez de cerrar
+   su propio div. #}
+{% macro sharepoint_folder_button_compact(p, overlay_bg='bg-white', wrap_extra='whitespace-nowrap', btn_px='px-2.5') %}
+<div class="relative flex gap-1.5 items-center justify-end {{ wrap_extra }}"
+    x-data="sharepointFolderButton()"
+    data-sp='{{ _sp_data(p) }}'>
+    <div x-show="resolviendo" x-cloak
+        class="absolute inset-0 z-10 flex items-center justify-center gap-1.5 {{ overlay_bg }} rounded-md">
+        {{ spinner_icon('w-3.5 h-3.5', 'text-[#00BABB]') }}
+        <span class="text-xs text-gray-500">Buscando carpeta...</span>
+    </div>
+    <template x-if="mapeado">
+        <button type="button" @click="abrirPicker()"
+            title="Si la carpeta que se abre no corresponde, desde aqui selecciona la carpeta correspondiente."
+            class="text-[11px] text-gray-500 hover:text-gray-700 underline">Cambiar carpeta</button>
+    </template>
+    <button type="button" @click="verCarpeta()" :disabled="resolviendo"
+        title="Si la carpeta que se abre no corresponde, selecciona la opcion de Cambiar carpeta."
+        class="inline-flex items-center gap-1 text-xs {{ btn_px }} py-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 transition font-medium disabled:opacity-60">
+        <template x-if="resolviendo">{{ spinner_icon('w-3 h-3') }}</template>
+        <template x-if="!resolviendo">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+            </svg>
+        </template>
+        Ver Expediente
+    </button>
+    {{ caller() if caller }}
+</div>
+{% endmacro %}
+
 {# --- Acciones (compartidas por fila y tarjeta) --- #}
 
 {% macro render_actions(p, area, area_destino=None, puede_enviar=False) %}
@@ -75,17 +142,7 @@
         x-transition:leave="transition ease-in duration-75"
         x-transition:leave-start="opacity-100 translate-y-0"
         x-transition:leave-end="opacity-0 -translate-y-1"
-        class="absolute right-0 mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-lg p-1.5 min-w-[8rem] whitespace-normal">
-        <button hx-get="/bom/{{ p.id_proyecto }}/acceso"
-            hx-target="#modal-action-container" hx-swap="innerHTML"
-            hx-indicator="#bom-spinner-{{ p.id_proyecto }}" hx-disabled-elt="this" hx-sync="this:drop" @click="openMore = false"
-            class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-gray-100 transition-colors font-medium">
-            <span id="bom-spinner-{{ p.id_proyecto }}" class="htmx-indicator shrink-0">{{ spinner_icon('w-3 h-3') }}</span>
-            <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-            </svg>
-            BOM
-        </button>
+        class="absolute right-0 mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-lg p-1.5 min-w-[13rem] whitespace-nowrap">
         <button hx-get="/bom/{{ p.id_proyecto }}/paneles-modal"
             hx-target="#modal-action-container" hx-swap="innerHTML"
             hx-indicator="#mfv-spinner-{{ p.id_proyecto }}" hx-disabled-elt="this" hx-sync="this:drop" @click="openMore = false"
@@ -96,14 +153,15 @@
             </svg>
             Ingresar MFV
         </button>
-        <button hx-get="/transfers/timeline/{{ p.id_proyecto }}"
+        <button hx-get="/bom/{{ p.id_proyecto }}/acceso"
             hx-target="#modal-action-container" hx-swap="innerHTML"
-            hx-disabled-elt="this" hx-sync="this:drop" @click="openMore = false"
+            hx-indicator="#bom-spinner-{{ p.id_proyecto }}" hx-disabled-elt="this" hx-sync="this:drop" @click="openMore = false"
             class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-gray-100 transition-colors font-medium">
+            <span id="bom-spinner-{{ p.id_proyecto }}" class="htmx-indicator shrink-0">{{ spinner_icon('w-3 h-3') }}</span>
             <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
             </svg>
-            Timeline
+            BOM
         </button>
         <button hx-get="/proyectos/partials/visita-obra-modal?proyecto_id_estandar={{ (p.proyecto_id_estandar or '') | urlencode }}"
             hx-target="#modal-action-container" hx-swap="innerHTML"
@@ -113,6 +171,16 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
             </svg>
             Reporte Visita Obra
+        </button>
+        {{ sharepoint_folder_button_menu(p) }}
+        <button hx-get="/transfers/timeline/{{ p.id_proyecto }}"
+            hx-target="#modal-action-container" hx-swap="innerHTML"
+            hx-disabled-elt="this" hx-sync="this:drop" @click="openMore = false"
+            class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-gray-100 transition-colors font-medium">
+            <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            Timeline
         </button>
     </div>
 </div>

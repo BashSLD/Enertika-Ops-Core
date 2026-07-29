@@ -1,5 +1,5 @@
 {# Lista de proyectos reutilizable: tabla densa (escritorio) + tarjetas (movil) #}
-{% from "shared/partials/card_proyecto.html" import render_tabla %}
+{% from "shared/partials/card_proyecto.html" import render_tabla, sharepoint_folder_button_compact %}
 
 {# La columna Area solo aplica en la vista global (en las vistas por modulo el area es fija) #}
 {% set mostrar_area = vista_global is defined and vista_global %}
@@ -21,7 +21,7 @@
                     <th class="px-3 py-2">Proyecto / Cliente</th>
                     <th class="px-3 py-2">Enviado por</th>
                     <th class="px-3 py-2 text-right">Dias</th>
-                    {% if puede_recibir is defined and puede_recibir %}<th class="px-3 py-2 text-right">Acciones</th>{% endif %}
+                    <th class="px-3 py-2 text-right">Acciones</th>
                 </tr>
             </thead>
             <tbody>
@@ -41,20 +41,20 @@
                     <td class="px-3 py-2.5 align-middle text-right">
                         <span class="font-bold tabular-nums text-amber-700">{{ pend.dias_pendiente or 0 }}</span>
                     </td>
-                    {% if puede_recibir is defined and puede_recibir %}
                     <td class="px-3 py-2.5 align-middle">
-                        <div class="flex gap-1.5 justify-end whitespace-nowrap">
-                            <button hx-get="/{{ module_prefix }}/modal/rechazar/{{ pend.id_traspaso }}"
-                                hx-target="#modal-action-container" hx-swap="innerHTML"
-                                hx-disabled-elt="this" hx-sync="this:drop"
-                                class="text-xs px-2.5 py-1 rounded-md border border-red-300 text-red-600 hover:bg-red-50 transition font-medium">Rechazar</button>
-                            <button hx-get="/{{ module_prefix }}/modal/recibir/{{ pend.id_traspaso }}"
-                                hx-target="#modal-action-container" hx-swap="innerHTML"
-                                hx-disabled-elt="this" hx-sync="this:drop"
-                                class="text-xs px-2.5 py-1 rounded-md bg-green-600 text-white hover:bg-green-700 transition font-medium">Aceptar</button>
-                        </div>
+                        {% call sharepoint_folder_button_compact(pend) %}
+                        {% if puede_recibir is defined and puede_recibir %}
+                        <button hx-get="/{{ module_prefix }}/modal/rechazar/{{ pend.id_traspaso }}"
+                            hx-target="#modal-action-container" hx-swap="innerHTML"
+                            hx-disabled-elt="this" hx-sync="this:drop"
+                            class="text-xs px-2.5 py-1 rounded-md border border-red-300 text-red-600 hover:bg-red-50 transition font-medium">Rechazar</button>
+                        <button hx-get="/{{ module_prefix }}/modal/recibir/{{ pend.id_traspaso }}"
+                            hx-target="#modal-action-container" hx-swap="innerHTML"
+                            hx-disabled-elt="this" hx-sync="this:drop"
+                            class="text-xs px-2.5 py-1 rounded-md bg-green-600 text-white hover:bg-green-700 transition font-medium">Aceptar</button>
+                        {% endif %}
+                        {% endcall %}
                     </td>
-                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>
@@ -79,18 +79,18 @@
                     <div class="text-lg font-bold text-amber-700 leading-none mt-0.5">{{ pend.dias_pendiente or 0 }}</div>
                 </div>
             </div>
+            {% call sharepoint_folder_button_compact(pend, overlay_bg='bg-amber-50', wrap_extra='flex-wrap mt-2.5 pt-2.5 border-t border-amber-100', btn_px='px-3') %}
             {% if puede_recibir is defined and puede_recibir %}
-            <div class="mt-2.5 pt-2.5 border-t border-amber-100 flex gap-1.5 justify-end">
-                <button hx-get="/{{ module_prefix }}/modal/rechazar/{{ pend.id_traspaso }}"
-                    hx-target="#modal-action-container" hx-swap="innerHTML"
-                    hx-disabled-elt="this" hx-sync="this:drop"
-                    class="text-xs px-3 py-1 rounded-md border border-red-300 text-red-600 hover:bg-red-50 transition font-medium">Rechazar</button>
-                <button hx-get="/{{ module_prefix }}/modal/recibir/{{ pend.id_traspaso }}"
-                    hx-target="#modal-action-container" hx-swap="innerHTML"
-                    hx-disabled-elt="this" hx-sync="this:drop"
-                    class="text-xs px-3 py-1 rounded-md bg-green-600 text-white hover:bg-green-700 transition font-medium">Aceptar</button>
-            </div>
+            <button hx-get="/{{ module_prefix }}/modal/rechazar/{{ pend.id_traspaso }}"
+                hx-target="#modal-action-container" hx-swap="innerHTML"
+                hx-disabled-elt="this" hx-sync="this:drop"
+                class="text-xs px-3 py-1 rounded-md border border-red-300 text-red-600 hover:bg-red-50 transition font-medium">Rechazar</button>
+            <button hx-get="/{{ module_prefix }}/modal/recibir/{{ pend.id_traspaso }}"
+                hx-target="#modal-action-container" hx-swap="innerHTML"
+                hx-disabled-elt="this" hx-sync="this:drop"
+                class="text-xs px-3 py-1 rounded-md bg-green-600 text-white hover:bg-green-700 transition font-medium">Aceptar</button>
             {% endif %}
+            {% endcall %}
         </div>
         {% endfor %}
     </div>

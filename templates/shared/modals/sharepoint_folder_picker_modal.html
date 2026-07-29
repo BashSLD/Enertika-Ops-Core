@@ -1,0 +1,138 @@
+{% from "shared/partials/_sharepoint_folder_navigator.html" import render as render_sp_navigator %}
+{# templates/shared/modals/sharepoint_folder_picker_modal.html #}
+<div id="modal-sharepoint-picker" class="modal-overlay-layer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+    data-id-proyecto="{{ id_proyecto }}"
+    data-proyecto-id-estandar="{{ proyecto_id_estandar or '' }}"
+    x-data="{
+        idProyecto: '',
+        nombreEsperado: '',
+        folderId: '',
+        folderPath: '',
+        corregirNombre: false,
+        guardando: false,
+        guardarError: '',
+
+        init() {
+            this.idProyecto = this.$el.dataset.idProyecto || '';
+            this.nombreEsperado = this.$el.dataset.proyectoIdEstandar || '';
+        },
+
+        _normalizar(v) {
+            return (v || '').normalize('NFKD').replace(/\p{Diacritic}/gu, '').replace(/\s+/g, ' ').trim().toLowerCase();
+        },
+
+        get nombreNoCoincide() {
+            if (!this.folderId || !this.nombreEsperado) return false;
+            return this._normalizar(this.folderPath) !== this._normalizar(this.nombreEsperado);
+        },
+
+        onCarpetaSeleccionada(e) {
+            this.folderId = e.detail.id;
+            this.folderPath = e.detail.path;
+            this.corregirNombre = this.nombreNoCoincide;
+        },
+
+        async confirmar() {
+            if (!this.folderId) return;
+            this.guardando = true;
+            this.guardarError = '';
+            try {
+                const resp = await fetch('/integraciones/sharepoint/proyecto/' + this.idProyecto + '/mapeo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        folder_id: this.folderId,
+                        corregir_nombre: this.nombreNoCoincide && this.corregirNombre
+                    })
+                });
+                const json = await resp.json();
+                if (!resp.ok) {
+                    this.guardarError = handleSessionExpiredError(json)
+                        ? 'Tu sesion expiro. Inicia sesion de nuevo.'
+                        : (json.error || 'Error al guardar la carpeta');
+                    return;
+                }
+                if (json.web_url) window.open(json.web_url, '_blank');
+                this.cerrar();
+            } catch (e) {
+                this.guardarError = 'Error de conexión al guardar la carpeta';
+            } finally {
+                this.guardando = false;
+            }
+        },
+
+        cerrar() {
+            document.getElementById('modal-sharepoint-picker').remove();
+        }
+    }"
+    @carpeta-seleccionada="onCarpetaSeleccionada($event)"
+    @keydown.escape.window="cerrar()">
+
+    <!-- Panel -->
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-3 max-h-[90dvh] flex flex-col">
+
+        <!-- Header -->
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
+            <div>
+                <h2 class="text-lg font-semibold text-gray-900">Seleccionar carpeta de SharePoint</h2>
+                <p class="text-xs text-gray-500 mt-0.5">Elige la carpeta del proyecto en el drive de Visitas</p>
+            </div>
+            <button @click="cerrar()" class="text-gray-400 hover:text-gray-600 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <!-- Body — scrollable -->
+        <div class="overflow-y-auto flex-1 min-h-0">
+
+            <!-- Navegador de carpetas -->
+            <div x-data="sharepointFolderNavigator()" x-init="abrirNavegador()">
+                {{ render_sp_navigator('max-h-72') }}
+            </div>
+
+            <!-- Carpeta seleccionada + correccion de nombre al estandar (sin texto libre) -->
+            <template x-if="folderId && !nombreNoCoincide">
+                <div class="px-4 py-3 flex items-center gap-2 min-w-0 bg-blue-50 border-b border-blue-100">
+                    <svg class="w-4 h-4 text-blue-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+                    </svg>
+                    <span class="text-sm text-blue-800 font-medium truncate" x-text="folderPath"></span>
+                </div>
+            </template>
+            <template x-if="folderId && nombreNoCoincide">
+                <div class="px-4 py-3 space-y-2 bg-amber-50 border-b border-amber-100">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <svg class="w-4 h-4 text-amber-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+                        </svg>
+                        <span class="text-sm text-amber-800 font-medium truncate" x-text="folderPath"></span>
+                    </div>
+                    <p class="text-xs text-amber-700">
+                        El nombre no coincide con el estandar del proyecto: <strong x-text="nombreEsperado"></strong>
+                    </p>
+                    <label class="flex items-center gap-2 text-xs text-gray-700">
+                        <input type="checkbox" x-model="corregirNombre">
+                        <span>Corregir el nombre de la carpeta al confirmar</span>
+                    </label>
+                </div>
+            </template>
+
+            <template x-if="guardarError">
+                <p class="px-4 py-2 text-xs text-red-600 bg-red-50" x-text="guardarError"></p>
+            </template>
+        </div>
+
+        <!-- Footer -->
+        <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 shrink-0">
+            <button type="button" @click="confirmar()" :disabled="!folderId || guardando"
+                class="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-[#00BABB] rounded-lg hover:bg-[#009a9b] transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                <svg class="w-4 h-4" :class="{'animate-spin': guardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                <span x-text="guardando ? 'Guardando...' : 'Confirmar carpeta'"></span>
+            </button>
+        </div>
+    </div>
+</div>
