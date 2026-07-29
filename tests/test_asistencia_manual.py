@@ -21,8 +21,8 @@ def _dt(year: int, month: int, day: int, hour: int, minute: int = 0) -> datetime
     return datetime(year, month, day, hour, minute, tzinfo=MX_TZ)
 
 
-def _window(fecha_laboral: date, entrada: time = time(8, 0), salida: time = time(17, 0)):
-    schedule = ScheduleConfig(
+def _schedule(entrada: time = time(8, 0), salida: time = time(17, 0)) -> ScheduleConfig:
+    return ScheduleConfig(
         hora_entrada=entrada,
         hora_salida=salida,
         minutos_programados=480,
@@ -30,7 +30,10 @@ def _window(fecha_laboral: date, entrada: time = time(8, 0), salida: time = time
         margen_salida_despues_min=240,
         cruza_medianoche=salida < entrada,
     )
-    return build_labor_window(fecha_laboral, schedule)
+
+
+def _window(fecha_laboral: date, entrada: time = time(8, 0), salida: time = time(17, 0)):
+    return build_labor_window(fecha_laboral, _schedule(entrada, salida))
 
 
 def _patch_clock(monkeypatch, *, today: date, now: datetime | None = None) -> None:
@@ -60,6 +63,7 @@ def test_manual_fecha_laboral_retroactiva(monkeypatch):
             max_horas=16,
             labor_window=_window(date(2026, 6, 22)),
             huecos={"entrada_real": None, "salida_real": None},
+            schedule=_schedule(),
         )
 
 
@@ -79,6 +83,7 @@ def test_manual_fecha_laboral_futura(monkeypatch):
             max_horas=16,
             labor_window=_window(date(2026, 7, 1)),
             huecos={"entrada_real": None, "salida_real": None},
+            schedule=_schedule(),
         )
 
 
@@ -97,6 +102,7 @@ def test_manual_entrada_salida_mismo_dia(monkeypatch):
         max_horas=16,
         labor_window=_window(date(2026, 6, 30)),
         huecos={"entrada_real": None, "salida_real": None},
+        schedule=_schedule(),
     )
 
 
@@ -117,6 +123,7 @@ def test_manual_entrada_salida_cruza_medianoche(monkeypatch):
         max_horas=16,
         labor_window=window,
         huecos={"entrada_real": None, "salida_real": None},
+        schedule=_schedule(time(20, 0), time(5, 0)),
     )
 
 
@@ -139,6 +146,7 @@ def test_manual_rechaza_salida_anterior_mensaje_exacto(monkeypatch):
             max_horas=16,
             labor_window=_window(date(2026, 6, 30)),
             huecos={"entrada_real": None, "salida_real": None},
+            schedule=_schedule(),
         )
 
 
@@ -160,6 +168,7 @@ def test_manual_aprobacion_valida_con_entrada_real_actual(monkeypatch):
                 "entrada_real": _dt(2026, 6, 30, 18),
                 "salida_real": None,
             },
+            schedule=_schedule(),
         )
 
 
