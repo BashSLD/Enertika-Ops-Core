@@ -4,6 +4,12 @@
 {# La columna Area solo aplica en la vista global (en las vistas por modulo el area es fija) #}
 {% set mostrar_area = vista_global is defined and vista_global %}
 
+{# BOM es un flujo cross-modulo (Ingenieria, Construccion, Compras, Finanzas, Direccion):
+   solo se accede desde el modulo Proyectos, nunca desde los modulos por area. #}
+{% set mostrar_bom = vista_global is defined and vista_global %}
+{# MFV es exclusivo de Ingenieria: visible en Proyectos e Ingenieria, y solo para editor/admin del modulo #}
+{% set mostrar_mfv = (mostrar_bom or area == 'INGENIERIA') and (puede_editar_ingenieria is defined and puede_editar_ingenieria) %}
+
 {# Seccion: Pendientes de recepcion #}
 {% if pendientes is defined and pendientes|length > 0 %}
 <div class="mb-6">
@@ -28,10 +34,10 @@
                 {% for pend in pendientes %}
                 <tr class="border-b border-amber-100 last:border-0 hover:bg-amber-50/50 transition-colors">
                     <td class="px-3 py-2.5 align-middle">
-                        <span class="text-xs font-mono font-bold text-gray-800 whitespace-nowrap">{{ pend.proyecto_id_estandar }}</span>
+                        <span class="text-sm font-mono font-bold text-gray-800 whitespace-nowrap">{{ pend.proyecto_id_estandar }}</span>
                     </td>
                     <td class="px-3 py-2.5 align-middle max-w-[18rem]">
-                        <p class="text-xs font-medium text-gray-700 truncate">{{ pend.nombre_proyecto or pend.nombre_corto or '-' }}</p>
+                        <p class="text-sm font-medium text-gray-700 truncate">{{ pend.nombre_proyecto or pend.nombre_corto or '-' }}</p>
                         <p class="text-[11px] text-gray-500 truncate">{{ pend.cliente_nombre or 'Sin cliente' }}</p>
                     </td>
                     <td class="px-3 py-2.5 align-middle">
@@ -66,8 +72,8 @@
         <div class="glass-card p-3 rounded-xl border-l-4 border-amber-400 bg-amber-50/50">
             <div class="flex justify-between items-start gap-2">
                 <div class="flex-1 min-w-0">
-                    <span class="text-xs font-mono font-bold text-gray-800">{{ pend.proyecto_id_estandar }}</span>
-                    <p class="text-xs text-gray-700 truncate mt-0.5">{{ pend.nombre_proyecto or pend.nombre_corto or '-' }}</p>
+                    <span class="text-sm font-mono font-bold text-gray-800">{{ pend.proyecto_id_estandar }}</span>
+                    <p class="text-sm font-medium text-gray-700 truncate mt-0.5">{{ pend.nombre_proyecto or pend.nombre_corto or '-' }}</p>
                     <p class="text-[11px] text-gray-500 truncate">{{ pend.cliente_nombre or 'Sin cliente' }}</p>
                     <p class="text-[11px] text-gray-500 mt-1">
                         <span class="font-medium">Enviado por:</span> {{ pend.enviado_por_nombre or 'N/A' }}
@@ -111,7 +117,9 @@
                 proyectos_activos, area,
                 area_destino=area_destino if area_destino is defined else None,
                 puede_enviar=puede_enviar if puede_enviar is defined else False,
-                mostrar_area=mostrar_area
+                mostrar_area=mostrar_area,
+                mostrar_mfv=mostrar_mfv,
+                mostrar_bom=mostrar_bom
             ) }}
         </div>
         {% endif %}
@@ -126,7 +134,9 @@
                 proyectos_terminados, area,
                 area_destino=area_destino if area_destino is defined else None,
                 puede_enviar=puede_enviar if puede_enviar is defined else False,
-                mostrar_area=mostrar_area
+                mostrar_area=mostrar_area,
+                mostrar_mfv=mostrar_mfv,
+                mostrar_bom=mostrar_bom
             ) }}
         </div>
         {% endif %}
@@ -140,7 +150,9 @@
         proyectos, area,
         area_destino=area_destino if area_destino is defined else None,
         puede_enviar=puede_enviar if puede_enviar is defined else False,
-        mostrar_area=mostrar_area
+        mostrar_area=mostrar_area,
+        mostrar_mfv=mostrar_mfv,
+        mostrar_bom=mostrar_bom
     ) }}
 {% else %}
 {% include "shared/partials/_empty_proyectos.html" %}

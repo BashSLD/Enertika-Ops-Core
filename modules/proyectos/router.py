@@ -14,7 +14,7 @@ import logging
 logger = logging.getLogger("Proyectos.Router")
 
 from core.security import get_current_user_context
-from core.permissions import require_module_access
+from core.permissions import require_module_access, user_has_module_access
 from core.database import get_db_connection
 from .service import ProyectosService, get_service
 from core.projects.router import check_puede_crear_proyecto
@@ -31,29 +31,31 @@ router = APIRouter(
 )
 
 
-def _separar_proyectos_globales(proyectos):
-    return {
-        "proyectos_activos": [
-            p for p in proyectos if p.get("area_actual") != "OYM"
-        ],
-        "proyectos_terminados": [
-            p for p in proyectos if p.get("area_actual") == "OYM"
-        ],
-    }
+def _separar_proyectos_globales(proyectos, area_filtro=None):
+    """Seccion "Terminados / O&M" solo cuando esa ficha esta activa; el resto
+    de las fichas (Total, Ingenieria, Construccion) van todas a Activos, igual
+    que Ingenieria/Construccion no tienen una seccion propia separada."""
+    if area_filtro == "OYM":
+        return {"proyectos_activos": [], "proyectos_terminados": proyectos}
+    return {"proyectos_activos": proyectos, "proyectos_terminados": []}
 
 
 @router.api_route("/ui", methods=["GET", "HEAD"], include_in_schema=False)
 async def get_proyectos_ui(
     request: Request,
+    area: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
     context=Depends(get_current_user_context),
     _=require_module_access("proyectos"),
     conn=Depends(get_db_connection),
     service: ProyectosService = Depends(get_service),
 ):
     kpis = await service.get_kpis(conn)
-    proyectos = await service.get_proyectos(conn)
-    proyectos_split = _separar_proyectos_globales(proyectos)
+    proyectos = await service.get_proyectos(conn, area, status, q)
+    proyectos_split = _separar_proyectos_globales(proyectos, area)
     puede_crear_proyecto = check_puede_crear_proyecto(context)
+    puede_editar_ingenieria = user_has_module_access("ingenieria", context, min_role="editor")
 
     template_data = {
         "user_name": context.get("user_name"),
@@ -63,9 +65,12 @@ async def get_proyectos_ui(
         "kpis": kpis,
         "proyectos": proyectos,
         **proyectos_split,
-        "area": None,
+        "area": area,
+        "status": status,
+        "q": q,
         "vista_global": True,
         "puede_crear_proyecto": puede_crear_proyecto,
+        "puede_editar_ingenieria": puede_editar_ingenieria,
     }
 
     # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
@@ -87,13 +92,14 @@ async def get_proyectos_partial(
     service: ProyectosService = Depends(get_service),
 ):
     proyectos = await service.get_proyectos(conn, area, status, q, limit)
-    proyectos_split = _separar_proyectos_globales(proyectos)
+    proyectos_split = _separar_proyectos_globales(proyectos, area)
 
     return templates.TemplateResponse(request, "shared/partials/lista_proyectos.html", {"proyectos": proyectos,
         **proyectos_split,
         "area": area,
         "current_module_role": context.get("module_roles", {}).get("proyectos", "viewer"),
         "vista_global": True,
+        "puede_editar_ingenieria": user_has_module_access("ingenieria", context, min_role="editor"),
     })
 
 

@@ -33,15 +33,18 @@ class TransferDBService:
                 o.op_id_estandar,
                 u.nombre as creado_por_nombre,
                 EXTRACT(DAY FROM NOW() - COALESCE(p.fecha_inicio_area, p.created_at))::int as dias_en_area,
-                (
-                    SELECT status FROM tb_traspasos_proyecto tp
-                    WHERE tp.id_proyecto = p.id_proyecto
-                    ORDER BY tp.fecha_envio DESC LIMIT 1
-                ) as ultimo_traspaso_status
+                ult_tp.status as ultimo_traspaso_status,
+                ult_tp.area_destino as ultimo_traspaso_area_destino
             FROM tb_proyectos_gate p
             LEFT JOIN tb_cat_tecnologias t ON p.id_tecnologia = t.id
             LEFT JOIN tb_oportunidades o ON p.id_oportunidad = o.id_oportunidad
             LEFT JOIN tb_usuarios u ON p.created_by_id = u.id_usuario
+            LEFT JOIN LATERAL (
+                SELECT tp.status, tp.area_destino
+                FROM tb_traspasos_proyecto tp
+                WHERE tp.id_proyecto = p.id_proyecto
+                ORDER BY tp.fecha_envio DESC LIMIT 1
+            ) ult_tp ON TRUE
             WHERE p.area_actual = $1
             AND p.aprobacion_direccion = true
         """
@@ -118,15 +121,18 @@ class TransferDBService:
                 o.op_id_estandar,
                 u.nombre as creado_por_nombre,
                 EXTRACT(DAY FROM NOW() - COALESCE(p.fecha_inicio_area, p.created_at))::int as dias_en_area,
-                (
-                    SELECT status FROM tb_traspasos_proyecto tp
-                    WHERE tp.id_proyecto = p.id_proyecto
-                    ORDER BY tp.fecha_envio DESC LIMIT 1
-                ) as ultimo_traspaso_status
+                ult_tp.status as ultimo_traspaso_status,
+                ult_tp.area_destino as ultimo_traspaso_area_destino
             FROM tb_proyectos_gate p
             LEFT JOIN tb_cat_tecnologias t ON p.id_tecnologia = t.id
             LEFT JOIN tb_oportunidades o ON p.id_oportunidad = o.id_oportunidad
             LEFT JOIN tb_usuarios u ON p.created_by_id = u.id_usuario
+            LEFT JOIN LATERAL (
+                SELECT tp.status, tp.area_destino
+                FROM tb_traspasos_proyecto tp
+                WHERE tp.id_proyecto = p.id_proyecto
+                ORDER BY tp.fecha_envio DESC LIMIT 1
+            ) ult_tp ON TRUE
             WHERE p.aprobacion_direccion = true
         """
         params: list = []

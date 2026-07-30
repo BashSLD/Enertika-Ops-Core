@@ -29,6 +29,8 @@ QUERY_GET_OPORTUNIDADES_LIST = """
         pg.id_proyecto,
         COALESCE(pg.proyectos_count, 0) as proyectos_count,
         pg.area_actual AS proyecto_area_actual,
+        ult_tp.status AS ultimo_traspaso_status,
+        ult_tp.area_destino AS ultimo_traspaso_area_destino,
         COUNT(*) OVER() AS total_count
     FROM tb_oportunidades o
     LEFT JOIN tb_cat_estatus_oportunidades estatus ON o.id_estatus_global = estatus.id
@@ -48,12 +50,18 @@ QUERY_GET_OPORTUNIDADES_LIST = """
     LEFT JOIN (
         SELECT
             p.id_oportunidad,
-            (ARRAY_AGG(p.id_proyecto ORDER BY p.created_at DESC NULLS LAST))[1] AS id_proyecto,
+            (ARRAY_AGG(p.id_proyecto ORDER BY p.fecha_inicio_area DESC NULLS LAST, p.created_at DESC NULLS LAST))[1] AS id_proyecto,
             COUNT(*)::int AS proyectos_count,
             (ARRAY_AGG(p.area_actual ORDER BY p.fecha_inicio_area DESC NULLS LAST, p.created_at DESC NULLS LAST))[1] AS area_actual
         FROM tb_proyectos_gate p
         GROUP BY p.id_oportunidad
     ) pg ON pg.id_oportunidad = o.id_oportunidad
+    LEFT JOIN LATERAL (
+        SELECT tp.status, tp.area_destino
+        FROM tb_traspasos_proyecto tp
+        WHERE tp.id_proyecto = pg.id_proyecto
+        ORDER BY tp.fecha_envio DESC LIMIT 1
+    ) ult_tp ON TRUE
     WHERE o.email_enviado = true
 """
 

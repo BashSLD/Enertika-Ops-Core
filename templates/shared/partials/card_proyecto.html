@@ -11,25 +11,30 @@
 
 {# --- Helpers --- #}
 
-{% macro _chip_area(p) %}
+{% macro chip_area(p) %}
 {% set colors = area_colors.get(p.area_actual, {'bg': 'bg-gray-100', 'text': 'text-gray-700', 'border': 'border-gray-200'}) %}
 <span class="px-2 py-0.5 text-xs font-semibold rounded-md {{ colors.bg }} {{ colors.text }} {{ colors.border }} border whitespace-nowrap">
     {{ area_labels.get(p.area_actual, p.area_actual or 'N/A') }}
 </span>
 {% endmacro %}
 
-{% macro _badge_traspaso(p) %}
+{% macro badge_traspaso(p) %}
 {% if p.ultimo_traspaso_status == 'ENVIADO' %}
 <span class="px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap animate-pulse-subtle">
-    Traspaso pendiente
+    Enviado a {{ area_labels.get(p.ultimo_traspaso_area_destino, p.ultimo_traspaso_area_destino or 'N/A') }}
 </span>
 {% endif %}
 {% endmacro %}
 
 {% macro _dias_value(p) %}
-<span class="font-bold tabular-nums {% if p.dias_en_area and p.dias_en_area > 30 %}text-red-600{% elif p.dias_en_area and p.dias_en_area > 15 %}text-amber-600{% else %}text-gray-700{% endif %}">
-    {{ p.dias_en_area or 0 }}
-</span>
+<div class="relative inline-flex group">
+    <span class="font-bold tabular-nums cursor-help {% if p.dias_en_area and p.dias_en_area > 30 %}text-red-600{% elif p.dias_en_area and p.dias_en_area > 15 %}text-amber-600{% else %}text-gray-700{% endif %}">
+        {{ p.dias_en_area or 0 }}
+    </span>
+    <div class="hidden group-hover:block absolute bottom-full right-0 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-nowrap z-50 pointer-events-none">
+        En {{ area_labels.get(p.area_actual, p.area_actual or 'esta area') }} desde el {{ (p.fecha_inicio_area or p.created_at).strftime('%d/%m/%Y') }}
+    </div>
+</div>
 {% endmacro %}
 
 {# --- Boton "Ver Expediente" (SharePoint) --- #}
@@ -101,7 +106,7 @@
 
 {# --- Acciones (compartidas por fila y tarjeta) --- #}
 
-{% macro render_actions(p, area, area_destino=None, puede_enviar=False) %}
+{% macro render_actions(p, area, area_destino=None, puede_enviar=False, mostrar_mfv=False, mostrar_bom=False) %}
 {# Equipo #}
 <button hx-get="/proyectos/partials/equipo/{{ p.id_proyecto }}"
     hx-target="#modal-action-container" hx-swap="innerHTML"
@@ -143,6 +148,7 @@
         x-transition:leave-start="opacity-100 translate-y-0"
         x-transition:leave-end="opacity-0 -translate-y-1"
         class="absolute right-0 mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-lg p-1.5 min-w-[13rem] whitespace-nowrap">
+        {% if mostrar_mfv %}
         <button hx-get="/bom/{{ p.id_proyecto }}/paneles-modal"
             hx-target="#modal-action-container" hx-swap="innerHTML"
             hx-indicator="#mfv-spinner-{{ p.id_proyecto }}" hx-disabled-elt="this" hx-sync="this:drop" @click="openMore = false"
@@ -153,6 +159,8 @@
             </svg>
             Ingresar MFV
         </button>
+        {% endif %}
+        {% if mostrar_bom %}
         <button hx-get="/bom/{{ p.id_proyecto }}/acceso"
             hx-target="#modal-action-container" hx-swap="innerHTML"
             hx-indicator="#bom-spinner-{{ p.id_proyecto }}" hx-disabled-elt="this" hx-sync="this:drop" @click="openMore = false"
@@ -163,6 +171,7 @@
             </svg>
             BOM
         </button>
+        {% endif %}
         <button hx-get="/proyectos/partials/visita-obra-modal?proyecto_id_estandar={{ (p.proyecto_id_estandar or '') | urlencode }}"
             hx-target="#modal-action-container" hx-swap="innerHTML"
             hx-disabled-elt="this" hx-sync="this:drop" @click="openMore = false"
@@ -188,26 +197,26 @@
 
 {# --- Fila de tabla (escritorio) --- #}
 
-{% macro render_row(p, area, area_destino=None, puede_enviar=False, mostrar_area=False) %}
+{% macro render_row(p, area, area_destino=None, puede_enviar=False, mostrar_area=False, mostrar_mfv=False, mostrar_bom=False) %}
 <tr class="proyecto-row border-b border-gray-100 hover:bg-gray-50/70 transition-colors"
     data-dias="{{ p.dias_en_area or 0 }}" data-id="{{ p.proyecto_id_estandar or '' }}">
     <td class="px-3 py-2.5 align-middle">
         <div class="flex items-center gap-2">
-            <span class="text-xs font-mono font-bold text-gray-800 whitespace-nowrap">{{ p.proyecto_id_estandar or 'Sin ID' }}</span>
-            {{ _badge_traspaso(p) }}
+            <span class="text-sm font-mono font-bold text-gray-800 whitespace-nowrap">{{ p.proyecto_id_estandar or 'Sin ID' }}</span>
+            {{ badge_traspaso(p) }}
         </div>
     </td>
     <td class="px-3 py-2.5 align-middle max-w-[18rem]">
-        <p class="text-xs font-medium text-gray-700 truncate">{{ p.nombre_proyecto or p.nombre_corto or '-' }}</p>
+        <p class="text-sm font-medium text-gray-700 truncate">{{ p.nombre_proyecto or p.nombre_corto or '-' }}</p>
         <p class="text-[11px] text-gray-500 truncate">{{ p.cliente_nombre or 'Sin cliente' }}</p>
     </td>
     {% if mostrar_area %}
-    <td class="px-3 py-2.5 align-middle">{{ _chip_area(p) }}</td>
+    <td class="px-3 py-2.5 align-middle">{{ chip_area(p) }}</td>
     {% endif %}
     <td class="px-3 py-2.5 align-middle text-right">{{ _dias_value(p) }}</td>
     <td class="px-3 py-2.5 align-middle">
         <div class="flex gap-1.5 justify-end items-center whitespace-nowrap">
-            {{ render_actions(p, area, area_destino, puede_enviar) }}
+            {{ render_actions(p, area, area_destino, puede_enviar, mostrar_mfv, mostrar_bom) }}
         </div>
     </td>
 </tr>
@@ -215,17 +224,17 @@
 
 {# --- Tarjeta compacta (movil) --- #}
 
-{% macro render_card(p, area, area_destino=None, puede_enviar=False, mostrar_area=False) %}
+{% macro render_card(p, area, area_destino=None, puede_enviar=False, mostrar_area=False, mostrar_mfv=False, mostrar_bom=False) %}
 {% set colors = area_colors.get(p.area_actual, {'bg': 'bg-gray-100', 'text': 'text-gray-700', 'border': 'border-gray-200'}) %}
 <div class="glass-card p-3 rounded-xl border-l-4 {{ colors.border }}">
     <div class="flex justify-between items-start gap-2">
         <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap mb-1">
-                <span class="text-xs font-mono font-bold text-gray-800">{{ p.proyecto_id_estandar or 'Sin ID' }}</span>
-                {% if mostrar_area %}{{ _chip_area(p) }}{% endif %}
-                {{ _badge_traspaso(p) }}
+                <span class="text-sm font-mono font-bold text-gray-800">{{ p.proyecto_id_estandar or 'Sin ID' }}</span>
+                {% if mostrar_area %}{{ chip_area(p) }}{% endif %}
+                {{ badge_traspaso(p) }}
             </div>
-            <p class="text-xs text-gray-700 truncate">{{ p.nombre_proyecto or p.nombre_corto or '-' }}</p>
+            <p class="text-sm font-medium text-gray-700 truncate">{{ p.nombre_proyecto or p.nombre_corto or '-' }}</p>
             <p class="text-[11px] text-gray-500 truncate">{{ p.cliente_nombre or 'Sin cliente' }}</p>
         </div>
         <div class="text-right flex-shrink-0">
@@ -234,14 +243,14 @@
         </div>
     </div>
     <div class="mt-2.5 pt-2.5 border-t border-gray-100 flex gap-1.5 justify-end items-center flex-wrap">
-        {{ render_actions(p, area, area_destino, puede_enviar) }}
+        {{ render_actions(p, area, area_destino, puede_enviar, mostrar_mfv, mostrar_bom) }}
     </div>
 </div>
 {% endmacro %}
 
 {# --- Tabla completa: encabezado + filas (escritorio) y tarjetas (movil) --- #}
 
-{% macro render_tabla(items, area, area_destino=None, puede_enviar=False, mostrar_area=False) %}
+{% macro render_tabla(items, area, area_destino=None, puede_enviar=False, mostrar_area=False, mostrar_mfv=False, mostrar_bom=False) %}
 {# Escritorio: tabla densa ordenable #}
 <div class="hidden md:block">
     <table class="proyectos-table w-full text-left">
@@ -256,7 +265,7 @@
         </thead>
         <tbody>
             {% for p in items %}
-            {{ render_row(p, area, area_destino, puede_enviar, mostrar_area) }}
+            {{ render_row(p, area, area_destino, puede_enviar, mostrar_area, mostrar_mfv, mostrar_bom) }}
             {% endfor %}
         </tbody>
     </table>
@@ -264,7 +273,7 @@
 {# Movil: tarjetas compactas #}
 <div class="md:hidden space-y-2">
     {% for p in items %}
-    {{ render_card(p, area, area_destino, puede_enviar, mostrar_area) }}
+    {{ render_card(p, area, area_destino, puede_enviar, mostrar_area, mostrar_mfv, mostrar_bom) }}
     {% endfor %}
 </div>
 {% endmacro %}

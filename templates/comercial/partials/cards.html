@@ -1,4 +1,5 @@
 {% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+{% from "shared/partials/card_proyecto.html" import badge_traspaso, chip_area %}
 <!-- Alpine.js para Cards Mejorados -->
 <div class="animate-fade-in-down" x-data="{ 
     selectedRows: new Set(),
@@ -137,7 +138,7 @@
                                 {% endif %}
                                 <th scope="col"
                                     class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-50">
-                                    {% if is_global_search %}Status{% elif current_tab == 'levantamientos' %}Status Levantamiento{% else %}Status
+                                    {% if is_global_search %}Status{% elif current_tab == 'levantamientos' %}Status Levantamiento{% elif current_tab == 'ganadas' %}Fase{% else %}Status
                                     Simulación{% endif %}
                                 </th>
                                 <th scope="col"
@@ -189,6 +190,7 @@
                                                 🔥 URGENTE
                                             </span>
                                             {% endif %}
+                                            {% if current_tab != 'ganadas' or is_global_search %}{{ badge_traspaso(op) }}{% endif %}
                                             {% if is_global_search %}
                                             <span
                                                 class="inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] leading-4 font-semibold border shadow-sm {{ 'bg-sky-100/80 text-sky-800 border-sky-300' if es_levantamiento else 'bg-[#00BABB]/10 text-[#007A7B] border-[#00BABB]/40' }}">
@@ -396,6 +398,17 @@
                                             {{ op.status_levantamiento or 'Sin levantamiento' }}
                                         </span>
                                         {% endif %}
+                                        {% elif current_tab == 'ganadas' and not is_global_search %}
+                                        {% if not op.id_proyecto %}
+                                        <span
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-500 border border-gray-200">
+                                            Sin proyecto
+                                        </span>
+                                        {% elif op.ultimo_traspaso_status == 'ENVIADO' %}
+                                        {{ badge_traspaso(op) }}
+                                        {% else %}
+                                        {{ chip_area({'area_actual': op.proyecto_area_actual}) }}
+                                        {% endif %}
                                         {% else %}
                                         {% set status = op.status_global|lower if op.status_global else 'pendiente'
                                         %}
@@ -521,7 +534,7 @@
                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                             d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
                                                     </svg>
-                                                    <span>Progreso</span>
+                                                    <span>Ver Fase</span>
                                                 </button>
                                             </div>
                                             {% endif %}

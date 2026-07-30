@@ -83,7 +83,7 @@
     {# Chips-filtro por area (clicables) + busqueda + estatus #}
     <div x-data="{
             areaSel: '{{ area or '' }}',
-            buscarAbierto: false,
+            buscarAbierto: {{ 'true' if q else 'false' }},
             setArea(a) {
                 this.areaSel = a;
                 document.getElementById('flt-area').value = a;
@@ -93,7 +93,14 @@
         <form id="proyectos-filtros-form"
               hx-get="/proyectos/partials/proyectos"
               hx-target="#proyectos-list" hx-swap="innerHTML"
-              hx-trigger="filtrar, change from:#flt-status, keyup changed delay:400ms from:#flt-q">
+              hx-trigger="filtrar, change from:#flt-status, keyup changed delay:400ms from:#flt-q"
+              hx-on::after-request="
+                if (!event.detail.successful) return;
+                const params = new URLSearchParams();
+                for (const [key, value] of new FormData(this)) { if (value) params.set(key, value); }
+                const qs = params.toString();
+                history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+              ">
             <input type="hidden" id="flt-area" name="area" value="{{ area or '' }}">
             <div class="flex flex-col lg:flex-row lg:items-stretch gap-2">
                 {# Chips-filtro por area #}
@@ -127,7 +134,7 @@
                     </button>
                     {# Campo (estado expandido) — siempre en el DOM para que el form lo serialice #}
                     <div x-show="buscarAbierto" x-cloak class="relative w-full lg:w-56">
-                        <input id="flt-q" name="q" type="text" placeholder="Buscar proyecto, cliente..."
+                        <input id="flt-q" name="q" type="text" placeholder="Buscar proyecto, cliente..." value="{{ q or '' }}"
                             @blur="if (!$el.value) buscarAbierto = false"
                             @keydown.escape="$el.value = ''; buscarAbierto = false; htmx.trigger(document.getElementById('proyectos-filtros-form'), 'filtrar')"
                             class="w-full pl-8 pr-8 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
@@ -144,9 +151,9 @@
                     </div>
                     <select id="flt-status" name="status"
                         class="text-sm border border-gray-300 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shrink-0">
-                        <option value="">Todos</option>
-                        <option value="EN_AREA">En área</option>
-                        <option value="EN_TRANSITO">En tránsito</option>
+                        <option value="" {{ 'selected' if not status }}>Todos</option>
+                        <option value="EN_AREA" {{ 'selected' if status == 'EN_AREA' }}>En área</option>
+                        <option value="EN_TRANSITO" {{ 'selected' if status == 'EN_TRANSITO' }}>En tránsito</option>
                     </select>
                 </div>
             </div>
