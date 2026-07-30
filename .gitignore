@@ -15,7 +15,10 @@ requirements-dev.txt
 tools/cfe/cfe_config.json
 tools/cfe/build/
 tools/cfe/dist/
-tools/cfe/renovar_sesion.spec
+tools/cfe/*.spec
+tools/cfe/.cfe-build-venv/
+tools/cfe/*.key
+tools/cfe/*.pem
 
 # Environments
 .env

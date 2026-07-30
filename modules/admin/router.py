@@ -1716,33 +1716,51 @@ async def actualizar_config_cfe(
         )
 
 
-@router.post("/config/cfe/token", include_in_schema=False, response_class=HTMLResponse)
-async def regenerar_token_cfe(
+@router.post("/config/cfe/lanzador-clave", include_in_schema=False, response_class=HTMLResponse)
+async def actualizar_clave_lanzador_cfe(
     request: Request,
+    cfe_lanzador_public_key: str = Form(""),
     service: AdminService = Depends(get_admin_service),
     conn=Depends(get_db_connection),
     _user=require_role(["ADMIN"]),
 ):
     try:
-        token = await service.regenerate_cfe_token(conn)
+        public_key = await service.update_cfe_launcher_public_key(
+            conn,
+            public_key_pem=cfe_lanzador_public_key,
+        )
         return templates.TemplateResponse(
-            request, "admin/partials/cfe_token.html",
-            {"token": token,
-             "_toast": {"message": "Token de subida de sesión CFE generado.", "type": "success"}},
+            request,
+            "admin/partials/cfe_lanzador_clave.html",
+            {
+                "public_key": public_key,
+                "_toast": {
+                    "message": "Clave pública del lanzador guardada.",
+                    "type": "success",
+                },
+            },
+        )
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "admin/partials/cfe_lanzador_clave.html",
+            {
+                "public_key": cfe_lanzador_public_key,
+                "_toast": {"message": str(exc), "type": "error"},
+            },
         )
     except asyncpg.PostgresError as exc:
-        logger.error(f"Error generando token CFE: {exc}")
-        # Re-render el partial completo (status 200) para conservar la UI del token
-        # y mostrar el toast: con 500 + outerHTML, HTMX no hace swap y el admin no ve feedback.
-        token_actual = ""
-        try:
-            token_actual = (await service.get_cfe_config(conn)).get("cfe_session_token", "")
-        except asyncpg.PostgresError:
-            pass
+        logger.error("Error guardando clave publica del lanzador CFE: %s", exc)
         return templates.TemplateResponse(
-            request, "admin/partials/cfe_token.html",
-            {"token": token_actual,
-             "_toast": {"title": "Token CFE", "message": "Error al generar el token.", "type": "error"}},
+            request,
+            "admin/partials/cfe_lanzador_clave.html",
+            {
+                "public_key": cfe_lanzador_public_key,
+                "_toast": {
+                    "message": "Error al guardar la clave pública.",
+                    "type": "error",
+                },
+            },
         )
 
 
@@ -1750,6 +1768,7 @@ async def regenerar_token_cfe(
 async def subir_lanzador_cfe(
     request: Request,
     archivo: UploadFile = File(...),
+    manifiesto: UploadFile = File(...),
     service: AdminService = Depends(get_admin_service),
     conn=Depends(get_db_connection),
     _user=require_role(["ADMIN"]),
@@ -1757,17 +1776,35 @@ async def subir_lanzador_cfe(
     version = ""
     toast_msg = "Error interno al guardar."
     toast_type = "error"
+    sha256_hex = ""
     try:
-        version = await service.upload_cfe_lanzador(conn, file=archivo)
+        release = await service.upload_cfe_lanzador(
+            conn,
+            file=archivo,
+            manifest_file=manifiesto,
+        )
+        version = release["version"]
+        sha256_hex = release["sha256"]
         toast_msg = f"Ejecutable del lanzador subido (v{version})."
         toast_type = "success"
     except ValueError as exc:
         toast_msg = str(exc)
     except asyncpg.PostgresError as exc:
         logger.error("Error guardando lanzador CFE en BD: %s", exc)
+    if toast_type == "error":
+        try:
+            current_config = await service.get_global_config(conn)
+            version = current_config.get("cfe_lanzador_version", "")
+            sha256_hex = current_config.get("cfe_lanzador_sha256", "")
+        except asyncpg.PostgresError:
+            pass
     return templates.TemplateResponse(
         request, "admin/partials/cfe_lanzador.html",
-        {"lanzador_version": version, "_toast": {"message": toast_msg, "type": toast_type}},
+        {
+            "lanzador_version": version,
+            "lanzador_sha256": sha256_hex,
+            "_toast": {"message": toast_msg, "type": toast_type},
+        },
     )
 
 

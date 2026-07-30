@@ -4,10 +4,12 @@ CFE_CONFIG_KEYS = {
     "mi_user":          "CFE_MIESPACIO_USER",
     "mi_pass":          "CFE_MIESPACIO_PASS",
     "session_json":     "CFE_MIESPACIO_SESSION_JSON",
-    "upload_token":     "CFE_SESSION_UPLOAD_TOKEN",
+    "legacy_upload_token": "CFE_SESSION_UPLOAD_TOKEN",
     "session_invalida": "CFE_MIESPACIO_SESSION_INVALIDA",
     "lanzador_item_id": "CFE_LANZADOR_ITEM_ID",
     "lanzador_version": "CFE_LANZADOR_VERSION",
+    "lanzador_sha256":  "CFE_LANZADOR_SHA256",
+    "lanzador_public_key": "CFE_LANZADOR_SIGNING_PUBLIC_KEY",
 }
 
 CFE_PUBLIC_FORM_DEFAULTS = {

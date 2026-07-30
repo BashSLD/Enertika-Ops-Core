@@ -34,6 +34,7 @@ from datetime import datetime
 from pathlib import Path
 
 try:
+    from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import sync_playwright
 except ModuleNotFoundError:
     print("ERROR: Playwright no esta instalado. Ejecuta: pip install -r requirements.txt")
@@ -95,7 +96,7 @@ def cargar_edge(pw):
     """Intenta canal msedge; si falla usa executable_path de Edge instalado."""
     try:
         return pw.chromium.launch(channel="msedge", headless=False)
-    except Exception:
+    except PlaywrightError:
         for ruta in _EDGE_PATHS:
             if Path(ruta).exists():
                 return pw.chromium.launch(executable_path=ruta, headless=False)
@@ -112,7 +113,7 @@ def esta_logueado(page) -> bool:
             return True
         body = page.evaluate("() => document.body?.innerText || ''")
         return not re.search(r"USUARIO:\s*|CONTRASEÑA:\s*", body, re.I)
-    except Exception:
+    except PlaywrightError:
         return False
 
 
@@ -120,20 +121,20 @@ def volcar_pagina(page, url: str, nombre: str, out_dir: Path) -> None:
     print(f"\n  -> {nombre}: {url}")
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-    except Exception as exc:
+    except PlaywrightError as exc:
         print(f"     AVISO: no se pudo navegar ({exc}). Se omite.")
         return
     page.wait_for_timeout(2500)
 
     try:
         data = page.evaluate(_EXTRACT_JS)
-    except Exception as exc:
+    except PlaywrightError as exc:
         print(f"     AVISO: no se pudo extraer el DOM ({exc}).")
         data = {"url": url, "error": str(exc)}
 
     try:
         html = page.content()
-    except Exception:
+    except PlaywrightError:
         html = ""
 
     (out_dir / f"{nombre}.json").write_text(
@@ -158,7 +159,7 @@ def main() -> None:
 
     with sync_playwright() as pw:
         browser = cargar_edge(pw)
-        ctx = browser.new_context(ignore_https_errors=True)
+        ctx = browser.new_context()
         page = ctx.new_page()
         page.goto(DEFAULT_URL, wait_until="domcontentloaded", timeout=60_000)
 

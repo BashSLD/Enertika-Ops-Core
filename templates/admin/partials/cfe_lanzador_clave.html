@@ -1,0 +1,24 @@
+{# Clave publica que autoriza manifests del lanzador CFE. #}
+{% if _toast is defined %}
+{% with message=_toast.message, type=_toast.type, title='Firma del lanzador CFE' %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+<div id="cfe-lanzador-clave">
+    <textarea id="cfe-lanzador-public-key"
+              name="cfe_lanzador_public_key"
+              rows="4"
+              placeholder="-----BEGIN PUBLIC KEY-----"
+              class="w-full rounded-lg border-gray-300 bg-gray-50 px-3 py-2 font-mono text-xs focus:ring-yellow-500 focus:border-yellow-500">{{ public_key or '' }}</textarea>
+    <div class="mt-2 flex justify-end">
+        <button type="button"
+                hx-post="/admin/config/cfe/lanzador-clave"
+                hx-include="#cfe-lanzador-public-key"
+                hx-target="#cfe-lanzador-clave"
+                hx-swap="outerHTML"
+                hx-confirm="Cambiar la clave impedirá publicar releases firmados con la clave anterior. ¿Continuar?"
+                class="bg-gray-700 hover:bg-gray-800 text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
+            Guardar clave pública
+        </button>
+    </div>
+</div>

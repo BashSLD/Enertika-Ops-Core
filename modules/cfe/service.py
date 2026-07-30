@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import re
-import secrets
 import struct
 import time
 import zipfile
@@ -23,6 +23,7 @@ import pypdf
 from pypdf import PdfWriter
 
 from core.database import get_db_pool
+from core.config import settings
 from core.config_service import ConfigService
 from core.timezone import now_mx
 from core.integrations.sharepoint import SharePointService
@@ -45,6 +46,7 @@ from .constants import (
     ZONAS_OYM,
 )
 from .db_service import CfeDBService, get_cfe_db_service
+from .launcher_ticket_repository import LauncherTicketRepository
 from .scraper import (
     CfeScraperConfig,
     descargar_pdf_periodo,
@@ -60,6 +62,12 @@ logger = logging.getLogger("CfeService")
 _scrape_lock = asyncio.Semaphore(1)
 CFE_ZIP_MAX_DOWNLOAD_ATTEMPTS = 3
 _RE_ERROR_NO_REGISTRADO = re.compile(r"no\s+(esta\s+)?registrado\s+en\s+miespacio")
+
+
+def _es_dominio_cfe(domain: object) -> bool:
+    normalized = str(domain or "").strip().lstrip(".").lower()
+    return normalized == "cfe.mx" or normalized.endswith(".cfe.mx")
+
 
 _MESES_ZIP_SIMULACION = {
     1: "ENE",
@@ -86,10 +94,19 @@ class CfeZipFaltantesError(ValueError):
         self.faltantes = [dict(item) for item in faltantes]
 
 
+class CfeLauncherIntegrityError(RuntimeError):
+    """El binario almacenado no coincide con el release verificado al publicar."""
+
+
 class CfeService:
 
-    def __init__(self, db: CfeDBService):
+    def __init__(
+        self,
+        db: CfeDBService,
+        ticket_repository: type[LauncherTicketRepository] = LauncherTicketRepository,
+    ):
         self.db = db
+        self._ticket_repository = ticket_repository
         self._admin_db = AdminDBService()
 
     # ── Config helpers ────────────────────────────────────────────────────
@@ -102,9 +119,18 @@ class CfeService:
             "session_json": await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["session_json"], "", str) or None,
         }
 
-    async def _save_session(self, conn: asyncpg.Connection, session_json: str) -> None:
+    async def _save_session(
+        self,
+        conn: asyncpg.Connection,
+        session_json: str,
+        *,
+        invalidate_cache: bool = True,
+    ) -> None:
         await self._admin_db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_json"], session_json)
-        ConfigService.invalidar_cache()
+        if invalidate_cache:
+            await ConfigService.invalidar_cache_keys(
+                f"CFG_{CFE_CONFIG_KEYS['session_json']}"
+            )
 
     # ── Renovacion self-service de sesion (lanzador local) ─────────────────
 
@@ -112,13 +138,14 @@ class CfeService:
         """Estado de la sesion MiEspacio para mostrarlo a los usuarios en la UI CFE."""
         cfg = await ConfigService.get_global_configs_bulk(conn, {
             CFE_CONFIG_KEYS["session_json"]:     ("", str),
-            CFE_CONFIG_KEYS["upload_token"]:     ("", str),
             CFE_CONFIG_KEYS["session_invalida"]: ("", str),
             CFE_CONFIG_KEYS["lanzador_item_id"]: ("", str),
             CFE_CONFIG_KEYS["lanzador_version"]: ("", str),
+            CFE_CONFIG_KEYS["lanzador_sha256"]:  ("", str),
+            CFE_CONFIG_KEYS["mi_user"]:           ("", str),
+            CFE_CONFIG_KEYS["mi_pass"]:           ("", str),
         })
         sesion          = cfg[CFE_CONFIG_KEYS["session_json"]]
-        token           = cfg[CFE_CONFIG_KEYS["upload_token"]]
         session_invalida = cfg[CFE_CONFIG_KEYS["session_invalida"]]
 
         sesion_estado = "sin_sesion"
@@ -131,8 +158,10 @@ class CfeService:
                 try:
                     data = json.loads(sesion)
                     cfe_cookies = [
-                        c for c in data.get("cookies", [])
-                        if "cfe.mx" in (c.get("domain") or "")
+                        cookie
+                        for cookie in data.get("cookies", [])
+                        if isinstance(cookie, dict)
+                        and _es_dominio_cfe(cookie.get("domain"))
                     ]
                     if not cfe_cookies:
                         sesion_estado = "invalida"
@@ -153,66 +182,65 @@ class CfeService:
             "sesion_activa": sesion_estado in ("activa", "expira_pronto"),
             "sesion_estado": sesion_estado,
             "expira_en": expira_en,
-            "renovacion_habilitada": bool(token),
-            "lanzador_disponible": bool(cfg[CFE_CONFIG_KEYS["lanzador_item_id"]]),
+            "renovacion_habilitada": bool(
+                cfg[CFE_CONFIG_KEYS["mi_user"]]
+                and cfg[CFE_CONFIG_KEYS["mi_pass"]]
+                and (settings.REDIS_URL or settings.DEBUG_MODE)
+            ),
+            "lanzador_disponible": bool(
+                cfg[CFE_CONFIG_KEYS["lanzador_item_id"]]
+                and cfg[CFE_CONFIG_KEYS["lanzador_sha256"]]
+            ),
             "lanzador_version": cfg[CFE_CONFIG_KEYS["lanzador_version"]],
         }
 
-    async def get_lanzador_bytes(self, conn: asyncpg.Connection) -> tuple[bytes, str]:
-        """Descarga el ejecutable del lanzador desde SharePoint. Retorna (bytes, version)."""
+    async def get_lanzador_bytes(self, conn: asyncpg.Connection) -> tuple[bytes, str, str]:
+        """Descarga y verifica el ejecutable. Retorna (bytes, version, sha256)."""
         cfg = await ConfigService.get_global_configs_bulk(conn, {
             CFE_CONFIG_KEYS["lanzador_item_id"]: ("", str),
             CFE_CONFIG_KEYS["lanzador_version"]: ("", str),
+            CFE_CONFIG_KEYS["lanzador_sha256"]: ("", str),
         })
         item_id = cfg[CFE_CONFIG_KEYS["lanzador_item_id"]]
-        if not item_id:
+        expected_sha256 = cfg[CFE_CONFIG_KEYS["lanzador_sha256"]].lower()
+        if not item_id or not expected_sha256:
             raise ValueError("El ejecutable del lanzador no está disponible todavía.")
         version = cfg[CFE_CONFIG_KEYS["lanzador_version"]]
         app_token = await get_ms_auth().get_application_token()
         sp = SharePointService(access_token=app_token)
         content = await sp.download_file_by_item_id(conn, item_id)
-        return content, version
-
-    async def _validar_token_lanzador(self, conn: asyncpg.Connection, token: str) -> None:
-        """
-        Valida el token compartido de los endpoints del lanzador local
-        (/sesion/subir, /sesion/credenciales). No usa sesion Azure AD porque
-        el script corre en la PC del usuario sin cookie de sesion del app.
-        """
-        configurado = await ConfigService.get_global_config(
-            conn, CFE_CONFIG_KEYS["upload_token"], "", str
-        )
-        if not configurado:
-            raise PermissionError(
-                "La renovacion de sesion CFE no esta habilitada. "
-                "Un administrador debe generar el token en Admin > Configuracion Global > Recibos CFE."
+        actual_sha256 = hashlib.sha256(content).hexdigest()
+        if actual_sha256 != expected_sha256:
+            logger.error(
+                "Integridad invalida en lanzador CFE item_id=%s esperado=%s actual=%s",
+                item_id,
+                expected_sha256,
+                actual_sha256,
             )
-        # compare_digest en bytes: con str lanza TypeError si el token entrante
-        # trae caracteres no-ASCII (los headers llegan en latin-1).
-        if not token or not secrets.compare_digest(token.encode("utf-8"), configurado.encode("utf-8")):
-            raise PermissionError("Token del lanzador CFE invalido.")
+            raise CfeLauncherIntegrityError(
+                "El ejecutable del lanzador no superó la verificación de integridad."
+            )
+        return content, version, actual_sha256
 
-    async def subir_sesion_con_token(
-        self, conn: asyncpg.Connection, *, token: str, session_json: str
-    ) -> None:
-        """Guarda el storage_state de MiEspacio enviado por el lanzador local."""
-        await self._validar_token_lanzador(conn, token)
+    async def crear_ticket_lanzador(self, *, user_id: UUID, user_email: str) -> str:
+        """Crea un ticket efimero y de un solo uso para el usuario autenticado."""
+        ticket = await self._ticket_repository.create_ticket(
+            user_id=str(user_id),
+            user_email=(user_email or "").strip().lower(),
+        )
+        logger.info("cfe_lanzador_ticket_creado user_id=%s", user_id)
+        return ticket
 
-        self._validar_storage_state(session_json)
-        async with conn.transaction():
-            await self._save_session(conn, session_json.strip())
-            await self._admin_db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_invalida"], "")
-        ConfigService.invalidar_cache()
-        logger.info("[CFE] Sesion MiEspacio renovada via lanzador local")
-
-    async def obtener_credenciales_con_token(
-        self, conn: asyncpg.Connection, *, token: str
+    async def iniciar_renovacion_con_ticket(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        ticket: str,
     ) -> dict:
-        """
-        Entrega usuario/contrasena de MiEspacio al lanzador local para que
-        autocomplete el login y la persona solo resuelva el CAPTCHA.
-        """
-        await self._validar_token_lanzador(conn, token)
+        """Canjea el ticket una sola vez por credenciales y un grant de subida."""
+        authorization = await self._ticket_repository.consume_ticket(ticket)
+        if authorization is None:
+            raise PermissionError("El código temporal es inválido, ya fue usado o expiró.")
 
         cfg = await ConfigService.get_global_configs_bulk(conn, {
             CFE_CONFIG_KEYS["mi_user"]: ("", str),
@@ -223,9 +251,49 @@ class CfeService:
         if not mi_user or not mi_pass:
             raise ValueError(
                 "No hay credenciales de MiEspacio configuradas. "
-                "Un administrador debe capturarlas en Admin > Configuracion Global > Recibos CFE."
+                "Un administrador debe capturarlas en Configuración Global."
             )
-        return {"usuario": mi_user, "password": mi_pass}
+
+        upload_grant = await self._ticket_repository.create_upload_grant(authorization)
+        logger.info(
+            "cfe_lanzador_ticket_canjeado user_id=%s",
+            authorization["user_id"],
+        )
+        return {
+            "usuario": mi_user,
+            "password": mi_pass,
+            "upload_grant": upload_grant,
+        }
+
+    async def subir_sesion_con_grant(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        upload_grant: str,
+        session_json: str,
+    ) -> None:
+        """Guarda el storage_state usando un grant efimero y de un solo uso."""
+        self._validar_storage_state(session_json)
+        authorization = await self._ticket_repository.consume_upload_grant(upload_grant)
+        if authorization is None:
+            raise PermissionError(
+                "La autorización de subida es inválida, ya fue usada o expiró."
+            )
+        async with conn.transaction():
+            await self._save_session(
+                conn,
+                session_json.strip(),
+                invalidate_cache=False,
+            )
+            await self._admin_db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_invalida"], "")
+        await ConfigService.invalidar_cache_keys(
+            f"CFG_{CFE_CONFIG_KEYS['session_json']}",
+            f"CFG_{CFE_CONFIG_KEYS['session_invalida']}",
+        )
+        logger.info(
+            "cfe_sesion_renovada_via_lanzador user_id=%s",
+            authorization["user_id"],
+        )
 
     @staticmethod
     def _validar_storage_state(session_json: str) -> None:
@@ -240,6 +308,18 @@ class CfeService:
             raise ValueError("El JSON no parece un storage_state de Playwright (falta 'cookies').")
         if not data["cookies"]:
             raise ValueError("La sesion no contiene cookies; el login no se completo correctamente.")
+        for cookie in data["cookies"]:
+            if not isinstance(cookie, dict):
+                raise ValueError("La sesion contiene una cookie invalida.")
+            if not _es_dominio_cfe(cookie.get("domain")):
+                raise ValueError("La sesion contiene cookies de un dominio no permitido.")
+        origins = data.get("origins", [])
+        if not isinstance(origins, list):
+            raise ValueError("La sesion contiene origenes invalidos.")
+        for origin in origins:
+            origin_url = str(origin.get("origin") or "") if isinstance(origin, dict) else ""
+            if not re.fullmatch(r"https://([a-z0-9-]+\.)*cfe\.mx(?::443)?", origin_url, re.I):
+                raise ValueError("La sesion contiene un origen no permitido.")
 
     @staticmethod
     def _extraer_tipo_recibo(xml_content: Optional[bytes], filename: str) -> Optional[str]:
@@ -294,7 +374,9 @@ class CfeService:
 
     async def _marcar_sesion_invalida(self, conn: asyncpg.Connection) -> None:
         await self._admin_db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_invalida"], "1")
-        ConfigService.invalidar_cache()
+        await ConfigService.invalidar_cache_keys(
+            f"CFG_{CFE_CONFIG_KEYS['session_invalida']}"
+        )
 
     async def _forzar_alta_perdida(self, conn: asyncpg.Connection, servicio: dict) -> bool:
         """Fuerza el alta del servicio de vuelta a 'pendiente' porque CFE dejo de

@@ -10,33 +10,33 @@ protegido por token compartido. No depende del administrador.
 Uso:
     python renovar_sesion.py
 
-La primera vez pide la URL del app y el token (los guarda en cfe_config.json
-junto al script para no volver a pedirlos).
+Cada ejecucion pide un codigo temporal, individual y de un solo uso generado
+desde el modal autenticado de Enertika Ops Core. No guarda secretos en disco.
 
 Requisitos: ver requirements.txt y README.md (Playwright + navegador Edge).
 """
 from __future__ import annotations
 
+import getpass
 import json
-import re
 import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 try:
+    from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import sync_playwright
 except ModuleNotFoundError:
     print("ERROR: Playwright no esta instalado. Ejecuta: pip install -r requirements.txt")
     sys.exit(1)
 
 MIESPACIO_URL = "https://app.cfe.mx/Aplicaciones/CCFE/MiEspacio/Default.aspx"
-CONFIG_PATH = (
-    Path.home() / ".enertika" / "cfe_config.json"
-    if getattr(sys, "frozen", False)
-    else Path(__file__).resolve().parent / "cfe_config.json"
-)
+APP_BASE_URL = "https://eco.enertika.mx"
+_APP_HOST = "eco.enertika.mx"
+_CFE_HOST = "app.cfe.mx"
 POLL_INTERVAL_S = 2
 LOGIN_TIMEOUT_S = 600  # 10 min para resolver el CAPTCHA con calma
 
@@ -46,43 +46,74 @@ _EDGE_PATHS = [
 ]
 
 
-APP_BASE_URL = "https://eco.enertika.mx"
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
-def cargar_config() -> dict:
-    if CONFIG_PATH.exists():
-        try:
-            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            print(f"Aviso: no se pudo leer {CONFIG_PATH.name}, se pedira de nuevo.")
-    print(f"\nURL del app: {APP_BASE_URL}")
-    print("Token: obtenlo en Admin > Configuracion Global > Recibos CFE")
-    cfg = {
-        "app_base_url": APP_BASE_URL,
-        "token": input("Token de renovacion CFE: ").strip(),
-    }
+_HTTPS_OPENER = urllib.request.build_opener(_NoRedirectHandler())
+
+
+def _validar_url_https(url: str, expected_host: str) -> None:
+    parsed = urlparse(url)
     try:
-        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-        print(f"Configuracion guardada en {CONFIG_PATH}")
-    except OSError as exc:
-        print(f"Aviso: no se pudo guardar la configuracion: {exc}")
-    return cfg
+        port = parsed.port
+    except ValueError as exc:
+        raise RuntimeError(f"Se rechazo una URL no autorizada: {url}") from exc
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != expected_host
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+    ):
+        raise RuntimeError(f"Se rechazo una URL no autorizada: {url}")
+
+
+def _leer_json_response(resp) -> dict:
+    _validar_url_https(resp.geturl(), _APP_HOST)
+    try:
+        return json.loads(resp.read().decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("El servidor devolvio una respuesta invalida.") from exc
+
+
+def _es_dominio_cfe(domain: str) -> bool:
+    normalized = (domain or "").strip().lstrip(".").lower()
+    return normalized == "cfe.mx" or normalized.endswith(".cfe.mx")
+
+
+def _detalle_http(exc: urllib.error.HTTPError) -> str:
+    try:
+        data = json.loads(exc.read().decode("utf-8", errors="replace"))
+        return str(data.get("error") or data.get("detail") or exc.reason)
+    except (json.JSONDecodeError, AttributeError):
+        return str(exc.reason)
 
 
 def esta_logueado(page) -> bool:
     """
     CFE puede hacer el login en-lugar (JS) sin cambiar la URL de Login.aspx.
-    Se considera logueado cuando la URL ya no es Login.aspx O cuando los
-    campos de usuario/contrasena desaparecieron del DOM.
+    Se considera logueado solo cuando los campos de usuario/contrasena
+    desaparecieron del DOM y existe al menos una cookie del dominio CFE.
     """
     try:
         url = page.evaluate("() => location.href")
-        if not re.search(r"Login\.aspx", url, re.I):
-            return True
-        body = page.evaluate("() => document.body?.innerText || ''")
-        return not re.search(r"USUARIO:\s*|CONTRASEÑA:\s*", body, re.I)
-    except Exception:
+        _validar_url_https(url, _CFE_HOST)
+        login_fields = page.locator(
+            "#ctl00_MainContent_txtUsuario, #ctl00_MainContent_txtPassword"
+        )
+        if any(
+            login_fields.nth(index).is_visible()
+            for index in range(login_fields.count())
+        ):
+            return False
+        cookies = page.context.cookies([MIESPACIO_URL])
+        return any(
+            _es_dominio_cfe(cookie.get("domain") or "")
+            for cookie in cookies
+        )
+    except (PlaywrightError, RuntimeError, TypeError):
         return False
 
 
@@ -90,7 +121,7 @@ def lanzar_edge(pw):
     """Intenta canal msedge; si falla usa executable_path de Edge instalado."""
     try:
         return pw.chromium.launch(channel="msedge", headless=False)
-    except Exception:
+    except PlaywrightError:
         for ruta in _EDGE_PATHS:
             if Path(ruta).exists():
                 return pw.chromium.launch(executable_path=ruta, headless=False)
@@ -99,87 +130,107 @@ def lanzar_edge(pw):
         )
 
 
-def obtener_credenciales(app_base_url: str, token: str) -> dict | None:
-    """
-    Pide al app usuario/contrasena de MiEspacio para autocompletar el login.
-    Si falla por cualquier motivo, se devuelve None y el flujo cae al login
-    manual de siempre (no es un error fatal).
-    """
-    url = f"{app_base_url}/cfe/sesion/credenciales"
-    req = urllib.request.Request(url, method="GET", headers={"X-CFE-Token": token})
+def iniciar_renovacion(ticket: str) -> dict:
+    """Canjea el codigo temporal por credenciales y un grant de subida."""
+    url = f"{APP_BASE_URL}/cfe/sesion/iniciar"
+    _validar_url_https(url, _APP_HOST)
+    req = urllib.request.Request(
+        url,
+        data=b"",
+        method="POST",
+        headers={"X-CFE-Ticket": ticket},
+    )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        return {"usuario": data["usuario"], "password": data["password"]}
+        with _HTTPS_OPENER.open(req, timeout=15) as resp:
+            data = _leer_json_response(resp)
+        return {
+            "usuario": data["usuario"],
+            "password": data["password"],
+            "upload_grant": data["upload_grant"],
+        }
     except urllib.error.HTTPError as exc:
-        print(f"Aviso: no se pudieron obtener las credenciales ({exc.code}). Se pedira el login manual.")
-        return None
-    except (urllib.error.URLError, KeyError, json.JSONDecodeError) as exc:
-        print(f"Aviso: no se pudieron obtener las credenciales ({exc}). Se pedira el login manual.")
-        return None
+        raise RuntimeError(
+            f"No se pudo autorizar el lanzador ({exc.code}): {_detalle_http(exc)}"
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"No se pudo conectar de forma segura con el app: {exc.reason}") from exc
+    except KeyError as exc:
+        raise RuntimeError("La respuesta de autorizacion esta incompleta.") from exc
 
 
 def autocompletar_login(page, credenciales: dict) -> bool:
     """Rellena usuario/contrasena; el CAPTCHA y el boton Ingresar los resuelve la persona."""
+    _validar_url_https(page.url, _CFE_HOST)
     try:
         page.fill("#ctl00_MainContent_txtUsuario", credenciales["usuario"])
         page.fill("#ctl00_MainContent_txtPassword", credenciales["password"])
         return True
-    except Exception as exc:
-        print(f"Aviso: no se pudo autocompletar el login ({exc}). Ingresa usuario y contrasena manualmente.")
-        return False
+    except (KeyError, PlaywrightError, TypeError) as exc:
+        raise RuntimeError("No se pudo autocompletar el login seguro de CFE.") from exc
 
 
-def subir_sesion(app_base_url: str, token: str, storage_state: dict) -> None:
-    url = f"{app_base_url}/cfe/sesion/subir"
+def _storage_state_cfe(storage_state: dict) -> dict:
+    cookies = [
+        cookie
+        for cookie in storage_state.get("cookies", [])
+        if _es_dominio_cfe(cookie.get("domain") or "")
+    ]
+    origins = []
+    for origin in storage_state.get("origins", []):
+        origin_url = str(origin.get("origin") or "")
+        parsed = urlparse(origin_url)
+        if parsed.scheme == "https" and (
+            parsed.hostname == "cfe.mx" or (parsed.hostname or "").endswith(".cfe.mx")
+        ):
+            origins.append(origin)
+    if not cookies:
+        raise RuntimeError("No se encontraron cookies validas de CFE despues del login.")
+    return {"cookies": cookies, "origins": origins}
+
+
+def subir_sesion(upload_grant: str, storage_state: dict) -> None:
+    url = f"{APP_BASE_URL}/cfe/sesion/subir"
+    _validar_url_https(url, _APP_HOST)
     body = json.dumps(storage_state).encode("utf-8")
     req = urllib.request.Request(
         url,
         data=body,
         method="POST",
-        headers={"Content-Type": "application/json", "X-CFE-Token": token},
+        headers={"Content-Type": "application/json", "X-CFE-Grant": upload_grant},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        with _HTTPS_OPENER.open(req, timeout=30) as resp:
+            data = _leer_json_response(resp)
         print(f"\n  {data.get('mensaje', 'Sesion renovada.')}")
     except urllib.error.HTTPError as exc:
-        detalle = exc.read().decode("utf-8", errors="replace")
-        try:
-            detalle = json.loads(detalle).get("error", detalle)
-        except json.JSONDecodeError:
-            pass
-        print(f"\n  ERROR {exc.code}: {detalle}")
-        sys.exit(1)
+        raise RuntimeError(f"El app rechazo la sesion ({exc.code}): {_detalle_http(exc)}") from exc
     except urllib.error.URLError as exc:
-        print(f"\n  ERROR de conexion con el app: {exc.reason}")
-        sys.exit(1)
+        raise RuntimeError(f"No se pudo conectar de forma segura con el app: {exc.reason}") from exc
 
 
 def main() -> None:
     print("=" * 60)
     print("  Renovar sesion CFE MiEspacio")
     print("=" * 60)
-    cfg = cargar_config()
-    if not cfg.get("app_base_url") or not cfg.get("token"):
-        print("Falta URL del app o token. Borra cfe_config.json y reintenta.")
-        sys.exit(1)
-
-    credenciales = obtener_credenciales(cfg["app_base_url"], cfg["token"])
+    print(f"\nServidor autorizado: {APP_BASE_URL}")
+    ticket = getpass.getpass("Codigo temporal mostrado en Enertika Ops Core: ").strip()
+    if not ticket:
+        raise RuntimeError("Falta el codigo temporal.")
+    autorizacion = iniciar_renovacion(ticket)
+    upload_grant = autorizacion.pop("upload_grant")
 
     with sync_playwright() as pw:
         browser = lanzar_edge(pw)
-        ctx = browser.new_context(ignore_https_errors=True)
+        ctx = browser.new_context()
         page = ctx.new_page()
         page.goto(MIESPACIO_URL, wait_until="domcontentloaded", timeout=60_000)
+        _validar_url_https(page.url, _CFE_HOST)
 
-        autocompletado = bool(credenciales) and autocompletar_login(page, credenciales)
+        autocompletar_login(page, autorizacion)
+        autorizacion.clear()
 
         print("\nSe abrio Edge en MiEspacio.")
-        if autocompletado:
-            print("  1) Usuario y contrasena ya estan llenos. Solo resuelve el CAPTCHA y da clic en Ingresar.")
-        else:
-            print("  1) Inicia sesion y resuelve el CAPTCHA.")
+        print("  1) Usuario y contrasena ya estan llenos. Solo resuelve el CAPTCHA y da clic en Ingresar.")
         print("  2) NO cierres la ventana: el login se detecta automaticamente.\n")
         print("Esperando inicio de sesion...", end="", flush=True)
 
@@ -196,11 +247,12 @@ def main() -> None:
             time.sleep(POLL_INTERVAL_S)
 
         print("\nLogin detectado. Capturando sesion...")
-        storage_state = ctx.storage_state()
+        _validar_url_https(page.url, _CFE_HOST)
+        storage_state = _storage_state_cfe(ctx.storage_state())
         ctx.close()
         browser.close()
 
-    subir_sesion(cfg["app_base_url"], cfg["token"], storage_state)
+    subir_sesion(upload_grant, storage_state)
     print("\nSesion renovada correctamente. Ya puedes cerrar esta ventana.")
 
 
@@ -210,3 +262,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nCancelado.")
         sys.exit(130)
+    except RuntimeError as exc:
+        print(f"\nERROR: {exc}")
+        sys.exit(1)

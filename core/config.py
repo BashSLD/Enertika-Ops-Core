@@ -68,6 +68,17 @@ class Settings(BaseSettings):
     OAUTH_ATTEMPT_TTL_SECONDS: int = int(os.getenv("OAUTH_ATTEMPT_TTL_SECONDS", "600"))  # 10 min
     TOKEN_REFRESH_LOCK_TTL_SECONDS: int = int(os.getenv("TOKEN_REFRESH_LOCK_TTL_SECONDS", "20"))
 
+    # --- CFE: autorizaciones efimeras del lanzador local ---
+    CFE_LAUNCHER_TICKET_TTL_SECONDS: int = int(
+        os.getenv("CFE_LAUNCHER_TICKET_TTL_SECONDS", "600")
+    )
+    CFE_LAUNCHER_UPLOAD_GRANT_TTL_SECONDS: int = int(
+        os.getenv("CFE_LAUNCHER_UPLOAD_GRANT_TTL_SECONDS", "900")
+    )
+    CFE_LAUNCHER_PUBLISH_LOCK_TTL_SECONDS: int = int(
+        os.getenv("CFE_LAUNCHER_PUBLISH_LOCK_TTL_SECONDS", "3600")
+    )
+
     # --- Cron Jobs ---
     CRON_SECRET: str = os.getenv("CRON_SECRET", "")
 

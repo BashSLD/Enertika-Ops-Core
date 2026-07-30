@@ -6,9 +6,9 @@ Las queries SQL se delegan a AdminDBService (db_service.py).
 """
 from typing import List, Dict, Optional
 from uuid import UUID
+import hashlib
 import json
 import logging
-import secrets
 import time
 
 import asyncpg
@@ -19,7 +19,6 @@ from .constants import ROLES_ORGANIZACIONALES_VALIDOS
 from core.config_service import ConfigService
 from core.integrations.sharepoint import SharePointService
 from core.microsoft import MicrosoftAuth, get_ms_auth
-from core.timezone import now_mx
 from modules.asistencia import db_service as asistencia_db
 from modules.asistencia.constants import BIOTIME_CONFIG_KEYS
 from modules.asistencia.service import (
@@ -27,6 +26,18 @@ from modules.asistencia.service import (
     verificar_fallback_aprobador_he_svc,
 )
 from modules.cfe.constants import CFE_CONFIG_KEYS, SHAREPOINT_CFE_TOOLS_FOLDER
+from modules.cfe.launcher_security import (
+    MAX_LAUNCHER_BYTES,
+    MAX_MANIFEST_BYTES,
+    launcher_storage_filename,
+    require_newer_launcher_version,
+    validate_launcher_public_key,
+    verify_launcher_manifest,
+)
+from modules.cfe.launcher_ticket_repository import (
+    LauncherReleasePublishLease,
+    launcher_release_publish_lock,
+)
 from .permission_utils import validate_module_roles
 
 logger = logging.getLogger("AdminModule")
@@ -267,6 +278,10 @@ class AdminService:
             "vacaciones_anticipo_maximo_dias": int(config_dict.get("VACACIONES_ANTICIPO_MAXIMO_DIAS", "7")),
             # CFE Lanzador local
             "cfe_lanzador_version": config_dict.get(CFE_CONFIG_KEYS["lanzador_version"], ""),
+            "cfe_lanzador_sha256": config_dict.get(CFE_CONFIG_KEYS["lanzador_sha256"], ""),
+            "cfe_lanzador_public_key": config_dict.get(
+                CFE_CONFIG_KEYS["lanzador_public_key"], ""
+            ),
         }
 
     async def update_global_config(self, conn, datos: ConfiguracionGlobalUpdate) -> None:
@@ -1037,12 +1052,17 @@ class AdminService:
         has_session = bool(
             await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["session_json"], "", str)
         )
-        token = await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["upload_token"], "", str)
+        public_key = await ConfigService.get_global_config(
+            conn,
+            CFE_CONFIG_KEYS["lanzador_public_key"],
+            "",
+            str,
+        )
         return {
             "cfe_user": user,
             "cfe_has_pass": has_pass,
             "cfe_has_session": has_session,
-            "cfe_session_token": token,
+            "cfe_lanzador_public_key": public_key,
         }
 
     async def update_cfe_config(self, conn, *, user: str, password: str) -> None:
@@ -1068,26 +1088,162 @@ class AdminService:
         ConfigService.invalidar_cache()
         logger.info("Sesion CFE MiEspacio actualizada manualmente")
 
-    async def regenerate_cfe_token(self, conn) -> str:
-        """Genera y guarda un nuevo token compartido para el lanzador local de renovacion."""
-        token = secrets.token_urlsafe(32)
-        await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["upload_token"], token)
-        ConfigService.invalidar_cache()
-        logger.info("Token de subida de sesion CFE regenerado")
-        return token
+    async def update_cfe_launcher_public_key(
+        self,
+        conn,
+        *,
+        public_key_pem: str,
+    ) -> str:
+        """Valida y guarda la clave pública que autoriza releases del lanzador."""
+        normalized_pem = validate_launcher_public_key(public_key_pem)
+        async with launcher_release_publish_lock() as publish_lease:
+            await publish_lease.ensure_owned()
+            async with conn.transaction():
+                await self.db.upsert_global_config(
+                    conn,
+                    CFE_CONFIG_KEYS["lanzador_public_key"],
+                    normalized_pem,
+                )
+                await self.db.upsert_global_config(
+                    conn,
+                    CFE_CONFIG_KEYS["legacy_upload_token"],
+                    "",
+                )
+        await ConfigService.invalidar_cache_keys(
+            f"CFG_{CFE_CONFIG_KEYS['lanzador_public_key']}",
+            f"CFG_{CFE_CONFIG_KEYS['legacy_upload_token']}",
+        )
+        logger.info("Clave publica de firma del lanzador CFE actualizada")
+        return normalized_pem
 
-    async def upload_cfe_lanzador(self, conn, *, file: UploadFile) -> str:
-        """Sube el ejecutable del lanzador a SharePoint y guarda item_id + version en config global."""
+    @staticmethod
+    async def _hash_launcher_upload(file: UploadFile) -> tuple[int, str]:
+        if not file.filename or not file.filename.lower().endswith(".exe"):
+            raise ValueError("Selecciona un archivo ejecutable .exe válido.")
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(0)
+        if file_size <= 0:
+            raise ValueError("El ejecutable del lanzador está vacío.")
+        if file_size > MAX_LAUNCHER_BYTES:
+            raise ValueError("El ejecutable excede el límite de 100 MB.")
+
+        digest = hashlib.sha256()
+        while chunk := await file.read(1024 * 1024):
+            digest.update(chunk)
+        await file.seek(0)
+        return file_size, digest.hexdigest()
+
+    async def upload_cfe_lanzador(
+        self,
+        conn,
+        *,
+        file: UploadFile,
+        manifest_file: UploadFile,
+    ) -> dict:
+        """Verifica firma/hash, sube el ejecutable y registra su release."""
+        if not manifest_file.filename or not manifest_file.filename.lower().endswith(".json"):
+            raise ValueError("Selecciona el manifiesto JSON firmado del ejecutable.")
+        manifest_bytes = await manifest_file.read(MAX_MANIFEST_BYTES + 1)
+        if len(manifest_bytes) > MAX_MANIFEST_BYTES:
+            raise ValueError("El manifiesto del lanzador excede el límite permitido.")
+
+        file_size, sha256_hex = await self._hash_launcher_upload(file)
+        async with launcher_release_publish_lock() as publish_lease:
+            return await self._publish_cfe_lanzador(
+                conn,
+                file=file,
+                manifest_bytes=manifest_bytes,
+                file_size=file_size,
+                sha256_hex=sha256_hex,
+                publish_lease=publish_lease,
+            )
+
+    async def _publish_cfe_lanzador(
+        self,
+        conn,
+        *,
+        file: UploadFile,
+        manifest_bytes: bytes,
+        file_size: int,
+        sha256_hex: str,
+        publish_lease: LauncherReleasePublishLease,
+    ) -> dict:
+        """Publica una release mientras el candado distribuido está reservado."""
+        security_config = await self.db.fetch_global_config(conn)
+        public_key_pem = security_config.get(
+            CFE_CONFIG_KEYS["lanzador_public_key"],
+            "",
+        )
+        if not public_key_pem:
+            raise ValueError(
+                "Configura la clave pública Ed25519 antes de publicar el lanzador."
+            )
+        release = verify_launcher_manifest(
+            manifest_bytes,
+            public_key_pem=public_key_pem,
+            actual_filename=file.filename,
+            actual_size=file_size,
+            actual_sha256=sha256_hex,
+        )
+        current_version = ""
+        if security_config.get(CFE_CONFIG_KEYS["lanzador_sha256"]):
+            current_version = security_config.get(
+                CFE_CONFIG_KEYS["lanzador_version"],
+                "",
+            )
+        require_newer_launcher_version(release["version"], current_version)
+
         app_token = await get_ms_auth().get_application_token()
         sp = SharePointService(access_token=app_token)
-        base_folder = await ConfigService.get_global_config(conn, "SHAREPOINT_BASE_FOLDER", "APP_ENERTIKA_OPS_CORE", str)
-        result = await sp.upload_file(conn, file, f"{base_folder}/{SHAREPOINT_CFE_TOOLS_FOLDER}")
-        version = now_mx().strftime("%Y-%m-%d")
-        await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["lanzador_item_id"], result["id"])
-        await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["lanzador_version"], version)
-        ConfigService.invalidar_cache()
-        logger.info("Lanzador CFE subido a SharePoint item_id=%s version=%s", result["id"], version)
-        return version
+        base_folder = await ConfigService.get_global_config(
+            conn,
+            "SHAREPOINT_BASE_FOLDER",
+            "APP_ENERTIKA_OPS_CORE",
+            str,
+        )
+        version = release["version"]
+        original_filename = file.filename
+        file.filename = launcher_storage_filename(version, sha256_hex)
+        try:
+            result = await sp.upload_file(
+                conn,
+                file,
+                f"{base_folder}/{SHAREPOINT_CFE_TOOLS_FOLDER}",
+            )
+        finally:
+            file.filename = original_filename
+        if not result.get("id"):
+            raise ValueError("SharePoint no devolvió el identificador del ejecutable.")
+        await publish_lease.ensure_owned()
+        async with conn.transaction():
+            await self.db.upsert_global_config(
+                conn,
+                CFE_CONFIG_KEYS["lanzador_item_id"],
+                result["id"],
+            )
+            await self.db.upsert_global_config(
+                conn,
+                CFE_CONFIG_KEYS["lanzador_version"],
+                version,
+            )
+            await self.db.upsert_global_config(
+                conn,
+                CFE_CONFIG_KEYS["lanzador_sha256"],
+                sha256_hex,
+            )
+        await ConfigService.invalidar_cache_keys(
+            f"CFG_{CFE_CONFIG_KEYS['lanzador_item_id']}",
+            f"CFG_{CFE_CONFIG_KEYS['lanzador_version']}",
+            f"CFG_{CFE_CONFIG_KEYS['lanzador_sha256']}",
+        )
+        logger.info(
+            "Lanzador CFE verificado y subido item_id=%s version=%s sha256=%s",
+            result["id"],
+            version,
+            sha256_hex,
+        )
+        return {"version": version, "sha256": sha256_hex}
 
 
 def get_admin_service():

@@ -38,6 +38,7 @@ from datetime import datetime
 from pathlib import Path
 
 try:
+    from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import sync_playwright
 except ModuleNotFoundError:
     print("ERROR: Playwright no esta instalado. Ejecuta: pip install -r requirements.txt")
@@ -84,7 +85,7 @@ _CAPTURA_JS = r"""
 def cargar_edge(pw):
     try:
         return pw.chromium.launch(channel="msedge", headless=False)
-    except Exception:
+    except PlaywrightError:
         for ruta in _EDGE_PATHS:
             if Path(ruta).exists():
                 return pw.chromium.launch(executable_path=ruta, headless=False)
@@ -100,7 +101,7 @@ def esta_logueado(page) -> bool:
             return True
         body = page.evaluate("() => document.body?.innerText || ''")
         return not re.search(r"USUARIO:\s*|CONTRASEÑA:\s*", body, re.I)
-    except Exception:
+    except PlaywrightError:
         return False
 
 
@@ -132,7 +133,7 @@ def intentar_alta(page, datos: dict, monto: str, out_dir: Path, n: int) -> dict:
         page.fill(SEL_NOMBRE, datos["nombre"])
         page.fill(SEL_TOTAL, monto)
         page.fill(SEL_CORTO, datos["corto"])
-    except Exception as exc:
+    except (KeyError, PlaywrightError) as exc:
         print(f"  ERROR llenando el formulario: {exc}")
         return {"error_local": str(exc), "monto": monto}
 
@@ -146,19 +147,19 @@ def intentar_alta(page, datos: dict, monto: str, out_dir: Path, n: int) -> dict:
 
     try:
         page.click(SEL_GUARDAR)
-    except Exception as exc:
+    except PlaywrightError as exc:
         print(f"  ERROR al hacer click en Guardar: {exc}")
         return {"error_local": str(exc), "monto": monto}
 
     try:
         page.wait_for_load_state("networkidle", timeout=15_000)
-    except Exception:
+    except PlaywrightError:
         pass
     page.wait_for_timeout(2500)
 
     try:
         captura = page.evaluate(_CAPTURA_JS)
-    except Exception as exc:
+    except PlaywrightError as exc:
         captura = {"error_captura": str(exc)}
     captura["monto"] = monto
     captura["intento"] = n
@@ -166,7 +167,7 @@ def intentar_alta(page, datos: dict, monto: str, out_dir: Path, n: int) -> dict:
     page.screenshot(path=str(out_dir / f"intento{n}_post.png"))
     try:
         (out_dir / f"intento{n}_post.html").write_text(page.content(), encoding="utf-8")
-    except Exception:
+    except OSError:
         pass
     (out_dir / f"intento{n}_resultado.json").write_text(
         json.dumps(captura, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -208,7 +209,7 @@ def main() -> None:
     resultados = []
     with sync_playwright() as pw:
         browser = cargar_edge(pw)
-        ctx = browser.new_context(ignore_https_errors=True)
+        ctx = browser.new_context()
         page = ctx.new_page()
         page.goto(DEFAULT_URL, wait_until="domcontentloaded", timeout=60_000)
 

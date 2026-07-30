@@ -1,7 +1,8 @@
 {% from "cfe/partials/_zona_qs.html" import qs %}
 {# templates/cfe/partials/modal_renovar_sesion.html #}
 <div class="fixed inset-0 z-50 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
-     id="cfe-renovar-modal">
+     id="cfe-renovar-modal"
+     hx-history="false">
     <div class="w-full max-w-lg bg-white rounded-xl shadow-2xl max-h-[90dvh] flex flex-col">
         <div class="bg-gray-700 px-6 py-4 rounded-t-xl flex items-center justify-between flex-shrink-0">
             <h3 class="text-lg font-bold text-white">Renovar sesión MiEspacio</h3>
@@ -33,37 +34,67 @@
 
             <p class="text-sm text-gray-600">
                 La descarga de PDF desde MiEspacio requiere una sesión válida. Cuando expira, hay que
-                resolver el CAPTCHA una vez. Con el <strong>lanzador local</strong> puedes hacerlo tú mismo
-                desde tu PC, sin esperar al administrador.
+                resolver el CAPTCHA una vez. El administrador del sistema puede hacerlo desde una PC
+                con el <strong>lanzador local</strong>.
             </p>
 
             {% if not estado_sesion.renovacion_habilitada %}
             <div class="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
-                <strong>Renovación no habilitada todavía.</strong> Pide al equipo de sistemas que genere el
-                token del lanzador en Admin &gt; Configuración Global &gt; Recibos CFE.
+                <strong>Renovación no habilitada todavía.</strong> Faltan las credenciales de MiEspacio
+                o el servicio de autorizaciones temporales.
             </div>
             {% elif not estado_sesion.lanzador_disponible %}
             <div class="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
                 <strong>El ejecutable del lanzador aún no está disponible.</strong> Pide al equipo de sistemas
                 que lo suba en Admin &gt; Configuración Global &gt; Recibos CFE.
             </div>
+            {% elif not renovacion_autorizada %}
+            <div class="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+                <strong>Renovación restringida.</strong> El administrador del sistema debe ejecutar el
+                lanzador porque utiliza las credenciales compartidas de MiEspacio.
+            </div>
             {% endif %}
 
-            {% if estado_sesion.lanzador_disponible %}
+            {% if ticket_error %}
+            <div class="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                <strong>No se pudo generar el código temporal.</strong> {{ ticket_error }}
+            </div>
+            {% elif ticket %}
+            <div x-data="{ copiado: false }" class="rounded-lg bg-yellow-50 border border-yellow-200 p-4">
+                <p class="text-sm font-semibold text-yellow-800 mb-2">Código temporal de un solo uso</p>
+                <div class="flex items-center gap-2">
+                    <input type="text" readonly value="{{ ticket }}" x-ref="ticketInput"
+                           class="w-full rounded-lg border-yellow-300 bg-white px-3 py-2 font-mono text-xs text-gray-700">
+                    <button type="button"
+                            @click="navigator.clipboard.writeText($refs.ticketInput.value); copiado = true; setTimeout(() => copiado = false, 2000)"
+                            class="flex-shrink-0 bg-gray-700 hover:bg-gray-800 text-white font-medium py-2 px-3 rounded-lg text-xs transition-colors">
+                        <span x-show="!copiado">Copiar</span>
+                        <span x-show="copiado" x-cloak>Copiado</span>
+                    </button>
+                </div>
+                <p class="text-xs text-yellow-700 mt-2">
+                    Expira en {{ ticket_ttl_minutos }} minutos y deja de funcionar al usarlo.
+                    No se guarda en tu computadora.
+                </p>
+            </div>
+            {% endif %}
+
+            {% if estado_sesion.lanzador_disponible and ticket %}
             <div class="rounded-lg bg-gray-50 border border-gray-200 p-4">
                 <p class="text-sm font-semibold text-gray-700 mb-2">Pasos</p>
                 <ol class="list-decimal list-inside space-y-1.5 text-sm text-gray-600">
                     <li>Descarga el lanzador con el botón de abajo (solo la primera vez) y ábrelo en tu PC.</li>
-                    <li>Se abrirá Microsoft Edge en la página de MiEspacio.</li>
+                    <li>Pega el código temporal cuando el lanzador lo solicite.</li>
+                    <li>Se abrirá Microsoft Edge en la página segura de MiEspacio.</li>
                     <li>Resuelve el CAPTCHA (único paso manual).</li>
                     <li>No cierres la ventana: el lanzador detecta el login y sube la sesión solo.</li>
-                    <li>Cuando veas <em>"Sesión renovada ✓"</em>, listo. Cierra y recarga esta página.</li>
+                    <li>Cuando veas <em>"Sesión renovada correctamente"</em>, cierra y recarga esta página.</li>
                 </ol>
             </div>
             {% endif %}
         </div>
         <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 flex-shrink-0">
-            {% if estado_sesion.lanzador_disponible %}
+            {% if estado_sesion.lanzador_disponible and ticket %}
             <a href="/cfe/lanzador/descargar" target="_blank" rel="noopener"
                class="px-4 py-2 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-lg">
                 Descargar lanzador (.exe){% if estado_sesion.lanzador_version %} — v{{ estado_sesion.lanzador_version }}{% endif %}

@@ -1,6 +1,7 @@
 # modules/cfe/router.py
 from __future__ import annotations
 
+import base64
 import logging
 from uuid import UUID
 
@@ -10,6 +11,7 @@ from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
+from core.config import settings
 from core.database import get_db_connection
 from core.jinja_filters import register_timezone_filters
 from core.permissions import get_user_module_role, require_any_module_access, user_has_module_access
@@ -17,7 +19,8 @@ from core.security import get_current_user_context
 from modules.shared.services.cfe import generar_excel_cfe_desde_uploads
 
 from .constants import CFE_MODULE_SLUGS, CFE_PUBLIC_FORM_DEFAULTS, ZONAS_OYM
-from .service import CfeZipFaltantesError, get_cfe_service
+from .launcher_ticket_repository import LauncherTicketRepositoryUnavailable
+from .service import CfeLauncherIntegrityError, CfeZipFaltantesError, get_cfe_service
 
 logger = logging.getLogger("CfeRouter")
 
@@ -52,6 +55,11 @@ def _resolver_modulos(user: dict, modulo_param: str | None) -> tuple[str | None,
         activo = None  # tiene ambos → ve todo
 
     return activo, accesibles
+
+
+def _puede_emitir_ticket_lanzador(user: dict) -> bool:
+    """Limita las credenciales CFE al administrador global que ya puede gestionarlas."""
+    return user.get("role") == "ADMIN"
 
 
 async def _zona_selector_ctx(svc, conn, user: dict, modulo_activo: str | None) -> dict:
@@ -232,10 +240,38 @@ async def modal_renovar_sesion(
     svc = get_cfe_service()
     modulo_activo, _ = _resolver_modulos(user, modulo)
     estado_sesion = await svc.get_estado_sesion(conn)
+    ticket = ""
+    ticket_error = ""
+    renovacion_autorizada = _puede_emitir_ticket_lanzador(user)
+    if (
+        renovacion_autorizada
+        and estado_sesion["renovacion_habilitada"]
+        and estado_sesion["lanzador_disponible"]
+    ):
+        try:
+            ticket = await svc.crear_ticket_lanzador(
+                user_id=user["user_db_id"],
+                user_email=user["email"],
+            )
+        except LauncherTicketRepositoryUnavailable as exc:
+            ticket_error = str(exc)
     return templates.TemplateResponse(
         request,
         "cfe/partials/modal_renovar_sesion.html",
-        {"estado_sesion": estado_sesion, "modulo": modulo_activo, "zona_activa": zona, "user": user},
+        {
+            "estado_sesion": estado_sesion,
+            "ticket": ticket,
+            "ticket_error": ticket_error,
+            "renovacion_autorizada": renovacion_autorizada,
+            "ticket_ttl_minutos": max(
+                1,
+                settings.CFE_LAUNCHER_TICKET_TTL_SECONDS // 60,
+            ),
+            "modulo": modulo_activo,
+            "zona_activa": zona,
+            "user": user,
+        },
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -1080,16 +1116,49 @@ async def reintentar_xml(
 
 # ── Renovacion de sesion (lanzador local) ──────────────────────────────────────
 
+@router.post("/sesion/iniciar", include_in_schema=False)
+async def iniciar_renovacion_sesion(
+    request: Request,
+    x_cfe_ticket: str = Header("", alias="X-CFE-Ticket"),
+    conn=Depends(get_db_connection),
+):
+    """Canjea un ticket efimero por credenciales y un grant de subida."""
+    svc = get_cfe_service()
+    try:
+        datos = await svc.iniciar_renovacion_con_ticket(conn, ticket=x_cfe_ticket)
+    except LauncherTicketRepositoryUnavailable as exc:
+        logger.error("Autorizacion temporal CFE no disponible: %s", exc)
+        return JSONResponse(status_code=503, content={"ok": False, "error": str(exc)})
+    except PermissionError as exc:
+        logger.warning(
+            "cfe_iniciar_sesion_no_autorizado origen=%s",
+            request.client.host if request.client else "?",
+        )
+        return JSONResponse(status_code=403, content={"ok": False, "error": str(exc)})
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    except asyncpg.PostgresError as exc:
+        logger.error("Error de BD iniciando renovacion CFE: %s", exc)
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "Error interno al iniciar la renovación."},
+        )
+    return JSONResponse(
+        content={"ok": True, **datos},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.post("/sesion/subir", include_in_schema=False)
 async def subir_sesion(
     request: Request,
-    x_cfe_token: str = Header("", alias="X-CFE-Token"),
+    x_cfe_grant: str = Header("", alias="X-CFE-Grant"),
     conn=Depends(get_db_connection),
 ):
     """
     Recibe el storage_state de MiEspacio desde el lanzador local que corre en la
-    PC del usuario. NO usa sesion Azure AD: se autentica con un token compartido
-    en la cabecera X-CFE-Token. El cuerpo es el JSON crudo del storage_state.
+    PC del usuario. Se autentica con un grant efimero y de un solo uso generado
+    durante /sesion/iniciar. El cuerpo es el JSON crudo del storage_state.
     """
     # Cota de tamano antes de leer el body: un storage_state real pesa pocos KB.
     # Evita que una peticion sin token cargue un cuerpo arbitrariamente grande.
@@ -1104,7 +1173,14 @@ async def subir_sesion(
     raw_body = body_bytes.decode("utf-8", errors="replace")
     svc = get_cfe_service()
     try:
-        await svc.subir_sesion_con_token(conn, token=x_cfe_token, session_json=raw_body)
+        await svc.subir_sesion_con_grant(
+            conn,
+            upload_grant=x_cfe_grant,
+            session_json=raw_body,
+        )
+    except LauncherTicketRepositoryUnavailable as exc:
+        logger.error("Autorizacion temporal CFE no disponible: %s", exc)
+        return JSONResponse(status_code=503, content={"ok": False, "error": str(exc)})
     except PermissionError as exc:
         logger.warning("cfe_subir_sesion_no_autorizado origen=%s", request.client.host if request.client else "?")
         return JSONResponse(status_code=403, content={"ok": False, "error": str(exc)})
@@ -1117,30 +1193,16 @@ async def subir_sesion(
 
 
 @router.get("/sesion/credenciales", include_in_schema=False)
-async def obtener_credenciales_sesion(
-    request: Request,
-    x_cfe_token: str = Header("", alias="X-CFE-Token"),
-    conn=Depends(get_db_connection),
-):
-    """
-    Entrega usuario/contrasena de MiEspacio al lanzador local para que
-    autocomplete el login (la persona solo resuelve el CAPTCHA). Mismo
-    token compartido que /sesion/subir; no requiere sesion Azure AD.
-    """
-    svc = get_cfe_service()
-    try:
-        credenciales = await svc.obtener_credenciales_con_token(conn, token=x_cfe_token)
-    except PermissionError as exc:
-        logger.warning(
-            "cfe_credenciales_no_autorizado origen=%s", request.client.host if request.client else "?"
-        )
-        return JSONResponse(status_code=403, content={"ok": False, "error": str(exc)})
-    except ValueError as exc:
-        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
-    except asyncpg.PostgresError as exc:
-        logger.error("Error de BD leyendo credenciales CFE via lanzador: %s", exc)
-        return JSONResponse(status_code=500, content={"ok": False, "error": "Error interno al leer las credenciales."})
-    return JSONResponse(content={"ok": True, **credenciales}, headers={"Cache-Control": "no-store"})
+async def credenciales_lanzador_legacy():
+    """Retira explicitamente el endpoint del token compartido."""
+    return JSONResponse(
+        status_code=410,
+        content={
+            "ok": False,
+            "error": "Este lanzador ya no es compatible. Descarga la versión actual.",
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/lanzador/descargar", include_in_schema=False)
@@ -1150,17 +1212,25 @@ async def descargar_lanzador_cfe(
 ):
     svc = get_cfe_service()
     try:
-        content, version = await svc.get_lanzador_bytes(conn)
+        content, version, sha256_hex = await svc.get_lanzador_bytes(conn)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except CfeLauncherIntegrityError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except (httpx.HTTPError, asyncpg.PostgresError) as exc:
         logger.error("Error descargando lanzador CFE de SharePoint: %s", exc)
         raise HTTPException(status_code=503, detail="No se pudo obtener el ejecutable. Intenta de nuevo.")
     filename = f"RenovarSesionCFE_{version}.exe" if version else "RenovarSesionCFE.exe"
+    digest_b64 = base64.b64encode(bytes.fromhex(sha256_hex)).decode("ascii")
     return Response(
         content=content,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "Digest": f"sha-256={digest_b64}",
+            "X-Content-SHA256": sha256_hex,
+        },
     )
 
 

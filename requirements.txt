@@ -31,6 +31,7 @@ pydyf>=0.6.0,<0.10.0
 Pillow>=10.0,<12.0
 
 # Seguridad
+cryptography>=44.0,<47.0
 defusedxml>=0.7,<1.0
 sentry-sdk[fastapi]>=2.0,<3.0
 

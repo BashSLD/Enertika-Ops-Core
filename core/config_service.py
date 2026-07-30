@@ -228,6 +228,28 @@ class ConfigService:
         cls._cache_global.clear()
 
     @classmethod
+    async def invalidar_cache_keys(cls, *cache_keys: str) -> None:
+        """Invalida claves concretas tanto en memoria como en Redis."""
+        if not cache_keys:
+            return
+
+        async with cls._cache_lock:
+            for cache_key in cache_keys:
+                cls._cache_global.pop(cache_key, None)
+
+        redis = cls._get_redis()
+        if redis:
+            try:
+                await redis.delete(
+                    *(f"{cls._REDIS_PREFIX}{cache_key}" for cache_key in cache_keys)
+                )
+            except RedisError as exc:
+                logger.warning(
+                    "No se pudieron invalidar claves de configuración en Redis: %s",
+                    exc,
+                )
+
+    @classmethod
     def _cast_config_value(cls, valor: Any, tipo: type) -> Any:
         """Castea un valor de configuración al tipo solicitado."""
         if tipo == int:
