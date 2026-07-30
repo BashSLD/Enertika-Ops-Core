@@ -1,8 +1,8 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SharePointMapeoManual(BaseModel):
-    folder_id: str
+    folder_id: str = Field(min_length=1)
     corregir_nombre: bool = False
 
 

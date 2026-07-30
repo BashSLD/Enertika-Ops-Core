@@ -29,7 +29,7 @@
         onCarpetaSeleccionada(e) {
             this.folderId = e.detail.id;
             this.folderPath = e.detail.path;
-            this.corregirNombre = this.nombreNoCoincide;
+            this.corregirNombre = false;
         },
 
         async confirmar() {
@@ -49,7 +49,7 @@
                 if (!resp.ok) {
                     this.guardarError = handleSessionExpiredError(json)
                         ? 'Tu sesion expiro. Inicia sesion de nuevo.'
-                        : (json.error || 'Error al guardar la carpeta');
+                        : (json.error || json.detail || 'Error al guardar la carpeta');
                     return;
                 }
                 if (json.web_url) window.open(json.web_url, '_blank');

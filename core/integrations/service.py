@@ -72,8 +72,12 @@ class IntegrationsService:
         Siempre secuencial (BD → Graph), nunca asyncio.gather() mezclando conn con HTTP.
         """
         mapeo = await self.db.get_sharepoint_mapeo(conn, id_proyecto)
-        if mapeo and mapeo.get("sharepoint_folder_id"):
-            return {"status": SharePointResolverStatus.MAPEADO, "web_url": mapeo.get("sharepoint_url") or ""}
+        if mapeo and mapeo.get("sharepoint_folder_id") and mapeo.get("sharepoint_url"):
+            # Requiere sharepoint_url no vacio -- un mapeo con folder_id pero sin url
+            # (dato legacy o carpeta borrada/movida despues) debe re-resolverse por
+            # Graph en vez de devolver MAPEADO con un webUrl muerto (ver comentario
+            # sobre about:blank mas abajo en este mismo metodo).
+            return {"status": SharePointResolverStatus.MAPEADO, "web_url": mapeo["sharepoint_url"]}
 
         site_id, drive_id, carpeta_sin_expediente = await self._get_visitas_sp_config(conn)
         sp = await self._get_sharepoint_client()
@@ -139,9 +143,10 @@ class IntegrationsService:
         web_url = ""
         if corregir_nombre:
             nombre_estandar = await self.db.get_proyecto_id_estandar(conn, id_proyecto)
-            if nombre_estandar:
-                renamed = await sp.rename_folder(drive_id, site_id, folder_id, nombre_estandar)
-                web_url = renamed.get("webUrl") or ""
+            if not nombre_estandar:
+                raise ValueError("No se pudo resolver el nombre estandar del proyecto para renombrar la carpeta")
+            renamed = await sp.rename_folder(drive_id, site_id, folder_id, nombre_estandar)
+            web_url = renamed.get("webUrl") or ""
         if not web_url:
             web_url = await sp.get_item_web_url(drive_id, site_id, folder_id)
         if not web_url:

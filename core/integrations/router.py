@@ -6,13 +6,12 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-import asyncpg
 import httpx
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 
-from core.database import get_db_connection
+from core.database import DB_REPORT_ERRORS, get_db_connection
 from core.security import get_current_user_context
 from core.permissions import require_any_module_access
 from .schemas import SharePointMapeoManual
@@ -66,7 +65,7 @@ async def listar_carpetas_sp(
         )
     except RuntimeError as exc:
         return JSONResponse(status_code=503, content={"error": str(exc)})
-    except asyncpg.PostgresError as exc:
+    except DB_REPORT_ERRORS as exc:
         logger.exception("Error BD listando carpetas SP visitas")
         return JSONResponse(status_code=500, content={"error": "Error al leer configuracion"})
     except httpx.HTTPError as exc:
@@ -99,7 +98,7 @@ async def resolver_carpeta_proyecto(
         return JSONResponse(status_code=400, content={"error": str(exc)})
     except RuntimeError as exc:
         return JSONResponse(status_code=503, content={"error": str(exc)})
-    except asyncpg.PostgresError as exc:
+    except DB_REPORT_ERRORS as exc:
         logger.exception("Error BD resolviendo carpeta SP proyecto=%s", id_proyecto)
         return JSONResponse(status_code=500, content={"error": "Error al leer configuracion"})
     except httpx.HTTPError as exc:
@@ -131,7 +130,7 @@ async def guardar_mapeo_carpeta_proyecto(
         return JSONResponse(status_code=400, content={"error": str(exc)})
     except RuntimeError as exc:
         return JSONResponse(status_code=503, content={"error": str(exc)})
-    except asyncpg.PostgresError as exc:
+    except DB_REPORT_ERRORS as exc:
         logger.exception("Error BD guardando mapeo SP proyecto=%s", id_proyecto)
         return JSONResponse(status_code=500, content={"error": "Error al guardar el mapeo"})
     except httpx.HTTPError as exc:
