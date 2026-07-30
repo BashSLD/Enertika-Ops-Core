@@ -2002,9 +2002,16 @@ class CfeService:
                     if perfil_slug == "simulacion"
                     else f"{periodo}_{nombre_archivo}"
                 )
+                zip_directory = f"{nombre_servicio}/{tipo.upper()}"
+                if perfil_slug == "simulacion" and tipo == "pdf":
+                    directorio_periodo = _directorio_periodo_zip_simulacion(
+                        row.get("periodo")
+                    )
+                    if directorio_periodo:
+                        zip_directory = f"{zip_directory}/{directorio_periodo}"
                 zip_path = _dedupe_zip_path(
                     usados,
-                    f"{nombre_servicio}/{tipo.upper()}/{archivo_path}",
+                    f"{zip_directory}/{archivo_path}",
                 )
                 zf.writestr(zip_path, content)
 
@@ -2204,6 +2211,17 @@ def _periodo_zip_simulacion(periodo: object) -> str:
     anio, mes_raw = match.groups()
     mes = _MESES_ZIP_SIMULACION.get(int(mes_raw), mes_raw)
     return f"{mes} {anio[-2:]}"
+
+
+def _directorio_periodo_zip_simulacion(periodo: object) -> Optional[str]:
+    match = re.match(r"^(\d{4})-(\d{2})$", str(periodo or ""))
+    if not match:
+        return None
+    anio, mes_raw = match.groups()
+    mes = _MESES_ZIP_SIMULACION.get(int(mes_raw))
+    if not mes:
+        return None
+    return f"{anio}/{mes_raw} {mes}"
 
 
 def _sanitize_zip_component(value: object, fallback: str) -> str:

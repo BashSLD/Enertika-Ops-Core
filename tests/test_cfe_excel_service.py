@@ -532,7 +532,7 @@ async def test_generar_zip_servicio_bloquea_y_luego_permite_faltantes(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_generar_zip_servicio_simulacion_renombra_xml_pdf(monkeypatch):
+async def test_generar_zip_servicio_simulacion_organiza_pdf_por_anio_y_mes(monkeypatch):
     _install_fake_redis(monkeypatch)
     from modules.cfe.service import CfeService
 
@@ -560,6 +560,22 @@ async def test_generar_zip_servicio_simulacion_renombra_xml_pdf(monkeypatch):
             "nombre_archivo": "origen.pdf",
             "ruta_sharepoint": "https://sharepoint.test/origen.pdf",
         },
+        {
+            "id": uuid4(),
+            "periodo": "2025-01",
+            "tipo": "xml",
+            "estatus": "completado",
+            "nombre_archivo": "origen_anterior.xml",
+            "ruta_sharepoint": "https://sharepoint.test/origen_anterior.xml",
+        },
+        {
+            "id": uuid4(),
+            "periodo": "2025-01",
+            "tipo": "pdf",
+            "estatus": "completado",
+            "nombre_archivo": "origen_anterior.pdf",
+            "ruta_sharepoint": "https://sharepoint.test/origen_anterior.pdf",
+        },
     ]
     service = CfeService(_FakeCfeZipDB(servicio, descargas))
 
@@ -575,9 +591,12 @@ async def test_generar_zip_servicio_simulacion_renombra_xml_pdf(monkeypatch):
 
     with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
         names = set(zf.namelist())
-        base = "JUN 26_237110414099_UNIVERSIDAD TECNOLOGICA DE TEHUACAN"
-        assert f"CFE_237110414099/XML/{base}.xml" in names
-        assert f"CFE_237110414099/PDF/{base}.pdf" in names
+        base_2026 = "JUN 26_237110414099_UNIVERSIDAD TECNOLOGICA DE TEHUACAN"
+        base_2025 = "ENE 25_237110414099_UNIVERSIDAD TECNOLOGICA DE TEHUACAN"
+        assert f"CFE_237110414099/XML/{base_2026}.xml" in names
+        assert f"CFE_237110414099/XML/{base_2025}.xml" in names
+        assert f"CFE_237110414099/PDF/2026/06 JUN/{base_2026}.pdf" in names
+        assert f"CFE_237110414099/PDF/2025/01 ENE/{base_2025}.pdf" in names
 
 
 @pytest.mark.asyncio
