@@ -64,7 +64,12 @@
         </div>
     </div>
 </div>
-{% if redirect_url %}
+{% if redirect_url or close_modal %}
+{# hx-swap-oob (en vez de un <script> suelto) para que este bloque se ejecute
+   tambien cuando el formulario que dispara la respuesta usa hx-swap="none"
+   (p.ej. modales de traspaso): con "none" htmx procesa los OOB pero descarta
+   el resto de la respuesta, y un <script> sin oob nunca llegaria a insertarse. #}
+<div hx-swap-oob="beforeend:#global-toast-container">
 <script>
     (function() {
         var modalContainers = [
@@ -82,6 +87,7 @@
         modals.forEach(function(m) {
             if (!preservedModals.includes(m.id)) m.remove();
         });
+        {% if redirect_url %}
         setTimeout(function() {
             htmx.ajax('GET', '{{ redirect_url }}', {
                 target: '#main-content',
@@ -89,6 +95,8 @@
                 pushUrl: true
             });
         }, 800);
+        {% endif %}
     })();
 </script>
+</div>
 {% endif %}

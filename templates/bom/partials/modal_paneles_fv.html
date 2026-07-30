@@ -59,16 +59,18 @@
             </p>
             {% endif %}
 
+            <input type="hidden" name="origen" value="{{ origen or '' }}">
             <template x-for="(fila, i) in filas" :key="i">
                 <div class="flex gap-2 items-start">
                     <select name="id_panel" x-model="fila.id_panel" required
-                        class="flex-1 rounded-lg border border-gray-300 bg-gray-50 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                        class="flex-1 rounded-lg border border-gray-300 bg-gray-50 text-sm pl-3 pr-8 py-2 focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
                         <option value="">-- Selecciona modelo --</option>
                         {% for p in catalogo %}
                         <option value="{{ p.id }}">{{ p.marca }} {{ p.modelo }} ({{ p.potencia_w }} W){% if p.inactivo %} (inactivo){% endif %}</option>
                         {% endfor %}
                     </select>
                     <input type="number" name="cantidad" x-model.number="fila.cantidad"
+                        @keydown="if (['.', ',', '-', '+', 'e', 'E'].includes($event.key)) $event.preventDefault()"
                         min="1" step="1" required placeholder="Cant."
                         class="w-20 rounded-lg border border-gray-300 bg-gray-50 text-sm text-center focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
                     <button type="button" @click="quitar(i)" :disabled="filas.length <= 1"

@@ -9,7 +9,7 @@ from typing import Optional
 from core.config import settings
 
 from core.security import get_current_user_context
-from core.permissions import require_module_access
+from core.permissions import require_module_access, user_has_module_access
 from core.database import get_db_connection
 from .service import IngenieriaService, get_service
 
@@ -49,6 +49,7 @@ async def get_ingenieria_ui(
         "area": "INGENIERIA",
         "area_destino": "CONSTRUCCION",
         "puede_enviar": mod_role in ("editor", "admin") or is_admin,
+        "puede_editar_ingenieria": user_has_module_access("ingenieria", context, min_role="editor"),
     }
 
     # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
@@ -68,11 +69,14 @@ async def get_proyectos_partial(
     service: IngenieriaService = Depends(get_service),
 ):
     proyectos = await service.get_proyectos(conn, q, limit)
+    mod_role = context.get("module_roles", {}).get("ingenieria", "viewer")
+    is_admin = context.get("role") == "ADMIN"
     return templates.TemplateResponse(request, "shared/partials/lista_proyectos.html", {"proyectos": proyectos,
         "area": "INGENIERIA",
         "area_destino": "CONSTRUCCION",
-        "current_module_role": context.get("module_roles", {}).get("ingenieria", "viewer"),
-        "puede_enviar": context.get("module_roles", {}).get("ingenieria", "viewer") in ("editor", "admin") or context.get("role") == "ADMIN",
+        "current_module_role": mod_role,
+        "puede_enviar": mod_role in ("editor", "admin") or is_admin,
+        "puede_editar_ingenieria": user_has_module_access("ingenieria", context, min_role="editor"),
     })
 
 

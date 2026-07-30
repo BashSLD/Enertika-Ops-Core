@@ -3,7 +3,7 @@ Router compartido de BOM (Lista de Materiales).
 Endpoints HTMX para CRUD de items, workflow de aprobaciones y exportacion Excel.
 """
 
-from fastapi import APIRouter, Depends, Request, HTTPException, Form
+from fastapi import APIRouter, Depends, Request, HTTPException, Form, Query
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import Response
 from uuid import UUID
@@ -130,12 +130,15 @@ def _toast_response(
     type_: str = "warning",
     title: str = "Aviso",
     redirect_url: Optional[str] = None,
+    close_modal: bool = False,
     status_code: int = 200,
 ) -> Response:
     """Retorna toast OOB sin reemplazar el contenido HTMX actual."""
     ctx = {"message": message, "type": type_, "title": title}
     if redirect_url:
         ctx["redirect_url"] = redirect_url
+    if close_modal:
+        ctx["close_modal"] = True
     return templates.TemplateResponse(
         request,
         "shared/toast.html",
@@ -427,6 +430,7 @@ async def bom_acceso(
 async def paneles_modal(
     request: Request,
     id_proyecto: UUID,
+    origen: Optional[str] = Query(None),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -464,6 +468,7 @@ async def paneles_modal(
         "paneles_actuales": paneles_actuales,
         "puede_configurar": puede_configurar,
         "jefe_label": jefe_label,
+        "origen": origen,
     })
 
 
@@ -473,6 +478,7 @@ async def guardar_paneles(
     id_proyecto: UUID,
     id_panel: list[int] = Form(default=[]),
     cantidad: list[int] = Form(default=[]),
+    origen: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -480,7 +486,9 @@ async def guardar_paneles(
         ["ingenieria", "construccion", "compras", "finanzas"], "viewer", allow_org_roles={"director"}
     ),
 ):
-    """Guarda el set de paneles FV del proyecto y navega directo al BOM."""
+    """Guarda el set de paneles FV del proyecto. Si se abrio desde el gate de BOM
+    (origen=bom) navega directo al BOM; si se abrio desde su propio boton (MFV
+    independiente), solo cierra el modal."""
     if len(id_panel) != len(cantidad):
         return _toast_response(
             request, "Datos de paneles incompletos, intenta de nuevo", "error", status_code=400
@@ -502,9 +510,14 @@ async def guardar_paneles(
         logger.exception("Error de BD al guardar paneles FV del proyecto")
         return _toast_response(request, "Error interno al guardar el panel FV", "error", status_code=500)
 
+    if origen == "bom":
+        return _toast_response(
+            request, "Panel FV guardado correctamente", "success",
+            redirect_url=f"/bom/{id_proyecto}/ui",
+        )
     return _toast_response(
         request, "Panel FV guardado correctamente", "success",
-        redirect_url=f"/bom/{id_proyecto}/ui",
+        close_modal=True,
     )
 
 

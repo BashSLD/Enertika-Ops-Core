@@ -43,7 +43,7 @@
             {% endif %}
             {% if puede_configurar %}
             <button type="button"
-                hx-get="/bom/{{ id_proyecto }}/paneles-modal"
+                hx-get="/bom/{{ id_proyecto }}/paneles-modal?origen=bom"
                 hx-target="#modal-action-container" hx-swap="innerHTML"
                 hx-indicator="#gate-configurar-spinner" hx-disabled-elt="this" hx-sync="this:drop"
                 class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-[#00BABB] hover:bg-[#009999] rounded-lg">
