@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import getpass
 import json
+import re
 import sys
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -39,6 +41,7 @@ _APP_HOST = "eco.enertika.mx"
 _CFE_HOST = "app.cfe.mx"
 POLL_INTERVAL_S = 2
 LOGIN_TIMEOUT_S = 600  # 10 min para resolver el CAPTCHA con calma
+_TICKET_RE = re.compile(r"[A-Za-z0-9_-]{43}")
 
 _EDGE_PATHS = [
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -83,6 +86,49 @@ def _es_dominio_cfe(domain: str) -> bool:
     return normalized == "cfe.mx" or normalized.endswith(".cfe.mx")
 
 
+def _leer_codigo_temporal(read_char: Callable[[], str] | None = None) -> str:
+    """Lee el ticket sin exponerlo y confirma cada caracter con un asterisco."""
+    prompt = "Codigo temporal mostrado en Enertika Ops Core (veras un * por caracter): "
+    if read_char is None and sys.platform != "win32":
+        return getpass.getpass(prompt).strip()
+    if read_char is None:
+        import msvcrt
+
+        read_char = msvcrt.getwch
+
+    print(prompt, end="", flush=True)
+    chars: list[str] = []
+    while True:
+        char = read_char()
+        if char in ("\r", "\n"):
+            print()
+            return "".join(chars).strip()
+        if char == "\x03":
+            raise KeyboardInterrupt
+        if char == "\b":
+            if chars:
+                chars.pop()
+                print("\b \b", end="", flush=True)
+            continue
+        if char in ("\x00", "\xe0"):
+            read_char()
+            continue
+        if char.isprintable():
+            chars.append(char)
+            print("*", end="", flush=True)
+
+
+def _validar_codigo_temporal(ticket: str) -> str:
+    if not ticket:
+        raise RuntimeError("No se recibio ningun codigo temporal.")
+    if not _TICKET_RE.fullmatch(ticket):
+        raise RuntimeError(
+            "El codigo temporal debe tener 43 caracteres; "
+            f"se recibieron {len(ticket)}. Copia un codigo nuevo una sola vez."
+        )
+    return ticket
+
+
 def _detalle_http(exc: urllib.error.HTTPError) -> str:
     try:
         data = json.loads(exc.read().decode("utf-8", errors="replace"))
@@ -117,17 +163,51 @@ def esta_logueado(page) -> bool:
         return False
 
 
+def _asegurar_edge_abierto(page) -> None:
+    try:
+        cerrado = page.is_closed()
+    except PlaywrightError as exc:
+        raise RuntimeError(
+            "Se perdio la conexion con Microsoft Edge. Genera un codigo nuevo y reintenta."
+        ) from exc
+    if cerrado:
+        raise RuntimeError(
+            "La ventana de Microsoft Edge se cerro antes de completar el login. "
+            "Genera un codigo nuevo y reintenta."
+        )
+
+
 def lanzar_edge(pw):
     """Intenta canal msedge; si falla usa executable_path de Edge instalado."""
     try:
         return pw.chromium.launch(channel="msedge", headless=False)
-    except PlaywrightError:
-        for ruta in _EDGE_PATHS:
-            if Path(ruta).exists():
-                return pw.chromium.launch(executable_path=ruta, headless=False)
+    except PlaywrightError as exc:
+        edge_paths = [ruta for ruta in _EDGE_PATHS if Path(ruta).exists()]
+        if not edge_paths:
+            raise RuntimeError(
+                "Microsoft Edge no esta instalado en este equipo. Instalalo y reintenta."
+            ) from exc
+        last_error = exc
+        for edge_path in edge_paths:
+            try:
+                return pw.chromium.launch(executable_path=edge_path, headless=False)
+            except PlaywrightError as fallback_exc:
+                last_error = fallback_exc
+        detail = str(last_error).splitlines()[0]
         raise RuntimeError(
-            "No se encontro Microsoft Edge. Instalalo o ejecuta: playwright install msedge"
+            "Microsoft Edge esta instalado, pero el lanzador no pudo controlarlo. "
+            "Cierra todas las ventanas de Edge y reintenta con un codigo nuevo. "
+            f"Detalle: {detail}"
+        ) from last_error
+
+
+def _mensaje_error_autorizacion(status_code: int, detail: str) -> str:
+    if status_code == 403:
+        return (
+            "El codigo temporal ya no es valido. Cierra el modal de renovacion, "
+            "vuelve a abrirlo y copia el codigo nuevo; no reutilices el anterior."
         )
+    return f"No se pudo autorizar el lanzador ({status_code}): {detail}"
 
 
 def iniciar_renovacion(ticket: str) -> dict:
@@ -149,9 +229,7 @@ def iniciar_renovacion(ticket: str) -> dict:
             "upload_grant": data["upload_grant"],
         }
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(
-            f"No se pudo autorizar el lanzador ({exc.code}): {_detalle_http(exc)}"
-        ) from exc
+        raise RuntimeError(_mensaje_error_autorizacion(exc.code, _detalle_http(exc))) from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"No se pudo conectar de forma segura con el app: {exc.reason}") from exc
     except KeyError as exc:
@@ -213,55 +291,95 @@ def main() -> None:
     print("  Renovar sesion CFE MiEspacio")
     print("=" * 60)
     print(f"\nServidor autorizado: {APP_BASE_URL}")
-    ticket = getpass.getpass("Codigo temporal mostrado en Enertika Ops Core: ").strip()
-    if not ticket:
-        raise RuntimeError("Falta el codigo temporal.")
+    ticket = _validar_codigo_temporal(_leer_codigo_temporal())
+    print(f"Codigo recibido ({len(ticket)} caracteres). Validando con Enertika Ops Core...")
     autorizacion = iniciar_renovacion(ticket)
     upload_grant = autorizacion.pop("upload_grant")
+    print("Codigo validado. Iniciando Microsoft Edge...")
 
     with sync_playwright() as pw:
         browser = lanzar_edge(pw)
-        ctx = browser.new_context()
-        page = ctx.new_page()
-        page.goto(MIESPACIO_URL, wait_until="domcontentloaded", timeout=60_000)
-        _validar_url_https(page.url, _CFE_HOST)
+        try:
+            ctx = browser.new_context()
+            try:
+                page = ctx.new_page()
+                try:
+                    page.goto(MIESPACIO_URL, wait_until="domcontentloaded", timeout=60_000)
+                except PlaywrightError as exc:
+                    raise RuntimeError(
+                        "Edge se abrio, pero no pudo cargar MiEspacio. "
+                        "Verifica la conexion a Internet e intenta con un codigo nuevo."
+                    ) from exc
+                _validar_url_https(page.url, _CFE_HOST)
 
-        autocompletar_login(page, autorizacion)
-        autorizacion.clear()
+                try:
+                    autocompletar_login(page, autorizacion)
+                finally:
+                    autorizacion.clear()
 
-        print("\nSe abrio Edge en MiEspacio.")
-        print("  1) Usuario y contrasena ya estan llenos. Solo resuelve el CAPTCHA y da clic en Ingresar.")
-        print("  2) NO cierres la ventana: el login se detecta automaticamente.\n")
-        print("Esperando inicio de sesion...", end="", flush=True)
+                print("\nSe abrio Edge en MiEspacio.")
+                print("  1) Usuario y contrasena ya estan llenos. Solo resuelve el CAPTCHA y da clic en Ingresar.")
+                print("  2) NO cierres la ventana: el login se detecta automaticamente.\n")
+                print("Esperando inicio de sesion...", end="", flush=True)
 
-        inicio = time.monotonic()
-        while True:
-            if esta_logueado(page):
-                break
-            if time.monotonic() - inicio > LOGIN_TIMEOUT_S:
-                print("\n  Tiempo agotado esperando el login. Reintenta.")
-                ctx.close()
+                inicio = time.monotonic()
+                while True:
+                    _asegurar_edge_abierto(page)
+                    if esta_logueado(page):
+                        break
+                    if time.monotonic() - inicio > LOGIN_TIMEOUT_S:
+                        raise RuntimeError(
+                            "Tiempo agotado esperando el login. Genera un codigo nuevo y reintenta."
+                        )
+                    print(".", end="", flush=True)
+                    time.sleep(POLL_INTERVAL_S)
+
+                print("\nLogin detectado. Capturando sesion...")
+                _validar_url_https(page.url, _CFE_HOST)
+                storage_state = _storage_state_cfe(ctx.storage_state())
+            finally:
+                try:
+                    ctx.close()
+                except PlaywrightError:
+                    pass
+        finally:
+            try:
                 browser.close()
-                sys.exit(1)
-            print(".", end="", flush=True)
-            time.sleep(POLL_INTERVAL_S)
-
-        print("\nLogin detectado. Capturando sesion...")
-        _validar_url_https(page.url, _CFE_HOST)
-        storage_state = _storage_state_cfe(ctx.storage_state())
-        ctx.close()
-        browser.close()
+            except PlaywrightError:
+                pass
 
     subir_sesion(upload_grant, storage_state)
     print("\nSesion renovada correctamente. Ya puedes cerrar esta ventana.")
 
 
-if __name__ == "__main__":
+def _pausar_antes_de_cerrar() -> None:
+    try:
+        input("\nPresiona ENTER para cerrar esta ventana...")
+    except (EOFError, OSError):
+        pass
+
+
+def _ejecutar() -> int:
     try:
         main()
+        return 0
     except KeyboardInterrupt:
         print("\nCancelado.")
-        sys.exit(130)
+        return 130
     except RuntimeError as exc:
         print(f"\nERROR: {exc}")
-        sys.exit(1)
+        return 1
+    except PlaywrightError as exc:
+        detail = str(exc).splitlines()[0]
+        print("\nERROR: No se pudo controlar Microsoft Edge con Playwright.")
+        print(f"Detalle: {detail}")
+        return 1
+    except OSError as exc:
+        print(f"\nERROR: Windows no pudo completar la operacion: {exc}")
+        return 1
+
+
+if __name__ == "__main__":
+    exit_code = _ejecutar()
+    _pausar_antes_de_cerrar()
+    sys.exit(exit_code)

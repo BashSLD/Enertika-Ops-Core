@@ -32,12 +32,17 @@ python renovar_sesion.py
 
 El administrador global abre
 *Renovar sesión MiEspacio* en Enertika Ops Core y copia el código temporal.
-El lanzador lo pedirá en cada renovación. El código:
+El lanzador lo pedirá en cada renovación y mostrará un asterisco por cada
+carácter pegado, sin revelar el código. El código:
 
 - pertenece al usuario autenticado;
 - expira en 10 minutos;
 - funciona una sola vez;
 - no se guarda en la computadora.
+
+Una vez que el servidor canjea el código, deja de ser reutilizable. Como ante
+un error no siempre puede saberse si alcanzó a consumirlo, cierra el modal de
+renovación, vuelve a abrirlo y copia un código nuevo antes de reintentar.
 
 Luego:
 1. El código se canjea por una autorización efímera.
@@ -45,6 +50,9 @@ Luego:
 3. Resuelve el CAPTCHA y da clic en *Ingresar* (**único paso manual**).
 4. **No cierres la ventana**: el script detecta el login solo.
 5. Cuando veas *"Sesión renovada correctamente"*, listo.
+
+La consola permanece abierta al terminar o si ocurre un error, para que el
+usuario pueda leer el resultado antes de presionar ENTER y cerrarla.
 
 El lanzador sólo se conecta a `https://eco.enertika.mx` y
 `https://app.cfe.mx`. No ignora errores TLS, no sigue redirecciones del API y
@@ -66,6 +74,38 @@ python sign_release.py generate-keypair --private-key C:\ruta-segura\cfe_launche
 Pega únicamente la clave pública en:
 *Admin → Configuración Global → Recibos CFE → Clave pública de firma*.
 
+### Custodia y cambio de equipo
+
+Los archivos `cfe_launcher_private.pem` y `cfe_launcher_public.pem` están
+excluidos de Git. La clave pública también se conserva en PostgreSQL, dentro
+de `tb_configuracion_global` con la llave
+`CFE_LANZADOR_SIGNING_PUBLIC_KEY`, por lo que sobrevive a los deployments.
+
+La clave privada es la identidad de firma del lanzador. Debe respaldarse
+cifrada, junto con su contraseña guardada por separado, en un gestor de
+secretos corporativo o medio externo cifrado. No debe enviarse por correo,
+Teams ni almacenarse dentro del repositorio.
+
+Al cambiar de equipo, el procedimiento preferido es:
+
+1. Instalar Python 3.12 y `requirements-build.txt`.
+2. Recuperar `cfe_launcher_private.pem` desde el respaldo seguro.
+3. Conservar la misma contraseña y la misma clave pública configurada en el app.
+4. Compilar una versión posterior y publicar juntos el EXE y su manifiesto.
+
+### Rotación o pérdida de la clave privada
+
+Si la clave privada se pierde o se sospecha que fue expuesta:
+
+1. Genera un par nuevo con `sign_release.py generate-keypair`.
+2. Sustituye la clave pública desde Administración.
+3. Compila una versión posterior usando la nueva clave privada.
+4. Publica juntos el nuevo EXE y su manifiesto.
+5. Respalda la nueva clave privada y elimina de forma segura copias obsoletas.
+
+No generes una clave distinta por cada equipo: se mantiene una sola identidad
+de firma y sólo se rota ante pérdida, exposición o decisión administrativa.
+
 ## Build de release
 
 El build usa un entorno aislado, versiones fijadas, PyInstaller sin UPX y un
@@ -74,7 +114,7 @@ manifiesto Ed25519 obligatorio.
 Para uso interno sin certificado Authenticode, ejecútalo desde PowerShell:
 
 ```powershell
-$env:CFE_LAUNCHER_VERSION = "2026.07.30"
+$env:CFE_LAUNCHER_VERSION = "2026.07.31.1"
 $env:CFE_SIGNING_PRIVATE_KEY_FILE = "C:\ruta-segura\cfe_launcher_private.pem"
 $env:CFE_ALLOW_UNSIGNED = "1"
 .\build_exe.bat
@@ -85,7 +125,7 @@ por accidente. Windows mostrará `Editor desconocido`, pero la aplicación
 seguirá exigiendo y verificando la firma Ed25519 del release.
 
 La versión usa `YYYY.MM.DD`. Si publicas otra compilación el mismo día,
-incrementa la revisión (`2026.07.30.1`, `2026.07.30.2`, etc.). La aplicación
+incrementa la revisión (`2026.07.31.1`, `2026.07.31.2`, etc.). La aplicación
 rechaza versiones repetidas o anteriores para impedir rollbacks.
 
 Si posteriormente se obtiene un certificado Authenticode, omite

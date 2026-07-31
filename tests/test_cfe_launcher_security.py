@@ -15,10 +15,15 @@ from modules.cfe.launcher_security import (
 )
 from modules.cfe.router import _puede_emitir_ticket_lanzador
 from modules.cfe.service import CfeService, _es_dominio_cfe as _es_dominio_cfe_storage
+from tools.cfe import renovar_sesion as launcher_module
 from tools.cfe.renovar_sesion import (
     LOGIN_TIMEOUT_S,
+    _asegurar_edge_abierto,
     _es_dominio_cfe,
+    _leer_codigo_temporal,
+    _mensaje_error_autorizacion,
     _storage_state_cfe,
+    _validar_codigo_temporal,
     _validar_url_https,
 )
 from core.config import settings
@@ -147,6 +152,108 @@ def test_launcher_version_rejects_invalid_calendar_dates():
 
 def test_upload_grant_outlives_the_browser_login_window():
     assert settings.CFE_LAUNCHER_UPLOAD_GRANT_TTL_SECONDS >= LOGIN_TIMEOUT_S + 120
+
+
+def test_launcher_masks_pasted_ticket(capsys):
+    ticket = "a" * 43
+    chars = iter([*ticket, "\r"])
+
+    assert _leer_codigo_temporal(chars.__next__) == ticket
+
+    output = capsys.readouterr().out
+    assert ticket not in output
+    assert output.endswith("*" * 43 + "\n")
+
+
+def test_launcher_rejects_duplicated_ticket_before_using_it():
+    with pytest.raises(RuntimeError, match="se recibieron 86"):
+        _validar_codigo_temporal("a" * 86)
+
+    assert _validar_codigo_temporal("a" * 43) == "a" * 43
+
+
+def test_launcher_reports_when_edge_was_closed():
+    class ClosedPage:
+        @staticmethod
+        def is_closed():
+            return True
+
+    with pytest.raises(RuntimeError, match="Edge se cerro"):
+        _asegurar_edge_abierto(ClosedPage())
+
+
+def test_launcher_explains_how_to_replace_invalid_ticket():
+    message = _mensaje_error_autorizacion(403, "detalle que no debe mostrarse")
+
+    assert "vuelve a abrirlo" in message
+    assert "no reutilices" in message
+    assert "detalle que no debe mostrarse" not in message
+
+
+def test_launcher_preserves_non_auth_http_error_detail():
+    message = _mensaje_error_autorizacion(503, "Redis no disponible")
+
+    assert message == "No se pudo autorizar el lanzador (503): Redis no disponible"
+
+
+def test_launcher_distinguishes_missing_edge(monkeypatch):
+    class Chromium:
+        @staticmethod
+        def launch(**_kwargs):
+            raise launcher_module.PlaywrightError("Edge no encontrado")
+
+    class Playwright:
+        chromium = Chromium()
+
+    monkeypatch.setattr(launcher_module, "_EDGE_PATHS", [])
+
+    with pytest.raises(RuntimeError, match="Edge no esta instalado"):
+        launcher_module.lanzar_edge(Playwright())
+
+
+def test_launcher_reports_installed_edge_control_failure(tmp_path, monkeypatch):
+    edge_path = tmp_path / "msedge.exe"
+    edge_path.write_bytes(b"")
+
+    class Chromium:
+        @staticmethod
+        def launch(**_kwargs):
+            raise launcher_module.PlaywrightError("Edge bloqueado")
+
+    class Playwright:
+        chromium = Chromium()
+
+    monkeypatch.setattr(launcher_module, "_EDGE_PATHS", [str(edge_path)])
+
+    with pytest.raises(RuntimeError, match="Edge esta instalado, pero"):
+        launcher_module.lanzar_edge(Playwright())
+
+
+def test_launcher_tries_every_installed_edge_path(tmp_path, monkeypatch):
+    first_path = tmp_path / "first" / "msedge.exe"
+    second_path = tmp_path / "second" / "msedge.exe"
+    first_path.parent.mkdir()
+    second_path.parent.mkdir()
+    first_path.write_bytes(b"")
+    second_path.write_bytes(b"")
+
+    class Chromium:
+        @staticmethod
+        def launch(**kwargs):
+            if kwargs.get("executable_path") == str(second_path):
+                return "browser-abierto"
+            raise launcher_module.PlaywrightError("ruta bloqueada")
+
+    class Playwright:
+        chromium = Chromium()
+
+    monkeypatch.setattr(
+        launcher_module,
+        "_EDGE_PATHS",
+        [str(first_path), str(second_path)],
+    )
+
+    assert launcher_module.lanzar_edge(Playwright()) == "browser-abierto"
 
 
 def test_only_global_admin_can_receive_launcher_tickets():

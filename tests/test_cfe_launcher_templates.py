@@ -54,6 +54,7 @@ def test_launcher_modal_marks_ticket_as_sensitive_and_one_time():
     assert 'hx-history="false"' in html
     assert "ticket-temporal" in html
     assert "de un solo uso" in html
+    assert "No reutilices el anterior" in html
 
 
 def test_build_requires_explicit_unsigned_mode_and_always_signs_manifest():
