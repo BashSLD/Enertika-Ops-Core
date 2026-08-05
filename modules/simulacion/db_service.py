@@ -1,10 +1,8 @@
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime, date
-from decimal import Decimal
 import logging
 
-from core.database import get_db_connection
 from core.config_service import ConfigService
 
 logger = logging.getLogger("SimulacionDBService")
@@ -1045,9 +1043,15 @@ class SimulacionDBService:
         rows = await conn.fetch("""
             SELECT
                 o.op_id_estandar,
-                u.nombre                                                        AS responsable,
+                COALESCE(
+                    u.nombre,
+                    CASE WHEN lev.n_sitios > 1 THEN u_lev_jefe.nombre
+                         ELSE COALESCE(u_lev_resp.nombre, u_lev_tec.nombre)
+                    END
+                )                                                                AS responsable,
                 u_com.nombre                                                    AS comercial,
                 o.cliente_nombre,
+                t.nombre                                                        AS tecnologia,
                 o.titulo_proyecto,
                 o.fecha_solicitud   AT TIME ZONE 'America/Mexico_City'          AS fecha_solicitud,
                 o.deadline_calculado AT TIME ZONE 'America/Mexico_City'         AS deadline_calculado,
@@ -1060,6 +1064,21 @@ class SimulacionDBService:
             LEFT JOIN tb_cat_estatus_oportunidades e ON e.id = o.id_estatus_global
             LEFT JOIN tb_usuarios u ON u.id_usuario = o.responsable_simulacion_id
             LEFT JOIN tb_usuarios u_com ON u_com.id_usuario = COALESCE(o.responsable_comercial_id, o.creado_por_id)
+            LEFT JOIN tb_cat_tecnologias t ON t.id = o.id_tecnologia
+            LEFT JOIN LATERAL (
+                SELECT l.id_levantamiento, l.jefe_area_id, l.tecnico_asignado_id,
+                       COUNT(*) OVER () AS n_sitios
+                FROM tb_levantamientos l
+                WHERE l.id_oportunidad = o.id_oportunidad
+                  AND o.responsable_simulacion_id IS NULL
+                ORDER BY l.updated_at DESC NULLS LAST, l.created_at DESC
+                LIMIT 1
+            ) lev ON true
+            LEFT JOIN tb_levantamiento_asignaciones la
+                ON la.id_levantamiento = lev.id_levantamiento AND la.es_responsable = true
+            LEFT JOIN tb_usuarios u_lev_resp ON u_lev_resp.id_usuario = la.tecnico_id
+            LEFT JOIN tb_usuarios u_lev_tec  ON u_lev_tec.id_usuario = lev.tecnico_asignado_id
+            LEFT JOIN tb_usuarios u_lev_jefe ON u_lev_jefe.id_usuario = lev.jefe_area_id
             WHERE (o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::date >= $1
               AND (o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::date <= $2
               AND ($3::uuid IS NULL OR o.responsable_simulacion_id = $3)

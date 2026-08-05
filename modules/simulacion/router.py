@@ -2,11 +2,10 @@
 Router del Módulo Simulación
 """
 
-from fastapi import APIRouter, Request, Depends, Form, HTTPException, Query
+from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 import io
-from datetime import date
 from uuid import UUID
 from typing import Optional, List
 from decimal import Decimal
@@ -48,7 +47,7 @@ def _safe_uuid(val: Optional[str]) -> Optional[UUID]:
     except ValueError:
         return None
 
-from .schemas import OportunidadCreateCompleta, DetalleBessCreate, SimulacionUpdate, SitiosBatchUpdate, SimulacionAdicionalItem
+from .schemas import OportunidadCreateCompleta, SimulacionUpdate, SitiosBatchUpdate, SimulacionAdicionalItem
 
 # Import Workflow Service (Centralizado)
 from core.workflow.service import get_workflow_service
@@ -267,7 +266,7 @@ async def get_graphs_partial(
     _ = require_module_access("simulacion")
 ):
     """Partial: Tab de gráficas y reportes interactivos."""
-    from .report_service import ReportesSimulacionService, FiltrosReporte, get_reportes_service
+    from .report_service import ReportesSimulacionService, FiltrosReporte
 
     # Instanciar servicio de reportes
     report_service = ReportesSimulacionService()
@@ -334,6 +333,7 @@ async def exportar_simulaciones_excel(
     _ = require_manager_access("simulacion", "viewer"),
 ):
     import openpyxl
+    from itertools import count
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
@@ -379,7 +379,7 @@ async def exportar_simulaciones_excel(
     ws.freeze_panes = "A3"
 
     titulo = f"SIMULACIONES | {fi.strftime('%d/%m/%Y')} – {ff.strftime('%d/%m/%Y')} | Hora México"
-    ws.merge_cells("A1:L1")
+    ws.merge_cells("A1:M1")
     t = ws["A1"]
     t.value = titulo
     t.fill = fill(AZUL)
@@ -389,11 +389,11 @@ async def exportar_simulaciones_excel(
     ws.row_dimensions[2].height = 30
 
     headers = [
-        "OP ID", "Responsable", "Comercial", "Cliente", "Título del Proyecto",
+        "OP ID", "Responsable", "Comercial", "Cliente", "Tipo de Solicitud", "Título del Proyecto",
         "Fecha Solicitud", "Deadline Calculado", "Deadline Negociado",
         "Fecha Entrega", "Estatus", "KPI Interno", "KPI Compromiso",
     ]
-    widths = [20, 26, 26, 28, 52, 17, 20, 20, 17, 14, 18, 18]
+    widths = [20, 26, 26, 28, 16, 52, 17, 20, 20, 17, 14, 18, 18]
     for col, (h, w) in enumerate(zip(headers, widths), 1):
         c = ws.cell(row=2, column=col, value=h)
         c.fill = fill(AZUL)
@@ -411,26 +411,28 @@ async def exportar_simulaciones_excel(
         tiene_dn = r["deadline_negociado"] is not None
         bg = AMAR if tiene_dn else (GRIS if i % 2 == 0 else BLANC)
         ki, kc = r["kpi_status_sla_interno"] or "", r["kpi_status_compromiso"] or ""
+        col = count(1)
 
-        put(ws, i, 1,  r["op_id_estandar"],          bg, center=True)
-        put(ws, i, 2,  r["responsable"] or "Sin asignar", bg)
-        put(ws, i, 3,  r["comercial"] or "Sin asignar", bg)
-        put(ws, i, 4,  r["cliente_nombre"],            bg)
-        put(ws, i, 5,  r["titulo_proyecto"],           bg)
-        put(ws, i, 6,  fmt_dt(r["fecha_solicitud"]),   bg, center=True)
-        put(ws, i, 7,  fmt_dt(r["deadline_calculado"]), bg, center=True)
-        put(ws, i, 8,  fmt_dt(r["deadline_negociado"]) if tiene_dn else "—",
+        put(ws, i, next(col), r["op_id_estandar"],          bg, center=True)
+        put(ws, i, next(col), r["responsable"] or "Sin asignar", bg)
+        put(ws, i, next(col), r["comercial"] or "Sin asignar", bg)
+        put(ws, i, next(col), r["cliente_nombre"],            bg)
+        put(ws, i, next(col), r["tecnologia"] or "—",          bg, center=True)
+        put(ws, i, next(col), r["titulo_proyecto"],           bg)
+        put(ws, i, next(col), fmt_dt(r["fecha_solicitud"]),   bg, center=True)
+        put(ws, i, next(col), fmt_dt(r["deadline_calculado"]), bg, center=True)
+        put(ws, i, next(col), fmt_dt(r["deadline_negociado"]) if tiene_dn else "—",
             bg, bold=tiene_dn, center=True, txt_color="7B3F00" if tiene_dn else "000000")
-        put(ws, i, 9,  fmt_dt(r["fecha_entrega"]),     bg, center=True)
+        put(ws, i, next(col), fmt_dt(r["fecha_entrega"]),     bg, center=True)
         est_bg = {"Entregado": VERDE, "En Proceso": NARAN, "En Revisión": AZUL_C,
                   "Pendiente": GRIS}.get(r["estatus"], bg)
-        put(ws, i, 10, r["estatus"] or "—",           est_bg, center=True)
+        put(ws, i, next(col), r["estatus"] or "—",           est_bg, center=True)
         ki_bg = VERDE if "a tiempo" in ki else (ROJO if "tarde" in ki else bg)
-        put(ws, i, 11, ki or "—",                     ki_bg, center=True)
+        put(ws, i, next(col), ki or "—",                     ki_bg, center=True)
         kc_bg = VERDE if "a tiempo" in kc else (ROJO if "tarde" in kc else bg)
-        put(ws, i, 12, kc or "—",                     kc_bg, center=True)
+        put(ws, i, next(col), kc or "—",                     kc_bg, center=True)
 
-    ws.auto_filter.ref = f"A2:L{max(2, 2 + len(rows))}"
+    ws.auto_filter.ref = f"A2:M{max(2, 2 + len(rows))}"
 
     buf = io.BytesIO()
     wb.save(buf)
