@@ -58,8 +58,8 @@ def _resolver_modulos(user: dict, modulo_param: str | None) -> tuple[str | None,
 
 
 def _puede_emitir_ticket_lanzador(user: dict) -> bool:
-    """Limita las credenciales CFE al administrador global que ya puede gestionarlas."""
-    return user.get("role") == "ADMIN"
+    """Admin global o admin de módulo (oym/simulacion) pueden renovar la sesión CFE."""
+    return any(user_has_module_access(slug, user, min_role="admin") for slug in CFE_MODULE_SLUGS)
 
 
 async def _zona_selector_ctx(svc, conn, user: dict, modulo_activo: str | None) -> dict:
