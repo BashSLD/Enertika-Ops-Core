@@ -1,0 +1,248 @@
+<div class="w-full px-4 py-6 animate-fade-in-down" hx-history="false"
+    x-data="{ crearAbierto: false, capturaAbierta: false, tipo: 'PARCIAL' }">
+    <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-800">Conjunto BOM del proyecto</h1>
+            <p class="mt-1 text-sm text-gray-500">
+                <span class="font-mono font-bold">{{ proyecto.proyecto_id_estandar or 'Sin ID' }}</span>
+                - {{ proyecto.nombre_proyecto or '' }}
+            </p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            {% if paquetes %}
+            <a href="/bom/{{ id_proyecto }}/consolidado/ui?modo=CURSO"
+                hx-get="/bom/{{ id_proyecto }}/consolidado/ui?modo=CURSO"
+                hx-target="#main-content" hx-push-url="true"
+                class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                Ver consolidado
+            </a>
+            {% endif %}
+            {% if puede_crear and not estado_conjunto.captura_cerrada and (multi_habilitado or not paquetes) %}
+            <button type="button" @click="crearAbierto = true"
+                class="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                Agregar paquete de BOM
+            </button>
+            {% endif %}
+            {% if puede_gestionar_captura %}
+            <button type="button" @click="capturaAbierta = true"
+                class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                {{ 'Reabrir captura' if estado_conjunto.captura_cerrada else 'Cerrar captura' }}
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if not multi_habilitado %}
+    <div class="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        El rollout multi-paquete está deshabilitado. Los paquetes existentes siguen disponibles,
+        pero no se permitirá un segundo paquete hasta activar la configuración.
+    </div>
+    {% endif %}
+
+    {% if not metricas_fv.modulos_fv %}
+    <div class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        No hay módulos FV configurados. El workflow puede continuar; las métricas por módulo y kWp
+        se mostrarán como pendientes.
+    </div>
+    {% else %}
+    <div class="mb-4 grid gap-3 sm:grid-cols-3">
+        <div class="rounded-xl border bg-white p-4">
+            <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Módulos FV vigentes</p>
+            <p class="mt-1 text-xl font-bold text-gray-800">{{ metricas_fv.modulos_fv }}</p>
+        </div>
+        <div class="rounded-xl border bg-white p-4">
+            <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Potencia pico vigente</p>
+            <p class="mt-1 text-xl font-bold text-gray-800">{{ '%.3f'|format(metricas_fv.potencia_pico_kwp|float) }} kWp</p>
+        </div>
+        <div class="rounded-xl border bg-white p-4">
+            <p class="text-xs font-medium uppercase tracking-wide text-gray-400">Captura</p>
+            <p class="mt-1 text-xl font-bold {{ 'text-gray-500' if estado_conjunto.captura_cerrada else 'text-emerald-700' }}">
+                {{ 'Cerrada' if estado_conjunto.captura_cerrada else 'Abierta' }}
+            </p>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if paquetes %}
+    <div class="mb-4 grid gap-3 sm:grid-cols-2">
+        <a href="/bom/{{ id_proyecto }}/consolidado/ui?modo=CURSO"
+            hx-get="/bom/{{ id_proyecto }}/consolidado/ui?modo=CURSO"
+            hx-target="#main-content" hx-push-url="true"
+            class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm hover:border-blue-300">
+            <div class="flex items-center justify-between gap-3">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Consolidado en curso</p>
+                    {% if consolidado_curso.conversion_pendiente %}
+                    <p class="mt-2 text-base font-bold text-amber-700">Pendiente por tipo de cambio</p>
+                    {% else %}
+                    <p class="mt-2 font-mono text-xl font-bold text-gray-800">${{ '{:,.2f}'.format(consolidado_curso.totales.presupuesto_total_mxn|float) }} MXN</p>
+                    {% endif %}
+                    <p class="mt-1 text-xs text-gray-500">{{ consolidado_curso.paquetes|length }} paquete(s) activo(s)</p>
+                </div>
+                <span class="text-sm font-medium text-blue-700">Abrir</span>
+            </div>
+        </a>
+        <a href="/bom/{{ id_proyecto }}/consolidado/ui?modo=OFICIAL"
+            hx-get="/bom/{{ id_proyecto }}/consolidado/ui?modo=OFICIAL"
+            hx-target="#main-content" hx-push-url="true"
+            class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm hover:border-blue-300">
+            <div class="flex items-center justify-between gap-3">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Consolidado oficial</p>
+                    <p class="mt-2 font-mono text-xl font-bold text-gray-800">${{ '{:,.2f}'.format(consolidado_oficial.totales.presupuesto_total_mxn|float) }} MXN</p>
+                    <p class="mt-1 text-xs text-gray-500">{{ consolidado_oficial.pendientes_oficiales }} paquete(s) pendiente(s)</p>
+                </div>
+                <span class="text-sm font-medium text-blue-700">Abrir</span>
+            </div>
+        </a>
+    </div>
+    {% endif %}
+
+    {% if paquetes %}
+    <div class="overflow-hidden rounded-xl border bg-white">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <tr>
+                        <th class="px-4 py-3">Paquete</th>
+                        <th class="px-4 py-3">Alcance</th>
+                        <th class="px-4 py-3">Responsable</th>
+                        <th class="px-4 py-3">Trabajo</th>
+                        <th class="px-4 py-3">Oficial</th>
+                        <th class="px-4 py-3 text-right">Presupuesto MXN</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% for paquete in paquetes %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3">
+                            <a href="/bom/paquetes/{{ paquete.id_paquete }}/ui"
+                                hx-get="/bom/paquetes/{{ paquete.id_paquete }}/ui"
+                                hx-target="#main-content" hx-push-url="true"
+                                class="font-semibold text-blue-700 hover:underline">
+                                {{ paquete.codigo }} - {{ paquete.nombre }}
+                            </a>
+                            <div class="mt-1 flex gap-1 text-xs">
+                                <span class="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600">{{ paquete.tipo_alcance }}</span>
+                                {% if paquete.estado_paquete != 'ACTIVO' %}
+                                <span class="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">{{ paquete.estado_paquete }}</span>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td class="max-w-sm px-4 py-3 text-sm text-gray-600">
+                            {{ paquete.descripcion_alcance or 'Alcance legado sin clasificación explícita.' }}
+                        </td>
+                        <td class="px-4 py-3 text-sm text-gray-700">{{ paquete.ingeniero_responsable_nombre or 'Sin responsable' }}</td>
+                        <td class="px-4 py-3 text-sm">
+                            {% if paquete.version_trabajo %}
+                            <span class="font-medium">v{{ paquete.version_trabajo }}</span>
+                            <span class="block text-xs text-gray-500">{{ paquete.estatus_trabajo }}</span>
+                            {% else %}<span class="text-gray-400">Sin cabeza</span>{% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-sm text-gray-700">
+                            {{ 'v' ~ paquete.version_oficial if paquete.version_oficial else 'Pendiente' }}
+                        </td>
+                        <td class="px-4 py-3 text-right font-mono text-sm text-gray-800">
+                            {% if paquete.total_trabajo_mxn is none or paquete.total_trabajo_usd is none %}
+                            <span class="font-sans text-xs text-amber-700">Importe pendiente</span>
+                            {% else %}
+                            ${{ '{:,.2f}'.format(paquete.total_trabajo_mxn|float) }} MXN
+                            {% if paquete.total_trabajo_usd %}
+                            <span class="block text-xs text-gray-500">${{ '{:,.2f}'.format(paquete.total_trabajo_usd|float) }} USD</span>
+                            {% endif %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="rounded-xl border bg-white py-14 text-center">
+        <h2 class="text-base font-semibold text-gray-700">Todavía no hay paquetes BOM</h2>
+        <p class="mt-1 text-sm text-gray-500">Crea un BOM completo o divide el alcance en paquetes parciales.</p>
+    </div>
+    {% endif %}
+
+    <div x-show="crearAbierto" x-cloak @click.self="crearAbierto = false"
+        class="modal-overlay-layer fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+        <div class="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
+            <h2 class="text-lg font-bold text-gray-800">Agregar paquete de BOM</h2>
+            <p class="mt-1 text-sm text-gray-500">Quedarás registrado como Ingeniero responsable del paquete.</p>
+            <form class="mt-5 space-y-4" hx-post="/bom/{{ id_proyecto }}/crear"
+                hx-target="#global-toast-container" hx-swap="afterbegin"
+                hx-disabled-elt="find button[type='submit']" hx-sync="this:drop">
+                <input type="hidden" name="clave_idempotencia" value="{{ clave_idempotencia_paquete }}">
+                <div>
+                    <label class="mb-1 block text-sm font-medium text-gray-700">Tipo de alcance</label>
+                    <select name="tipo_alcance" x-model="tipo" required
+                        class="w-full rounded-lg border-gray-300 text-sm">
+                        <option value="PARCIAL">Parcial</option>
+                        <option value="COMPLETO">Completo</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="mb-1 block text-sm font-medium text-gray-700">Nombre</label>
+                    <input name="nombre" required maxlength="160"
+                        placeholder="Ej. Paquete eléctrico AC/DC"
+                        class="w-full rounded-lg border-gray-300 text-sm">
+                </div>
+                <div>
+                    <label class="mb-1 block text-sm font-medium text-gray-700">Descripción del alcance</label>
+                    <textarea name="descripcion_alcance" rows="3" :required="tipo === 'PARCIAL'"
+                        placeholder="Indica qué incluye y qué queda fuera de este paquete."
+                        class="w-full rounded-lg border-gray-300 text-sm"></textarea>
+                </div>
+                {% if paquetes %}
+                <div class="rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
+                    <p class="font-semibold text-gray-700">Paquetes existentes</p>
+                    {% for paquete in paquetes %}
+                    <p class="mt-1">{{ paquete.codigo }} - {{ paquete.nombre }}: {{ paquete.descripcion_alcance or paquete.tipo_alcance }}</p>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if es_admin %}
+                <label class="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <input type="checkbox" name="aceptar_responsabilidad" value="true" required
+                        class="mt-0.5 rounded border-amber-400 text-blue-600">
+                    <span>Confirmo que iniciaré el paquete a mi nombre y asumiré la responsabilidad de Ingeniería.</span>
+                </label>
+                {% endif %}
+                <div class="flex justify-end gap-2">
+                    <button type="button" @click="crearAbierto = false"
+                        class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700">Cancelar</button>
+                    <button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">
+                        Crear paquete
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div x-show="capturaAbierta" x-cloak @click.self="capturaAbierta = false"
+        class="modal-overlay-layer fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+        <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h2 class="text-lg font-bold text-gray-800">
+                {{ 'Reabrir captura' if estado_conjunto.captura_cerrada else 'Cerrar captura' }}
+            </h2>
+            <form class="mt-4 space-y-4" hx-post="/bom/{{ id_proyecto }}/captura"
+                hx-target="#global-toast-container" hx-swap="afterbegin"
+                hx-disabled-elt="find button[type='submit']">
+                <input type="hidden" name="captura_cerrada" value="{{ 'false' if estado_conjunto.captura_cerrada else 'true' }}">
+                <input type="hidden" name="lock_version" value="{{ estado_conjunto.lock_version }}">
+                <div>
+                    <label class="mb-1 block text-sm font-medium text-gray-700">Motivo</label>
+                    <textarea name="motivo" required rows="3" class="w-full rounded-lg border-gray-300 text-sm"></textarea>
+                </div>
+                <div class="flex justify-end gap-2">
+                    <button type="button" @click="capturaAbierta = false"
+                        class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700">Cancelar</button>
+                    <button type="submit" class="rounded-lg bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700">
+                        Confirmar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

@@ -17,8 +17,9 @@ class FakeConn:
 
 
 class FakeBulkDB:
-    def __init__(self, items, *, es_jefe=False, es_asignado=False):
+    def __init__(self, items, *, actor_id=None, es_jefe=False, es_asignado=False):
         self.items = {item["id_item"]: item for item in items}
+        self.actor_id = actor_id
         self.es_jefe = es_jefe
         self.es_asignado = es_asignado
         self.grupo_calls = []
@@ -29,10 +30,61 @@ class FakeBulkDB:
     async def get_items_context_by_ids(self, conn, item_ids):
         return [self.items[item_id] for item_id in item_ids if item_id in self.items]
 
+    async def lock_items_context_by_ids(self, conn, item_ids):
+        return await self.get_items_context_by_ids(conn, item_ids)
+
     async def get_item_by_id(self, conn, item_id):
         return self.items.get(item_id)
 
+    async def get_bom_by_id(self, conn, bom_id):
+        item = next(
+            (row for row in self.items.values() if row["id_bom"] == bom_id),
+            None,
+        )
+        if not item:
+            return None
+        return {
+            "id_bom": bom_id,
+            "id_proyecto": item["id_proyecto"],
+            "id_paquete": item["id_paquete"],
+            "estatus": item["bom_estatus"],
+            "version": item["bom_version"],
+            "lock_version": item["bom_lock_version"],
+            "es_cabeza_trabajo": True,
+            "es_cabeza_oficial": item["bom_estatus"] == "APROBADO_FINAL",
+            "estado_paquete": "ACTIVO",
+            "elaborado_por": self.actor_id,
+            "ingeniero_responsable_id": self.actor_id,
+            "responsable_ing": self.actor_id,
+            "coordinador_obra": self.actor_id,
+            "jefe_construccion": self.actor_id,
+        }
+
+    async def get_bom_for_update(self, conn, bom_id):
+        return await self.get_bom_by_id(conn, bom_id)
+
+    async def incrementar_lock_bom_cas(self, conn, bom_id, esperado, estatus):
+        bom = await self.get_bom_by_id(conn, bom_id)
+        if not bom or bom["lock_version"] != esperado or bom["estatus"] != estatus:
+            return None
+        for item in self.items.values():
+            if item["id_bom"] == bom_id:
+                item["bom_lock_version"] += 1
+        return {"lock_version": esperado + 1}
+
+    async def get_aprobador_final_id(self, conn):
+        return None
+
     async def set_item_grupos(self, conn, item_id, grupo_ids):
+        self.grupo_calls.append((item_id, list(grupo_ids)))
+
+    async def get_grupos_por_item(self, conn, item_id):
+        return []
+
+    async def get_grupos_operativos_por_item(self, conn, item_id):
+        return []
+
+    async def set_item_grupos_operativos(self, conn, item_id, grupo_ids, user_id):
         self.grupo_calls.append((item_id, list(grupo_ids)))
 
     async def update_item(self, conn, item_id, **campos):
@@ -40,9 +92,14 @@ class FakeBulkDB:
         self.items[item_id].update(campos)
         return self.items[item_id]
 
-    async def upsert_item_ejecucion(self, conn, item_id, updated_by=None, **campos):
-        self.execution_updates.append((item_id, updated_by, campos))
+    async def upsert_item_ejecucion(
+        self, conn, item_id, updated_by=None, lock_version_esperado=None, **campos
+    ):
         item = self.items[item_id]
+        if lock_version_esperado != item.get("ejecucion_lock_version", 0):
+            return None
+        self.execution_updates.append((item_id, updated_by, campos))
+        item["ejecucion_lock_version"] = lock_version_esperado + 1
         public_map = {
             "id_proveedor_real": "id_proveedor",
             "precio_real": "precio_real",
@@ -88,8 +145,23 @@ class FakeSeleccionCotizacionDB:
     async def get_cotizacion_by_id(self, conn, cotizacion_id):
         return dict(self.cotizacion)
 
-    async def actualizar_estatus_cotizacion(self, conn, cotizacion_id, estatus):
-        updated = {**self.cotizacion, "estatus": estatus}
+    async def get_cotizacion_for_update(self, conn, cotizacion_id):
+        return dict(self.cotizacion)
+
+    async def actualizar_estatus_cotizacion(
+        self, conn, cotizacion_id, estatus, estatus_esperado, lock_version_esperado
+    ):
+        if (
+            self.cotizacion["estatus"] != estatus_esperado
+            or self.cotizacion["lock_version"] != lock_version_esperado
+        ):
+            return None
+        updated = {
+            **self.cotizacion,
+            "estatus": estatus,
+            "lock_version": lock_version_esperado + 1,
+        }
+        self.cotizacion = updated
         return updated
 
     async def get_items_cotizacion(self, conn, cotizacion_id):
@@ -105,6 +177,7 @@ class FakeSeleccionCotizacionDB:
             if match:
                 rows.append({
                     "id_item": item_id,
+                    "id_bom": self.cotizacion["bom_id"],
                     "descripcion": match.get("descripcion", "Item"),
                     "cantidad": match.get("cantidad", 1),
                     "precio_unitario": match.get("precio_unitario"),
@@ -117,14 +190,36 @@ class FakeSeleccionCotizacionDB:
     async def actualizar_estatus_compra_items(self, conn, item_ids, estatus):
         self.estatus_items.append((list(item_ids), estatus))
 
-    async def upsert_item_ejecucion(self, conn, item_id, updated_by=None, **campos):
+    async def lock_items_context_by_ids(self, conn, item_ids):
+        return await self.get_items_by_ids(conn, item_ids)
+
+    async def upsert_item_ejecucion(
+        self, conn, item_id, updated_by=None, lock_version_esperado=None,
+        **campos,
+    ):
         self.execution_updates.append((item_id, updated_by, campos))
+        return {"id_item": item_id, **campos}
 
     async def get_autorizacion_by_cotizacion(self, conn, cotizacion_id):
         return {"id": uuid4()}
 
     async def get_bom_by_id(self, conn, bom_id):
-        return {"id_proyecto": uuid4(), "estatus": "APROBADO_FINAL", "coordinador_obra": None}
+        return {
+            "id_bom": bom_id,
+            "id_proyecto": uuid4(),
+            "id_paquete": uuid4(),
+            "estatus": "APROBADO_FINAL",
+            "es_cabeza_trabajo": True,
+            "es_cabeza_oficial": True,
+            "estado_paquete": "ACTIVO",
+            "coordinador_obra": None,
+        }
+
+    async def get_bom_for_update(self, conn, bom_id):
+        return await self.get_bom_by_id(conn, bom_id)
+
+    async def registrar_evento_outbox(self, *args, **kwargs):
+        return None
 
 
 def _item(item_id, bom_id, proyecto_id, *, estatus="BORRADOR", activo=True, bloqueado=False):
@@ -134,6 +229,9 @@ def _item(item_id, bom_id, proyecto_id, *, estatus="BORRADOR", activo=True, bloq
         "id_proyecto": proyecto_id,
         "bom_estatus": estatus,
         "bom_version": 1,
+        "bom_lock_version": 0,
+        "ejecucion_lock_version": 0,
+        "id_paquete": uuid4(),
         "activo": activo,
         "bloqueado": bloqueado,
         "cantidad": 10,
@@ -153,51 +251,71 @@ def _service(items, **db_kwargs):
 
 
 @pytest.mark.asyncio
-async def test_bulk_grupos_omite_item_de_otro_bom_sin_mutarlo():
+async def test_bulk_grupos_rechaza_lote_si_un_item_es_de_otro_bom():
     bom_id = uuid4()
     otro_bom_id = uuid4()
     proyecto_id = uuid4()
     item_valido = uuid4()
     item_externo = uuid4()
+    user_id = uuid4()
     svc = _service([
         _item(item_valido, bom_id, proyecto_id),
         _item(item_externo, otro_bom_id, proyecto_id),
-    ])
+    ], actor_id=user_id)
 
-    resultado = await svc.editar_items_bulk(
-        FakeConn(), bom_id, [item_valido, item_externo], uuid4(),
-        "construccion", "grupos", grupo_ids=[1],
-    )
+    with pytest.raises(ValueError, match="no pertenece a este BOM"):
+        await svc.editar_items_bulk(
+            FakeConn(), bom_id, [item_valido, item_externo], user_id,
+            "construccion", "grupos", grupo_ids=[1], lock_version_esperado=0,
+            module_roles={"construccion": "editor"},
+        )
 
-    assert resultado["actualizados"] == 1
-    assert resultado["omitidos"] == [
-        {"id_item": item_externo, "motivo": "El item no pertenece a este BOM"}
-    ]
-    assert svc.db.grupo_calls == [(item_valido, [1])]
+    assert svc.db.grupo_calls == []
 
 
 @pytest.mark.asyncio
-async def test_bulk_grupos_omite_items_bloqueados_o_en_estado_final():
+async def test_bulk_grupos_rechaza_lote_si_un_item_esta_bloqueado():
     bom_id = uuid4()
     proyecto_id = uuid4()
     item_bloqueado = uuid4()
     item_final = uuid4()
+    user_id = uuid4()
     svc = _service([
         _item(item_bloqueado, bom_id, proyecto_id, bloqueado=True),
         _item(item_final, bom_id, proyecto_id, estatus="APROBADO_FINAL"),
-    ])
+    ], actor_id=user_id)
 
-    resultado = await svc.editar_items_bulk(
-        FakeConn(), bom_id, [item_bloqueado, item_final], uuid4(),
-        "construccion", "grupos", grupo_ids=[1, 2],
+    with pytest.raises(ValueError, match="version anterior"):
+        await svc.editar_items_bulk(
+                FakeConn(), bom_id, [item_bloqueado, item_final], user_id,
+                "construccion", "grupos", grupo_ids=[1], lock_version_esperado=0,
+                module_roles={"construccion": "editor"},
+        )
+
+    assert svc.db.grupo_calls == []
+
+
+@pytest.mark.asyncio
+async def test_bulk_rechaza_lock_bom_obsoleto_sin_mutar_items():
+    bom_id = uuid4()
+    proyecto_id = uuid4()
+    item_id = uuid4()
+    user_id = uuid4()
+    svc = _service(
+        [_item(item_id, bom_id, proyecto_id)],
+        actor_id=user_id,
     )
 
-    assert resultado["actualizados"] == 0
-    assert [omitido["id_item"] for omitido in resultado["omitidos"]] == [
-        item_bloqueado,
-        item_final,
-    ]
+    with pytest.raises(ValueError, match="El BOM cambio"):
+        await svc.editar_items_bulk(
+            FakeConn(), bom_id, [item_id], user_id,
+            "construccion", "grupos", grupo_ids=[1],
+            lock_version_esperado=99,
+            module_roles={"construccion": "editor"},
+        )
+
     assert svc.db.grupo_calls == []
+    assert svc.db.base_updates == []
 
 
 @pytest.mark.asyncio
@@ -207,21 +325,12 @@ async def test_bulk_grupos_ingenieria_exige_jefe_o_ingeniero_asignado():
     item_id = uuid4()
     svc = _service([_item(item_id, bom_id, proyecto_id)])
 
-    resultado = await svc.editar_items_bulk(
-        FakeConn(), bom_id, [item_id], uuid4(),
-        "ingenieria", "grupos", grupo_ids=[1],
-    )
+    with pytest.raises(ValueError, match="Solo Ingenieria puede modificar"):
+        await svc.editar_items_bulk(
+            FakeConn(), bom_id, [item_id], uuid4(),
+            "ingenieria", "grupos", grupo_ids=[1], lock_version_esperado=0,
+        )
 
-    assert resultado["actualizados"] == 0
-    assert resultado["omitidos"] == [
-        {
-            "id_item": item_id,
-            "motivo": (
-                "Solo el jefe de Ingenieria o el ingeniero asignado pueden "
-                "crear o retomar el BOM"
-            ),
-        }
-    ]
     assert svc.db.grupo_calls == []
 
 
@@ -239,7 +348,7 @@ async def test_editar_item_compras_rechaza_precio_negativo():
             FakeConn(), item_id, uuid4(), "compras", precio_unitario="-1"
         )
 
-    assert str(exc.value) == "El precio unitario no puede ser negativo"
+    assert str(exc.value) == "El costo real no puede ser negativo"
 
 
 @pytest.mark.asyncio
@@ -255,7 +364,9 @@ async def test_editar_item_compras_aprobado_final_actualiza_ejecucion_no_base():
 
     updated = await svc.editar_item(
         FakeConn(), item_id, user_id, "compras",
-        precio_real="125.50", id_proveedor=proveedor_id, moneda_real="MXN"
+        precio_real="125.50", id_proveedor=proveedor_id, moneda_real="MXN",
+        ejecucion_lock_version_esperado=0,
+        module_roles={"compras": "editor"},
     )
 
     assert updated["precio_unitario"] == 100
@@ -276,6 +387,31 @@ async def test_editar_item_compras_aprobado_final_actualiza_ejecucion_no_base():
 
 
 @pytest.mark.asyncio
+async def test_editar_ejecucion_rechaza_lock_faltante_y_obsoleto():
+    bom_id = uuid4()
+    item_id = uuid4()
+    svc = _service([
+        _item(item_id, bom_id, uuid4(), estatus="APROBADO_FINAL"),
+    ])
+
+    with pytest.raises(ValueError, match="Falta la revisión de ejecución"):
+        await svc.editar_item(
+            FakeConn(), item_id, uuid4(), "compras", precio_real="125",
+            module_roles={"compras": "editor"},
+        )
+
+    svc.db.items[item_id]["ejecucion_lock_version"] = 2
+    with pytest.raises(ValueError, match="ejecución del item cambió"):
+        await svc.editar_item(
+            FakeConn(), item_id, uuid4(), "compras", precio_real="125",
+            ejecucion_lock_version_esperado=1,
+            module_roles={"compras": "editor"},
+        )
+
+    assert svc.db.execution_updates == []
+
+
+@pytest.mark.asyncio
 async def test_editar_item_construccion_aprobado_final_actualiza_recepcion_no_base():
     bom_id = uuid4()
     proyecto_id = uuid4()
@@ -286,7 +422,9 @@ async def test_editar_item_construccion_aprobado_final_actualiza_recepcion_no_ba
     ])
 
     updated = await svc.editar_item(
-        FakeConn(), item_id, user_id, "construccion", cantidad_recibida="4"
+        FakeConn(), item_id, user_id, "construccion", cantidad_recibida="4",
+        ejecucion_lock_version_esperado=0,
+        module_roles={"construccion": "editor"},
     )
 
     assert updated["cantidad_recibida"] == "4"
@@ -304,37 +442,42 @@ async def test_editar_item_construccion_aprobado_final_actualiza_recepcion_no_ba
 
 
 @pytest.mark.asyncio
-async def test_editar_item_construccion_en_revision_no_muta_fecha_base_directo():
+async def test_editar_item_construccion_en_revision_muta_base_durante_su_turno():
     bom_id = uuid4()
     proyecto_id = uuid4()
     item_id = uuid4()
+    user_id = uuid4()
     svc = _service([
         _item(item_id, bom_id, proyecto_id, estatus="EN_REVISION_CONST"),
-    ])
+    ], actor_id=user_id)
 
-    with pytest.raises(ValueError, match="propuesta"):
-        await svc.editar_item(
-            FakeConn(), item_id, uuid4(), "construccion",
-            fecha_requerida="2026-07-01"
-        )
+    await svc.editar_item(
+        FakeConn(), item_id, user_id, "construccion",
+        fecha_requerida="2026-07-01", lock_version_esperado=0,
+        module_roles={"construccion": "editor"},
+    )
 
-    assert svc.db.base_updates == []
+    assert svc.db.base_updates == [(item_id, {"fecha_requerida": "2026-07-01"})]
     assert svc.db.execution_updates == []
 
 
 @pytest.mark.asyncio
-async def test_set_item_grupos_construccion_en_revision_no_muta_base_directo():
+async def test_set_item_grupos_construccion_en_revision_muta_base_durante_su_turno():
     bom_id = uuid4()
     proyecto_id = uuid4()
     item_id = uuid4()
+    user_id = uuid4()
     svc = _service([
         _item(item_id, bom_id, proyecto_id, estatus="EN_REVISION_CONST"),
-    ])
+    ], actor_id=user_id)
 
-    with pytest.raises(ValueError, match="propuesta"):
-        await svc.set_item_grupos(FakeConn(), item_id, uuid4(), [1], "construccion")
+    await svc.set_item_grupos(
+        FakeConn(), item_id, user_id, [1], "construccion",
+        lock_version_esperado=0,
+        module_roles={"construccion": "editor"},
+    )
 
-    assert svc.db.grupo_calls == []
+    assert svc.db.grupo_calls == [(item_id, [1])]
 
 
 @pytest.mark.asyncio
@@ -346,7 +489,7 @@ async def test_editar_item_ingenieria_aprobado_final_rechaza_presupuesto_base():
         _item(item_id, bom_id, proyecto_id, estatus="APROBADO_FINAL"),
     ], es_jefe=True)
 
-    with pytest.raises(ValueError, match="El BOM no esta en estado editable para ingenieria"):
+    with pytest.raises(ValueError, match="Operacion downstream"):
         await svc.editar_item(
             FakeConn(), item_id, uuid4(), "ingenieria", precio_unitario="90"
         )
@@ -367,6 +510,7 @@ async def test_seleccionar_cotizacion_registra_costo_real_sin_actualizar_base():
             "id": cotizacion_id,
             "bom_id": uuid4(),
             "estatus": "RECIBIDA",
+            "lock_version": 0,
             "proveedor_id": proveedor_id,
             "moneda": "MXN",
             "pdf_url": "https://example.com/cotizacion.pdf",
@@ -381,7 +525,9 @@ async def test_seleccionar_cotizacion_registra_costo_real_sin_actualizar_base():
         ],
     )
 
-    await svc.seleccionar_cotizacion(FakeConn(), cotizacion_id, user_id)
+    await svc.seleccionar_cotizacion(
+        FakeConn(), cotizacion_id, user_id, lock_version_esperado=0
+    )
 
     assert svc.db.estatus_items == [([item_id], "COTIZADO")]
     assert svc.db.execution_updates == [

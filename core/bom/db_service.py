@@ -51,60 +51,470 @@ class BomDBService(BomComprasDBMixin):
 
     # ─── BOM CABECERA ───────────────────────────────────────
 
+    async def listar_paquetes_proyecto(self, conn, id_proyecto: UUID) -> List[dict]:
+        """Lista paquetes y sus dos cabezas sin consultas N+1."""
+        rows = await conn.fetch(
+            """
+            SELECT
+                p.*,
+                creador.nombre AS creado_por_nombre,
+                ingeniero.nombre AS ingeniero_responsable_nombre,
+                trabajo.version AS version_trabajo,
+                trabajo.estatus AS estatus_trabajo,
+                trabajo.lock_version AS bom_lock_version,
+                oficial.version AS version_oficial,
+                oficial.fecha_aprobacion_final AS fecha_aprobacion_oficial,
+                COALESCE(items.total_items, 0) AS total_items,
+                items.total_mxn AS total_trabajo_mxn,
+                items.total_usd AS total_trabajo_usd
+            FROM tb_bom_paquetes p
+            LEFT JOIN tb_usuarios creador ON creador.id_usuario = p.creado_por
+            LEFT JOIN tb_usuarios ingeniero ON ingeniero.id_usuario = p.ingeniero_responsable_id
+            LEFT JOIN tb_bom trabajo ON trabajo.id_bom = p.cabeza_trabajo_id
+            LEFT JOIN tb_bom oficial ON oficial.id_bom = p.cabeza_oficial_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    COUNT(*) FILTER (WHERE i.activo) AS total_items,
+                    CASE WHEN COUNT(*) FILTER (
+                        WHERE i.activo AND (
+                            i.cantidad IS NULL OR i.precio_unitario IS NULL
+                            OR i.moneda IS NULL OR i.moneda NOT IN ('MXN', 'USD')
+                        )
+                    ) > 0 THEN NULL ELSE COALESCE(SUM(
+                        i.cantidad * i.precio_unitario
+                    ) FILTER (WHERE i.activo AND i.moneda = 'MXN'), 0) END
+                        AS total_mxn,
+                    CASE WHEN COUNT(*) FILTER (
+                        WHERE i.activo AND (
+                            i.cantidad IS NULL OR i.precio_unitario IS NULL
+                            OR i.moneda IS NULL OR i.moneda NOT IN ('MXN', 'USD')
+                        )
+                    ) > 0 THEN NULL ELSE COALESCE(SUM(
+                        i.cantidad * i.precio_unitario
+                    ) FILTER (WHERE i.activo AND i.moneda = 'USD'), 0) END
+                        AS total_usd
+                FROM tb_bom_items i
+                WHERE i.id_bom = p.cabeza_trabajo_id
+            ) items ON TRUE
+            WHERE p.id_proyecto = $1
+              AND p.estado_paquete <> 'CANCELADO'
+            ORDER BY p.created_at, p.id_paquete
+            """,
+            id_proyecto,
+        )
+        return [dict(row) for row in rows]
+
+    async def get_paquete_by_id(self, conn, id_paquete: UUID) -> Optional[dict]:
+        row = await conn.fetchrow(
+            """
+            SELECT p.*,
+                   u.nombre AS ingeniero_responsable_nombre,
+                   t.version AS version_trabajo,
+                   t.estatus AS estatus_trabajo,
+                   o.version AS version_oficial
+            FROM tb_bom_paquetes p
+            LEFT JOIN tb_usuarios u ON u.id_usuario = p.ingeniero_responsable_id
+            LEFT JOIN tb_bom t ON t.id_bom = p.cabeza_trabajo_id
+            LEFT JOIN tb_bom o ON o.id_bom = p.cabeza_oficial_id
+            WHERE p.id_paquete = $1
+            """,
+            id_paquete,
+        )
+        return dict(row) if row else None
+
+    async def get_paquete_for_update(self, conn, id_paquete: UUID) -> Optional[dict]:
+        row = await conn.fetchrow(
+            "SELECT * FROM tb_bom_paquetes WHERE id_paquete = $1 FOR UPDATE",
+            id_paquete,
+        )
+        return dict(row) if row else None
+
+    async def get_bom_for_update(self, conn, id_bom: UUID) -> Optional[dict]:
+        """Bloquea paquete y version, en ese orden, y devuelve cabezas actuales."""
+        row = await conn.fetchrow(
+            """
+            WITH paquete AS MATERIALIZED (
+                SELECT p.*
+                FROM tb_bom_paquetes p
+                WHERE p.id_paquete = (
+                    SELECT referencia.id_paquete
+                    FROM tb_bom referencia
+                    WHERE referencia.id_bom = $1
+                )
+                FOR UPDATE OF p
+            )
+            SELECT b.*,
+                   p.estado_paquete,
+                   p.cabeza_trabajo_id,
+                   p.cabeza_oficial_id,
+                   (p.cabeza_trabajo_id = b.id_bom) AS es_cabeza_trabajo,
+                   (p.cabeza_oficial_id = b.id_bom) AS es_cabeza_oficial
+            FROM tb_bom b
+            JOIN paquete p ON p.id_paquete = b.id_paquete
+            WHERE b.id_bom = $1
+            FOR UPDATE OF b
+            """,
+            id_bom,
+        )
+        return dict(row) if row else None
+
+    async def incrementar_lock_bom_cas(
+        self, conn, id_bom: UUID, lock_version_esperado: int,
+        estatus_esperado: str,
+    ) -> Optional[dict]:
+        """Reserva una mutacion base; el primer formulario vigente gana."""
+        row = await conn.fetchrow(
+            """
+            WITH paquete AS MATERIALIZED (
+                SELECT p.id_paquete
+                FROM tb_bom_paquetes p
+                WHERE p.id_paquete = (
+                    SELECT referencia.id_paquete
+                    FROM tb_bom referencia
+                    WHERE referencia.id_bom = $1
+                )
+                  AND p.estado_paquete = 'ACTIVO'
+                  AND p.cabeza_trabajo_id = $1
+                FOR UPDATE OF p
+            )
+            UPDATE tb_bom b
+            SET lock_version = b.lock_version + 1,
+                updated_at = NOW()
+            FROM paquete p
+            WHERE b.id_bom = $1
+              AND b.lock_version = $2
+              AND b.estatus = $3
+              AND p.id_paquete = b.id_paquete
+            RETURNING b.*
+            """,
+            id_bom, lock_version_esperado, estatus_esperado,
+        )
+        return dict(row) if row else None
+
+    async def get_estado_proyecto_for_update(self, conn, id_proyecto: UUID) -> dict:
+        await conn.execute(
+            """
+            INSERT INTO tb_bom_proyecto_estado (id_proyecto)
+            VALUES ($1)
+            ON CONFLICT (id_proyecto) DO NOTHING
+            """,
+            id_proyecto,
+        )
+        row = await conn.fetchrow(
+            "SELECT * FROM tb_bom_proyecto_estado WHERE id_proyecto = $1 FOR UPDATE",
+            id_proyecto,
+        )
+        return dict(row)
+
+    async def get_estado_proyecto(self, conn, id_proyecto: UUID) -> Optional[dict]:
+        row = await conn.fetchrow(
+            "SELECT * FROM tb_bom_proyecto_estado WHERE id_proyecto = $1",
+            id_proyecto,
+        )
+        return dict(row) if row else None
+
+    async def actualizar_captura_proyecto_cas(
+        self, conn, id_proyecto: UUID, lock_version_esperado: int,
+        captura_cerrada: bool, actor_id: UUID, motivo: str,
+        modulos_fv_snapshot: Optional[int] = None,
+        potencia_pico_kwp_snapshot=None,
+    ) -> Optional[dict]:
+        row = await conn.fetchrow(
+            """
+            UPDATE tb_bom_proyecto_estado
+            SET captura_cerrada = $3,
+                cerrada_por = CASE WHEN $3 THEN $4 ELSE NULL END,
+                cerrada_en = CASE WHEN $3 THEN NOW() ELSE NULL END,
+                motivo = $5,
+                actualizado_por = $4,
+                cambio_estado_en = NOW(),
+                modulos_fv_snapshot = CASE WHEN $3 THEN $6 ELSE modulos_fv_snapshot END,
+                potencia_pico_kwp_snapshot = CASE WHEN $3 THEN $7 ELSE potencia_pico_kwp_snapshot END,
+                lock_version = lock_version + 1,
+                updated_at = NOW()
+            WHERE id_proyecto = $1
+              AND lock_version = $2
+            RETURNING *
+            """,
+            id_proyecto, lock_version_esperado, captura_cerrada, actor_id, motivo,
+            modulos_fv_snapshot, potencia_pico_kwp_snapshot,
+        )
+        return dict(row) if row else None
+
+    async def get_siguiente_codigo_paquete(self, conn, id_proyecto: UUID) -> str:
+        numero = await conn.fetchval(
+            """
+            SELECT COALESCE(MAX(
+                CASE
+                    WHEN codigo ~ '^BOM-[0-9]+$'
+                    THEN SUBSTRING(codigo FROM 5)::INTEGER
+                    ELSE 0
+                END
+            ), 0) + 1
+            FROM tb_bom_paquetes
+            WHERE id_proyecto = $1
+            """,
+            id_proyecto,
+        )
+        return f"BOM-{numero:03d}"
+
+    async def crear_paquete(
+        self, conn, id_proyecto: UUID, codigo: str, nombre: str,
+        tipo_alcance: str, descripcion_alcance: Optional[str], creado_por: UUID,
+        ingeniero_responsable_id: UUID, responsable_ing_id: Optional[UUID],
+        coordinador_obra_id: Optional[UUID], jefe_construccion_id: Optional[UUID],
+        clave_idempotencia: str,
+    ) -> dict:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO tb_bom_paquetes (
+                id_proyecto, codigo, nombre, tipo_alcance, descripcion_alcance,
+                creado_por, ingeniero_responsable_id, responsable_ing_id,
+                coordinador_obra_id, jefe_construccion_id, clave_idempotencia
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            RETURNING *
+            """,
+            id_proyecto, codigo, nombre, tipo_alcance, descripcion_alcance,
+            creado_por, ingeniero_responsable_id, responsable_ing_id,
+            coordinador_obra_id, jefe_construccion_id, clave_idempotencia,
+        )
+        return dict(row)
+
+    async def get_paquete_por_clave_idempotencia(
+        self, conn, id_proyecto: UUID, clave_idempotencia: str,
+    ) -> Optional[dict]:
+        row = await conn.fetchrow(
+            """
+            SELECT *
+            FROM tb_bom_paquetes
+            WHERE id_proyecto = $1
+              AND clave_idempotencia = $2
+            """,
+            id_proyecto, clave_idempotencia,
+        )
+        return dict(row) if row else None
+
+    async def actualizar_cabeza_trabajo(
+        self, conn, id_paquete: UUID, id_bom: UUID,
+        lock_version_esperado: int,
+    ) -> Optional[dict]:
+        row = await conn.fetchrow(
+            """
+            UPDATE tb_bom_paquetes
+            SET cabeza_trabajo_id = $2,
+                lock_version = lock_version + 1,
+                updated_at = NOW()
+            WHERE id_paquete = $1
+              AND lock_version = $3
+            RETURNING *
+            """,
+            id_paquete, id_bom, lock_version_esperado,
+        )
+        return dict(row) if row else None
+
+    async def actualizar_cabeza_oficial(
+        self, conn, id_paquete: UUID, id_bom: UUID,
+        lock_version_esperado: int,
+    ) -> Optional[dict]:
+        row = await conn.fetchrow(
+            """
+            UPDATE tb_bom_paquetes
+            SET cabeza_oficial_id = $2,
+                cabeza_trabajo_id = $2,
+                lock_version = lock_version + 1,
+                updated_at = NOW()
+            WHERE id_paquete = $1
+              AND lock_version = $3
+            RETURNING *
+            """,
+            id_paquete, id_bom, lock_version_esperado,
+        )
+        return dict(row) if row else None
+
+    async def actualizar_estado_paquete_cas(
+        self, conn, id_paquete: UUID, lock_version_esperado: int,
+        estado_esperado: str, nuevo_estado: str,
+    ) -> Optional[dict]:
+        row = await conn.fetchrow(
+            """
+            UPDATE tb_bom_paquetes
+            SET estado_paquete = $4,
+                lock_version = lock_version + 1,
+                updated_at = NOW()
+            WHERE id_paquete = $1
+              AND lock_version = $2
+              AND estado_paquete = $3
+            RETURNING *
+            """,
+            id_paquete, lock_version_esperado, estado_esperado, nuevo_estado,
+        )
+        return dict(row) if row else None
+
+    async def reclasificar_paquete_cas(
+        self, conn, id_paquete: UUID, lock_version_esperado: int,
+        tipo_alcance: str, nombre: str, descripcion_alcance: Optional[str],
+    ) -> Optional[dict]:
+        row = await conn.fetchrow(
+            """
+            UPDATE tb_bom_paquetes
+            SET tipo_alcance = $3,
+                nombre = $4,
+                descripcion_alcance = $5,
+                lock_version = lock_version + 1,
+                updated_at = NOW()
+            WHERE id_paquete = $1
+              AND lock_version = $2
+              AND estado_paquete <> 'CANCELADO'
+            RETURNING *
+            """,
+            id_paquete, lock_version_esperado, tipo_alcance,
+            nombre, descripcion_alcance,
+        )
+        return dict(row) if row else None
+
+    async def reasignar_paquete_borrador_cas(
+        self, conn, id_paquete: UUID, id_bom: UUID,
+        lock_version_paquete: int, lock_version_bom: int,
+        ingeniero_responsable_id: UUID, responsable_ing_id: Optional[UUID],
+        coordinador_obra_id: Optional[UUID], jefe_construccion_id: Optional[UUID],
+    ) -> Optional[dict]:
+        paquete = await conn.fetchrow(
+            """
+            UPDATE tb_bom_paquetes
+            SET ingeniero_responsable_id = $4,
+                responsable_ing_id = $5,
+                coordinador_obra_id = $6,
+                jefe_construccion_id = $7,
+                lock_version = lock_version + 1,
+                updated_at = NOW()
+            WHERE id_paquete = $1
+              AND cabeza_trabajo_id = $2
+              AND lock_version = $3
+              AND estado_paquete = 'ACTIVO'
+            RETURNING *
+            """,
+            id_paquete, id_bom, lock_version_paquete,
+            ingeniero_responsable_id, responsable_ing_id,
+            coordinador_obra_id, jefe_construccion_id,
+        )
+        if not paquete:
+            return None
+        bom = await conn.fetchrow(
+            """
+            UPDATE tb_bom
+            SET ingeniero_responsable_id = $3,
+                responsable_ing = $4,
+                coordinador_obra = $5,
+                jefe_construccion = $6,
+                lock_version = lock_version + 1,
+                updated_at = NOW()
+            WHERE id_bom = $1
+              AND lock_version = $2
+              AND estatus = 'BORRADOR'
+            RETURNING *
+            """,
+            id_bom, lock_version_bom, ingeniero_responsable_id,
+            responsable_ing_id, coordinador_obra_id, jefe_construccion_id,
+        )
+        return dict(bom) if bom else None
+
+    async def get_actividad_downstream_paquete(
+        self, conn, id_paquete: UUID,
+    ) -> bool:
+        existe = await conn.fetchval(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM tb_bom b
+                JOIN tb_bom_cotizaciones c ON c.bom_id = b.id_bom
+                WHERE b.id_paquete = $1
+                UNION ALL
+                SELECT 1
+                FROM tb_bom b
+                JOIN tb_bom_adendas a ON a.id_bom_base = b.id_bom
+                WHERE b.id_paquete = $1
+                UNION ALL
+                SELECT 1
+                FROM tb_bom b
+                JOIN tb_bom_item_ejecucion e ON EXISTS (
+                    SELECT 1 FROM tb_bom_items i
+                    WHERE i.id_item = e.id_item AND i.id_bom = b.id_bom
+                )
+                WHERE b.id_paquete = $1
+            )
+            """,
+            id_paquete,
+        )
+        return bool(existe)
+
+    async def listar_versiones_paquete(self, conn, id_paquete: UUID) -> List[dict]:
+        rows = await conn.fetch(
+            """
+            SELECT b.id_bom, b.id_paquete, b.version, b.estatus, b.lock_version,
+                   b.created_at AT TIME ZONE 'America/Mexico_City' AS created_at,
+                   b.fecha_aprobacion_final,
+                   u.nombre AS elaborado_por_nombre
+            FROM tb_bom b
+            LEFT JOIN tb_usuarios u ON u.id_usuario = b.elaborado_por
+            WHERE b.id_paquete = $1
+            ORDER BY b.version DESC
+            """,
+            id_paquete,
+        )
+        return [dict(row) for row in rows]
+
+    async def get_bom_cabeza_trabajo(self, conn, id_paquete: UUID) -> Optional[dict]:
+        id_bom = await conn.fetchval(
+            "SELECT cabeza_trabajo_id FROM tb_bom_paquetes WHERE id_paquete = $1",
+            id_paquete,
+        )
+        return await self.get_bom_by_id(conn, id_bom) if id_bom else None
+
+    async def get_bom_cabeza_oficial(self, conn, id_paquete: UUID) -> Optional[dict]:
+        id_bom = await conn.fetchval(
+            "SELECT cabeza_oficial_id FROM tb_bom_paquetes WHERE id_paquete = $1",
+            id_paquete,
+        )
+        return await self.get_bom_by_id(conn, id_bom) if id_bom else None
+
     async def crear_bom(
         self, conn, id_proyecto: UUID, elaborado_por: UUID,
         responsable_ing: Optional[UUID] = None,
         jefe_construccion: Optional[UUID] = None,
         coordinador_obra: Optional[UUID] = None,
         notas: Optional[str] = None,
-        version: int = 1
+        version: int = 1,
+        id_paquete: Optional[UUID] = None,
+        ingeniero_responsable_id: Optional[UUID] = None,
     ) -> dict:
         """Crea un nuevo BOM para un proyecto."""
         row = await conn.fetchrow("""
-            INSERT INTO tb_bom (id_proyecto, version, estatus, elaborado_por,
+            INSERT INTO tb_bom (id_proyecto, id_paquete, version, estatus, elaborado_por,
+                                ingeniero_responsable_id,
                                 responsable_ing, jefe_construccion,
                                 coordinador_obra, notas)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
-        """, id_proyecto, version, EstatusBOM.BORRADOR.value, elaborado_por,
+        """, id_proyecto, id_paquete, version, EstatusBOM.BORRADOR.value,
+            elaborado_por, ingeniero_responsable_id or elaborado_por,
             responsable_ing, jefe_construccion, coordinador_obra, notas)
         return dict(row)
-
-    async def get_bom_by_proyecto(self, conn, id_proyecto: UUID) -> Optional[dict]:
-        """Obtiene el BOM mas reciente (mayor version) de un proyecto."""
-        row = await conn.fetchrow("""
-            SELECT b.*,
-                   u1.nombre AS elaborado_por_nombre,
-                   u2.nombre AS responsable_ing_nombre,
-                   u3.nombre AS jefe_construccion_nombre,
-                   u4.nombre AS coordinador_obra_nombre,
-                   o.nombre_proyecto AS proyecto_nombre,
-                   p.id_oportunidad,
-                   p.proyecto_id_estandar,
-                   COALESCE(items.total, 0) AS total_items,
-                   COALESCE(items.entregados, 0) AS items_entregados
-            FROM tb_bom b
-            LEFT JOIN tb_usuarios u1 ON u1.id_usuario = b.elaborado_por
-            LEFT JOIN tb_usuarios u2 ON u2.id_usuario = b.responsable_ing
-            LEFT JOIN tb_usuarios u3 ON u3.id_usuario = b.jefe_construccion
-            LEFT JOIN tb_usuarios u4 ON u4.id_usuario = b.coordinador_obra
-            LEFT JOIN tb_proyectos_gate p ON p.id_proyecto = b.id_proyecto
-            LEFT JOIN tb_oportunidades o ON o.id_oportunidad = p.id_oportunidad
-            LEFT JOIN LATERAL (
-                SELECT COUNT(*) FILTER (WHERE activo) AS total,
-                       COUNT(*) FILTER (WHERE activo AND entregado) AS entregados
-                FROM tb_bom_items WHERE id_bom = b.id_bom
-            ) items ON TRUE
-            WHERE b.id_proyecto = $1 AND b.estatus != 'CANCELADO'
-            ORDER BY b.version DESC
-            LIMIT 1
-        """, id_proyecto)
-        return dict(row) if row else None
 
     async def get_bom_by_id(self, conn, id_bom: UUID) -> Optional[dict]:
         """Obtiene un BOM por su ID con datos de usuarios y proyecto."""
         row = await conn.fetchrow("""
             SELECT b.*,
+                   paquete.codigo AS paquete_codigo,
+                   paquete.nombre AS paquete_nombre,
+                   paquete.tipo_alcance,
+                   paquete.descripcion_alcance,
+                   paquete.estado_paquete,
+                   paquete.cabeza_trabajo_id,
+                   paquete.cabeza_oficial_id,
+                   paquete.lock_version AS paquete_lock_version,
+                   (paquete.cabeza_trabajo_id = b.id_bom) AS es_cabeza_trabajo,
+                   (paquete.cabeza_oficial_id = b.id_bom) AS es_cabeza_oficial,
                    u1.nombre AS elaborado_por_nombre,
                    u2.nombre AS responsable_ing_nombre,
                    u3.nombre AS jefe_construccion_nombre,
@@ -115,6 +525,7 @@ class BomDBService(BomComprasDBMixin):
                    COALESCE(items.total, 0) AS total_items,
                    COALESCE(items.entregados, 0) AS items_entregados
             FROM tb_bom b
+            JOIN tb_bom_paquetes paquete ON paquete.id_paquete = b.id_paquete
             LEFT JOIN tb_usuarios u1 ON u1.id_usuario = b.elaborado_por
             LEFT JOIN tb_usuarios u2 ON u2.id_usuario = b.responsable_ing
             LEFT JOIN tb_usuarios u3 ON u3.id_usuario = b.jefe_construccion
@@ -130,74 +541,675 @@ class BomDBService(BomComprasDBMixin):
         """, id_bom)
         return dict(row) if row else None
 
-    async def get_bom_borrador_by_proyecto(self, conn, id_proyecto: UUID) -> Optional[dict]:
-        """Verifica si existe un BOM en BORRADOR para el proyecto."""
-        row = await conn.fetchrow("""
-            SELECT id_bom, version, estatus
-            FROM tb_bom
-            WHERE id_proyecto = $1 AND estatus = $2
-            ORDER BY version DESC
-            LIMIT 1
-        """, id_proyecto, EstatusBOM.BORRADOR.value)
-        return dict(row) if row else None
-
-    async def update_bom_estatus(
-        self, conn, id_bom: UUID, estatus: str,
-        **kwargs
-    ) -> dict:
-        """Actualiza estatus y campos opcionales del BOM."""
-        sets = ["estatus = $2", "updated_at = NOW()"]
-        params = [id_bom, estatus]
-        idx = 3
-
+    async def update_bom_estatus_cas(
+        self, conn, id_bom: UUID, estatus_esperado: str,
+        lock_version_esperado: int, nuevo_estatus: str, **kwargs,
+    ) -> Optional[dict]:
+        """Transicion condicional: estado y revision deben seguir vigentes."""
+        sets = ["estatus = $4", "lock_version = lock_version + 1", "updated_at = NOW()"]
+        params = [id_bom, estatus_esperado, lock_version_esperado, nuevo_estatus]
         campo_map = {
-            'fecha_envio_ing': 'fecha_envio_ing',
-            'fecha_aprobacion_ing': 'fecha_aprobacion_ing',
-            'fecha_envio_obra': 'fecha_envio_obra',
-            'fecha_aprobacion_obra': 'fecha_aprobacion_obra',
-            'fecha_envio_const': 'fecha_envio_const',
-            'fecha_aprobacion_const': 'fecha_aprobacion_const',
-            'fecha_envio_final': 'fecha_envio_final',
-            'fecha_aprobacion_final': 'fecha_aprobacion_final',
-            'responsable_ing': 'responsable_ing',
-            'jefe_construccion': 'jefe_construccion',
-            'coordinador_obra': 'coordinador_obra',
-            'notas': 'notas',
+            "fecha_envio_ing": "fecha_envio_ing",
+            "fecha_aprobacion_ing": "fecha_aprobacion_ing",
+            "fecha_envio_obra": "fecha_envio_obra",
+            "fecha_aprobacion_obra": "fecha_aprobacion_obra",
+            "fecha_envio_const": "fecha_envio_const",
+            "fecha_aprobacion_const": "fecha_aprobacion_const",
+            "fecha_envio_final": "fecha_envio_final",
+            "fecha_aprobacion_final": "fecha_aprobacion_final",
+            "responsable_ing": "responsable_ing",
+            "jefe_construccion": "jefe_construccion",
+            "coordinador_obra": "coordinador_obra",
+            "notas": "notas",
+            "modulos_fv_snapshot": "modulos_fv_snapshot",
+            "potencia_pico_kwp_snapshot": "potencia_pico_kwp_snapshot",
+            "tipo_cambio_aprobacion": "tipo_cambio_aprobacion",
+            "fecha_tipo_cambio_aprobacion": "fecha_tipo_cambio_aprobacion",
+            "subtotal_base_mxn_snapshot": "subtotal_base_mxn_snapshot",
+            "subtotal_base_usd_snapshot": "subtotal_base_usd_snapshot",
+            "total_aprobado_mxn": "total_aprobado_mxn",
         }
-
-        for key, col in campo_map.items():
+        for key, column in campo_map.items():
             if key in kwargs:
-                sets.append(f"{col} = ${idx}")
                 params.append(kwargs[key])
-                idx += 1
-
-        query = f"""
-            UPDATE tb_bom SET {', '.join(sets)}
-            WHERE id_bom = $1
-            RETURNING *
-        """
-        row = await conn.fetchrow(query, *params)
+                sets.append(f"{column} = ${len(params)}")
+        row = await conn.fetchrow(
+            f"""
+            WITH paquete AS MATERIALIZED (
+                SELECT p.id_paquete
+                FROM tb_bom_paquetes p
+                WHERE p.id_paquete = (
+                    SELECT referencia.id_paquete
+                    FROM tb_bom referencia
+                    WHERE referencia.id_bom = $1
+                )
+                  AND p.estado_paquete = 'ACTIVO'
+                  AND p.cabeza_trabajo_id = $1
+                FOR UPDATE OF p
+            )
+            UPDATE tb_bom AS b
+            SET {', '.join(sets)}
+            FROM paquete AS p
+            WHERE b.id_bom = $1
+              AND b.estatus = $2
+              AND b.lock_version = $3
+              AND p.id_paquete = b.id_paquete
+            RETURNING b.*
+            """,
+            *params,
+        )
         return dict(row) if row else None
 
-    async def get_max_version(self, conn, id_proyecto: UUID) -> int:
-        """Obtiene la version maxima de BOM para un proyecto."""
-        val = await conn.fetchval("""
-            SELECT COALESCE(MAX(version), 0) FROM tb_bom WHERE id_proyecto = $1
-        """, id_proyecto)
-        return val
+    async def invalidar_aprobaciones_vigentes(
+        self, conn, id_bom: UUID, invalidada_por: UUID,
+    ) -> None:
+        await conn.execute(
+            """
+            UPDATE tb_bom_aprobaciones
+            SET vigente = FALSE,
+                invalidada_en = NOW(),
+                invalidada_por = $2
+            WHERE id_bom = $1
+              AND vigente = TRUE
+            """,
+            id_bom, invalidada_por,
+        )
 
-    async def get_all_bom_versions(self, conn, id_proyecto: UUID) -> List[dict]:
-        """Lista todas las versiones de BOM de un proyecto."""
-        rows = await conn.fetch("""
-            SELECT b.id_bom, b.version, b.estatus,
-                   b.created_at AT TIME ZONE 'America/Mexico_City' AS created_at,
-                   u.nombre AS elaborado_por_nombre
-            FROM tb_bom b
-            LEFT JOIN tb_usuarios u ON u.id_usuario = b.elaborado_por
-            WHERE b.id_proyecto = $1
-            ORDER BY b.version DESC
-        """, id_proyecto)
-        return [dict(r) for r in rows]
+    async def registrar_evento_outbox(
+        self, conn, clave_idempotencia: str, tipo_evento: str,
+        id_proyecto: UUID, actor_id: UUID, payload: dict,
+        id_paquete: Optional[UUID] = None, id_bom: Optional[UUID] = None,
+        id_item: Optional[UUID] = None, id_documento: Optional[UUID] = None,
+    ) -> dict:
+        url_destino = (
+            f"/bom/paquetes/{id_paquete}/ui"
+            if id_paquete else f"/bom/{id_proyecto}/ui"
+        )
+        paquete_codigo = await conn.fetchval(
+            """
+            SELECT codigo FROM tb_bom_paquetes
+            WHERE ($1::UUID IS NOT NULL AND id_paquete = $1)
+               OR ($1::UUID IS NULL AND id_proyecto = $2 AND estado_paquete = 'ACTIVO')
+            LIMIT 1
+            """,
+            id_paquete, id_proyecto,
+        )
+        payload_completo = {
+            **payload,
+            "id_proyecto": str(id_proyecto),
+            "id_paquete": str(id_paquete) if id_paquete else None,
+            "id_bom": str(id_bom) if id_bom else None,
+            "id_item": str(id_item) if id_item else None,
+            "id_documento": str(id_documento) if id_documento else None,
+            "paquete_codigo": paquete_codigo,
+            "url_destino": url_destino,
+            "payload_version": 1,
+        }
+        row = await conn.fetchrow(
+            """
+            INSERT INTO tb_bom_eventos_outbox (
+                clave_idempotencia, tipo_evento, id_proyecto, id_paquete,
+                id_bom, id_item, id_documento, actor_id, payload,
+                payload_version, url_destino
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, 1, $10)
+            ON CONFLICT (clave_idempotencia) DO UPDATE SET
+                clave_idempotencia = tb_bom_eventos_outbox.clave_idempotencia
+            RETURNING *
+            """,
+            clave_idempotencia, tipo_evento, id_proyecto, id_paquete,
+            id_bom, id_item, id_documento, actor_id,
+            json.dumps(payload_completo), url_destino,
+        )
+        evento = dict(row)
+        await conn.execute(
+            """
+            WITH paquete AS (
+                SELECT p.*
+                FROM tb_bom_paquetes p
+                WHERE ($2::UUID IS NOT NULL AND p.id_paquete = $2)
+                   OR ($2::UUID IS NULL AND p.id_proyecto = $3
+                       AND p.estado_paquete = 'ACTIVO')
+            ), direccion AS (
+                SELECT CASE
+                    WHEN cfg.valor ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+                    THEN cfg.valor::UUID
+                    ELSE NULL
+                END AS titular_id
+                FROM tb_configuracion_global cfg
+                WHERE cfg.clave = 'bom_aprobador_final_id'
+            ), candidatos_paquete AS (
+                SELECT candidato.rol, candidato.titular_id
+                FROM paquete p
+                CROSS JOIN LATERAL (
+                    VALUES
+                        ('INGENIERO', p.ingeniero_responsable_id),
+                        ('RESPONSABLE_ING', p.responsable_ing_id),
+                        ('COORDINADOR_OBRA', p.coordinador_obra_id),
+                        ('JEFE_CONSTRUCCION', p.jefe_construccion_id)
+                ) candidato(rol, titular_id)
+            ), titulares AS (
+                SELECT DISTINCT titular_id
+                FROM candidatos_paquete
+                WHERE titular_id IS NOT NULL
+                  AND (
+                      ($7 = 'ENVIO_REVISION_ING' AND rol = 'RESPONSABLE_ING')
+                      OR ($7 IN ('APROBACION_ING', 'ENVIO_REVISION_OBRA',
+                                 'COTIZACION_SELECCIONADA')
+                          AND rol = 'COORDINADOR_OBRA')
+                      OR ($7 IN ('RECHAZO_ING', 'COTIZACION_RECHAZADA')
+                          AND rol = 'INGENIERO')
+                      OR ($7 IN ('APROBACION_OBRA', 'ENVIO_REVISION_CONST')
+                          AND rol = 'JEFE_CONSTRUCCION')
+                      OR ($7 IN ('RECHAZO_OBRA', 'RECHAZO_CONST',
+                                 'RECHAZO_FINAL', 'ADENDA_RECHAZADA')
+                          AND rol IN ('INGENIERO', 'RESPONSABLE_ING'))
+                      OR ($7 = 'ADENDA_PENDIENTE_INGENIERIA'
+                          AND rol = 'RESPONSABLE_ING')
+                      OR ($7 IN ('PAQUETE_CREADO', 'PAQUETE_ACTIVO',
+                                 'PAQUETE_ARCHIVADO', 'PAQUETE_CANCELADO',
+                                 'PAQUETE_RECLASIFICADO', 'PAQUETE_REASIGNADO',
+                                 'CAPTURA_CERRADA', 'CAPTURA_REABIERTA',
+                                 'CANCELACION', 'NUEVA_VERSION',
+                                 'APROBACION_FINAL', 'ADENDA_APROBADA')
+                          AND rol IN ('INGENIERO', 'RESPONSABLE_ING',
+                                      'COORDINADOR_OBRA', 'JEFE_CONSTRUCCION'))
+                  )
+                UNION
+                SELECT titular_id
+                FROM direccion
+                WHERE titular_id IS NOT NULL
+                  AND $7 IN ('APROBACION_CONST', 'ENVIO_REVISION_FINAL',
+                             'COTIZACION_APROBACION_SOLICITADA',
+                             'AUTORIZACION_OBRA')
+                UNION
+                SELECT autorizacion.creado_por
+                FROM tb_bom_autorizaciones autorizacion
+                WHERE autorizacion.id = $8
+                  AND $7 IN ('AUTORIZACION_DIRECCION', 'AUTORIZACION_FINANZAS',
+                             'AUTORIZACION_RECHAZADA',
+                             'AUTORIZACION_PAGO_PARCIAL', 'AUTORIZACION_PAGADA')
+                UNION
+                SELECT aprobacion.solicitado_por
+                FROM tb_bom_cotizacion_aprobaciones aprobacion
+                WHERE aprobacion.id = $8
+                  AND $7 IN ('COTIZACION_APROBACION_APROBADA',
+                             'COTIZACION_APROBACION_RECHAZADA')
+                UNION
+                SELECT adenda.creado_por
+                FROM tb_bom_adendas adenda
+                WHERE adenda.id_adenda = $8
+                  AND $7 IN ('ADENDA_APROBADA', 'ADENDA_RECHAZADA')
+                UNION
+                SELECT propuesta.creado_por
+                FROM tb_bom_propuestas_cambio propuesta
+                WHERE propuesta.id_propuesta = $8
+                  AND $7 IN ('PROPUESTA_APLICADA', 'PROPUESTA_RECHAZADA')
+            ), destinos AS (
+                SELECT DISTINCT ON (COALESCE(s.suplente_id, t.titular_id))
+                    COALESCE(s.suplente_id, t.titular_id) AS destinatario_id,
+                    t.titular_id,
+                    u.email
+                FROM titulares t
+                LEFT JOIN LATERAL (
+                    SELECT suplente_id
+                    FROM tb_bom_suplencias
+                    WHERE titular_id = t.titular_id
+                      AND activo = TRUE
+                      AND fecha_fin >= (NOW() AT TIME ZONE 'America/Mexico_City')::DATE
+                    ORDER BY fecha_fin DESC, created_at DESC
+                    LIMIT 1
+                ) s ON TRUE
+                JOIN tb_usuarios u
+                  ON u.id_usuario = COALESCE(s.suplente_id, t.titular_id)
+                 AND u.is_active = TRUE
+                WHERE COALESCE(s.suplente_id, t.titular_id) <> $4
+                ORDER BY COALESCE(s.suplente_id, t.titular_id), t.titular_id
+            ), canales AS (
+                SELECT 'INTERNA'::VARCHAR AS canal
+                UNION ALL SELECT 'CORREO'::VARCHAR
+            )
+            INSERT INTO tb_bom_evento_entregas (
+                id_evento, canal, destinatario_id, titular_id,
+                direccion_destino, clave_idempotencia, payload, payload_version
+            )
+            SELECT
+                $1,
+                canal.canal,
+                destino.destinatario_id,
+                destino.titular_id,
+                CASE WHEN canal.canal = 'CORREO' THEN destino.email END,
+                $5 || ':' || canal.canal || ':' || destino.destinatario_id::TEXT,
+                $6::JSONB,
+                1
+            FROM destinos destino
+            CROSS JOIN canales canal
+            WHERE canal.canal <> 'CORREO' OR destino.email IS NOT NULL
+            ON CONFLICT (id_evento, canal, destinatario_id) DO NOTHING
+            """,
+            evento["id_evento"], id_paquete, id_proyecto, actor_id,
+            clave_idempotencia, json.dumps(payload_completo), tipo_evento,
+            id_documento,
+        )
+        return evento
+
+    async def lock_configuracion_proyecto(self, conn, id_proyecto: UUID) -> None:
+        await conn.fetchval(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+            f"bom-config-proyecto:{id_proyecto}",
+        )
+
+    async def get_metricas_paneles_proyecto(self, conn, id_proyecto: UUID) -> dict:
+        row = await conn.fetchrow(
+            """
+            SELECT
+                SUM(pp.cantidad)::INTEGER AS modulos_fv,
+                (SUM(pp.cantidad * panel.potencia_w)::NUMERIC / 1000)
+                    ::NUMERIC(16,6)
+                    AS potencia_pico_kwp
+            FROM tb_proyecto_paneles pp
+            JOIN tb_cat_paneles_fv panel ON panel.id = pp.id_panel
+            WHERE pp.id_proyecto = $1
+            """,
+            id_proyecto,
+        )
+        return dict(row)
+
+    async def get_totales_base_por_moneda(self, conn, id_bom: UUID) -> dict:
+        row = await conn.fetchrow(
+            """
+            SELECT
+                COALESCE(SUM(i.cantidad * i.precio_unitario)
+                    FILTER (WHERE i.activo AND i.moneda = 'MXN'), 0)
+                    AS total_mxn,
+                COALESCE(SUM(i.cantidad * i.precio_unitario)
+                    FILTER (WHERE i.activo AND i.moneda = 'USD'), 0)
+                    AS total_usd,
+                COUNT(*) FILTER (
+                    WHERE i.activo
+                      AND (
+                          i.precio_unitario IS NULL
+                          OR i.moneda IS NULL
+                          OR i.moneda NOT IN ('MXN', 'USD')
+                      )
+                ) AS costos_desconocidos
+            FROM tb_bom_items i
+            WHERE i.id_bom = $1
+            """,
+            id_bom,
+        )
+        return dict(row)
+
+    async def get_consolidado_paquetes(
+        self, conn, id_proyecto: UUID, modo: str,
+    ) -> List[dict]:
+        """Resumen financiero por paquete usando exactamente una cabeza por paquete."""
+        rows = await conn.fetch(
+            """
+            WITH seleccion AS (
+                SELECT
+                    p.id_paquete,
+                    p.codigo,
+                    p.nombre,
+                    p.tipo_alcance,
+                    p.descripcion_alcance,
+                    p.ingeniero_responsable_id,
+                    CASE WHEN $2 = 'OFICIAL'
+                        THEN p.cabeza_oficial_id
+                        ELSE p.cabeza_trabajo_id
+                    END AS id_bom
+                FROM tb_bom_paquetes p
+                WHERE p.id_proyecto = $1
+                  AND p.estado_paquete = 'ACTIVO'
+            ), base AS (
+                SELECT
+                    s.id_paquete,
+                    COALESCE(SUM(i.cantidad * i.precio_unitario)
+                        FILTER (
+                            WHERE i.activo
+                              AND i.moneda = 'MXN'
+                              AND COALESCE(e.estatus_ejecucion, '')
+                                  NOT IN ('REEMPLAZADO', 'NO_ADQUIRIDO')
+                        ), 0) AS base_vivo_mxn,
+                    COALESCE(SUM(i.cantidad * i.precio_unitario)
+                        FILTER (
+                            WHERE i.activo
+                              AND i.moneda = 'USD'
+                              AND COALESCE(e.estatus_ejecucion, '')
+                                  NOT IN ('REEMPLAZADO', 'NO_ADQUIRIDO')
+                        ), 0) AS base_vivo_usd,
+                    COUNT(*) FILTER (
+                        WHERE i.activo
+                          AND (
+                              i.precio_unitario IS NULL
+                              OR i.moneda IS NULL
+                              OR i.moneda NOT IN ('MXN', 'USD')
+                          )
+                    ) AS costos_desconocidos,
+                    COUNT(i.id_item) FILTER (WHERE i.activo) AS total_items
+                FROM seleccion s
+                LEFT JOIN tb_bom_items i ON i.id_bom = s.id_bom
+                LEFT JOIN tb_bom_item_ejecucion e ON e.id_item = i.id_item
+                GROUP BY s.id_paquete
+            ), adendas AS (
+                SELECT
+                    s.id_paquete,
+                    COALESCE(SUM(a.impacto_base_mxn_snapshot), 0) AS impacto_mxn,
+                    COALESCE(SUM(a.impacto_base_usd_snapshot), 0) AS impacto_usd,
+                    COALESCE(SUM(a.impacto_aprobado_mxn), 0) AS impacto_total_mxn
+                FROM seleccion s
+                LEFT JOIN tb_bom_adendas a
+                    ON a.id_bom_base = s.id_bom AND a.estatus = 'APROBADA'
+                GROUP BY s.id_paquete
+            ), cotizado AS (
+                SELECT
+                    b.id_paquete,
+                    COALESCE(SUM(c.total) FILTER (WHERE c.moneda = 'MXN'), 0) AS mxn,
+                    COALESCE(SUM(c.total) FILTER (WHERE c.moneda = 'USD'), 0) AS usd
+                FROM tb_bom b
+                JOIN tb_bom_cotizaciones c ON c.bom_id = b.id_bom
+                WHERE b.id_proyecto = $1
+                  AND c.estatus = 'SELECCIONADA'
+                GROUP BY b.id_paquete
+            ), autorizado AS (
+                SELECT
+                    b.id_paquete,
+                    COALESCE(SUM(a.monto_total) FILTER (WHERE a.moneda = 'MXN'), 0) AS mxn,
+                    COALESCE(SUM(a.monto_total) FILTER (WHERE a.moneda = 'USD'), 0) AS usd,
+                    CASE WHEN COUNT(*) FILTER (
+                        WHERE a.moneda IS NULL
+                           OR a.moneda NOT IN ('MXN', 'USD')
+                           OR (a.moneda = 'USD' AND a.tipo_cambio_snapshot IS NULL)
+                    ) > 0 THEN NULL ELSE COALESCE(SUM(
+                        CASE WHEN a.moneda = 'USD'
+                            THEN a.monto_total * a.tipo_cambio_snapshot
+                            ELSE a.monto_total
+                        END
+                    ), 0) END AS total_mxn
+                FROM tb_bom b
+                JOIN tb_bom_autorizaciones a ON a.bom_id = b.id_bom
+                WHERE b.id_proyecto = $1
+                  AND a.estatus IN ('AUTORIZADO_FINANZAS', 'PAGO_PARCIAL', 'PAGADO')
+                GROUP BY b.id_paquete
+            ), facturado AS (
+                SELECT
+                    asignacion.id_paquete,
+                    COALESCE(SUM(asignacion.importe_asignado) FILTER (
+                        WHERE asignacion.moneda = 'MXN'
+                    ), 0) AS mxn,
+                    COALESCE(SUM(asignacion.importe_asignado) FILTER (
+                        WHERE asignacion.moneda = 'USD'
+                    ), 0) AS usd,
+                    CASE WHEN COUNT(*) FILTER (
+                        WHERE asignacion.moneda = 'USD'
+                          AND material.tipo_cambio_xml IS NULL
+                    ) > 0 THEN NULL ELSE COALESCE(SUM(
+                        CASE WHEN asignacion.moneda = 'USD'
+                            THEN asignacion.importe_asignado * material.tipo_cambio_xml
+                            ELSE asignacion.importe_asignado
+                        END
+                    ), 0) END AS total_mxn
+                FROM tb_bom_concepto_asignaciones asignacion
+                JOIN tb_materiales_historial material
+                  ON material.id = asignacion.id_material
+                JOIN tb_bom b
+                  ON b.id_bom = asignacion.id_bom AND b.id_proyecto = $1
+                GROUP BY asignacion.id_paquete
+            ), pagado AS (
+                SELECT
+                    b.id_paquete,
+                    COALESCE(SUM(p.monto_pagado) FILTER (WHERE p.moneda = 'MXN'), 0) AS mxn,
+                    COALESCE(SUM(p.monto_pagado) FILTER (WHERE p.moneda = 'USD'), 0) AS usd,
+                    CASE WHEN COUNT(*) FILTER (
+                        WHERE p.moneda = 'USD' AND p.tipo_cambio_usado IS NULL
+                    ) > 0 THEN NULL ELSE COALESCE(SUM(
+                        CASE WHEN p.moneda = 'USD'
+                            THEN p.monto_pagado * p.tipo_cambio_usado
+                            ELSE p.monto_pagado
+                        END
+                    ), 0) END AS total_mxn
+                FROM tb_bom_pagos p
+                JOIN tb_bom_autorizaciones a ON a.id = p.autorizacion_id
+                JOIN tb_bom b ON b.id_bom = a.bom_id AND b.id_proyecto = $1
+                GROUP BY b.id_paquete
+            )
+            SELECT
+                s.*,
+                b.version,
+                b.estatus,
+                b.fecha_aprobacion_final,
+                b.fecha_tipo_cambio_aprobacion,
+                b.tipo_cambio_aprobacion,
+                b.modulos_fv_snapshot,
+                b.potencia_pico_kwp_snapshot,
+                base.total_items,
+                CASE WHEN $2 = 'OFICIAL'
+                    THEN b.subtotal_base_mxn_snapshot + ad.impacto_mxn
+                    ELSE base.base_vivo_mxn
+                END AS presupuesto_mxn,
+                CASE WHEN $2 = 'OFICIAL'
+                    THEN b.subtotal_base_usd_snapshot + ad.impacto_usd
+                    ELSE base.base_vivo_usd
+                END AS presupuesto_usd,
+                CASE WHEN $2 = 'OFICIAL'
+                    THEN b.total_aprobado_mxn + ad.impacto_total_mxn
+                    WHEN base.costos_desconocidos > 0 THEN NULL
+                    WHEN base.base_vivo_usd <> 0 AND b.tipo_cambio_aprobacion IS NULL THEN NULL
+                    ELSE base.base_vivo_mxn
+                        + (base.base_vivo_usd * COALESCE(b.tipo_cambio_aprobacion, 0))
+                END AS presupuesto_total_mxn,
+                COALESCE(cot.mxn, 0) AS cotizado_mxn,
+                COALESCE(cot.usd, 0) AS cotizado_usd,
+                COALESCE(aut.mxn, 0) AS autorizado_mxn,
+                COALESCE(aut.usd, 0) AS autorizado_usd,
+                CASE WHEN aut.id_paquete IS NULL THEN 0 ELSE aut.total_mxn END
+                    AS autorizado_total_mxn,
+                COALESCE(fac.mxn, 0) AS facturado_mxn,
+                COALESCE(fac.usd, 0) AS facturado_usd,
+                CASE WHEN fac.id_paquete IS NULL THEN 0 ELSE fac.total_mxn END
+                    AS facturado_total_mxn,
+                COALESCE(pag.mxn, 0) AS pagado_mxn,
+                COALESCE(pag.usd, 0) AS pagado_usd,
+                CASE WHEN pag.id_paquete IS NULL THEN 0 ELSE pag.total_mxn END
+                    AS pagado_total_mxn
+            FROM seleccion s
+            JOIN tb_bom b ON b.id_bom = s.id_bom
+            LEFT JOIN base ON base.id_paquete = s.id_paquete
+            LEFT JOIN adendas ad ON ad.id_paquete = s.id_paquete
+            LEFT JOIN cotizado cot ON cot.id_paquete = s.id_paquete
+            LEFT JOIN autorizado aut ON aut.id_paquete = s.id_paquete
+            LEFT JOIN facturado fac ON fac.id_paquete = s.id_paquete
+            LEFT JOIN pagado pag ON pag.id_paquete = s.id_paquete
+            WHERE s.id_bom IS NOT NULL
+            ORDER BY s.codigo, s.id_paquete
+            """,
+            id_proyecto, modo,
+        )
+        return [dict(row) for row in rows]
+
+    async def get_consolidado_lineas(
+        self, conn, id_proyecto: UUID, modo: str,
+    ) -> List[dict]:
+        """Lineas con procedencia, linea estable y posibles solapamientos."""
+        rows = await conn.fetch(
+            """
+            WITH seleccion AS (
+                SELECT
+                    p.id_paquete,
+                    p.codigo,
+                    p.nombre,
+                    CASE WHEN $2 = 'OFICIAL'
+                        THEN p.cabeza_oficial_id
+                        ELSE p.cabeza_trabajo_id
+                    END AS id_bom
+                FROM tb_bom_paquetes p
+                WHERE p.id_proyecto = $1
+                  AND p.estado_paquete = 'ACTIVO'
+            ), lineas AS (
+                SELECT
+                    s.id_paquete,
+                    s.codigo AS paquete_codigo,
+                    s.nombre AS paquete_nombre,
+                    b.id_bom,
+                    b.version,
+                    i.id_item,
+                    i.id_linea_bom,
+                    i.descripcion,
+                    i.cantidad,
+                    i.unidad_medida,
+                    i.moneda,
+                    i.precio_unitario,
+                    i.tipo_origen_item,
+                    COALESCE(e.estatus_ejecucion, i.estatus_compra, 'PENDIENTE')
+                        AS estado_ejecucion,
+                    COALESCE(e.cantidad_recibida, 0) AS cantidad_recibida,
+                    ARRAY_REMOVE(ARRAY_AGG(DISTINCT g.codigo ORDER BY g.codigo), NULL)
+                        AS grupos,
+                    COALESCE((
+                        SELECT JSONB_OBJECT_AGG(
+                            distribucion.grupo_codigo_snapshot,
+                            distribucion.porcentaje
+                            ORDER BY distribucion.grupo_codigo_snapshot
+                        )
+                        FROM tb_bom_item_grupo_asignaciones distribucion
+                        WHERE distribucion.id_bom_item = i.id_item
+                          AND ABS((
+                              SELECT SUM(otra.porcentaje)
+                              FROM tb_bom_item_grupo_asignaciones otra
+                              WHERE otra.id_bom_item = i.id_item
+                          ) - 1) <= 0.000001
+                    ), '{}'::jsonb) AS distribucion_grupos,
+                    REGEXP_REPLACE(UPPER(TRIM(i.descripcion)), '\\s+', ' ', 'g')
+                        AS descripcion_normalizada
+                FROM seleccion s
+                JOIN tb_bom b ON b.id_bom = s.id_bom
+                JOIN tb_bom_items i ON i.id_bom = b.id_bom AND i.activo
+                LEFT JOIN tb_bom_item_ejecucion e ON e.id_item = i.id_item
+                LEFT JOIN tb_bom_item_grupos ig ON ig.id_item = i.id_item
+                LEFT JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo
+                GROUP BY s.id_paquete, s.codigo, s.nombre, b.id_bom, b.version,
+                         i.id_item, e.estatus_ejecucion, e.cantidad_recibida
+            ), solapamientos AS (
+                SELECT
+                    descripcion_normalizada,
+                    COUNT(DISTINCT id_paquete) AS paquetes,
+                    ARRAY_AGG(DISTINCT paquete_codigo ORDER BY paquete_codigo)
+                        AS paquetes_origen
+                FROM lineas
+                WHERE descripcion_normalizada <> ''
+                GROUP BY descripcion_normalizada
+                HAVING COUNT(DISTINCT id_paquete) > 1
+            ), facturas AS (
+                SELECT
+                    asignacion.id_linea_bom,
+                    CASE WHEN COUNT(*) FILTER (
+                        WHERE asignacion.moneda = 'USD'
+                          AND material.tipo_cambio_xml IS NULL
+                    ) > 0 THEN NULL ELSE COALESCE(SUM(
+                        CASE WHEN asignacion.moneda = 'USD'
+                             THEN asignacion.importe_asignado * material.tipo_cambio_xml
+                             ELSE asignacion.importe_asignado END
+                    ), 0) END AS facturado
+                FROM tb_bom_concepto_asignaciones asignacion
+                JOIN tb_materiales_historial material
+                  ON material.id = asignacion.id_material
+                JOIN tb_bom b
+                  ON b.id_bom = asignacion.id_bom AND b.id_proyecto = $1
+                GROUP BY asignacion.id_linea_bom
+            ), facturas_grupo_filas AS (
+                SELECT
+                    asignacion.id_linea_bom,
+                    COALESCE(grupo.grupo_codigo_snapshot, 'PENDIENTE_ASIGNACION')
+                        AS codigo,
+                    CASE WHEN grupo.id_asignacion_grupo IS NULL
+                         THEN asignacion.importe_asignado
+                         ELSE grupo.importe_asignado END AS importe_asignado,
+                    asignacion.moneda,
+                    material.tipo_cambio_xml
+                FROM tb_bom_concepto_asignaciones asignacion
+                JOIN tb_materiales_historial material
+                  ON material.id = asignacion.id_material
+                JOIN tb_bom b
+                  ON b.id_bom = asignacion.id_bom AND b.id_proyecto = $1
+                LEFT JOIN tb_bom_hecho_grupo_asignaciones grupo
+                  ON grupo.id_asignacion_concepto = asignacion.id_asignacion
+
+                UNION ALL
+
+                SELECT
+                    asignacion.id_linea_bom,
+                    'PENDIENTE_ASIGNACION',
+                    asignacion.importe_asignado
+                        - COALESCE(SUM(grupo.importe_asignado), 0),
+                    asignacion.moneda,
+                    material.tipo_cambio_xml
+                FROM tb_bom_concepto_asignaciones asignacion
+                JOIN tb_materiales_historial material
+                  ON material.id = asignacion.id_material
+                JOIN tb_bom b
+                  ON b.id_bom = asignacion.id_bom AND b.id_proyecto = $1
+                JOIN tb_bom_hecho_grupo_asignaciones grupo
+                  ON grupo.id_asignacion_concepto = asignacion.id_asignacion
+                WHERE asignacion.asignacion_grupo_completa = FALSE
+                GROUP BY asignacion.id_asignacion, asignacion.id_linea_bom,
+                         asignacion.importe_asignado, asignacion.moneda,
+                         material.tipo_cambio_xml
+                HAVING ABS(
+                    asignacion.importe_asignado
+                    - COALESCE(SUM(grupo.importe_asignado), 0)
+                ) > 0.000001
+            ), facturas_grupo AS (
+                SELECT id_linea_bom, codigo,
+                    CASE WHEN COUNT(*) FILTER (
+                        WHERE moneda = 'USD' AND tipo_cambio_xml IS NULL
+                    ) > 0 THEN NULL ELSE SUM(
+                        CASE WHEN moneda = 'USD'
+                             THEN importe_asignado * tipo_cambio_xml
+                             ELSE importe_asignado END
+                    ) END AS facturado_mxn
+                FROM facturas_grupo_filas
+                GROUP BY id_linea_bom, codigo
+            ), facturas_grupo_json AS (
+                SELECT id_linea_bom,
+                       JSONB_OBJECT_AGG(codigo, facturado_mxn) AS importes
+                FROM facturas_grupo
+                GROUP BY id_linea_bom
+            )
+            SELECT
+                l.*,
+                l.cantidad * l.precio_unitario AS costo_estimado,
+                CASE WHEN f.id_linea_bom IS NULL THEN 0 ELSE f.facturado END
+                    AS costo_facturado,
+                COALESCE(fg.importes, '{}'::jsonb) AS facturado_por_grupo,
+                COALESCE(s.paquetes, 0) > 1 AS posible_solapamiento,
+                COALESCE(s.paquetes_origen, ARRAY[]::VARCHAR[]) AS paquetes_solapados
+            FROM lineas l
+            LEFT JOIN facturas f ON f.id_linea_bom = l.id_linea_bom
+            LEFT JOIN facturas_grupo_json fg ON fg.id_linea_bom = l.id_linea_bom
+            LEFT JOIN solapamientos s
+                ON s.descripcion_normalizada = l.descripcion_normalizada
+            ORDER BY l.paquete_codigo, l.version, l.descripcion, l.id_item
+            """,
+            id_proyecto, modo,
+        )
+        return [dict(row) for row in rows]
+
+    async def get_divisor_oficial_consolidado(
+        self, conn, id_proyecto: UUID,
+    ) -> Optional[dict]:
+        """Snapshot FV congelado al ultimo cierre de captura del proyecto."""
+        row = await conn.fetchrow(
+            """
+            SELECT id_proyecto, captura_cerrada, cerrada_en,
+                   modulos_fv_snapshot, potencia_pico_kwp_snapshot
+            FROM tb_bom_proyecto_estado
+            WHERE id_proyecto = $1
+              AND modulos_fv_snapshot IS NOT NULL
+              AND potencia_pico_kwp_snapshot IS NOT NULL
+            """,
+            id_proyecto,
+        )
+        return dict(row) if row else None
 
     # ─── BOM ITEMS ──────────────────────────────────────────
 
@@ -217,19 +1229,43 @@ class BomDBService(BomComprasDBMixin):
         id_item_reemplazado: Optional[UUID] = None,
         motivo_adenda: Optional[str] = None,
         creado_en_adenda: Optional[UUID] = None,
+        id_linea_bom: Optional[UUID] = None,
+        creado_por: Optional[UUID] = None,
     ) -> dict:
         """Agrega un item al BOM."""
+        id_paquete = await conn.fetchval(
+            "SELECT id_paquete FROM tb_bom WHERE id_bom = $1",
+            id_bom,
+        )
+        if id_linea_bom is None:
+            id_linea_reemplazada = None
+            if id_item_reemplazado:
+                id_linea_reemplazada = await conn.fetchval(
+                    "SELECT id_linea_bom FROM tb_bom_items WHERE id_item = $1",
+                    id_item_reemplazado,
+                )
+            id_linea_bom = await conn.fetchval(
+                """
+                INSERT INTO tb_bom_lineas (
+                    id_paquete, id_linea_reemplazada, creado_por
+                )
+                VALUES ($1, $2, $3)
+                RETURNING id_linea_bom
+                """,
+                id_paquete, id_linea_reemplazada, creado_por,
+            )
         row = await conn.fetchrow("""
-            INSERT INTO tb_bom_items (id_bom, id_categoria, descripcion,
+            INSERT INTO tb_bom_items (id_bom, id_paquete, id_linea_bom,
+                                      id_categoria, descripcion,
                                       cantidad, unidad_medida, comentarios, orden,
                                       precio_unitario, origen_precio, id_material_ref,
                                       id_material_interno, tipo_partida, moneda,
                                       tipo_origen_item, id_item_reemplazado,
                                       motivo_adenda, creado_en_adenda)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                    $14, $15, $16, $17)
+                    $14, $15, $16, $17, $18, $19)
             RETURNING *
-        """, id_bom, id_categoria, descripcion, cantidad,
+        """, id_bom, id_paquete, id_linea_bom, id_categoria, descripcion, cantidad,
             unidad_medida, comentarios, orden,
             precio_unitario, origen_precio, id_material_ref,
             id_material_interno, tipo_partida, moneda,
@@ -263,8 +1299,9 @@ class BomDBService(BomComprasDBMixin):
                    er.tipo_entrega AS tipo_entrega_real,
                    er.estatus_ejecucion,
                    er.comentarios_operativos,
-                   (i.cantidad * COALESCE(i.precio_unitario, 0)) AS importe_base,
-                   (i.cantidad * COALESCE(er.precio_real, 0)) AS importe_real
+                   COALESCE(er.lock_version, 0) AS ejecucion_lock_version,
+                   (i.cantidad * i.precio_unitario) AS importe_base,
+                   (i.cantidad * er.precio_real) AS importe_real
             FROM tb_bom_items i
             LEFT JOIN tb_cat_categorias_compra c ON c.id = i.id_categoria
             LEFT JOIN tb_proveedores p ON p.id_proveedor = i.id_proveedor
@@ -365,11 +1402,13 @@ class BomDBService(BomComprasDBMixin):
                    er.tipo_entrega AS tipo_entrega_real,
                    er.estatus_ejecucion,
                    er.comentarios_operativos,
+                   COALESCE(er.lock_version, 0) AS ejecucion_lock_version,
                    b.estatus AS bom_estatus,
                    b.id_proyecto,
+                   b.id_paquete,
                    b.version AS bom_version,
-                   (i.cantidad * COALESCE(i.precio_unitario, 0)) AS importe_base,
-                   (i.cantidad * COALESCE(er.precio_real, 0)) AS importe_real
+                   (i.cantidad * i.precio_unitario) AS importe_base,
+                   (i.cantidad * er.precio_real) AS importe_real
             FROM tb_bom_items i
             LEFT JOIN tb_cat_categorias_compra c ON c.id = i.id_categoria
             LEFT JOIN tb_proveedores p ON p.id_proveedor = i.id_proveedor
@@ -383,7 +1422,8 @@ class BomDBService(BomComprasDBMixin):
     async def get_items_by_ids(self, conn, item_ids: List[UUID]) -> List[dict]:
         """Obtiene varios items por lista de IDs. Solo items activos."""
         rows = await conn.fetch("""
-            SELECT i.id_item, i.descripcion, i.cantidad, i.moneda,
+            SELECT i.id_item, i.id_bom, i.id_paquete,
+                   i.descripcion, i.cantidad, i.moneda,
                    i.estatus_compra, i.activo, i.precio_unitario, i.origen_precio,
                    COALESCE(i.tipo_origen_item, 'BASE') AS tipo_origen_item,
                    i.id_item_reemplazado, i.creado_en_adenda,
@@ -410,6 +1450,26 @@ class BomDBService(BomComprasDBMixin):
             WHERE i.id_item = ANY($1::uuid[])
         """, item_ids)
         return [dict(r) for r in rows]
+
+    async def lock_items_context_by_ids(
+        self, conn, item_ids: List[UUID],
+    ) -> List[dict]:
+        """Bloquea items en orden estable y devuelve su contexto de BOM."""
+        rows = await conn.fetch("""
+            SELECT i.*,
+                   er.estatus_ejecucion,
+                   er.lock_version AS ejecucion_lock_version,
+                   b.estatus AS bom_estatus,
+                   b.id_proyecto,
+                   b.version AS bom_version
+            FROM tb_bom_items i
+            LEFT JOIN tb_bom_item_ejecucion er ON er.id_item = i.id_item
+            JOIN tb_bom b ON b.id_bom = i.id_bom
+            WHERE i.id_item = ANY($1::uuid[])
+            ORDER BY i.id_item
+            FOR UPDATE OF i
+        """, item_ids)
+        return [dict(row) for row in rows]
 
     async def update_item(self, conn, id_item: UUID, **campos) -> dict:
         """Actualiza campos de un item. Solo actualiza los campos proporcionados."""
@@ -441,7 +1501,8 @@ class BomDBService(BomComprasDBMixin):
         return dict(row) if row else None
 
     async def upsert_item_ejecucion(
-        self, conn, id_item: UUID, updated_by: Optional[UUID] = None, **campos
+        self, conn, id_item: UUID, updated_by: Optional[UUID] = None,
+        lock_version_esperado: Optional[int] = None, **campos,
     ) -> Optional[dict]:
         """Inserta o actualiza los datos reales de ejecucion/compra de un item."""
         allowed = {
@@ -459,22 +1520,74 @@ class BomDBService(BomComprasDBMixin):
         if not data:
             return await self.get_item_by_id(conn, id_item)
 
-        columns = ["id_item", *data.keys(), "updated_by"]
-        params = [id_item, *data.values(), updated_by]
-        placeholders = ", ".join(f"${idx}" for idx in range(1, len(params) + 1))
-        updates = ", ".join(
-            f"{key} = EXCLUDED.{key}" for key in data
-        )
-        query = f"""
-            INSERT INTO tb_bom_item_ejecucion ({', '.join(columns)})
-            VALUES ({placeholders})
+        if lock_version_esperado is None:
+            raise ValueError("Falta la versión esperada de ejecución del ítem")
+
+        data_json = json.dumps(data, default=str)
+        row = await conn.fetchrow(
+            """
+            INSERT INTO tb_bom_item_ejecucion (
+                id_item, id_proveedor_real, precio_real, moneda_real,
+                cantidad_recibida, fecha_estimada_entrega, fecha_llegada_real,
+                tipo_entrega, estatus_ejecucion, comentarios_operativos,
+                updated_by, lock_version
+            )
+            SELECT
+                $1,
+                (datos->>'id_proveedor_real')::uuid,
+                (datos->>'precio_real')::numeric,
+                datos->>'moneda_real',
+                COALESCE((datos->>'cantidad_recibida')::numeric, 0),
+                (datos->>'fecha_estimada_entrega')::date,
+                (datos->>'fecha_llegada_real')::date,
+                datos->>'tipo_entrega',
+                COALESCE(datos->>'estatus_ejecucion', 'PENDIENTE'),
+                datos->>'comentarios_operativos',
+                $3,
+                1
+            FROM (SELECT $2::jsonb AS datos) entrada
+            WHERE $4 = 0 OR EXISTS (
+                SELECT 1 FROM tb_bom_item_ejecucion existente
+                WHERE existente.id_item = $1
+            )
             ON CONFLICT (id_item) DO UPDATE
-            SET {updates},
+            SET id_proveedor_real = CASE WHEN $2::jsonb ? 'id_proveedor_real'
+                    THEN EXCLUDED.id_proveedor_real
+                    ELSE tb_bom_item_ejecucion.id_proveedor_real END,
+                precio_real = CASE WHEN $2::jsonb ? 'precio_real'
+                    THEN EXCLUDED.precio_real
+                    ELSE tb_bom_item_ejecucion.precio_real END,
+                moneda_real = CASE WHEN $2::jsonb ? 'moneda_real'
+                    THEN EXCLUDED.moneda_real
+                    ELSE tb_bom_item_ejecucion.moneda_real END,
+                cantidad_recibida = CASE WHEN $2::jsonb ? 'cantidad_recibida'
+                    THEN EXCLUDED.cantidad_recibida
+                    ELSE tb_bom_item_ejecucion.cantidad_recibida END,
+                fecha_estimada_entrega = CASE
+                    WHEN $2::jsonb ? 'fecha_estimada_entrega'
+                    THEN EXCLUDED.fecha_estimada_entrega
+                    ELSE tb_bom_item_ejecucion.fecha_estimada_entrega END,
+                fecha_llegada_real = CASE WHEN $2::jsonb ? 'fecha_llegada_real'
+                    THEN EXCLUDED.fecha_llegada_real
+                    ELSE tb_bom_item_ejecucion.fecha_llegada_real END,
+                tipo_entrega = CASE WHEN $2::jsonb ? 'tipo_entrega'
+                    THEN EXCLUDED.tipo_entrega
+                    ELSE tb_bom_item_ejecucion.tipo_entrega END,
+                estatus_ejecucion = CASE WHEN $2::jsonb ? 'estatus_ejecucion'
+                    THEN EXCLUDED.estatus_ejecucion
+                    ELSE tb_bom_item_ejecucion.estatus_ejecucion END,
+                comentarios_operativos = CASE
+                    WHEN $2::jsonb ? 'comentarios_operativos'
+                    THEN EXCLUDED.comentarios_operativos
+                    ELSE tb_bom_item_ejecucion.comentarios_operativos END,
                 updated_by = EXCLUDED.updated_by,
+                lock_version = tb_bom_item_ejecucion.lock_version + 1,
                 updated_at = NOW()
+            WHERE tb_bom_item_ejecucion.lock_version = $4
             RETURNING *
-        """
-        row = await conn.fetchrow(query, *params)
+            """,
+            id_item, data_json, updated_by, lock_version_esperado,
+        )
         return dict(row) if row else None
 
     async def soft_delete_item(self, conn, id_item: UUID) -> dict:
@@ -510,7 +1623,8 @@ class BomDBService(BomComprasDBMixin):
         Items FACTURADOS/PAGADOS se copian como bloqueados.
         Retorna cantidad copiada."""
         result = await conn.execute("""
-            INSERT INTO tb_bom_items (id_bom, id_categoria, descripcion,
+            INSERT INTO tb_bom_items (id_bom, id_paquete, id_linea_bom,
+                                      id_categoria, descripcion,
                                       cantidad, unidad_medida, fecha_requerida,
                                       id_proveedor, tipo_entrega,
                                       fecha_estimada_entrega, comentarios, orden,
@@ -519,20 +1633,75 @@ class BomDBService(BomComprasDBMixin):
                                       estatus_compra, id_item_origen, bloqueado,
                                       tipo_origen_item, id_item_reemplazado,
                                       motivo_adenda, creado_en_adenda)
-            SELECT $2, id_categoria, descripcion,
-                   cantidad, unidad_medida, fecha_requerida,
-                   id_proveedor, tipo_entrega,
-                   fecha_estimada_entrega, comentarios, orden,
-                   precio_unitario, origen_precio, id_material_ref,
-                   id_material_interno, tipo_partida, moneda,
-                   estatus_compra, id_item,
-                   (estatus_compra IN ('PAGADO', 'FACTURADO')),
-                   COALESCE(tipo_origen_item, 'BASE'), id_item_reemplazado,
-                   motivo_adenda, creado_en_adenda
-            FROM tb_bom_items
-            WHERE id_bom = $1 AND activo = TRUE
-            ORDER BY orden ASC
+            SELECT $2, destino.id_paquete, origen.id_linea_bom,
+                   origen.id_categoria, origen.descripcion,
+                   origen.cantidad, origen.unidad_medida, origen.fecha_requerida,
+                   origen.id_proveedor, origen.tipo_entrega,
+                   origen.fecha_estimada_entrega, origen.comentarios, origen.orden,
+                   origen.precio_unitario, origen.origen_precio, origen.id_material_ref,
+                   origen.id_material_interno, origen.tipo_partida, origen.moneda,
+                   'SIN_COTIZAR', origen.id_item,
+                   (COALESCE(e.estatus_ejecucion, origen.estatus_compra)
+                       IN ('PAGADO', 'FACTURADO')),
+                   COALESCE(origen.tipo_origen_item, 'BASE'),
+                   origen.id_item_reemplazado,
+                   origen.motivo_adenda, origen.creado_en_adenda
+            FROM tb_bom_items origen
+            JOIN tb_bom destino ON destino.id_bom = $2
+            LEFT JOIN tb_bom_item_ejecucion e ON e.id_item = origen.id_item
+            WHERE origen.id_bom = $1
+              AND origen.activo = TRUE
+              AND COALESCE(e.estatus_ejecucion, origen.estatus_compra, '')
+                  NOT IN ('NO_ADQUIRIDO', 'REEMPLAZADO')
+            ORDER BY origen.orden ASC
         """, id_bom_origen, id_bom_destino)
+        await conn.execute(
+            """
+            INSERT INTO tb_bom_item_grupos (id_item, id_grupo)
+            SELECT destino.id_item, grupos.id_grupo
+            FROM tb_bom_items destino
+            JOIN tb_bom_items origen ON origen.id_item = destino.id_item_origen
+            JOIN LATERAL (
+                SELECT id_grupo
+                FROM tb_bom_item_grupos_operativos
+                WHERE id_item = origen.id_item
+                UNION
+                SELECT id_grupo
+                FROM tb_bom_item_grupos
+                WHERE id_item = origen.id_item
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM tb_bom_item_grupos_operativos
+                      WHERE id_item = origen.id_item
+                  )
+            ) grupos ON TRUE
+            WHERE destino.id_bom = $1
+            ON CONFLICT (id_item, id_grupo) DO NOTHING
+            """,
+            id_bom_destino,
+        )
+        await conn.execute(
+            """
+            INSERT INTO tb_bom_item_grupo_asignaciones (
+                id_bom_item, id_grupo, grupo_codigo_snapshot,
+                grupo_nombre_snapshot, porcentaje
+            )
+            SELECT destino.id_item, asignacion.id_grupo,
+                   asignacion.grupo_codigo_snapshot,
+                   asignacion.grupo_nombre_snapshot,
+                   asignacion.porcentaje
+            FROM tb_bom_items destino
+            JOIN tb_bom_items origen ON origen.id_item = destino.id_item_origen
+            JOIN tb_bom_item_grupo_asignaciones asignacion
+              ON asignacion.id_bom_item = origen.id_item
+            WHERE destino.id_bom = $1
+            ON CONFLICT (id_bom_item, id_grupo) DO UPDATE
+            SET grupo_codigo_snapshot = EXCLUDED.grupo_codigo_snapshot,
+                grupo_nombre_snapshot = EXCLUDED.grupo_nombre_snapshot,
+                porcentaje = EXCLUDED.porcentaje
+            """,
+            id_bom_destino,
+        )
         count = int(result.split()[-1]) if result else 0
         return count
 
@@ -553,7 +1722,7 @@ class BomDBService(BomComprasDBMixin):
         return dict(row)
 
     async def registrar_adenda_item(
-        self, conn, id_adenda: UUID, tipo_linea: str, motivo: str,
+        self, conn, id_adenda: UUID, id_bom: UUID, tipo_linea: str, motivo: str,
         id_item_origen: Optional[UUID] = None,
         id_item_bom: Optional[UUID] = None,
         datos_item: Optional[dict] = None,
@@ -562,11 +1731,11 @@ class BomDBService(BomComprasDBMixin):
         """Registra la relacion entre adenda, item origen e item generado."""
         row = await conn.fetchrow("""
             INSERT INTO tb_bom_adenda_items
-                (id_adenda, id_item_origen, id_item_bom, tipo_linea, motivo,
+                (id_adenda, id_bom, id_item_origen, id_item_bom, tipo_linea, motivo,
                  datos_item, grupo_ids)
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::integer[])
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::integer[])
             RETURNING *
-        """, id_adenda, id_item_origen, id_item_bom, tipo_linea, motivo,
+        """, id_adenda, id_bom, id_item_origen, id_item_bom, tipo_linea, motivo,
              json.dumps(datos_item or {}), grupo_ids or [])
         return dict(row)
 
@@ -588,11 +1757,22 @@ class BomDBService(BomComprasDBMixin):
         """, id_adenda)
         return dict(row) if row else None
 
+    async def get_adenda_for_update(self, conn, id_adenda: UUID) -> Optional[dict]:
+        """Bloquea una adenda exacta antes de resolver su workflow."""
+        row = await conn.fetchrow(
+            "SELECT * FROM tb_bom_adendas WHERE id_adenda = $1 FOR UPDATE",
+            id_adenda,
+        )
+        return dict(row) if row else None
+
     async def get_adenda_items(self, conn, id_adenda: UUID) -> List[dict]:
         """Lista lineas propuestas o aplicadas de una adenda."""
         rows = await conn.fetch("""
             SELECT ai.*,
                    origen.descripcion AS origen_descripcion,
+                   origen.cantidad AS origen_cantidad,
+                   origen.precio_unitario AS origen_precio_unitario,
+                   origen.moneda AS origen_moneda,
                    item.descripcion AS item_bom_descripcion
             FROM tb_bom_adenda_items ai
             LEFT JOIN tb_bom_items origen ON origen.id_item = ai.id_item_origen
@@ -603,8 +1783,11 @@ class BomDBService(BomComprasDBMixin):
         return [dict(r) for r in rows]
 
     async def marcar_adenda_construccion(
-        self, conn, id_adenda: UUID, user_id: UUID, requiere_ingenieria: bool
-    ) -> dict:
+        self, conn, id_adenda: UUID, user_id: UUID, requiere_ingenieria: bool,
+        lock_version_esperado: int, tipo_cambio_aprobacion=None,
+        fecha_tipo_cambio_aprobacion=None, impacto_base_mxn_snapshot=None,
+        impacto_base_usd_snapshot=None, impacto_aprobado_mxn=None,
+    ) -> Optional[dict]:
         """Registra aprobacion de Construccion y deja la adenda en el siguiente paso."""
         siguiente = "PENDIENTE_INGENIERIA" if requiere_ingenieria else "APROBADA"
         row = await conn.fetchrow("""
@@ -613,30 +1796,56 @@ class BomDBService(BomComprasDBMixin):
                 requiere_aprobacion_ingenieria = $4,
                 aprobado_construccion_por = $2,
                 fecha_aprobacion_construccion = NOW(),
+                tipo_cambio_aprobacion = CASE WHEN $4 THEN NULL ELSE $6 END,
+                fecha_tipo_cambio_aprobacion = CASE WHEN $4 THEN NULL ELSE $7 END,
+                impacto_base_mxn_snapshot = CASE WHEN $4 THEN NULL ELSE $8 END,
+                impacto_base_usd_snapshot = CASE WHEN $4 THEN NULL ELSE $9 END,
+                impacto_aprobado_mxn = CASE WHEN $4 THEN NULL ELSE $10 END,
+                lock_version = lock_version + 1,
                 updated_at = NOW()
             WHERE id_adenda = $1
+              AND estatus = 'PENDIENTE_CONSTRUCCION'
+              AND lock_version = $5
             RETURNING *
-        """, id_adenda, user_id, siguiente, requiere_ingenieria)
+        """, id_adenda, user_id, siguiente, requiere_ingenieria,
+             lock_version_esperado, tipo_cambio_aprobacion,
+             fecha_tipo_cambio_aprobacion, impacto_base_mxn_snapshot,
+             impacto_base_usd_snapshot, impacto_aprobado_mxn)
         return dict(row) if row else None
 
     async def aprobar_adenda_ingenieria(
-        self, conn, id_adenda: UUID, user_id: UUID
-    ) -> dict:
+        self, conn, id_adenda: UUID, user_id: UUID, lock_version_esperado: int,
+        tipo_cambio_aprobacion, fecha_tipo_cambio_aprobacion,
+        impacto_base_mxn_snapshot, impacto_base_usd_snapshot,
+        impacto_aprobado_mxn,
+    ) -> Optional[dict]:
         """Registra aprobacion tecnica de Ingenieria y marca la adenda aprobada."""
         row = await conn.fetchrow("""
             UPDATE tb_bom_adendas
             SET estatus = 'APROBADA',
                 aprobado_ingenieria_por = $2,
                 fecha_aprobacion_ingenieria = NOW(),
+                tipo_cambio_aprobacion = $4,
+                fecha_tipo_cambio_aprobacion = $5,
+                impacto_base_mxn_snapshot = $6,
+                impacto_base_usd_snapshot = $7,
+                impacto_aprobado_mxn = $8,
+                lock_version = lock_version + 1,
                 updated_at = NOW()
             WHERE id_adenda = $1
+              AND estatus = 'PENDIENTE_INGENIERIA'
+              AND lock_version = $3
             RETURNING *
-        """, id_adenda, user_id)
+        """, id_adenda, user_id, lock_version_esperado,
+             tipo_cambio_aprobacion, fecha_tipo_cambio_aprobacion,
+             impacto_base_mxn_snapshot, impacto_base_usd_snapshot,
+             impacto_aprobado_mxn)
         return dict(row) if row else None
 
     async def rechazar_adenda(
-        self, conn, id_adenda: UUID, user_id: UUID, motivo_rechazo: str
-    ) -> dict:
+        self, conn, id_adenda: UUID, user_id: UUID, motivo_rechazo: str,
+        estatus_esperado: str, lock_version_esperado: int,
+    ) -> Optional[dict]:
         """Rechaza una adenda pendiente sin aplicar cambios al BOM."""
         row = await conn.fetchrow("""
             UPDATE tb_bom_adendas
@@ -644,25 +1853,32 @@ class BomDBService(BomComprasDBMixin):
                 rechazado_por = $2,
                 fecha_rechazo = NOW(),
                 motivo_rechazo = $3,
+                lock_version = lock_version + 1,
                 updated_at = NOW()
             WHERE id_adenda = $1
+              AND estatus = $4
+              AND lock_version = $5
             RETURNING *
-        """, id_adenda, user_id, motivo_rechazo)
+        """, id_adenda, user_id, motivo_rechazo,
+             estatus_esperado, lock_version_esperado)
         return dict(row) if row else None
 
     async def cancelar_adenda(
-        self, conn, id_adenda: UUID, user_id: UUID
-    ) -> dict:
+        self, conn, id_adenda: UUID, user_id: UUID, lock_version_esperado: int,
+    ) -> Optional[dict]:
         """Cancela una adenda pendiente de construccion sin mutar items."""
         row = await conn.fetchrow("""
             UPDATE tb_bom_adendas
             SET estatus = 'CANCELADA',
                 cancelado_por = $2,
                 fecha_cancelacion = NOW(),
+                lock_version = lock_version + 1,
                 updated_at = NOW()
             WHERE id_adenda = $1
+              AND estatus = 'PENDIENTE_CONSTRUCCION'
+              AND lock_version = $3
             RETURNING *
-        """, id_adenda, user_id)
+        """, id_adenda, user_id, lock_version_esperado)
         return dict(row) if row else None
 
     async def vincular_adenda_item_bom(
@@ -754,8 +1970,10 @@ class BomDBService(BomComprasDBMixin):
         """Crea una propuesta de cambio pre-final pendiente de Ingenieria."""
         row = await conn.fetchrow("""
             INSERT INTO tb_bom_propuestas_cambio
-                (id_bom, tipo_solicitante, motivo, lineas, creado_por)
-            VALUES ($1, $2, $3, $4::jsonb, $5)
+                (id_bom, id_paquete, tipo_solicitante, motivo, lineas, creado_por)
+            SELECT $1, bom.id_paquete, $2, $3, $4::jsonb, $5
+            FROM tb_bom bom
+            WHERE bom.id_bom = $1
             RETURNING *
         """, id_bom, tipo_solicitante, motivo, json.dumps(lineas or []), creado_por)
         return dict(row)
@@ -776,6 +1994,32 @@ class BomDBService(BomComprasDBMixin):
             FROM tb_bom_propuestas_cambio p
             JOIN tb_bom b ON b.id_bom = p.id_bom
             WHERE p.id_propuesta = $1
+        """, id_propuesta)
+        if not row:
+            return None
+        data = dict(row)
+        if isinstance(data.get("lineas"), str):
+            data["lineas"] = json.loads(data["lineas"] or "[]")
+        return data
+
+    async def get_propuesta_cambio_for_update(
+        self, conn, id_propuesta: UUID,
+    ) -> Optional[dict]:
+        """Bloquea una propuesta y devuelve el contexto de su version."""
+        row = await conn.fetchrow("""
+            SELECT p.*,
+                   b.id_proyecto,
+                   b.id_paquete,
+                   b.version AS bom_version,
+                   b.estatus AS bom_estatus,
+                   b.elaborado_por,
+                   b.responsable_ing,
+                   b.coordinador_obra,
+                   b.jefe_construccion
+            FROM tb_bom_propuestas_cambio p
+            JOIN tb_bom b ON b.id_bom = p.id_bom
+            WHERE p.id_propuesta = $1
+            FOR UPDATE OF p
         """, id_propuesta)
         if not row:
             return None
@@ -806,19 +2050,23 @@ class BomDBService(BomComprasDBMixin):
 
     async def actualizar_propuesta_cambio_revision(
         self, conn, id_propuesta: UUID, estatus: str, revisado_por: UUID,
-        comentario_revision: Optional[str] = None
-    ) -> dict:
-        """Marca una propuesta como revisada."""
+        comentario_revision: Optional[str], lock_version_esperado: int,
+    ) -> Optional[dict]:
+        """Marca una propuesta como revisada mediante CAS."""
         row = await conn.fetchrow("""
             UPDATE tb_bom_propuestas_cambio
             SET estatus = $2,
                 revisado_por = $3,
                 fecha_revision = NOW(),
                 comentario_revision = $4,
-                updated_at = NOW()
+                updated_at = NOW(),
+                lock_version = lock_version + 1
             WHERE id_propuesta = $1
+              AND estatus = 'PENDIENTE_INGENIERIA'
+              AND lock_version = $5
             RETURNING *
-        """, id_propuesta, estatus, revisado_por, comentario_revision)
+        """, id_propuesta, estatus, revisado_por, comentario_revision,
+             lock_version_esperado)
         return dict(row) if row else None
 
     async def get_adendas_by_bom(self, conn, id_bom: UUID) -> List[dict]:
@@ -872,10 +2120,15 @@ class BomDBService(BomComprasDBMixin):
     ) -> dict:
         """Registra un cambio en el historial de auditoria."""
         row = await conn.fetchrow("""
-            INSERT INTO tb_bom_historial (id_bom, id_item, accion, campo_modificado,
-                                          valor_anterior, valor_nuevo, version_bom,
-                                          realizado_por)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO tb_bom_historial (
+                id_bom, id_paquete, id_linea_bom, id_item, accion,
+                campo_modificado, valor_anterior, valor_nuevo, version_bom,
+                realizado_por
+            )
+            SELECT $1, bom.id_paquete, item.id_linea_bom, $2, $3, $4, $5, $6, $7, $8
+            FROM tb_bom bom
+            LEFT JOIN tb_bom_items item ON item.id_item = $2 AND item.id_bom = bom.id_bom
+            WHERE bom.id_bom = $1
             RETURNING *
         """, id_bom, id_item, accion, campo_modificado,
             valor_anterior, valor_nuevo, version_bom, realizado_por)
@@ -904,10 +2157,20 @@ class BomDBService(BomComprasDBMixin):
     ) -> dict:
         """Registra una accion de aprobacion/rechazo."""
         row = await conn.fetchrow("""
-            INSERT INTO tb_bom_aprobaciones (id_bom, tipo, version_bom,
-                                             usuario_id, comentarios,
-                                             destino_rechazo)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO tb_bom_aprobaciones (
+                id_bom, tipo, version_bom, usuario_id, comentarios,
+                destino_rechazo, ciclo
+            )
+            SELECT $1, $2, $3, $4, $5, $6,
+                   1 + COUNT(*) FILTER (
+                       WHERE tipo IN (
+                           'RECHAZO_ING', 'RECHAZO_OBRA',
+                           'RECHAZO_CONST', 'RECHAZO_FINAL',
+                           'DEVOLUCION_BORRADOR'
+                       )
+                   )
+            FROM tb_bom_aprobaciones
+            WHERE id_bom = $1
             RETURNING *
         """, id_bom, tipo, version_bom, usuario_id, comentarios, destino_rechazo)
         return dict(row)
@@ -967,13 +2230,24 @@ class BomDBService(BomComprasDBMixin):
                 COUNT(*) FILTER (WHERE i.activo AND COALESCE(er.id_proveedor_real, i.id_proveedor) IS NOT NULL) AS con_proveedor,
                 COUNT(*) FILTER (WHERE i.activo AND i.fecha_requerida IS NOT NULL) AS con_fecha_requerida,
                 COUNT(*) FILTER (WHERE i.activo AND i.fecha_requerida IS NOT NULL
-                                 AND i.fecha_requerida < CURRENT_DATE
+                                 AND i.fecha_requerida < (NOW() AT TIME ZONE 'America/Mexico_City')::DATE
                                  AND NOT (
                                      i.entregado
                                      OR (i.cantidad > 0 AND COALESCE(er.cantidad_recibida, i.cantidad_recibida, 0) >= i.cantidad)
                                  )) AS atrasados,
-                COALESCE(SUM(i.cantidad * COALESCE(i.precio_unitario, 0))
-                    FILTER (WHERE i.activo AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'), 0) AS costo_total_estimado,
+                CASE WHEN COUNT(*) FILTER (
+                    WHERE i.activo
+                      AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
+                      AND (
+                          i.cantidad IS NULL OR i.precio_unitario IS NULL
+                          OR i.moneda IS NULL OR i.moneda <> 'MXN'
+                      )
+                ) > 0 THEN NULL ELSE COALESCE(
+                    SUM(i.cantidad * i.precio_unitario) FILTER (
+                        WHERE i.activo
+                          AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
+                    ), 0
+                ) END AS costo_total_estimado,
                 COUNT(*) FILTER (
                     WHERE i.activo
                       AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
@@ -1448,18 +2722,63 @@ class BomDBService(BomComprasDBMixin):
                 [(id_item, gid, user_id) for gid in grupo_ids],
             )
 
+    async def get_distribucion_grupos_item(
+        self, conn, id_item: UUID,
+    ) -> List[dict]:
+        """Porcentajes explícitos del item; una ausencia multigrupo queda pendiente."""
+        rows = await conn.fetch(
+            """
+            SELECT asignacion.id_grupo,
+                   asignacion.grupo_codigo_snapshot AS codigo,
+                   asignacion.grupo_nombre_snapshot AS nombre,
+                   asignacion.porcentaje
+            FROM tb_bom_item_grupo_asignaciones asignacion
+            WHERE asignacion.id_bom_item = $1
+            ORDER BY asignacion.grupo_codigo_snapshot, asignacion.id_grupo
+            """,
+            id_item,
+        )
+        return [dict(row) for row in rows]
+
+    async def set_distribucion_grupos_item(
+        self, conn, id_item: UUID, porcentajes: dict[int, Decimal],
+    ) -> None:
+        """Reemplaza la distribución financiera con snapshots del catálogo."""
+        await conn.execute(
+            "DELETE FROM tb_bom_item_grupo_asignaciones WHERE id_bom_item = $1",
+            id_item,
+        )
+        if not porcentajes:
+            return
+        await conn.executemany(
+            """
+            INSERT INTO tb_bom_item_grupo_asignaciones (
+                id_bom_item, id_grupo, grupo_codigo_snapshot,
+                grupo_nombre_snapshot, porcentaje
+            )
+            SELECT $1, grupo.id, grupo.codigo, grupo.nombre, $3
+            FROM tb_cat_grupos_bom grupo
+            WHERE grupo.id = $2 AND grupo.activo = TRUE
+            """,
+            [
+                (id_item, id_grupo, porcentaje)
+                for id_grupo, porcentaje in porcentajes.items()
+            ],
+        )
+
     # ─── SUPLENCIAS ─────────────────────────────────────────
 
     async def get_suplencia_activa_del_titular(self, conn, titular_id: UUID) -> Optional[dict]:
         """Obtiene suplencia activa vigente de un usuario (como titular)."""
         row = await conn.fetchrow("""
-            SELECT s.id, s.titular_id, s.suplente_id, s.fecha_fin, s.activo, s.created_at,
+            SELECT s.id, s.titular_id, s.suplente_id, s.fecha_fin, s.activo,
+                   s.lock_version, s.created_at,
                    u.nombre AS suplente_nombre
             FROM tb_bom_suplencias s
             JOIN tb_usuarios u ON u.id_usuario = s.suplente_id
             WHERE s.titular_id = $1
               AND s.activo = TRUE
-              AND s.fecha_fin >= CURRENT_DATE
+              AND s.fecha_fin >= (NOW() AT TIME ZONE 'America/Mexico_City')::DATE
             ORDER BY s.fecha_fin DESC
             LIMIT 1
         """, titular_id)
@@ -1472,18 +2791,38 @@ class BomDBService(BomComprasDBMixin):
             FROM tb_bom_suplencias
             WHERE suplente_id = $1
               AND activo = TRUE
-              AND fecha_fin >= CURRENT_DATE
+              AND fecha_fin >= (NOW() AT TIME ZONE 'America/Mexico_City')::DATE
         """, suplente_id)
         return [r['titular_id'] for r in rows]
 
     async def crear_suplencia(
-        self, conn, titular_id: UUID, suplente_id: UUID, fecha_fin
-    ) -> dict:
-        """Desactiva suplencias previas del titular e inserta la nueva."""
-        await conn.execute("""
-            UPDATE tb_bom_suplencias SET activo = FALSE
+        self, conn, titular_id: UUID, suplente_id: UUID, fecha_fin,
+        id_esperado: Optional[int], lock_version_esperado: Optional[int],
+    ) -> Optional[dict]:
+        """Reemplaza con CAS la suplencia activa del titular."""
+        await conn.fetchval(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+            f"bom-suplencia:{titular_id}",
+        )
+        actual = await conn.fetchrow("""
+            SELECT id, lock_version
+            FROM tb_bom_suplencias
             WHERE titular_id = $1 AND activo = TRUE
+            FOR UPDATE
         """, titular_id)
+        if actual:
+            if actual["id"] != id_esperado or actual["lock_version"] != lock_version_esperado:
+                return None
+            desactivada = await conn.fetchval("""
+                UPDATE tb_bom_suplencias
+                SET activo = FALSE, lock_version = lock_version + 1
+                WHERE id = $1 AND lock_version = $2 AND activo = TRUE
+                RETURNING id
+            """, id_esperado, lock_version_esperado)
+            if not desactivada:
+                return None
+        elif id_esperado is not None or lock_version_esperado is not None:
+            return None
         row = await conn.fetchrow("""
             INSERT INTO tb_bom_suplencias (titular_id, suplente_id, fecha_fin)
             VALUES ($1, $2, $3)
@@ -1491,12 +2830,18 @@ class BomDBService(BomComprasDBMixin):
         """, titular_id, suplente_id, fecha_fin)
         return dict(row)
 
-    async def desactivar_suplencia(self, conn, titular_id: UUID) -> None:
-        """Desactiva todas las suplencias activas del usuario como titular."""
-        await conn.execute("""
-            UPDATE tb_bom_suplencias SET activo = FALSE
-            WHERE titular_id = $1 AND activo = TRUE
-        """, titular_id)
+    async def desactivar_suplencia(
+        self, conn, titular_id: UUID, id_esperado: int, lock_version_esperado: int,
+    ) -> bool:
+        """Desactiva con CAS la suplencia exacta del titular."""
+        row = await conn.fetchval("""
+            UPDATE tb_bom_suplencias
+            SET activo = FALSE, lock_version = lock_version + 1
+            WHERE titular_id = $1 AND id = $2
+              AND lock_version = $3 AND activo = TRUE
+            RETURNING id
+        """, titular_id, id_esperado, lock_version_esperado)
+        return bool(row)
 
     # ─── APROBADOR FINAL ────────────────────────────────────
 
@@ -1656,7 +3001,11 @@ class BomDBService(BomComprasDBMixin):
         quien capturo originalmente el panel.
         """
         if not paneles:
-            raise ValueError("paneles no puede estar vacio")
+            await conn.execute(
+                "DELETE FROM tb_proyecto_paneles WHERE id_proyecto = $1",
+                id_proyecto,
+            )
+            return
         id_paneles = [p["id_panel"] for p in paneles]
         await conn.execute(
             "DELETE FROM tb_proyecto_paneles WHERE id_proyecto = $1 AND id_panel <> ALL($2::int[])",

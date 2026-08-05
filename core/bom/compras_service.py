@@ -27,6 +27,14 @@ class BomComprasServiceMixin:
     """Cotizaciones, RFQ, autorizaciones Fase D, conciliacion y match."""
 
     @staticmethod
+    def _es_cabeza_cotizable(bom: dict) -> bool:
+        """Mantiene Compras en la oficial mientras otra version esta en retrabajo."""
+        estado = EstatusBOM(bom["estatus"])
+        if estado == EstatusBOM.APROBADO_FINAL:
+            return bool(bom.get("es_cabeza_oficial"))
+        return bool(bom.get("es_cabeza_trabajo", True))
+
+    @staticmethod
     def _raise_si_items(items: list, mensaje: str) -> None:
         if not items:
             return
@@ -60,7 +68,41 @@ class BomComprasServiceMixin:
         items = await self.db.get_items_cotizacion(conn, cotizacion_id)
         if items:
             item_ids = [i['bom_item_id'] for i in items]
-            await self.db.actualizar_estatus_compra_items(conn, item_ids, nuevo_estatus)
+            await self._actualizar_estatus_items_por_ids(
+                conn, item_ids, nuevo_estatus
+            )
+
+    async def _actualizar_estatus_items_por_ids(
+        self, conn, item_ids: list[UUID], nuevo_estatus: str,
+        updated_by: Optional[UUID] = None,
+    ) -> None:
+        """Serializa el espejo legacy y la ejecución con el lock exacto de cada ítem."""
+        ids = sorted(set(item_ids), key=str)
+        if not ids:
+            return
+        bloqueados = await self.db.lock_items_context_by_ids(conn, ids)
+        if len(bloqueados) != len(ids):
+            raise ValueError("Uno de los items cambió; recarga el paquete")
+        locks_ejecucion = {
+            str(item["id_item"]): int(item.get("ejecucion_lock_version") or 0)
+            for item in bloqueados
+        }
+        await self.db.actualizar_estatus_compra_items(conn, ids, nuevo_estatus)
+        estado_ejecucion = (
+            "PENDIENTE" if nuevo_estatus == "SIN_COTIZAR" else nuevo_estatus
+        )
+        for item_id in ids:
+            ejecucion = await self.db.upsert_item_ejecucion(
+                conn,
+                item_id,
+                updated_by=updated_by,
+                lock_version_esperado=locks_ejecucion[str(item_id)],
+                estatus_ejecucion=estado_ejecucion,
+            )
+            if not ejecucion:
+                raise ValueError(
+                    "La ejecución de un item cambió; recarga el paquete"
+                )
 
     # ─── COTIZACIONES ────────────────────────────────────────
 
@@ -102,7 +144,8 @@ class BomComprasServiceMixin:
         creado_por: UUID,
         es_rfq: bool = False,
         rfq_origen_id: Optional[UUID] = None,
-        subtotal_externo: Optional[float] = None
+        subtotal_externo: Optional[float] = None,
+        bom_lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """
         Crea una cotización con sus ítems.
@@ -117,21 +160,54 @@ class BomComprasServiceMixin:
         bom = await self.get_bom(conn, id_bom)
         if EstatusBOM(bom['estatus']) not in ESTATUS_COTIZABLE:
             raise ValueError("Solo se pueden crear cotizaciones en BOMs aprobados por Construccion.")
+        if bom_lock_version_esperado is None:
+            raise ValueError("El BOM cambio; recarga el paquete antes de cotizar")
+        moneda = (moneda or "").strip().upper()
+        if moneda not in {"MXN", "USD"}:
+            raise ValueError("La moneda de la cotizacion debe ser MXN o USD")
 
         if not items_data:
             raise ValueError("Debes seleccionar al menos un item para cotizar.")
+        try:
+            cantidades = [
+                Decimal(str(item.get("cantidad") or 0)) for item in items_data
+            ]
+        except (ArithmeticError, TypeError, ValueError):
+            raise ValueError("La cantidad cotizada no es valida") from None
+        if any(cantidad <= 0 for cantidad in cantidades):
+            raise ValueError("La cantidad cotizada de cada item debe ser mayor a cero")
 
         item_ids = list(dict.fromkeys(i["bom_item_id"] for i in items_data))
         bom_items_batch = await self.db.get_items_by_ids(conn, item_ids)
         bom_items_map_cot = {str(bi["id_item"]): bi for bi in bom_items_batch}
         if len(bom_items_map_cot) != len(item_ids):
             raise ValueError("La cotizacion contiene items invalidos o inactivos")
+        if any(str(item.get("id_bom")) != str(id_bom) for item in bom_items_batch):
+            raise ValueError("La cotizacion no puede mezclar items de otro paquete BOM")
         self._validar_items_cotizables(bom_items_batch, "cotizar")
+        if rfq_origen_id:
+            rfq_origen = await self.db.get_cotizacion_by_id(conn, rfq_origen_id)
+            if (
+                not rfq_origen
+                or not rfq_origen.get("es_rfq")
+                or str(rfq_origen.get("bom_id")) != str(id_bom)
+            ):
+                raise ValueError("El RFQ origen no pertenece a este BOM")
 
-        # RFQ: sin validación de precios
-        tiene_precios = any(
-            Decimal(str(i.get('precio_unitario') or 0)) > 0 for i in items_data
-        )
+        # Un RFQ puede no tener precios. Una cotización completa no puede
+        # convertir líneas desconocidas en cero.
+        precios = [
+            Decimal(str(i["precio_unitario"]))
+            if i.get("precio_unitario") is not None else None
+            for i in items_data
+        ]
+        tiene_precios = any(precio is not None and precio > 0 for precio in precios)
+        if not es_rfq and subtotal_externo is None and any(
+            precio is None or precio <= 0 for precio in precios
+        ):
+            raise ValueError(
+                "Captura un precio mayor a cero para cada item de la cotización"
+            )
 
         if tiene_precios:
             sobrecostos = []
@@ -164,6 +240,8 @@ class BomComprasServiceMixin:
         # Calcular subtotal: suma de precios individuales o subtotal_externo
         if subtotal_externo is not None:
             subtotal = round(Decimal(str(subtotal_externo)), 2)
+            if subtotal <= 0:
+                raise ValueError("El subtotal de la cotización debe ser mayor a cero")
             # Distribuir proporcionalmente entre items
             total_cantidad = sum(Decimal(str(i.get('cantidad', 1))) for i in items_data)
             for i in items_data:
@@ -191,12 +269,6 @@ class BomComprasServiceMixin:
             proveedor_nombre_db = None
             proveedor_id_db = None
 
-        cotizacion = await self.db.crear_cotizacion(
-            conn, id_bom, proveedor_id_db, proveedor_nombre_db, moneda,
-            round(subtotal, 2), iva, total, notas, creado_por,
-            es_rfq=es_rfq, rfq_origen_id=rfq_origen_id
-        )
-
         # Preparar ítems con subtotal_linea
         items_insert = []
         for i in items_data:
@@ -207,9 +279,38 @@ class BomComprasServiceMixin:
                 'precio_unitario': pu if pu > 0 else None,
                 'cantidad': cant,
                 'moneda': moneda,
-                'subtotal_linea': round(pu * cant, 2) if pu > 0 else Decimal("0"),
+                'subtotal_linea': round(pu * cant, 2) if pu > 0 else None,
             })
-        await self.db.agregar_items_cotizacion(conn, cotizacion['id'], items_insert)
+        async with conn.transaction():
+            bom_bloqueado = await self.db.get_bom_for_update(conn, id_bom)
+            if (
+                not bom_bloqueado
+                or bom_bloqueado["lock_version"] != bom_lock_version_esperado
+                or bom_bloqueado["estatus"] != bom["estatus"]
+                or not self._es_cabeza_cotizable(bom_bloqueado)
+            ):
+                raise ValueError(
+                    "El BOM cambio desde que abriste la cotizacion; recarga el paquete"
+                )
+            items_bloqueados = await self.db.lock_items_context_by_ids(
+                conn, sorted(item_ids, key=str)
+            )
+            if len(items_bloqueados) != len(item_ids) or any(
+                str(item.get("id_bom")) != str(id_bom)
+                for item in items_bloqueados
+            ):
+                raise ValueError(
+                    "La cotizacion contiene items invalidos o de otro paquete BOM"
+                )
+            self._validar_items_cotizables(items_bloqueados, "cotizar")
+            cotizacion = await self.db.crear_cotizacion(
+                conn, id_bom, proveedor_id_db, proveedor_nombre_db, moneda,
+                round(subtotal, 2), iva, total, notas, creado_por,
+                es_rfq=es_rfq, rfq_origen_id=rfq_origen_id
+            )
+            await self.db.agregar_items_cotizacion(
+                conn, cotizacion['id'], id_bom, items_insert
+            )
 
         logger.info(
             "Cotización %s creada (rfq=%s) para BOM %s por usuario %s",
@@ -218,7 +319,8 @@ class BomComprasServiceMixin:
         return cotizacion
 
     async def seleccionar_cotizacion(
-        self, conn, cotizacion_id: UUID, user_id: UUID
+        self, conn, cotizacion_id: UUID, user_id: UUID,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """
         Marca una cotización como SELECCIONADA, actualiza estatus_compra de ítems
@@ -235,8 +337,14 @@ class BomComprasServiceMixin:
             raise ValueError("La cotización no tiene un total válido.")
 
         bom = await self.db.get_bom_by_id(conn, cotizacion['bom_id'])
-        if not bom or EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_FINAL:
+        if (
+            not bom
+            or EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_FINAL
+            or not bom.get("es_cabeza_oficial")
+        ):
             raise ValueError("El BOM debe estar en estatus APROBADO_FINAL para autorizar la compra.")
+        if lock_version_esperado is None:
+            raise ValueError("La cotizacion cambio; recarga la pestaña")
 
         items = await self.db.get_items_cotizacion(conn, cotizacion_id)
         if items:
@@ -245,11 +353,49 @@ class BomComprasServiceMixin:
             bom_items_map = {str(i["id_item"]): i for i in bom_items}
             if len(bom_items_map) != len(set(str(i) for i in item_ids)):
                 raise ValueError("La cotizacion contiene items invalidos o inactivos")
+            if any(
+                str(item.get("id_bom")) != str(cotizacion["bom_id"])
+                for item in bom_items
+            ):
+                raise ValueError("La cotizacion contiene items de otro paquete BOM")
             self._validar_items_cotizables(bom_items, "seleccionar cotizaciones con")
 
-        _notify_args = None
         async with conn.transaction():
-            updated = await self.db.actualizar_estatus_cotizacion(conn, cotizacion_id, 'SELECCIONADA')
+            bom_bloqueado = await self.db.get_bom_for_update(conn, cotizacion['bom_id'])
+            if (
+                not bom_bloqueado
+                or bom_bloqueado["estatus"] != "APROBADO_FINAL"
+                or not bom_bloqueado.get("es_cabeza_oficial")
+                or bom_bloqueado.get("estado_paquete") != "ACTIVO"
+            ):
+                raise ValueError("El BOM ya no es la cabeza oficial activa")
+            cotizacion_bloqueada = await self.db.get_cotizacion_for_update(
+                conn, cotizacion_id
+            )
+            if (
+                not cotizacion_bloqueada
+                or cotizacion_bloqueada["estatus"] != cotizacion["estatus"]
+                or cotizacion_bloqueada["lock_version"] != lock_version_esperado
+            ):
+                raise ValueError("La cotizacion ya cambio; recarga la pestaña")
+            if items:
+                bloqueados = await self.db.lock_items_context_by_ids(
+                    conn, sorted(item_ids, key=str)
+                )
+                if len(bloqueados) != len(set(item_ids)):
+                    raise ValueError("La cotizacion contiene items invalidos")
+                locks_ejecucion = {
+                    str(item["id_item"]): int(
+                        item.get("ejecucion_lock_version") or 0
+                    )
+                    for item in bloqueados
+                }
+            updated = await self.db.actualizar_estatus_cotizacion(
+                conn, cotizacion_id, 'SELECCIONADA', cotizacion["estatus"],
+                lock_version_esperado,
+            )
+            if not updated:
+                raise ValueError("La cotizacion ya cambio; recarga la pestaña")
 
             # Actualizar estatus_compra de los ítems cubiertos
             if items:
@@ -266,27 +412,41 @@ class BomComprasServiceMixin:
                     }
                     if it.get('precio_unitario') is not None:
                         campos_reales['precio_real'] = it.get('precio_unitario')
-                    await self.db.upsert_item_ejecucion(
+                    ejecucion = await self.db.upsert_item_ejecucion(
                         conn,
                         it['bom_item_id'],
                         updated_by=user_id,
+                        lock_version_esperado=locks_ejecucion[
+                            str(it['bom_item_id'])
+                        ],
                         **campos_reales,
                     )
+                    if not ejecucion:
+                        raise ValueError(
+                            "La ejecución de un ítem cambió; recarga la cotización"
+                        )
 
             # Crear autorización de compra (Fase D) si no existe ya; si quedó
             # RECHAZADA de un ciclo anterior, reabrirla a PENDIENTE (nuevo ciclo)
             existente = await self.db.get_autorizacion_by_cotizacion(conn, cotizacion_id)
             if not existente or existente.get('estatus') == 'RECHAZADO':
                 bom = await self.db.get_bom_by_id(conn, cotizacion['bom_id'])
-                tc = await self.db.get_tipo_cambio_vigente(conn)
-                tc_valor = tc['tasa_mxn'] if tc else None
+                tc_valor = None
+                if cotizacion['moneda'] == 'USD':
+                    tc = await self.db.get_tipo_cambio_vigente(conn)
+                    if not tc:
+                        raise ValueError(
+                            "No hay tipo de cambio vigente para autorizar la cotizacion"
+                        )
+                    tc_valor = tc['tasa_mxn']
                 if existente:
-                    autorizacion = await self.db.reabrir_autorizacion_db(
+                    await self.db.reabrir_autorizacion_db(
                         conn, existente['id'], cotizacion['total'],
-                        cotizacion['moneda'], tc_valor, user_id
+                        cotizacion['moneda'], tc_valor, user_id,
+                        existente["lock_version"],
                     )
                 else:
-                    autorizacion = await self.db.crear_autorizacion(
+                    await self.db.crear_autorizacion(
                         conn,
                         cotizacion_id=cotizacion_id,
                         bom_id=cotizacion['bom_id'],
@@ -296,22 +456,13 @@ class BomComprasServiceMixin:
                         tipo_cambio_snapshot=tc_valor,
                         creado_por=user_id,
                     )
-                coordinador_id = bom.get('coordinador_obra')
-                if autorizacion and coordinador_id:
-                    _notify_args = (
-                        {**autorizacion, 'nombre_proveedor': cotizacion.get('nombre_proveedor')},
-                        bom,
-                        coordinador_id,
-                    )
-
-        # Notificar fuera de la transacción (fire-and-forget)
-        if _notify_args:
-            aut_enriquecida, bom, coordinador_id = _notify_args
-            await self._notify_autorizacion(
-                conn, aut_enriquecida, bom,
-                to_user_id=coordinador_id,
-                evento='PENDIENTE_OBRA',
-                por_user_id=user_id,
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"COTIZACION:{cotizacion_id}:{updated['lock_version']}:SELECCIONADA",
+                "COTIZACION_SELECCIONADA", bom["id_proyecto"], user_id,
+                {"id_cotizacion": str(cotizacion_id), "estatus": "SELECCIONADA"},
+                id_paquete=bom.get("id_paquete"), id_bom=cotizacion["bom_id"],
+                id_documento=cotizacion_id,
             )
 
         logger.info("Cotización %s seleccionada por usuario %s", cotizacion_id, user_id)
@@ -323,9 +474,10 @@ class BomComprasServiceMixin:
         return await self.db.get_autorizaciones_by_bom(conn, bom_id)
 
     async def aprobar_obra(
-        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str], user_role: str
+        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
+        user_role: str, lock_version_esperado: Optional[int] = None,
     ) -> dict:
-        """Aprueba paso 1 (Coordinador de Obra). Valida que sea el coordinador o ADMIN."""
+        """Aprueba paso 1 el controlador de Obra o su suplente activo."""
         aut = await self.db.get_autorizacion_by_id(conn, autorizacion_id)
         if not aut:
             raise ValueError("Autorización no encontrada.")
@@ -337,48 +489,85 @@ class BomComprasServiceMixin:
         # Fase D no usa _validar_aprobador_bom: opera sobre la autorizacion (no sobre roles
         # de revision del BOM), no tiene bypass de Director (Direccion tiene su propio paso
         # en Fase D), y el fallback es NULL-check en coordinador_obra, no rol_org global.
-        if user_role != 'ADMIN':
-            coordinador_obra = bom.get('coordinador_obra')
-            if coordinador_obra:
-                if coordinador_obra != user_id:
-                    raise ValueError("Solo el coordinador de obra del proyecto puede aprobar este paso.")
-            else:
-                es_jefe_const = await self.db.usuario_tiene_rol_org(conn, user_id, "jefe_construccion")
-                if not es_jefe_const:
-                    raise ValueError("No hay coordinador de obra asignado. Solo el jefe de Construccion puede aprobar este paso.")
+        representados = await self.get_titulares_que_representa(conn, user_id)
+        coordinador_obra = bom.get('coordinador_obra')
+        if coordinador_obra:
+            if coordinador_obra not in representados:
+                raise ValueError(
+                    "Solo el coordinador de obra del proyecto o su suplente puede aprobar este paso."
+                )
+        elif not await self.db.usuario_tiene_rol_org(
+            conn, user_id, "jefe_construccion"
+        ):
+            raise ValueError(
+                "No hay coordinador de obra asignado. Solo el jefe de Construccion puede aprobar este paso."
+            )
 
-        updated = await self.db.update_autorizacion_paso_obra(conn, autorizacion_id, user_id, nota)
-
-        # Notificar al Director
-        director = await self.db.get_director(conn)
-        if director:
-            await self._notify_autorizacion(
-                conn, {**aut, **updated}, bom,
-                to_user_id=director['id_usuario'],
-                evento='PENDIENTE_DIRECCION',
-                por_user_id=user_id,
-                nota=nota,
+        if lock_version_esperado is None:
+            raise ValueError("La autorizacion cambio; recarga la pestaña")
+        async with conn.transaction():
+            bloqueada = await self.db.get_autorizacion_for_update(conn, autorizacion_id)
+            if (
+                not bloqueada or bloqueada["estatus"] != "PENDIENTE"
+                or bloqueada["lock_version"] != lock_version_esperado
+            ):
+                raise ValueError("La autorizacion ya cambio; recarga la pestaña")
+            updated = await self.db.update_autorizacion_paso_obra(
+                conn, autorizacion_id, user_id, nota, lock_version_esperado
+            )
+            if not updated:
+                raise ValueError("La autorizacion ya cambio; recarga la pestaña")
+            await self.db.registrar_evento_outbox(
+                conn, f"AUTORIZACION:{autorizacion_id}:{updated['lock_version']}:OBRA",
+                "AUTORIZACION_OBRA", aut["proyecto_id"], user_id,
+                {"id_autorizacion": str(autorizacion_id), "estatus": updated["estatus"]},
+                id_paquete=bom.get("id_paquete"), id_bom=aut["bom_id"],
+                id_documento=autorizacion_id,
             )
 
         logger.info("Autorización %s aprobada (obra) por usuario %s", autorizacion_id, user_id)
         return updated
 
     async def aprobar_direccion(
-        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str], user_role: str, rol_org: Optional[str]
+        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
+        user_role: str, rol_org: Optional[str],
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
-        """Aprueba paso 2 (Director). Valida rol_organizacional = 'director' o ADMIN."""
+        """Aprueba paso 2 el aprobador de Dirección o su suplente activo."""
         aut = await self.db.get_autorizacion_by_id(conn, autorizacion_id)
         if not aut:
             raise ValueError("Autorización no encontrada.")
         if aut['estatus'] != 'AUTORIZADO_OBRA':
             raise ValueError(f"La autorización está en estatus {aut['estatus']} y no puede aprobarse en este paso.")
 
-        if user_role != 'ADMIN' and rol_org != 'director':
-            raise ValueError("Solo el Director puede aprobar este paso.")
+        aprobador_direccion = await self.db.get_aprobador_final_id(conn)
+        representados = await self.get_titulares_que_representa(conn, user_id)
+        if not aprobador_direccion or aprobador_direccion not in representados:
+            raise ValueError("Solo el aprobador de Direccion o su suplente puede aprobar este paso.")
 
-        updated = await self.db.update_autorizacion_paso_direccion(conn, autorizacion_id, user_id, nota)
-
-        await self._notify_direccion_aprobada(conn, aut, updated, user_id, nota)
+        if lock_version_esperado is None:
+            raise ValueError("La autorizacion cambio; recarga la pestaña")
+        bom = await self.db.get_bom_by_id(conn, aut["bom_id"])
+        async with conn.transaction():
+            bloqueada = await self.db.get_autorizacion_for_update(conn, autorizacion_id)
+            if (
+                not bloqueada or bloqueada["estatus"] != "AUTORIZADO_OBRA"
+                or bloqueada["lock_version"] != lock_version_esperado
+            ):
+                raise ValueError("La autorizacion ya cambio; recarga la pestaña")
+            updated = await self.db.update_autorizacion_paso_direccion(
+                conn, autorizacion_id, user_id, nota, lock_version_esperado
+            )
+            if not updated:
+                raise ValueError("La autorizacion ya cambio; recarga la pestaña")
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"AUTORIZACION:{autorizacion_id}:{updated['lock_version']}:DIRECCION",
+                "AUTORIZACION_DIRECCION", aut["proyecto_id"], user_id,
+                {"id_autorizacion": str(autorizacion_id), "estatus": updated["estatus"]},
+                id_paquete=bom.get("id_paquete"), id_bom=aut["bom_id"],
+                id_documento=autorizacion_id,
+            )
 
         logger.info("Autorización %s aprobada (dirección) por usuario %s", autorizacion_id, user_id)
         return updated
@@ -400,9 +589,10 @@ class BomComprasServiceMixin:
 
     async def aprobar_finanzas(
         self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
-        user_role: str, finanzas_role: Optional[str] = None
+        user_role: str, finanzas_role: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
-        """Aprueba paso 3 (Finanzas). Requiere ADMIN o rol finanzas editor+."""
+        """Aprueba paso 3. Requiere rol del modulo Finanzas editor o admin."""
         aut = await self.db.get_autorizacion_by_id(conn, autorizacion_id)
         if not aut:
             raise ValueError("Autorización no encontrada.")
@@ -410,29 +600,42 @@ class BomComprasServiceMixin:
             raise ValueError(f"La autorización está en estatus {aut['estatus']} y no puede aprobarse en este paso.")
 
         es_finanzas = finanzas_role in ('editor', 'admin')
-        if user_role != 'ADMIN' and not es_finanzas:
+        if not es_finanzas:
             raise ValueError("Solo usuarios del módulo Finanzas pueden aprobar este paso.")
 
-        await self._actualizar_estatus_items_cotizacion(conn, aut['cotizacion_id'], 'AUTORIZADO')
-
-        updated = await self.db.update_autorizacion_paso_finanzas(conn, autorizacion_id, user_id, nota)
-
         bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
-        if aut.get('creado_por'):
-            await self._notify_autorizacion(
-                conn, {**aut, **updated}, bom,
-                to_user_id=aut['creado_por'],
-                evento='AUTORIZADO_FINANZAS',
-                por_user_id=user_id,
-                nota=nota,
+        if lock_version_esperado is None:
+            raise ValueError("La autorizacion cambio; recarga la pestaña")
+        async with conn.transaction():
+            bloqueada = await self.db.get_autorizacion_for_update(conn, autorizacion_id)
+            if (
+                not bloqueada or bloqueada["estatus"] != "AUTORIZADO_DIRECCION"
+                or bloqueada["lock_version"] != lock_version_esperado
+            ):
+                raise ValueError("La autorizacion ya cambio; recarga la pestaña")
+            updated = await self.db.update_autorizacion_paso_finanzas(
+                conn, autorizacion_id, user_id, nota, lock_version_esperado
             )
-
+            if not updated:
+                raise ValueError("La autorizacion ya cambio; recarga la pestaña")
+            await self._actualizar_estatus_items_cotizacion(
+                conn, aut['cotizacion_id'], 'AUTORIZADO'
+            )
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"AUTORIZACION:{autorizacion_id}:{updated['lock_version']}:FINANZAS",
+                "AUTORIZACION_FINANZAS", aut["proyecto_id"], user_id,
+                {"id_autorizacion": str(autorizacion_id), "estatus": updated["estatus"]},
+                id_paquete=bom.get("id_paquete"), id_bom=aut["bom_id"],
+                id_documento=autorizacion_id,
+            )
         logger.info("Autorización %s aprobada (finanzas) por usuario %s", autorizacion_id, user_id)
         return updated
 
     async def rechazar_autorizacion(
         self, conn, autorizacion_id: UUID, user_id: UUID, motivo: str,
-        user_role: str, rol_org: Optional[str], finanzas_role: Optional[str] = None
+        user_role: str, rol_org: Optional[str], finanzas_role: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Rechaza la autorización en el paso actual. Cotización vuelve a RECIBIDA."""
         aut = await self.db.get_autorizacion_by_id(conn, autorizacion_id)
@@ -446,43 +649,64 @@ class BomComprasServiceMixin:
         # Determinar paso y validar permisos
         if estatus == 'PENDIENTE':
             paso = 'OBRA'
-            if user_role != 'ADMIN':
-                bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
-                coordinador_obra = bom.get('coordinador_obra')
-                if coordinador_obra:
-                    if coordinador_obra != user_id:
-                        raise ValueError("Solo el coordinador de obra puede rechazar en este paso.")
-                else:
-                    es_jefe_const = await self.db.usuario_tiene_rol_org(conn, user_id, "jefe_construccion")
-                    if not es_jefe_const:
-                        raise ValueError("No hay coordinador de obra asignado. Solo el jefe de Construccion puede rechazar en este paso.")
+            bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
+            representados = await self.get_titulares_que_representa(conn, user_id)
+            coordinador_obra = bom.get('coordinador_obra')
+            if coordinador_obra:
+                if coordinador_obra not in representados:
+                    raise ValueError(
+                        "Solo el coordinador de obra o su suplente puede rechazar en este paso."
+                    )
+            elif not await self.db.usuario_tiene_rol_org(
+                conn, user_id, "jefe_construccion"
+            ):
+                raise ValueError(
+                    "No hay coordinador de obra asignado. Solo el jefe de Construccion puede rechazar en este paso."
+                )
         elif estatus == 'AUTORIZADO_OBRA':
             paso = 'DIRECCION'
-            if user_role != 'ADMIN' and rol_org != 'director':
-                raise ValueError("Solo el Director puede rechazar en este paso.")
+            aprobador_direccion = await self.db.get_aprobador_final_id(conn)
+            representados = await self.get_titulares_que_representa(conn, user_id)
+            if not aprobador_direccion or aprobador_direccion not in representados:
+                raise ValueError(
+                    "Solo el aprobador de Direccion o su suplente puede rechazar en este paso."
+                )
         elif estatus == 'AUTORIZADO_DIRECCION':
             paso = 'FINANZAS'
             es_finanzas = finanzas_role in ('editor', 'admin')
-            if user_role != 'ADMIN' and not es_finanzas:
+            if not es_finanzas:
                 raise ValueError("Solo usuarios del módulo Finanzas pueden rechazar en este paso.")
         else:
             raise ValueError(f"La autorización no puede rechazarse en estatus {estatus}.")
 
-        updated = await self.db.rechazar_autorizacion_db(conn, autorizacion_id, user_id, motivo, paso)
+        bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
+        if lock_version_esperado is None:
+            raise ValueError("La autorizacion cambio; recarga la pestaña")
+        async with conn.transaction():
+            bloqueada = await self.db.get_autorizacion_for_update(conn, autorizacion_id)
+            if (
+                not bloqueada or bloqueada["estatus"] != estatus
+                or bloqueada["lock_version"] != lock_version_esperado
+            ):
+                raise ValueError("La autorizacion ya cambio; recarga la pestaña")
+            updated = await self.db.rechazar_autorizacion_db(
+                conn, autorizacion_id, user_id, motivo, paso, estatus,
+                lock_version_esperado,
+            )
+            if not updated:
+                raise ValueError("La autorizacion ya cambio; recarga la pestaña")
+            await self._liberar_cotizacion_rechazada(conn, aut['cotizacion_id'])
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"AUTORIZACION:{autorizacion_id}:{updated['lock_version']}:RECHAZADA",
+                "AUTORIZACION_RECHAZADA", aut["proyecto_id"], user_id,
+                {"id_autorizacion": str(autorizacion_id), "estatus": "RECHAZADO"},
+                id_paquete=bom.get("id_paquete"), id_bom=aut["bom_id"],
+                id_documento=autorizacion_id,
+            )
 
         # Cotización vuelve a RECIBIDA e ítems a SIN_COTIZAR
-        await self._liberar_cotizacion_rechazada(conn, aut['cotizacion_id'])
-
-        # Notificar al creador de la autorización (Compras)
-        bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
-        if aut.get('creado_por'):
-            await self._notify_autorizacion(
-                conn, {**aut, **updated}, bom,
-                to_user_id=aut['creado_por'],
-                evento='RECHAZADO',
-                por_user_id=user_id,
-                nota=motivo,
-            )
+        # La liberacion de la cotizacion ya ocurrio dentro de la transaccion.
 
         logger.info("Autorización %s rechazada en paso %s por usuario %s", autorizacion_id, paso, user_id)
         return updated
@@ -491,12 +715,22 @@ class BomComprasServiceMixin:
 
     async def _liberar_cotizacion_rechazada(self, conn, cotizacion_id: UUID) -> None:
         """Regresa la cotización a RECIBIDA y libera sus items a SIN_COTIZAR tras un rechazo."""
-        await self.db.actualizar_estatus_cotizacion(conn, cotizacion_id, 'RECIBIDA')
+        cotizacion = await self.db.get_cotizacion_for_update(conn, cotizacion_id)
+        if not cotizacion:
+            raise ValueError("Cotizacion no encontrada")
+        actualizada = await self.db.actualizar_estatus_cotizacion(
+            conn, cotizacion_id, 'RECIBIDA', cotizacion["estatus"],
+            cotizacion["lock_version"],
+        )
+        if not actualizada:
+            raise ValueError("La cotizacion cambio; recarga la pestaña")
         await self._actualizar_estatus_items_cotizacion(conn, cotizacion_id, 'SIN_COTIZAR')
 
     async def solicitar_aprobacion_cotizacion(
         self, conn, cotizacion_id: UUID, user_id: UUID,
-        comentarios: Optional[str] = None
+        comentarios: Optional[str] = None,
+        cotizacion_lock_version_esperado: Optional[int] = None,
+        autorizacion_lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """
         Crea la aprobacion documental de Direccion (tb_bom_cotizacion_aprobaciones)
@@ -524,19 +758,55 @@ class BomComprasServiceMixin:
         if not autorizacion or autorizacion['estatus'] != 'AUTORIZADO_OBRA':
             raise ValueError("La autorización de compra debe estar aprobada por Obra antes de solicitar aprobación de Dirección.")
 
-        existente = await self.db.get_cotizacion_aprobacion_activa(conn, cotizacion_id)
-        if existente:
-            raise ValueError("La cotización ya tiene una aprobación de Dirección pendiente o aprobada.")
+        if cotizacion_lock_version_esperado is None or autorizacion_lock_version_esperado is None:
+            raise ValueError("La cotización o autorización cambió; recarga la pestaña.")
 
-        try:
-            aprobacion = await self.db.crear_cotizacion_aprobacion(
-                conn, cotizacion_id, cotizacion['bom_id'], bom['id_proyecto'],
-                user_id, comentarios
+        async with conn.transaction():
+            paquete_bloqueado = await self.db.get_paquete_for_update(conn, bom["id_paquete"])
+            bom_bloqueado = await self.db.get_bom_for_update(conn, cotizacion["bom_id"])
+            cotizacion_bloqueada = await self.db.get_cotizacion_for_update(conn, cotizacion_id)
+            autorizacion_bloqueada = await self.db.get_autorizacion_for_update(
+                conn, autorizacion["id"]
             )
-        except asyncpg.UniqueViolationError:
-            # Carrera check-then-insert (doble click): el índice uq_bom_cot_aprob_activa
-            # garantiza una sola activa; traducir a 400 amigable.
-            raise ValueError("La cotización ya tiene una aprobación de Dirección pendiente o aprobada.")
+            if (
+                not paquete_bloqueado
+                or paquete_bloqueado["estado_paquete"] != "ACTIVO"
+                or not bom_bloqueado
+                or bom_bloqueado["id_paquete"] != paquete_bloqueado["id_paquete"]
+                or not cotizacion_bloqueada
+                or cotizacion_bloqueada["estatus"] != "SELECCIONADA"
+                or cotizacion_bloqueada["lock_version"] != cotizacion_lock_version_esperado
+                or not autorizacion_bloqueada
+                or autorizacion_bloqueada["estatus"] != "AUTORIZADO_OBRA"
+                or autorizacion_bloqueada["lock_version"] != autorizacion_lock_version_esperado
+            ):
+                raise ValueError("La cotización o autorización cambió; recarga la pestaña.")
+            existente = await self.db.get_cotizacion_aprobacion_activa(conn, cotizacion_id)
+            if existente:
+                raise ValueError(
+                    "La cotización ya tiene una aprobación de Dirección pendiente o aprobada."
+                )
+            try:
+                aprobacion = await self.db.crear_cotizacion_aprobacion(
+                    conn, cotizacion_id, cotizacion['bom_id'], bom['id_proyecto'],
+                    user_id, comentarios
+                )
+            except asyncpg.UniqueViolationError:
+                raise ValueError(
+                    "La cotización ya tiene una aprobación de Dirección pendiente o aprobada."
+                )
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"COTIZACION_APROBACION:{aprobacion['id']}:0:SOLICITADA",
+                "COTIZACION_APROBACION_SOLICITADA", bom["id_proyecto"], user_id,
+                {
+                    "id_cotizacion": str(cotizacion_id),
+                    "id_aprobacion": str(aprobacion["id"]),
+                    "estatus": aprobacion["estatus"],
+                },
+                id_paquete=bom["id_paquete"], id_bom=cotizacion["bom_id"],
+                id_documento=aprobacion["id"],
+            )
         logger.info(
             "Aprobación de cotización %s solicitada (aprobación %s) por usuario %s",
             cotizacion_id, aprobacion['id'], user_id
@@ -546,7 +816,9 @@ class BomComprasServiceMixin:
     async def aprobar_cotizacion_direccion(
         self, conn, cotizacion_id: UUID, user_id: UUID,
         user_role: str, rol_org: Optional[str],
-        comentarios: Optional[str] = None
+        comentarios: Optional[str] = None,
+        aprobacion_lock_version_esperado: Optional[int] = None,
+        autorizacion_lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """
         Direccion aprueba la cotizacion (aprobacion documental). Requiere la
@@ -554,14 +826,19 @@ class BomComprasServiceMixin:
         superficie standalone, se rechaza la operacion); la avanza en la misma
         transaccion y notifica a Finanzas despues del commit (## 8.5).
         """
-        if user_role != 'ADMIN' and rol_org != 'director':
-            raise ValueError("Solo el Director puede aprobar cotizaciones.")
+        aprobador_direccion = await self.db.get_aprobador_final_id(conn)
+        representados = await self.get_titulares_que_representa(conn, user_id)
+        if not aprobador_direccion or aprobador_direccion not in representados:
+            raise ValueError(
+                "Solo el aprobador de Dirección o su suplente puede aprobar cotizaciones."
+            )
 
         aprobacion = await self.db.get_cotizacion_aprobacion_activa(conn, cotizacion_id)
         if not aprobacion or aprobacion['estatus'] != EstatusCotizacionAprobacion.PENDIENTE_DIRECCION:
             raise ValueError("La cotización no tiene una aprobación pendiente de Dirección.")
 
-        _notify_args = None
+        if aprobacion_lock_version_esperado is None or autorizacion_lock_version_esperado is None:
+            raise ValueError("La aprobación o autorización cambió; recarga la pestaña.")
         async with conn.transaction():
             autorizacion = await self.db.get_autorizacion_by_cotizacion(conn, cotizacion_id)
             if not autorizacion or autorizacion['estatus'] != 'AUTORIZADO_OBRA':
@@ -570,28 +847,62 @@ class BomComprasServiceMixin:
                     "resuélvela en la pestaña Autorizaciones antes de aprobar la cotización."
                 )
 
+            bom = await self.db.get_bom_by_id(conn, aprobacion["bom_id"])
+            paquete_bloqueado = await self.db.get_paquete_for_update(conn, bom["id_paquete"])
+            await self.db.get_bom_for_update(conn, aprobacion["bom_id"])
+            await self.db.get_cotizacion_for_update(conn, cotizacion_id)
+            autorizacion_bloqueada = await self.db.get_autorizacion_for_update(
+                conn, autorizacion["id"]
+            )
+            aprobacion_bloqueada = await self.db.get_cotizacion_aprobacion_for_update(
+                conn, aprobacion["id"]
+            )
+            if (
+                not paquete_bloqueado
+                or paquete_bloqueado["estado_paquete"] != "ACTIVO"
+                or not aprobacion_bloqueada
+                or aprobacion_bloqueada["estatus"] != "PENDIENTE_DIRECCION"
+                or aprobacion_bloqueada["lock_version"] != aprobacion_lock_version_esperado
+                or not autorizacion_bloqueada
+                or autorizacion_bloqueada["estatus"] != "AUTORIZADO_OBRA"
+                or autorizacion_bloqueada["lock_version"] != autorizacion_lock_version_esperado
+            ):
+                raise ValueError("La aprobacion o autorizacion cambio; recarga la pestaña")
             updated = await self.db.aprobar_cotizacion_aprobacion_db(
-                conn, aprobacion['id'], user_id, comentarios
+                conn, aprobacion['id'], user_id, comentarios,
+                aprobacion_lock_version_esperado,
             )
             if not updated:
                 raise ValueError("La aprobación ya no está pendiente de Dirección.")
 
             aut_updated = await self.db.update_autorizacion_paso_direccion(
-                conn, autorizacion['id'], user_id, comentarios
+                conn, autorizacion['id'], user_id, comentarios,
+                autorizacion_lock_version_esperado,
             )
-            _notify_args = (autorizacion, aut_updated)
-
-        # Notificar fuera de la transacción (fire-and-forget)
-        if _notify_args:
-            aut, aut_updated = _notify_args
-            await self._notify_direccion_aprobada(conn, aut, aut_updated, user_id, comentarios)
+            if not aut_updated:
+                raise ValueError("La autorizacion cambio; recarga la pestaña")
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"COTIZACION_APROBACION:{updated['id']}:{updated['lock_version']}:APROBADA",
+                "COTIZACION_APROBACION_APROBADA", updated["proyecto_id"], user_id,
+                {
+                    "id_cotizacion": str(cotizacion_id),
+                    "id_aprobacion": str(updated["id"]),
+                    "id_autorizacion": str(aut_updated["id"]),
+                    "estatus": updated["estatus"],
+                },
+                id_paquete=bom["id_paquete"], id_bom=updated["bom_id"],
+                id_documento=updated["id"],
+            )
 
         logger.info("Cotización %s aprobada por Dirección (usuario %s)", cotizacion_id, user_id)
         return updated
 
     async def rechazar_cotizacion_direccion(
         self, conn, cotizacion_id: UUID, user_id: UUID, motivo: str,
-        user_role: str, rol_org: Optional[str]
+        user_role: str, rol_org: Optional[str],
+        aprobacion_lock_version_esperado: Optional[int] = None,
+        autorizacion_lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """
         Direccion rechaza la cotizacion con motivo obligatorio. Requiere la
@@ -602,14 +913,19 @@ class BomComprasServiceMixin:
         """
         if not motivo or not motivo.strip():
             raise ValueError("El motivo de rechazo es obligatorio.")
-        if user_role != 'ADMIN' and rol_org != 'director':
-            raise ValueError("Solo el Director puede rechazar cotizaciones.")
+        aprobador_direccion = await self.db.get_aprobador_final_id(conn)
+        representados = await self.get_titulares_que_representa(conn, user_id)
+        if not aprobador_direccion or aprobador_direccion not in representados:
+            raise ValueError(
+                "Solo el aprobador de Dirección o su suplente puede rechazar cotizaciones."
+            )
 
         aprobacion = await self.db.get_cotizacion_aprobacion_activa(conn, cotizacion_id)
         if not aprobacion or aprobacion['estatus'] != EstatusCotizacionAprobacion.PENDIENTE_DIRECCION:
             raise ValueError("La cotización no tiene una aprobación pendiente de Dirección.")
 
-        _notify_args = None
+        if aprobacion_lock_version_esperado is None or autorizacion_lock_version_esperado is None:
+            raise ValueError("La aprobación o autorización cambió; recarga la pestaña.")
         async with conn.transaction():
             autorizacion = await self.db.get_autorizacion_by_cotizacion(conn, cotizacion_id)
             if not autorizacion or autorizacion['estatus'] not in ('PENDIENTE', 'AUTORIZADO_OBRA'):
@@ -618,29 +934,54 @@ class BomComprasServiceMixin:
                     "resuélvela en la pestaña Autorizaciones antes de rechazar la cotización."
                 )
 
+            bom = await self.db.get_bom_by_id(conn, aprobacion["bom_id"])
+            paquete_bloqueado = await self.db.get_paquete_for_update(conn, bom["id_paquete"])
+            await self.db.get_bom_for_update(conn, aprobacion["bom_id"])
+            await self.db.get_cotizacion_for_update(conn, cotizacion_id)
+            autorizacion_bloqueada = await self.db.get_autorizacion_for_update(
+                conn, autorizacion["id"]
+            )
+            aprobacion_bloqueada = await self.db.get_cotizacion_aprobacion_for_update(
+                conn, aprobacion["id"]
+            )
+            if (
+                not paquete_bloqueado
+                or paquete_bloqueado["estado_paquete"] != "ACTIVO"
+                or not aprobacion_bloqueada
+                or aprobacion_bloqueada["estatus"] != "PENDIENTE_DIRECCION"
+                or aprobacion_bloqueada["lock_version"] != aprobacion_lock_version_esperado
+                or not autorizacion_bloqueada
+                or autorizacion_bloqueada["estatus"] != autorizacion["estatus"]
+                or autorizacion_bloqueada["lock_version"] != autorizacion_lock_version_esperado
+            ):
+                raise ValueError("La aprobacion o autorizacion cambio; recarga la pestaña")
             updated = await self.db.rechazar_cotizacion_aprobacion_db(
-                conn, aprobacion['id'], user_id, motivo
+                conn, aprobacion['id'], user_id, motivo,
+                aprobacion_lock_version_esperado,
             )
             if not updated:
                 raise ValueError("La aprobación ya no está pendiente de Dirección.")
 
             rechazada = await self.db.rechazar_autorizacion_db(
-                conn, autorizacion['id'], user_id, motivo, 'RECHAZO_COTIZACION'
+                conn, autorizacion['id'], user_id, motivo, 'RECHAZO_COTIZACION',
+                autorizacion["estatus"], autorizacion_lock_version_esperado,
             )
+            if not rechazada:
+                raise ValueError("La autorizacion cambio; recarga la pestaña")
             await self._liberar_cotizacion_rechazada(conn, cotizacion_id)
-            if autorizacion.get('creado_por'):
-                _notify_args = (autorizacion, rechazada)
-
-        # Notificar a Compras fuera de la transacción (fire-and-forget)
-        if _notify_args:
-            aut, rechazada = _notify_args
-            bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
-            await self._notify_autorizacion(
-                conn, {**aut, **rechazada}, bom,
-                to_user_id=aut['creado_por'],
-                evento='RECHAZADO',
-                por_user_id=user_id,
-                nota=motivo,
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"COTIZACION_APROBACION:{updated['id']}:{updated['lock_version']}:RECHAZADA",
+                "COTIZACION_APROBACION_RECHAZADA", updated["proyecto_id"], user_id,
+                {
+                    "id_cotizacion": str(cotizacion_id),
+                    "id_aprobacion": str(updated["id"]),
+                    "id_autorizacion": str(rechazada["id"]),
+                    "estatus": updated["estatus"],
+                    "motivo": motivo,
+                },
+                id_paquete=bom["id_paquete"], id_bom=updated["bom_id"],
+                id_documento=updated["id"],
             )
 
         logger.info(
@@ -679,17 +1020,22 @@ class BomComprasServiceMixin:
                 'evento': evento,
                 'por_nombre': por_nombre or 'Sistema',
                 'nota': nota,
-                'app_url': f"{settings.APP_BASE_URL}/bom/{bom.get('id_proyecto')}/ui",
+                'app_url': f"{settings.APP_BASE_URL}/bom/versiones/{bom.get('id_bom')}/ui",
             })
 
+            identidad = (
+                f"{bom.get('proyecto_id_estandar', '')} - "
+                f"{bom.get('paquete_codigo', 'BOM')} v{bom.get('version', '')}"
+            )
+
             subject_map = {
-                'PENDIENTE_OBRA':      f"Autorización BOM {bom.get('proyecto_id_estandar', '')} - Requiere aprobación de Obra",
-                'PENDIENTE_DIRECCION': f"Autorización BOM {bom.get('proyecto_id_estandar', '')} - Requiere aprobación de Dirección",
-                'PENDIENTE_FINANZAS':  f"Autorización BOM {bom.get('proyecto_id_estandar', '')} - Requiere aprobación de Finanzas",
-                'RECHAZADO':           f"Autorización BOM {bom.get('proyecto_id_estandar', '')} - Rechazada",
-                'AUTORIZADO_FINANZAS': f"Autorización BOM {bom.get('proyecto_id_estandar', '')} - Aprobada completamente",
+                'PENDIENTE_OBRA':      f"Autorización BOM {identidad} - Requiere aprobación de Obra",
+                'PENDIENTE_DIRECCION': f"Autorización BOM {identidad} - Requiere aprobación de Dirección",
+                'PENDIENTE_FINANZAS':  f"Autorización BOM {identidad} - Requiere aprobación de Finanzas",
+                'RECHAZADO':           f"Autorización BOM {identidad} - Rechazada",
+                'AUTORIZADO_FINANZAS': f"Autorización BOM {identidad} - Aprobada completamente",
             }
-            subject = subject_map.get(evento, f"Autorización BOM {bom.get('proyecto_id_estandar', '')} - Actualización")
+            subject = subject_map.get(evento, f"Autorización BOM {identidad} - Actualización")
 
             await notif._send_email({to_email}, set(), subject, html, sender_email)
             logger.info("Autorizacion notify: evento=%s to_user=%s", evento, to_user_id)
@@ -698,7 +1044,8 @@ class BomComprasServiceMixin:
             logger.warning("Autorizacion notify: error enviando email, evento=%s: %s", evento, exc)
 
     async def rechazar_cotizacion(
-        self, conn, cotizacion_id: UUID, user_id: UUID
+        self, conn, cotizacion_id: UUID, user_id: UUID,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
         if not cotizacion:
@@ -706,12 +1053,36 @@ class BomComprasServiceMixin:
         if cotizacion['estatus'] in ('SELECCIONADA', 'RECHAZADA'):
             raise ValueError(f"La cotización está en estatus {cotizacion['estatus']}.")
 
-        updated = await self.db.actualizar_estatus_cotizacion(conn, cotizacion_id, 'RECHAZADA')
+        if lock_version_esperado is None:
+            raise ValueError("La cotizacion cambio; recarga la pestaña")
+        bom = await self.db.get_bom_by_id(conn, cotizacion["bom_id"])
+        async with conn.transaction():
+            bloqueada = await self.db.get_cotizacion_for_update(conn, cotizacion_id)
+            if (
+                not bloqueada or bloqueada["estatus"] != cotizacion["estatus"]
+                or bloqueada["lock_version"] != lock_version_esperado
+            ):
+                raise ValueError("La cotizacion ya cambio; recarga la pestaña")
+            updated = await self.db.actualizar_estatus_cotizacion(
+                conn, cotizacion_id, 'RECHAZADA', cotizacion["estatus"],
+                lock_version_esperado,
+            )
+            if not updated:
+                raise ValueError("La cotizacion ya cambio; recarga la pestaña")
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"COTIZACION:{cotizacion_id}:{updated['lock_version']}:RECHAZADA",
+                "COTIZACION_RECHAZADA", bom["id_proyecto"], user_id,
+                {"id_cotizacion": str(cotizacion_id), "estatus": "RECHAZADA"},
+                id_paquete=bom.get("id_paquete"), id_bom=cotizacion["bom_id"],
+                id_documento=cotizacion_id,
+            )
         logger.info("Cotización %s rechazada por usuario %s", cotizacion_id, user_id)
         return updated
 
     async def solicitar_aclaracion_cotizacion(
-        self, conn, cotizacion_id: UUID, user_id: UUID, motivo: str
+        self, conn, cotizacion_id: UUID, user_id: UUID, motivo: str,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Devuelve una cotización a BORRADOR con motivo (feedback de aprobador)."""
         if not motivo or not motivo.strip():
@@ -723,7 +1094,21 @@ class BomComprasServiceMixin:
             raise ValueError(
                 f"La cotización está en estatus {cotizacion['estatus']} y no puede devolverse."
             )
-        updated = await self.db.devolver_cotizacion_borrador(conn, cotizacion_id, motivo)
+        if lock_version_esperado is None:
+            raise ValueError("La cotizacion cambio; recarga la pestaña")
+        async with conn.transaction():
+            bloqueada = await self.db.get_cotizacion_for_update(conn, cotizacion_id)
+            if (
+                not bloqueada or bloqueada["estatus"] != cotizacion["estatus"]
+                or bloqueada["lock_version"] != lock_version_esperado
+            ):
+                raise ValueError("La cotizacion ya cambio; recarga la pestaña")
+            updated = await self.db.devolver_cotizacion_borrador(
+                conn, cotizacion_id, motivo, cotizacion["estatus"],
+                lock_version_esperado,
+            )
+            if not updated:
+                raise ValueError("La cotizacion ya cambio; recarga la pestaña")
         logger.info(
             "Cotización %s devuelta a borrador por %s: %s",
             cotizacion_id, user_id, motivo[:80]
@@ -744,10 +1129,20 @@ class BomComprasServiceMixin:
         """
         conceptos = await self.db.get_conceptos_conciliacion(conn, autorizacion_id)
         items = await self.db.get_items_by_autorizacion(conn, autorizacion_id)
+        for item in items:
+            grupo_ids = item.get("grupo_ids") or []
+            grupo_labels = item.get("grupo_labels") or []
+            item["grupos_conciliacion"] = [
+                {"id": grupo_id, "label": label}
+                for grupo_id, label in zip(grupo_ids, grupo_labels)
+            ]
         return {"conceptos": conceptos, "items": items}
 
     async def confirmar_match_concepto(
-        self, conn, historial_id: UUID, id_bom_item: Optional[UUID]
+        self, conn, historial_id: UUID, id_bom_item: Optional[UUID],
+        id_bom_item_anterior: Optional[UUID],
+        lock_version_esperado: Optional[int] = None,
+        id_grupo: Optional[int] = None,
     ) -> Optional[dict]:
         """Confirma (o desasigna) el match concepto->item declarado por un humano.
 
@@ -756,10 +1151,19 @@ class BomComprasServiceMixin:
         Ambas escrituras van en una transaccion: si falla la marca de estatus no queda
         el concepto ligado sin el item en FACTURADO.
         """
+        if lock_version_esperado is None:
+            raise ValueError("El concepto cambió; recarga la conciliación.")
         async with conn.transaction():
-            result = await self.db.confirmar_match_concepto(conn, historial_id, id_bom_item)
+            result = await self.db.confirmar_match_concepto(
+                conn, historial_id, id_bom_item, id_bom_item_anterior,
+                lock_version_esperado, id_grupo,
+            )
+            if not result:
+                raise ValueError("El concepto cambio; recarga la conciliacion")
             if result and id_bom_item is not None:
-                await self.db.update_items_estatus_compra(conn, [id_bom_item], 'FACTURADO')
+                await self._actualizar_estatus_items_por_ids(
+                    conn, [id_bom_item], 'FACTURADO'
+                )
         return result
 
     async def get_autorizacion_por_bom_pago(self, conn, id_bom_pago: UUID) -> Optional[dict]:
@@ -922,7 +1326,9 @@ class BomComprasServiceMixin:
     ) -> None:
         """Actualiza estatus_compra de items BOM en lote."""
         uuid_ids = [UUID(str(i)) for i in item_ids]
-        await self.db.update_items_estatus_compra(conn, uuid_ids, nuevo_estatus)
+        await self._actualizar_estatus_items_por_ids(
+            conn, uuid_ids, nuevo_estatus
+        )
 
     # ─── COMPARATIVA RFQ (Gap 7d) ───────────────────────────
 
@@ -934,7 +1340,8 @@ class BomComprasServiceMixin:
 
     async def bulk_asignar_items(
         self, conn, cotizacion_id: UUID, item_ids: list,
-        precio_unitario: float = None, moneda: str = "MXN"
+        precio_unitario: float = None, moneda: str = "MXN",
+        lock_version_esperado: Optional[int] = None,
     ) -> None:
         """Asigna items a una cotización de proveedor (reemplaza items existentes)."""
         cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
@@ -942,20 +1349,67 @@ class BomComprasServiceMixin:
             raise ValueError("Cotización no encontrada.")
         if cotizacion['estatus'] in ('SELECCIONADA', 'RECHAZADA'):
             raise ValueError(f"La cotización está en estatus {cotizacion['estatus']} y no puede modificarse.")
+        if lock_version_esperado is None:
+            raise ValueError("La cotizacion cambio; recarga la comparativa")
+        item_ids = list(dict.fromkeys(UUID(str(iid)) for iid in item_ids))
         if item_ids:
-            bom_items = await self.db.get_items_by_ids(conn, [UUID(str(iid)) for iid in item_ids])
+            bom_items = await self.db.get_items_by_ids(conn, item_ids)
+            if len(bom_items) != len(item_ids) or any(
+                str(item.get("id_bom")) != str(cotizacion["bom_id"])
+                for item in bom_items
+            ):
+                raise ValueError("No se pueden asignar items de otro paquete BOM")
             self._validar_items_cotizables(bom_items, "asignar en bulk a cotizaciones de")
+        moneda_cotizacion = (cotizacion.get("moneda") or "").strip().upper()
+        if moneda_cotizacion not in {"MXN", "USD"}:
+            raise ValueError("La cotización no tiene una moneda válida")
+        precio_bulk = (
+            Decimal(str(precio_unitario))
+            if precio_unitario is not None else None
+        )
         items = [
             {
-                'bom_item_id': UUID(str(iid)),
-                'precio_unitario': precio_unitario,
+                'bom_item_id': iid,
+                'precio_unitario': precio_bulk,
                 'cantidad': 1,
-                'moneda': moneda,
-                'subtotal_linea': precio_unitario if precio_unitario else 0
+                'moneda': moneda_cotizacion,
+                'subtotal_linea': (
+                    precio_bulk if precio_bulk and precio_bulk > 0 else None
+                ),
             }
             for iid in item_ids
         ]
-        await self.db.bulk_replace_cotizacion_items(conn, cotizacion_id, items)
+        async with conn.transaction():
+            bom = await self.db.get_bom_for_update(conn, cotizacion["bom_id"])
+            if not bom or not self._es_cabeza_cotizable(bom):
+                raise ValueError("El BOM de la cotizacion ya no es la version vigente")
+            bloqueada = await self.db.get_cotizacion_for_update(conn, cotizacion_id)
+            if (
+                not bloqueada
+                or bloqueada["estatus"] != cotizacion["estatus"]
+                or bloqueada["lock_version"] != lock_version_esperado
+            ):
+                raise ValueError("La cotizacion cambio; recarga la comparativa")
+            if item_ids:
+                bloqueados = await self.db.lock_items_context_by_ids(
+                    conn, sorted(item_ids, key=str)
+                )
+                if len(bloqueados) != len(item_ids) or any(
+                    str(item.get("id_bom")) != str(cotizacion["bom_id"])
+                    for item in bloqueados
+                ):
+                    raise ValueError("No se pueden asignar items de otro paquete BOM")
+                self._validar_items_cotizables(
+                    bloqueados, "asignar en bulk a cotizaciones de"
+                )
+            await self.db.bulk_replace_cotizacion_items(
+                conn, cotizacion_id, cotizacion["bom_id"], items
+            )
+            actualizada = await self.db.incrementar_lock_cotizacion_cas(
+                conn, cotizacion_id, cotizacion["estatus"], lock_version_esperado
+            )
+            if not actualizada:
+                raise ValueError("La cotizacion cambio; recarga la comparativa")
 
     async def get_proveedores_buscar(self, conn, q: str) -> List[dict]:
         return await self.db.get_proveedores_buscar(conn, q)

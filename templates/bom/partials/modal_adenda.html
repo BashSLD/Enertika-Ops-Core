@@ -102,15 +102,26 @@
 
                         <div class="sm:col-span-2">
                             <label class="block text-sm font-medium text-gray-700 mb-2">Grupos BOM</label>
-                            <div class="flex flex-wrap gap-2">
+                            <p class="mb-2 text-xs text-gray-500">Si seleccionas varios grupos, sus porcentajes deben sumar 100.</p>
+                            <div class="space-y-2">
                                 {% for grupo in catalogos.grupos_bom %}
-                                <label class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-600 cursor-pointer hover:bg-gray-50">
-                                    <input type="checkbox" name="grupo_ids" value="{{ grupo.id }}"
-                                        {% if es_reemplazo and item and grupo.codigo in (item.grupos or []) %}checked{% endif %}
-                                        class="rounded border-gray-300 text-blue-600">
-                                    <span class="text-xs font-bold">{{ grupo.codigo }}</span>
-                                    <span class="text-xs">{{ grupo.nombre }}</span>
-                                </label>
+                                {% set seleccionado = es_reemplazo and item and grupo.codigo in (item.grupos or []) %}
+                                <div class="grid grid-cols-3 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2">
+                                    <label class="col-span-2 inline-flex items-center gap-1.5 text-gray-600 cursor-pointer">
+                                        <input type="checkbox" name="grupo_ids" value="{{ grupo.id }}"
+                                            {% if seleccionado %}checked{% endif %}
+                                            class="rounded border-gray-300 text-blue-600">
+                                        <span class="text-xs font-bold">{{ grupo.codigo }}</span>
+                                        <span class="text-xs">{{ grupo.nombre }}</span>
+                                    </label>
+                                    <label class="flex items-center justify-end gap-1 text-xs text-gray-500">
+                                        <span>Porcentaje</span>
+                                        <input type="number" name="grupo_porcentaje_{{ grupo.id }}"
+                                            min="0.0001" max="100" step="0.0001"
+                                            value="{{ item.grupo_porcentajes_actuales.get(grupo.id | string, '') if item else '' }}"
+                                            class="w-20 rounded-md border-gray-300 text-right text-xs">
+                                    </label>
+                                </div>
                                 {% endfor %}
                             </div>
                         </div>

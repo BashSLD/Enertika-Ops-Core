@@ -9,11 +9,10 @@ Endpoints:
 - /finanzas/autorizaciones/{id}/pago        - POST: registrar pago
 """
 
-from fastapi import APIRouter, Depends, Request, Form, HTTPException, Query
+from fastapi import APIRouter, Depends, Request, Form, HTTPException
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 from datetime import date
 from decimal import Decimal
 import logging
@@ -112,7 +111,9 @@ async def modal_registrar_pago(
         aut = await service.get_modal_registrar_pago(conn, autorizacion_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return templates.TemplateResponse(request, "finanzas/partials/modal_registrar_pago.html", {"autorizacion": aut,
+    return templates.TemplateResponse(request, "finanzas/partials/modal_registrar_pago.html", {
+        "autorizacion": aut,
+        "clave_idempotencia_pago": str(uuid4()),
     })
 
 
@@ -125,6 +126,8 @@ async def registrar_pago(
     tipo_cambio_usado: Optional[Decimal] = Form(None),
     fecha_pago: date = Form(...),
     referencia_bancaria: Optional[str] = Form(None),
+    lock_version: int = Form(...),
+    clave_idempotencia: str = Form(...),
     context=Depends(get_current_user_context),
     _=require_module_access("finanzas", "editor"),
     conn=Depends(get_db_connection),
@@ -142,11 +145,16 @@ async def registrar_pago(
             referencia_bancaria=referencia_bancaria,
             comprobante_url=None,
             registrado_por=user_id,
+            lock_version_esperado=lock_version,
+            clave_idempotencia=clave_idempotencia,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except asyncpg.UniqueViolationError:
-        raise HTTPException(status_code=400, detail="Esta autorización ya tiene un pago registrado.")
+        raise HTTPException(
+            status_code=400,
+            detail="Este pago ya fue registrado; actualiza la lista.",
+        )
     except asyncpg.PostgresError:
         raise HTTPException(status_code=500, detail="Error al registrar el pago.")
 

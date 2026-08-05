@@ -1128,6 +1128,20 @@ class NotificationService:
                 emails = emails | {empleado_email}
         return emails
     
+    async def send_simple_notification(
+        self, conn, destinatario: str, asunto: str, html_body: str,
+        departamento: str = 'DEFAULT',
+    ) -> bool:
+        """Envia un correo de una sola vez resolviendo el remitente configurado.
+
+        Pensado para callers fuera de este modulo (ej. consumidores de outbox)
+        que no necesitan las plantillas Jinja de _render_template.
+        """
+        remitente = await self._get_notification_sender(conn, departamento)
+        return await self._send_email(
+            {destinatario}, set(), asunto, html_body, remitente["email"]
+        )
+
     async def _get_notification_sender(self, conn, departamento: str = 'DEFAULT') -> dict:
         """
         Obtiene configuración del remitente de notificaciones desde BD.

@@ -158,7 +158,7 @@ async def test_save_equipo_desactiva_e_inserta_si_el_usuario_cambia():
 
 
 @pytest.mark.asyncio
-async def test_save_equipo_rechaza_usuario_con_otro_rol_activo_en_area():
+async def test_save_equipo_permite_mismo_usuario_como_ingeniero_y_ri():
     id_proyecto = uuid4()
     id_usuario = uuid4()
     asignado_por_id = uuid4()
@@ -168,21 +168,66 @@ async def test_save_equipo_rechaza_usuario_con_otro_rol_activo_en_area():
     )
     service.db = fake_db
 
-    with pytest.raises(ValueError, match="Responsable de Ingeniería"):
+    await service.save_equipo_proyecto(
+        FakeConn(),
+        id_proyecto,
+        [
+            {
+                "rol_proyecto": "ingeniero_asignado",
+                "area": "INGENIERIA",
+                "id_usuario": id_usuario,
+            }
+        ],
+        asignado_por_id,
+        {
+            "puede_asignar_ingenieria": True,
+            "puede_asignar_construccion": False,
+            "puede_asignar_oym": False,
+        },
+    )
+
+    assert fake_db.insertadas == [
+        (
+            id_proyecto,
+            id_usuario,
+            "ingeniero_asignado",
+            "INGENIERIA",
+            asignado_por_id,
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_save_equipo_rechaza_otros_roles_del_area_para_mismo_usuario():
+    id_proyecto = uuid4()
+    id_usuario = uuid4()
+    asignado_por_id = uuid4()
+    service = ProyectosService()
+    fake_db = FakeProyectosDB(
+        activas_area=[
+            {
+                "id_usuario": id_usuario,
+                "rol_proyecto": "responsable_construccion",
+            }
+        ],
+    )
+    service.db = fake_db
+
+    with pytest.raises(ValueError, match="Responsable de Construcción"):
         await service.save_equipo_proyecto(
             FakeConn(),
             id_proyecto,
             [
                 {
-                    "rol_proyecto": "ingeniero_asignado",
-                    "area": "INGENIERIA",
+                    "rol_proyecto": "coordinador_obra",
+                    "area": "CONSTRUCCION",
                     "id_usuario": id_usuario,
                 }
             ],
             asignado_por_id,
             {
-                "puede_asignar_ingenieria": True,
-                "puede_asignar_construccion": False,
+                "puede_asignar_ingenieria": False,
+                "puede_asignar_construccion": True,
                 "puede_asignar_oym": False,
             },
         )
@@ -249,6 +294,74 @@ async def test_save_equipo_traduce_carrera_mismo_rol_otro_usuario():
                 "puede_asignar_construccion": False,
                 "puede_asignar_oym": False,
             },
+        )
+
+
+@pytest.mark.asyncio
+async def test_save_equipo_permite_responsable_e_ingeniero_explicitos_misma_persona():
+    id_proyecto = uuid4()
+    id_usuario = uuid4()
+    asignado_por_id = uuid4()
+    service = ProyectosService()
+    fake_db = FakeProyectosDB(
+        jefes={id_usuario: "jefe_ingenieria"},
+        activas_area=[],
+    )
+    service.db = fake_db
+
+    await service.save_equipo_proyecto(
+        FakeConn(),
+        id_proyecto,
+        [{
+            "rol_proyecto": "ingeniero_asignado",
+            "area": "INGENIERIA",
+            "id_usuario": id_usuario,
+        }],
+        asignado_por_id,
+        {
+            "puede_asignar_ingenieria": True,
+            "puede_asignar_construccion": False,
+            "puede_asignar_oym": False,
+            "puede_reasignar_responsable": True,
+        },
+        context={"role": "ADMIN"},
+        responsables_explicitos={"INGENIERIA": id_usuario},
+    )
+
+    assert fake_db.insertadas == [
+        (
+            id_proyecto,
+            id_usuario,
+            "ingeniero_asignado",
+            "INGENIERIA",
+            asignado_por_id,
+        ),
+        (
+            id_proyecto,
+            id_usuario,
+            "responsable_ingenieria",
+            "INGENIERIA",
+            asignado_por_id,
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reasignar_responsable_traduce_carrera_de_usuario():
+    id_proyecto = uuid4()
+    id_usuario = uuid4()
+    asignado_por_id = uuid4()
+    error = asyncpg.UniqueViolationError("duplicate key value")
+    error.constraint_name = "uq_proyecto_usuario_area_activo"
+    service = ProyectosService()
+    service.db = FakeProyectosDB(
+        jefes={id_usuario: "jefe_ingenieria"},
+        error_insertar=error,
+    )
+
+    with pytest.raises(ValueError, match="ya tiene un rol activo"):
+        await service.reasignar_responsable(
+            FakeConn(), id_proyecto, "INGENIERIA", id_usuario, asignado_por_id
         )
 
 

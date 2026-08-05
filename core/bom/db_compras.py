@@ -28,15 +28,62 @@ class BomComprasDBMixin:
             subtotal, iva, total, notas, creado_por, es_rfq, rfq_origen_id)
         return dict(row)
 
-    async def agregar_items_cotizacion(self, conn, cotizacion_id: UUID, items: list) -> None:
+    async def agregar_items_cotizacion(
+        self, conn, cotizacion_id: UUID, bom_id: UUID, items: list
+    ) -> None:
         """Inserta ítems en tb_bom_cotizacion_items en lote."""
         await conn.executemany("""
             INSERT INTO tb_bom_cotizacion_items
-                (cotizacion_id, bom_item_id, precio_unitario, cantidad, moneda, subtotal_linea)
-            VALUES ($1,$2,$3,$4,$5,$6)
+                (cotizacion_id, bom_id, bom_item_id, precio_unitario, cantidad,
+                 moneda, subtotal_linea, grupo_ids_snapshot,
+                 grupo_distribucion_snapshot)
+            SELECT $1,$2,$3,$4,$5,$6,$7,
+                   grupos.ids,
+                   COALESCE((
+                       SELECT JSONB_AGG(JSONB_BUILD_OBJECT(
+                           'id_grupo', d.id_grupo,
+                           'codigo', d.grupo_codigo_snapshot,
+                           'nombre', d.grupo_nombre_snapshot,
+                           'porcentaje', d.porcentaje
+                       ) ORDER BY d.id_grupo)
+                       FROM tb_bom_item_grupo_asignaciones d
+                       WHERE d.id_bom_item = $3
+                       HAVING ABS(SUM(d.porcentaje) - 1) <= 0.000001
+                   ), grupos.distribucion_unica, '[]'::JSONB)
+            CROSS JOIN LATERAL (
+                WITH efectivos AS (
+                    SELECT operativo.id_grupo
+                    FROM tb_bom_item_grupos_operativos operativo
+                    WHERE operativo.id_item = $3
+                    UNION ALL
+                    SELECT base.id_grupo
+                    FROM tb_bom_item_grupos base
+                    WHERE base.id_item = $3
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM tb_bom_item_grupos_operativos operativo
+                          WHERE operativo.id_item = $3
+                      )
+                )
+                SELECT COALESCE(
+                           ARRAY_AGG(efectivo.id_grupo ORDER BY efectivo.id_grupo),
+                           ARRAY[]::INTEGER[]
+                       ) AS ids,
+                       CASE WHEN COUNT(*) = 1 THEN
+                           JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT(
+                               'id_grupo', MIN(efectivo.id_grupo),
+                               'codigo', MIN(catalogo.codigo),
+                               'nombre', MIN(catalogo.nombre),
+                               'porcentaje', 1
+                           ))
+                       END AS distribucion_unica
+                FROM efectivos efectivo
+                JOIN tb_cat_grupos_bom catalogo
+                  ON catalogo.id = efectivo.id_grupo
+            ) grupos
             ON CONFLICT (cotizacion_id, bom_item_id) DO NOTHING
         """, [
-            (cotizacion_id,
+            (cotizacion_id, bom_id,
              i['bom_item_id'], i['precio_unitario'], i['cantidad'],
              i.get('moneda', 'MXN'), i['subtotal_linea'])
             for i in items
@@ -46,12 +93,29 @@ class BomComprasDBMixin:
         rows = await conn.fetch("""
             SELECT c.*,
                    u.nombre AS creado_por_nombre,
-                   COUNT(ci.id) AS total_items_cotizacion
+                   COUNT(ci.id) AS total_items_cotizacion,
+                   ap.id AS aprobacion_id,
+                   ap.estatus AS aprobacion_estatus,
+                   ap.lock_version AS aprobacion_lock_version,
+                   ap.comentarios_solicitud,
+                   ap.comentarios_direccion,
+                   ap.motivo_rechazo AS aprobacion_motivo_rechazo,
+                   a.id AS autorizacion_id,
+                   a.estatus AS autorizacion_estatus,
+                   a.lock_version AS autorizacion_lock_version
             FROM tb_bom_cotizaciones c
             LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
             LEFT JOIN tb_bom_cotizacion_items ci ON ci.cotizacion_id = c.id
+            LEFT JOIN LATERAL (
+                SELECT aprobacion.*
+                FROM tb_bom_cotizacion_aprobaciones aprobacion
+                WHERE aprobacion.cotizacion_id = c.id
+                ORDER BY aprobacion.created_at DESC, aprobacion.id DESC
+                LIMIT 1
+            ) ap ON TRUE
+            LEFT JOIN tb_bom_autorizaciones a ON a.cotizacion_id = c.id
             WHERE c.bom_id = $1
-            GROUP BY c.id, u.nombre
+            GROUP BY c.id, u.nombre, ap.id, a.id
             ORDER BY c.creado_en DESC
         """, bom_id)
         return [dict(r) for r in rows]
@@ -63,6 +127,16 @@ class BomComprasDBMixin:
             FROM tb_bom_cotizaciones c
             LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
             WHERE c.id = $1
+        """, cotizacion_id)
+        return dict(row) if row else None
+
+    async def get_cotizacion_for_update(
+        self, conn, cotizacion_id: UUID,
+    ) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            SELECT * FROM tb_bom_cotizaciones
+            WHERE id = $1
+            FOR UPDATE
         """, cotizacion_id)
         return dict(row) if row else None
 
@@ -93,60 +167,75 @@ class BomComprasDBMixin:
         return [dict(r) for r in rows]
 
     async def actualizar_estatus_cotizacion(
-        self, conn, cotizacion_id: UUID, estatus: str
+        self, conn, cotizacion_id: UUID, estatus: str,
+        estatus_esperado: str, lock_version_esperado: int,
     ) -> Optional[dict]:
         row = await conn.fetchrow("""
             UPDATE tb_bom_cotizaciones
-            SET estatus = $2, actualizado_en = NOW()
-            WHERE id = $1
+            SET estatus = $2, actualizado_en = NOW(),
+                lock_version = lock_version + 1
+            WHERE id = $1 AND estatus = $3 AND lock_version = $4
             RETURNING *
-        """, cotizacion_id, estatus)
+        """, cotizacion_id, estatus, estatus_esperado, lock_version_esperado)
+        return dict(row) if row else None
+
+    async def incrementar_lock_cotizacion_cas(
+        self, conn, cotizacion_id: UUID, estatus_esperado: str,
+        lock_version_esperado: int,
+    ) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_cotizaciones
+            SET lock_version = lock_version + 1,
+                actualizado_en = NOW()
+            WHERE id = $1
+              AND estatus = $2
+              AND lock_version = $3
+            RETURNING *
+        """, cotizacion_id, estatus_esperado, lock_version_esperado)
         return dict(row) if row else None
 
     async def devolver_cotizacion_borrador(
-        self, conn, cotizacion_id: UUID, motivo: str
+        self, conn, cotizacion_id: UUID, motivo: str,
+        estatus_esperado: str, lock_version_esperado: int,
     ) -> Optional[dict]:
         """Devuelve cotización a BORRADOR con comentarios_revision."""
         row = await conn.fetchrow("""
             UPDATE tb_bom_cotizaciones
             SET estatus = 'BORRADOR',
                 comentarios_revision = $2,
-                actualizado_en = NOW()
-            WHERE id = $1
+                actualizado_en = NOW(),
+                lock_version = lock_version + 1
+            WHERE id = $1 AND estatus = $3 AND lock_version = $4
             RETURNING *
-        """, cotizacion_id, motivo)
+        """, cotizacion_id, motivo, estatus_esperado, lock_version_esperado)
         return dict(row) if row else None
 
     async def actualizar_pdf_cotizacion(
-        self, conn, cotizacion_id: UUID, pdf_url: str
+        self, conn, cotizacion_id: UUID, pdf_url: str,
+        lock_version_esperado: int,
     ) -> Optional[dict]:
         row = await conn.fetchrow("""
             UPDATE tb_bom_cotizaciones
-            SET pdf_url = $2, estatus = 'RECIBIDA', actualizado_en = NOW()
+            SET pdf_url = $2, estatus = 'RECIBIDA', actualizado_en = NOW(),
+                lock_version = lock_version + 1
             WHERE id = $1 AND estatus IN ('BORRADOR', 'RECIBIDA')
+              AND lock_version = $3
             RETURNING *
-        """, cotizacion_id, pdf_url)
+        """, cotizacion_id, pdf_url, lock_version_esperado)
         return dict(row) if row else None
 
     async def actualizar_estatus_compra_items(
         self, conn, bom_item_ids: List[UUID], estatus_compra: str
-    ) -> None:
-        """Actualiza estatus_compra legacy y el estatus operativo real en lote."""
-        await conn.execute("""
+    ) -> int:
+        """Actualiza el espejo legacy; ejecución se muta aparte con CAS exacto."""
+        result = await conn.execute("""
             UPDATE tb_bom_items
-            SET estatus_compra = $1, updated_at = NOW()
-            WHERE id_item = ANY($2::uuid[])
-        """, estatus_compra, bom_item_ids)
-        await conn.execute("""
-            INSERT INTO tb_bom_item_ejecucion (id_item, estatus_ejecucion)
-            SELECT id_item,
-                   CASE WHEN $1 = 'SIN_COTIZAR' THEN 'PENDIENTE' ELSE $1 END
-            FROM tb_bom_items
-            WHERE id_item = ANY($2::uuid[])
-            ON CONFLICT (id_item) DO UPDATE
-            SET estatus_ejecucion = EXCLUDED.estatus_ejecucion,
+            SET estatus_compra = $1,
+                lock_version = lock_version + 1,
                 updated_at = NOW()
+            WHERE id_item = ANY($2::uuid[])
         """, estatus_compra, bom_item_ids)
+        return int(result.split()[-1]) if result else 0
 
     async def get_proveedores_buscar(self, conn, q: str) -> List[dict]:
         rows = await conn.fetch("""
@@ -190,6 +279,18 @@ class BomComprasDBMixin:
             LEFT JOIN tb_usuarios u3 ON u3.id_usuario = a.aprobador_finanzas_id
             LEFT JOIN tb_usuarios u4 ON u4.id_usuario = a.rechazado_por
             WHERE a.id = $1
+        """, autorizacion_id)
+        return dict(row) if row else None
+
+    async def get_autorizacion_for_update(
+        self, conn, autorizacion_id: UUID,
+    ) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            SELECT a.*, c.nombre_proveedor
+            FROM tb_bom_autorizaciones a
+            JOIN tb_bom_cotizaciones c ON c.id = a.cotizacion_id
+            WHERE a.id = $1
+            FOR UPDATE OF a
         """, autorizacion_id)
         return dict(row) if row else None
 
@@ -237,77 +338,76 @@ class BomComprasDBMixin:
         """)
         return dict(row) if row else None
 
-    async def get_director(self, conn) -> Optional[dict]:
-        """Obtiene el primer usuario con rol_organizacional = 'director'."""
-        row = await conn.fetchrow("""
-            SELECT id_usuario, nombre, email
-            FROM tb_usuarios
-            WHERE rol_organizacional = 'director' AND is_active = TRUE
-            LIMIT 1
-        """)
-        return dict(row) if row else None
-
     async def update_autorizacion_paso_obra(
-        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str]
-    ) -> dict:
+        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
+        lock_version_esperado: int,
+    ) -> Optional[dict]:
         row = await conn.fetchrow("""
             UPDATE tb_bom_autorizaciones
             SET estatus = 'AUTORIZADO_OBRA',
                 aprobador_obra_id = $2,
                 fecha_aprobacion_obra = NOW(),
-                nota_obra = $3
-            WHERE id = $1
+                nota_obra = $3,
+                lock_version = lock_version + 1
+            WHERE id = $1 AND estatus = 'PENDIENTE' AND lock_version = $4
             RETURNING *
-        """, autorizacion_id, user_id, nota)
-        return dict(row)
+        """, autorizacion_id, user_id, nota, lock_version_esperado)
+        return dict(row) if row else None
 
     async def update_autorizacion_paso_direccion(
-        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str]
-    ) -> dict:
+        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
+        lock_version_esperado: int,
+    ) -> Optional[dict]:
         row = await conn.fetchrow("""
             UPDATE tb_bom_autorizaciones
             SET estatus = 'AUTORIZADO_DIRECCION',
                 aprobador_direccion_id = $2,
                 fecha_aprobacion_direccion = NOW(),
-                nota_direccion = $3
-            WHERE id = $1
+                nota_direccion = $3,
+                lock_version = lock_version + 1
+            WHERE id = $1 AND estatus = 'AUTORIZADO_OBRA' AND lock_version = $4
             RETURNING *
-        """, autorizacion_id, user_id, nota)
-        return dict(row)
+        """, autorizacion_id, user_id, nota, lock_version_esperado)
+        return dict(row) if row else None
 
     async def update_autorizacion_paso_finanzas(
-        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str]
-    ) -> dict:
+        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
+        lock_version_esperado: int,
+    ) -> Optional[dict]:
         row = await conn.fetchrow("""
             UPDATE tb_bom_autorizaciones
             SET estatus = 'AUTORIZADO_FINANZAS',
                 aprobador_finanzas_id = $2,
                 fecha_aprobacion_finanzas = NOW(),
-                nota_finanzas = $3
-            WHERE id = $1
+                nota_finanzas = $3,
+                lock_version = lock_version + 1
+            WHERE id = $1 AND estatus = 'AUTORIZADO_DIRECCION' AND lock_version = $4
             RETURNING *
-        """, autorizacion_id, user_id, nota)
-        return dict(row)
+        """, autorizacion_id, user_id, nota, lock_version_esperado)
+        return dict(row) if row else None
 
     async def rechazar_autorizacion_db(
         self, conn, autorizacion_id: UUID, user_id: UUID,
-        motivo: str, paso: str
-    ) -> dict:
+        motivo: str, paso: str, estatus_esperado: str,
+        lock_version_esperado: int,
+    ) -> Optional[dict]:
         row = await conn.fetchrow("""
             UPDATE tb_bom_autorizaciones
             SET estatus = 'RECHAZADO',
                 rechazado_en_paso = $3,
                 rechazado_por = $2,
                 motivo_rechazo = $4,
-                fecha_rechazo = NOW()
-            WHERE id = $1
+                fecha_rechazo = NOW(),
+                lock_version = lock_version + 1
+            WHERE id = $1 AND estatus = $5 AND lock_version = $6
             RETURNING *
-        """, autorizacion_id, user_id, paso, motivo)
-        return dict(row)
+        """, autorizacion_id, user_id, paso, motivo, estatus_esperado,
+             lock_version_esperado)
+        return dict(row) if row else None
 
     async def reabrir_autorizacion_db(
         self, conn, autorizacion_id: UUID, monto_total, moneda: str,
-        tipo_cambio_snapshot, creado_por: UUID
+        tipo_cambio_snapshot, creado_por: UUID, lock_version_esperado: int,
     ) -> Optional[dict]:
         """Reabre una autorización RECHAZADA a PENDIENTE al re-seleccionar la cotización (nuevo ciclo)."""
         row = await conn.fetchrow("""
@@ -330,10 +430,12 @@ class BomComprasDBMixin:
                 rechazado_en_paso = NULL,
                 rechazado_por = NULL,
                 motivo_rechazo = NULL,
-                fecha_rechazo = NULL
-            WHERE id = $1 AND estatus = 'RECHAZADO'
+                fecha_rechazo = NULL,
+                lock_version = lock_version + 1
+            WHERE id = $1 AND estatus = 'RECHAZADO' AND lock_version = $6
             RETURNING *
-        """, autorizacion_id, monto_total, moneda, tipo_cambio_snapshot, creado_por)
+        """, autorizacion_id, monto_total, moneda, tipo_cambio_snapshot, creado_por,
+             lock_version_esperado)
         return dict(row) if row else None
 
     # ─── APROBACIONES DE COTIZACION (post-BOM) ──────────────
@@ -360,8 +462,19 @@ class BomComprasDBMixin:
         """, cotizacion_id)
         return dict(row) if row else None
 
+    async def get_cotizacion_aprobacion_for_update(
+        self, conn, aprobacion_id: UUID,
+    ) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            SELECT * FROM tb_bom_cotizacion_aprobaciones
+            WHERE id = $1
+            FOR UPDATE
+        """, aprobacion_id)
+        return dict(row) if row else None
+
     async def aprobar_cotizacion_aprobacion_db(
-        self, conn, aprobacion_id: UUID, user_id: UUID, comentarios: Optional[str]
+        self, conn, aprobacion_id: UUID, user_id: UUID,
+        comentarios: Optional[str], lock_version_esperado: int,
     ) -> Optional[dict]:
         row = await conn.fetchrow("""
             UPDATE tb_bom_cotizacion_aprobaciones
@@ -369,14 +482,17 @@ class BomComprasDBMixin:
                 aprobado_por = $2,
                 aprobado_en = NOW(),
                 comentarios_direccion = $3,
-                updated_at = NOW()
+                updated_at = NOW(),
+                lock_version = lock_version + 1
             WHERE id = $1 AND estatus = 'PENDIENTE_DIRECCION'
+              AND lock_version = $4
             RETURNING *
-        """, aprobacion_id, user_id, comentarios)
+        """, aprobacion_id, user_id, comentarios, lock_version_esperado)
         return dict(row) if row else None
 
     async def rechazar_cotizacion_aprobacion_db(
-        self, conn, aprobacion_id: UUID, user_id: UUID, motivo: str
+        self, conn, aprobacion_id: UUID, user_id: UUID, motivo: str,
+        lock_version_esperado: int,
     ) -> Optional[dict]:
         row = await conn.fetchrow("""
             UPDATE tb_bom_cotizacion_aprobaciones
@@ -384,10 +500,12 @@ class BomComprasDBMixin:
                 rechazado_por = $2,
                 rechazado_en = NOW(),
                 motivo_rechazo = $3,
-                updated_at = NOW()
+                updated_at = NOW(),
+                lock_version = lock_version + 1
             WHERE id = $1 AND estatus = 'PENDIENTE_DIRECCION'
+              AND lock_version = $4
             RETURNING *
-        """, aprobacion_id, user_id, motivo)
+        """, aprobacion_id, user_id, motivo, lock_version_esperado)
         return dict(row) if row else None
 
     # ─── TRAZABILIDAD BOM ↔ COMPRAS ─────────────────────────
@@ -402,16 +520,40 @@ class BomComprasDBMixin:
         rows = await conn.fetch("""
             SELECT bi.*,
                    c.nombre AS categoria_nombre,
-                   (bi.cantidad * COALESCE(bi.precio_unitario, 0)) AS importe,
+                   (bi.cantidad * bi.precio_unitario) AS importe,
                    m.clave_prod_serv AS material_clave,
                    ci.precio_unitario AS coti_precio,
                    ci.cantidad AS coti_cantidad,
-                   ci.subtotal_linea AS coti_subtotal
+                   ci.subtotal_linea AS coti_subtotal,
+                   grupos.grupo_ids,
+                   grupos.grupo_labels
             FROM tb_bom_items bi
             JOIN tb_bom_cotizacion_items ci ON ci.bom_item_id = bi.id_item
             JOIN tb_bom_autorizaciones a ON a.cotizacion_id = ci.cotizacion_id
             LEFT JOIN tb_cat_categorias_compra c ON c.id = bi.id_categoria
             LEFT JOIN tb_cat_materiales m ON m.id = bi.id_material_ref
+            LEFT JOIN LATERAL (
+                SELECT ARRAY_AGG(catalogo.id ORDER BY catalogo.orden, catalogo.id) AS grupo_ids,
+                       ARRAY_AGG(
+                           catalogo.codigo || ' - ' || catalogo.nombre
+                           ORDER BY catalogo.orden, catalogo.id
+                       ) AS grupo_labels
+                FROM (
+                    SELECT relacion.id_grupo
+                    FROM tb_bom_item_grupos_operativos relacion
+                    WHERE relacion.id_item = bi.id_item
+                    UNION ALL
+                    SELECT relacion.id_grupo
+                    FROM tb_bom_item_grupos relacion
+                    WHERE relacion.id_item = bi.id_item
+                      AND NOT EXISTS (
+                          SELECT 1 FROM tb_bom_item_grupos_operativos operativa
+                          WHERE operativa.id_item = bi.id_item
+                      )
+                ) relacion
+                JOIN tb_cat_grupos_bom catalogo ON catalogo.id = relacion.id_grupo
+                WHERE catalogo.activo = TRUE
+            ) grupos ON TRUE
             WHERE a.id = $1 AND bi.activo = TRUE
             ORDER BY bi.orden ASC
         """, autorizacion_id)
@@ -466,10 +608,25 @@ class BomComprasDBMixin:
                    mh.precio_unitario, mh.importe, mh.tipo_cambio_xml,
                    mh.id_bom_item, mh.match_confianza, mh.match_origen,
                    mh.id_bom_item_sugerido, mh.sugerencia_confianza, mh.sugerencia_origen,
+                   mh.grupo_ids_snapshot,
+                   mh.lock_version AS concepto_lock_version,
+                   asignacion.id_asignacion AS concepto_asignacion_id,
+                   asignacion.lock_version AS concepto_asignacion_lock_version,
+                   asignacion.asignacion_grupo_completa,
+                   grupo_asignado.id_grupo AS grupo_asignado_id,
                    cp.uuid_factura
             FROM tb_materiales_historial mh
             JOIN tb_comprobantes_pago cp ON cp.id_comprobante = mh.id_comprobante
             JOIN tb_bom_pagos bp ON bp.id = cp.id_bom_pago
+            LEFT JOIN tb_bom_concepto_asignaciones asignacion
+              ON asignacion.id_material = mh.id
+             AND asignacion.id_bom_item = mh.id_bom_item
+            LEFT JOIN LATERAL (
+                SELECT MIN(hecho.id_grupo) AS id_grupo
+                FROM tb_bom_hecho_grupo_asignaciones hecho
+                WHERE hecho.id_asignacion_concepto = asignacion.id_asignacion
+                HAVING COUNT(*) = 1
+            ) grupo_asignado ON TRUE
             WHERE bp.autorizacion_id = $1
             ORDER BY
                 CASE WHEN mh.id_bom_item IS NULL AND mh.id_bom_item_sugerido IS NULL THEN 0
@@ -481,7 +638,10 @@ class BomComprasDBMixin:
         return [dict(r) for r in rows]
 
     async def confirmar_match_concepto(
-        self, conn, historial_id: UUID, id_bom_item: Optional[UUID]
+        self, conn, historial_id: UUID, id_bom_item: Optional[UUID],
+        id_bom_item_anterior: Optional[UUID],
+        lock_version_esperado: int,
+        id_grupo: Optional[int] = None,
     ) -> Optional[dict]:
         """Persiste (o limpia) el match concepto->item confirmado por un humano.
 
@@ -496,11 +656,152 @@ class BomComprasDBMixin:
                 match_origen    = CASE WHEN $2::uuid IS NULL THEN NULL ELSE 'HUMANO' END,
                 id_bom_item_sugerido = NULL,
                 sugerencia_confianza = NULL,
-                sugerencia_origen = NULL
+                sugerencia_origen = NULL,
+                grupo_ids_snapshot = CASE
+                    WHEN $2::uuid IS NULL THEN ARRAY[]::integer[]
+                    ELSE COALESCE(
+                        (SELECT ARRAY_AGG(g.id_grupo ORDER BY g.id_grupo)
+                         FROM tb_bom_item_grupos_operativos g
+                         WHERE g.id_item = $2),
+                        (SELECT ARRAY_AGG(g.id_grupo ORDER BY g.id_grupo)
+                         FROM tb_bom_item_grupos g
+                         WHERE g.id_item = $2),
+                        ARRAY[]::integer[]
+                    )
+                END,
+                lock_version = lock_version + 1
             WHERE id = $1
-            RETURNING id AS historial_id, id_bom_item
+              AND id_bom_item IS NOT DISTINCT FROM $3
+              AND lock_version = $4
+            RETURNING id AS historial_id, id_bom_item, grupo_ids_snapshot,
+                      lock_version
+        """, historial_id, id_bom_item, id_bom_item_anterior, lock_version_esperado)
+        if not row:
+            return None
+
+        await conn.execute("""
+            DELETE FROM tb_bom_hecho_grupo_asignaciones grupo
+            USING tb_bom_concepto_asignaciones asignacion
+            WHERE grupo.id_asignacion_concepto = asignacion.id_asignacion
+              AND asignacion.id_material = $1
+        """, historial_id)
+        await conn.execute("""
+            DELETE FROM tb_bom_concepto_asignaciones
+            WHERE id_material = $1
+        """, historial_id)
+        if id_bom_item is None:
+            return dict(row)
+
+        asignacion = await conn.fetchrow("""
+            INSERT INTO tb_bom_concepto_asignaciones (
+                id_material, id_concepto_cfdi, id_paquete, id_bom, id_linea_bom,
+                id_bom_item, importe_asignado, moneda, tipo_cfdi
+            )
+            SELECT material.id, material.id_concepto_cfdi, item.id_paquete,
+                   item.id_bom, item.id_linea_bom, item.id_item,
+                   CASE WHEN factura.tipo_cfdi = 'NOTA_CREDITO'
+                        THEN -ABS(material.importe) ELSE ABS(material.importe) END,
+                   factura.moneda, factura.tipo_cfdi
+            FROM tb_materiales_historial material
+            JOIN tb_bom_items item ON item.id_item = $2
+            LEFT JOIN LATERAL (
+                SELECT
+                    CASE WHEN BOOL_OR(cf.tipo = 'NOTA_CREDITO')
+                         THEN 'NOTA_CREDITO' ELSE 'NORMAL' END AS tipo_cfdi,
+                    MAX(cf.moneda) AS moneda
+                FROM tb_comprobante_facturas cf
+                WHERE cf.uuid_factura = material.uuid_factura::text
+            ) factura ON TRUE
+            WHERE material.id = $1
+            RETURNING *
         """, historial_id, id_bom_item)
-        return dict(row) if row else None
+        if asignacion:
+            if id_grupo is not None:
+                grupo = await conn.fetchrow("""
+                    SELECT catalogo.id, catalogo.codigo, catalogo.nombre
+                    FROM tb_cat_grupos_bom catalogo
+                    WHERE catalogo.id = $1 AND catalogo.activo = TRUE
+                """, id_grupo)
+                if grupo:
+                    await conn.execute("""
+                        INSERT INTO tb_bom_hecho_grupo_asignaciones (
+                            id_asignacion_concepto, id_grupo, grupo_codigo_snapshot,
+                            grupo_nombre_snapshot, importe_asignado, moneda
+                        ) VALUES ($1, $2, $3, $4, $5, $6)
+                    """, asignacion["id_asignacion"], grupo["id"], grupo["codigo"],
+                         grupo["nombre"], asignacion["importe_asignado"], asignacion["moneda"])
+            else:
+                await conn.execute("""
+                    INSERT INTO tb_bom_hecho_grupo_asignaciones (
+                        id_asignacion_concepto, id_grupo, grupo_codigo_snapshot,
+                        grupo_nombre_snapshot, importe_asignado, moneda
+                    )
+                    SELECT $1, distribucion.id_grupo,
+                           distribucion.grupo_codigo_snapshot,
+                           distribucion.grupo_nombre_snapshot,
+                           $2 * distribucion.porcentaje,
+                           $3
+                    FROM tb_bom_item_grupo_asignaciones distribucion
+                    WHERE distribucion.id_bom_item = $4
+                      AND ABS((
+                          SELECT SUM(otra.porcentaje)
+                          FROM tb_bom_item_grupo_asignaciones otra
+                          WHERE otra.id_bom_item = $4
+                      ) - 1) <= 0.000001
+                """, asignacion["id_asignacion"], asignacion["importe_asignado"],
+                     asignacion["moneda"], id_bom_item)
+                tiene_distribucion = await conn.fetchval("""
+                    SELECT EXISTS (
+                        SELECT 1 FROM tb_bom_hecho_grupo_asignaciones
+                        WHERE id_asignacion_concepto = $1
+                    )
+                """, asignacion["id_asignacion"])
+                if not tiene_distribucion:
+                    grupo = await conn.fetchrow("""
+                        WITH grupos AS (
+                            SELECT relacion.id_grupo
+                            FROM tb_bom_item_grupos_operativos relacion
+                            WHERE relacion.id_item = $1
+                            UNION ALL
+                            SELECT relacion.id_grupo
+                            FROM tb_bom_item_grupos relacion
+                            WHERE relacion.id_item = $1
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM tb_bom_item_grupos_operativos operativa
+                                  WHERE operativa.id_item = $1
+                              )
+                        )
+                        SELECT catalogo.id, catalogo.codigo, catalogo.nombre
+                        FROM grupos
+                        JOIN tb_cat_grupos_bom catalogo
+                          ON catalogo.id = grupos.id_grupo
+                        WHERE catalogo.activo = TRUE
+                          AND (SELECT COUNT(*) FROM grupos) = 1
+                    """, id_bom_item)
+                    if grupo:
+                        await conn.execute("""
+                            INSERT INTO tb_bom_hecho_grupo_asignaciones (
+                                id_asignacion_concepto, id_grupo,
+                                grupo_codigo_snapshot, grupo_nombre_snapshot,
+                                importe_asignado, moneda
+                            ) VALUES ($1, $2, $3, $4, $5, $6)
+                        """, asignacion["id_asignacion"], grupo["id"], grupo["codigo"],
+                             grupo["nombre"], asignacion["importe_asignado"], asignacion["moneda"])
+            completa = await conn.fetchval("""
+                SELECT COALESCE(
+                    ABS(SUM(importe_asignado) - $2) <= 0.000001,
+                    FALSE
+                )
+                FROM tb_bom_hecho_grupo_asignaciones
+                WHERE id_asignacion_concepto = $1
+            """, asignacion["id_asignacion"], asignacion["importe_asignado"])
+            if completa:
+                await conn.execute("""
+                    UPDATE tb_bom_concepto_asignaciones
+                    SET asignacion_grupo_completa = TRUE, updated_at = NOW()
+                    WHERE id_asignacion = $1
+                """, asignacion["id_asignacion"])
+        return dict(row)
 
     async def get_autorizacion_by_bom_pago(self, conn, id_bom_pago: UUID) -> Optional[dict]:
         """Obtiene la autorizacion a partir del id_bom_pago."""
@@ -513,355 +814,474 @@ class BomComprasDBMixin:
         """, id_bom_pago)
         return dict(row) if row else None
 
-    async def update_items_estatus_compra(
-        self, conn, item_ids: List[UUID], estatus_compra: str
-    ) -> None:
-        """Actualiza estatus_compra legacy y el estatus operativo real en lote."""
-        await conn.execute("""
-            UPDATE tb_bom_items
-            SET estatus_compra = $1, updated_at = NOW()
-            WHERE id_item = ANY($2::uuid[])
-        """, estatus_compra, item_ids)
-        await conn.execute("""
-            INSERT INTO tb_bom_item_ejecucion (id_item, estatus_ejecucion)
-            SELECT id_item,
-                   CASE WHEN $1 = 'SIN_COTIZAR' THEN 'PENDIENTE' ELSE $1 END
-            FROM tb_bom_items
-            WHERE id_item = ANY($2::uuid[])
-            ON CONFLICT (id_item) DO UPDATE
-            SET estatus_ejecucion = EXCLUDED.estatus_ejecucion,
-                updated_at = NOW()
-        """, estatus_compra, item_ids)
-
-    async def actualizar_estatus_compra_por_cotizacion(
-        self, conn, cotizacion_id: UUID, nuevo_estatus: str,
-        solo_si_estatus: Optional[str] = None
-    ) -> int:
-        """Actualiza estatus_compra de todos los items de una cotizacion.
-
-        Si solo_si_estatus se especifica, solo actualiza items en ese estatus actual.
-        Retorna cantidad de rows actualizadas.
-        """
-        if solo_si_estatus:
-            result = await conn.execute("""
-                WITH updated_items AS (
-                    UPDATE tb_bom_items bi
-                    SET estatus_compra = $1, updated_at = NOW()
-                    FROM tb_bom_cotizacion_items ci
-                    WHERE ci.cotizacion_id = $2
-                      AND ci.bom_item_id = bi.id_item
-                      AND bi.estatus_compra = $3
-                    RETURNING bi.id_item
-                )
-                INSERT INTO tb_bom_item_ejecucion (id_item, estatus_ejecucion)
-                SELECT id_item,
-                       CASE WHEN $1 = 'SIN_COTIZAR' THEN 'PENDIENTE' ELSE $1 END
-                FROM updated_items
-                ON CONFLICT (id_item) DO UPDATE
-                SET estatus_ejecucion = EXCLUDED.estatus_ejecucion,
-                    updated_at = NOW()
-            """, nuevo_estatus, cotizacion_id, solo_si_estatus)
-        else:
-            result = await conn.execute("""
-                WITH updated_items AS (
-                    UPDATE tb_bom_items bi
-                    SET estatus_compra = $1, updated_at = NOW()
-                    FROM tb_bom_cotizacion_items ci
-                    WHERE ci.cotizacion_id = $2
-                      AND ci.bom_item_id = bi.id_item
-                    RETURNING bi.id_item
-                )
-                INSERT INTO tb_bom_item_ejecucion (id_item, estatus_ejecucion)
-                SELECT id_item,
-                       CASE WHEN $1 = 'SIN_COTIZAR' THEN 'PENDIENTE' ELSE $1 END
-                FROM updated_items
-                ON CONFLICT (id_item) DO UPDATE
-                SET estatus_ejecucion = EXCLUDED.estatus_ejecucion,
-                    updated_at = NOW()
-            """, nuevo_estatus, cotizacion_id)
-        return int(result.split()[-1]) if result else 0
-
     # ─── RESUMEN DE COMPRA (Presupuesto vs Facturado vs Pagado) ───
 
     async def get_resumen_compra(self, conn, id_bom: UUID) -> List[dict]:
-        """Comparativo por grupo BOM y categoria: presupuesto, facturado y pagado.
-
-        La seccion sale de tb_bom_item_grupos (AC/DC/CM/OC/TE). Si un item tiene
-        multiples grupos, reparte su importe de forma equitativa. La columna
-        seccion_bom de categorias solo queda como respaldo para historicos sin grupo.
-        """
+        """Reconcilia costos por grupo sin repartir ni convertir datos desconocidos."""
         rows = await conn.fetch("""
-            WITH items_base AS (
-                SELECT i.id_item, i.id_item_origen, i.id_categoria,
-                       c.nombre AS categoria_nombre,
-                       c.seccion_bom,
-                       i.cantidad,
-                       COALESCE(i.precio_unitario, 0) AS precio_unitario,
-                       COALESCE(er.precio_real, 0) AS precio_real,
-                       COALESCE(i.tipo_origen_item, 'BASE') AS tipo_origen_item,
-                       COALESCE(er.estatus_ejecucion, 'PENDIENTE') AS estatus_ejecucion
-                FROM tb_bom_items i
-                LEFT JOIN tb_cat_categorias_compra c ON c.id = i.id_categoria
-                LEFT JOIN tb_bom_item_ejecucion er ON er.id_item = i.id_item
-                WHERE i.id_bom = $1 AND i.activo = TRUE
+            WITH items AS (
+                SELECT item.id_item, item.id_categoria,
+                       COALESCE(categoria.nombre, 'Sin categoria') AS categoria_nombre,
+                       item.cantidad, item.precio_unitario,
+                       item.moneda AS moneda_base,
+                       COALESCE(adenda.tipo_cambio_aprobacion,
+                                bom.tipo_cambio_aprobacion) AS tipo_cambio_base,
+                       ejecucion.precio_real, ejecucion.moneda_real,
+                       COALESCE(item.tipo_origen_item, 'BASE') AS tipo_origen_item,
+                       COALESCE(ejecucion.estatus_ejecucion, 'PENDIENTE')
+                           AS estatus_ejecucion
+                FROM tb_bom_items item
+                JOIN tb_bom bom ON bom.id_bom = item.id_bom
+                LEFT JOIN tb_cat_categorias_compra categoria
+                  ON categoria.id = item.id_categoria
+                LEFT JOIN tb_bom_item_ejecucion ejecucion
+                  ON ejecucion.id_item = item.id_item
+                LEFT JOIN tb_bom_adendas adenda
+                  ON adenda.id_adenda = item.creado_en_adenda
+                 AND adenda.estatus = 'APROBADA'
+                WHERE item.id_bom = $1 AND item.activo = TRUE
             ),
-            grupos_base_raw AS (
-                SELECT ig.id_item, g.id, g.codigo, g.nombre, g.orden
-                FROM tb_bom_item_grupos ig
-                JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo
-                WHERE g.activo = TRUE
+            distribuciones_validas AS (
+                SELECT asignacion.id_bom_item
+                FROM tb_bom_item_grupo_asignaciones asignacion
+                JOIN items item ON item.id_item = asignacion.id_bom_item
+                GROUP BY asignacion.id_bom_item
+                HAVING ABS(SUM(asignacion.porcentaje) - 1) <= 0.000001
             ),
-            grupos_operativos_raw AS (
-                SELECT ig.id_item, g.id, g.codigo, g.nombre, g.orden
-                FROM tb_bom_item_grupos_operativos ig
-                JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo
-                WHERE g.activo = TRUE
-            ),
-            item_grupos_base AS (
-                SELECT ib.id_item,
-                       ib.id_item_origen,
-                       ib.id_categoria AS categoria_id,
-                       COALESCE(ib.categoria_nombre, 'Sin categoria') AS categoria_nombre,
-                       COALESCE(g.codigo, ib.seccion_bom, 'SIN_CLASIFICAR') AS grupo_codigo,
-                       COALESCE(g.nombre, ib.seccion_bom, 'Sin clasificar') AS grupo_nombre,
-                       COALESCE(g.orden, 999) AS grupo_orden,
-                       CASE
-                         WHEN COUNT(g.id) OVER (PARTITION BY ib.id_item) > 0
-                         THEN 1.0 / COUNT(g.id) OVER (PARTITION BY ib.id_item)
-                         ELSE 1.0
-                       END AS peso_grupo,
-                       ib.cantidad,
-                       ib.precio_unitario,
-                       ib.precio_real,
-                       ib.tipo_origen_item,
-                       ib.estatus_ejecucion
-                FROM items_base ib
-                LEFT JOIN grupos_base_raw g ON g.id_item = ib.id_item
-            ),
-            item_grupos_operativos AS (
-                SELECT ib.id_item,
-                       ib.id_item_origen,
-                       ib.id_categoria AS categoria_id,
-                       COALESCE(ib.categoria_nombre, 'Sin categoria') AS categoria_nombre,
-                       COALESCE(go.codigo, gb.codigo, ib.seccion_bom, 'SIN_CLASIFICAR') AS grupo_codigo,
-                       COALESCE(go.nombre, gb.nombre, ib.seccion_bom, 'Sin clasificar') AS grupo_nombre,
-                       COALESCE(go.orden, gb.orden, 999) AS grupo_orden,
-                       CASE
-                         WHEN COUNT(COALESCE(go.id, gb.id)) OVER (PARTITION BY ib.id_item) > 0
-                         THEN 1.0 / COUNT(COALESCE(go.id, gb.id)) OVER (PARTITION BY ib.id_item)
-                         ELSE 1.0
-                       END AS peso_grupo,
-                       ib.cantidad,
-                       ib.precio_unitario,
-                       ib.precio_real,
-                       ib.tipo_origen_item,
-                       ib.estatus_ejecucion
-                FROM items_base ib
-                LEFT JOIN grupos_operativos_raw go ON go.id_item = ib.id_item
-                LEFT JOIN grupos_base_raw gb
-                    ON gb.id_item = ib.id_item
-                   AND NOT EXISTS (
-                       SELECT 1
-                       FROM grupos_operativos_raw go_exists
-                       WHERE go_exists.id_item = ib.id_item
-                   )
-            ),
-            item_targets AS (
-                SELECT id_item AS current_id, id_item AS target_id
-                FROM items_base
+            grupos_actuales AS (
+                SELECT relacion.id_item, relacion.id_grupo
+                FROM tb_bom_item_grupos_operativos relacion
+                JOIN items item ON item.id_item = relacion.id_item
                 UNION ALL
-                SELECT id_item AS current_id, id_item_origen AS target_id
-                FROM items_base
-                WHERE id_item_origen IS NOT NULL
+                SELECT relacion.id_item, relacion.id_grupo
+                FROM tb_bom_item_grupos relacion
+                JOIN items item ON item.id_item = relacion.id_item
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM tb_bom_item_grupos_operativos operativa
+                    WHERE operativa.id_item = relacion.id_item
+                )
             ),
-            presupuesto AS (
+            grupos_unicos AS (
+                SELECT id_item, MIN(id_grupo) AS id_grupo
+                FROM grupos_actuales
+                GROUP BY id_item
+                HAVING COUNT(*) = 1
+            ),
+            item_grupos AS (
+                SELECT item.*, asignacion.grupo_codigo_snapshot AS grupo_codigo,
+                       asignacion.grupo_nombre_snapshot AS grupo_nombre,
+                       COALESCE(catalogo.orden, 999) AS grupo_orden,
+                       asignacion.porcentaje AS peso_grupo,
+                       FALSE AS grupo_pendiente
+                FROM items item
+                JOIN distribuciones_validas valida
+                  ON valida.id_bom_item = item.id_item
+                JOIN tb_bom_item_grupo_asignaciones asignacion
+                  ON asignacion.id_bom_item = item.id_item
+                LEFT JOIN tb_cat_grupos_bom catalogo
+                  ON catalogo.id = asignacion.id_grupo
+
+                UNION ALL
+
+                SELECT item.*, catalogo.codigo, catalogo.nombre,
+                       catalogo.orden, 1::numeric, FALSE
+                FROM items item
+                JOIN grupos_unicos unico ON unico.id_item = item.id_item
+                JOIN tb_cat_grupos_bom catalogo ON catalogo.id = unico.id_grupo
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM distribuciones_validas valida
+                    WHERE valida.id_bom_item = item.id_item
+                )
+
+                UNION ALL
+
+                SELECT item.*, 'PENDIENTE_DISTRIBUCION',
+                       'Pendiente de distribucion', 998, 1::numeric, TRUE
+                FROM items item
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM distribuciones_validas valida
+                    WHERE valida.id_bom_item = item.id_item
+                )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM grupos_unicos unico
+                    WHERE unico.id_item = item.id_item
+                )
+            ),
+            costos AS (
+                SELECT grupo_codigo, grupo_nombre, grupo_orden,
+                       id_categoria AS categoria_id, categoria_nombre,
+                       SUM(CASE
+                           WHEN tipo_origen_item = 'BASE'
+                            AND cantidad IS NOT NULL AND precio_unitario IS NOT NULL
+                            AND moneda_base = 'MXN'
+                               THEN cantidad * precio_unitario * peso_grupo
+                           WHEN tipo_origen_item = 'BASE'
+                            AND cantidad IS NOT NULL AND precio_unitario IS NOT NULL
+                            AND moneda_base = 'USD' AND tipo_cambio_base IS NOT NULL
+                               THEN cantidad * precio_unitario * tipo_cambio_base
+                                    * peso_grupo
+                           ELSE 0
+                       END) AS presupuesto,
+                       COUNT(*) FILTER (WHERE tipo_origen_item = 'BASE' AND (
+                           cantidad IS NULL OR precio_unitario IS NULL
+                           OR moneda_base IS NULL OR moneda_base NOT IN ('MXN', 'USD')
+                           OR (moneda_base = 'USD' AND tipo_cambio_base IS NULL)
+                       )) AS presupuesto_pendiente,
+                       SUM(CASE WHEN precio_real IS NOT NULL AND moneda_real = 'MXN'
+                           THEN cantidad * precio_real * peso_grupo ELSE 0 END) AS real,
+                       COUNT(*) FILTER (WHERE estatus_ejecucion NOT IN (
+                           'PENDIENTE', 'SIN_COTIZAR', 'NO_ADQUIRIDO',
+                           'REEMPLAZADO', 'CERRADO'
+                       ) AND (cantidad IS NULL OR precio_real IS NULL
+                              OR moneda_real IS NULL OR moneda_real <> 'MXN'))
+                           AS real_pendiente,
+                       SUM(CASE WHEN tipo_origen_item = 'BASE'
+                            AND precio_real IS NOT NULL AND moneda_real = 'MXN'
+                           THEN cantidad * precio_real * peso_grupo ELSE 0 END)
+                           AS real_base,
+                       COUNT(*) FILTER (WHERE tipo_origen_item = 'BASE'
+                         AND estatus_ejecucion NOT IN (
+                             'PENDIENTE', 'SIN_COTIZAR', 'NO_ADQUIRIDO',
+                             'REEMPLAZADO', 'CERRADO'
+                         ) AND (cantidad IS NULL OR precio_real IS NULL
+                                OR moneda_real IS NULL OR moneda_real <> 'MXN'))
+                           AS real_base_pendiente,
+                       SUM(CASE WHEN tipo_origen_item = 'REEMPLAZO'
+                            AND precio_real IS NOT NULL AND moneda_real = 'MXN'
+                           THEN cantidad * precio_real * peso_grupo ELSE 0 END)
+                           AS reemplazos,
+                       COUNT(*) FILTER (WHERE tipo_origen_item = 'REEMPLAZO'
+                         AND estatus_ejecucion NOT IN ('PENDIENTE', 'SIN_COTIZAR')
+                         AND (cantidad IS NULL OR precio_real IS NULL
+                              OR moneda_real IS NULL OR moneda_real <> 'MXN'))
+                           AS reemplazos_pendiente,
+                       SUM(CASE WHEN tipo_origen_item = 'FUERA_SCOPE'
+                            AND precio_real IS NOT NULL AND moneda_real = 'MXN'
+                           THEN cantidad * precio_real * peso_grupo ELSE 0 END)
+                           AS fuera_scope,
+                       COUNT(*) FILTER (WHERE tipo_origen_item = 'FUERA_SCOPE'
+                         AND estatus_ejecucion NOT IN ('PENDIENTE', 'SIN_COTIZAR')
+                         AND (cantidad IS NULL OR precio_real IS NULL
+                              OR moneda_real IS NULL OR moneda_real <> 'MXN'))
+                           AS fuera_scope_pendiente,
+                       SUM(CASE
+                           WHEN tipo_origen_item = 'BASE'
+                            AND estatus_ejecucion IN (
+                                'NO_ADQUIRIDO', 'REEMPLAZADO', 'CERRADO'
+                            ) AND cantidad IS NOT NULL AND precio_unitario IS NOT NULL
+                            AND moneda_base = 'MXN'
+                               THEN cantidad * precio_unitario * peso_grupo
+                           WHEN tipo_origen_item = 'BASE'
+                            AND estatus_ejecucion IN (
+                                'NO_ADQUIRIDO', 'REEMPLAZADO', 'CERRADO'
+                            ) AND cantidad IS NOT NULL AND precio_unitario IS NOT NULL
+                            AND moneda_base = 'USD' AND tipo_cambio_base IS NOT NULL
+                               THEN cantidad * precio_unitario * tipo_cambio_base
+                                    * peso_grupo
+                           ELSE 0
+                       END) AS no_adquirido,
+                       COUNT(*) FILTER (WHERE tipo_origen_item = 'BASE'
+                         AND estatus_ejecucion IN (
+                             'NO_ADQUIRIDO', 'REEMPLAZADO', 'CERRADO'
+                         ) AND (cantidad IS NULL OR precio_unitario IS NULL
+                                OR moneda_base IS NULL
+                                OR moneda_base NOT IN ('MXN', 'USD')
+                                OR (moneda_base = 'USD'
+                                    AND tipo_cambio_base IS NULL)))
+                           AS no_adquirido_pendiente,
+                       COUNT(*) FILTER (WHERE grupo_pendiente) AS grupos_pendientes
+                FROM item_grupos
+                GROUP BY grupo_codigo, grupo_nombre, grupo_orden,
+                         id_categoria, categoria_nombre
+            ),
+            facturas_filas AS (
+                SELECT hecho.grupo_codigo_snapshot AS grupo_codigo,
+                       hecho.grupo_nombre_snapshot AS grupo_nombre,
+                       COALESCE(catalogo.orden, 999) AS grupo_orden,
+                       item.id_categoria AS categoria_id,
+                       COALESCE(categoria.nombre, 'Sin categoria') AS categoria_nombre,
+                       hecho.importe_asignado, hecho.moneda,
+                       material.tipo_cambio_xml, FALSE AS grupo_pendiente
+                FROM tb_bom_concepto_asignaciones asignacion
+                JOIN tb_bom_hecho_grupo_asignaciones hecho
+                  ON hecho.id_asignacion_concepto = asignacion.id_asignacion
+                JOIN tb_materiales_historial material
+                  ON material.id = asignacion.id_material
+                LEFT JOIN tb_bom_items item ON item.id_item = asignacion.id_bom_item
+                LEFT JOIN tb_cat_categorias_compra categoria
+                  ON categoria.id = item.id_categoria
+                LEFT JOIN tb_cat_grupos_bom catalogo ON catalogo.id = hecho.id_grupo
+                WHERE asignacion.id_bom = $1
+
+                UNION ALL
+
+                SELECT 'PENDIENTE_DISTRIBUCION', 'Pendiente de distribucion', 998,
+                       item.id_categoria, COALESCE(categoria.nombre, 'Sin categoria'),
+                       asignacion.importe_asignado
+                           - COALESCE(SUM(hecho.importe_asignado), 0),
+                       asignacion.moneda,
+                       material.tipo_cambio_xml, TRUE
+                FROM tb_bom_concepto_asignaciones asignacion
+                JOIN tb_materiales_historial material
+                  ON material.id = asignacion.id_material
+                LEFT JOIN tb_bom_hecho_grupo_asignaciones hecho
+                  ON hecho.id_asignacion_concepto = asignacion.id_asignacion
+                LEFT JOIN tb_bom_items item ON item.id_item = asignacion.id_bom_item
+                LEFT JOIN tb_cat_categorias_compra categoria
+                  ON categoria.id = item.id_categoria
+                WHERE asignacion.id_bom = $1
+                  AND asignacion.asignacion_grupo_completa = FALSE
+                GROUP BY asignacion.id_asignacion, asignacion.importe_asignado,
+                         asignacion.moneda, material.tipo_cambio_xml,
+                         item.id_categoria, categoria.nombre
+                HAVING ABS(
+                    asignacion.importe_asignado
+                        - COALESCE(SUM(hecho.importe_asignado), 0)
+                ) > 0.000001
+            ),
+            facturas AS (
                 SELECT grupo_codigo, grupo_nombre, grupo_orden,
                        categoria_id, categoria_nombre,
-                       SUM(
-                           CASE WHEN tipo_origen_item = 'BASE'
-                                THEN cantidad * precio_unitario * peso_grupo
-                                ELSE 0 END
-                       ) AS presupuesto_mxn
-                FROM item_grupos_base
-                GROUP BY grupo_codigo, grupo_nombre, grupo_orden, categoria_id, categoria_nombre
+                       SUM(CASE
+                           WHEN moneda = 'MXN' THEN importe_asignado
+                           WHEN moneda = 'USD' AND tipo_cambio_xml IS NOT NULL
+                               THEN importe_asignado * tipo_cambio_xml
+                           ELSE 0
+                       END) AS importe,
+                       COUNT(*) FILTER (WHERE moneda IS NULL
+                         OR moneda NOT IN ('MXN', 'USD')
+                         OR (moneda = 'USD' AND tipo_cambio_xml IS NULL)) AS pendientes,
+                       COUNT(*) FILTER (WHERE grupo_pendiente) AS grupos_pendientes
+                FROM facturas_filas
+                GROUP BY grupo_codigo, grupo_nombre, grupo_orden,
+                         categoria_id, categoria_nombre
             ),
-            compra_real AS (
+            sugerencias_filas AS (
+                SELECT grupos.grupo_codigo, grupos.grupo_nombre, grupos.grupo_orden,
+                       grupos.id_categoria AS categoria_id,
+                       grupos.categoria_nombre,
+                       CASE WHEN factura.es_nota_credito
+                            THEN -ABS(material.importe) ELSE ABS(material.importe) END
+                           * grupos.peso_grupo AS importe_asignado,
+                       factura.moneda, material.tipo_cambio_xml,
+                       grupos.grupo_pendiente
+                FROM tb_materiales_historial material
+                JOIN item_grupos grupos
+                  ON grupos.id_item = material.id_bom_item_sugerido
+                LEFT JOIN LATERAL (
+                    SELECT MAX(cf.moneda) AS moneda,
+                           BOOL_OR(cf.tipo = 'NOTA_CREDITO') AS es_nota_credito
+                    FROM tb_comprobante_facturas cf
+                    WHERE cf.uuid_factura = material.uuid_factura::text
+                ) factura ON TRUE
+                WHERE material.id_bom_item IS NULL
+            ),
+            sugerencias AS (
                 SELECT grupo_codigo, grupo_nombre, grupo_orden,
                        categoria_id, categoria_nombre,
-                       SUM(cantidad * precio_real * peso_grupo) AS compra_real_mxn,
-                       SUM(
-                           CASE WHEN tipo_origen_item = 'BASE'
-                                THEN cantidad * precio_real * peso_grupo
-                                ELSE 0 END
-                       ) AS compra_real_base_mxn,
-                       SUM(
-                           CASE WHEN tipo_origen_item = 'REEMPLAZO'
-                                THEN cantidad * precio_real * peso_grupo
-                                ELSE 0 END
-                       ) AS reemplazos_mxn,
-                       SUM(
-                           CASE WHEN tipo_origen_item = 'FUERA_SCOPE'
-                                THEN cantidad * precio_real * peso_grupo
-                                ELSE 0 END
-                       ) AS fuera_scope_mxn,
-                       SUM(
-                           CASE WHEN tipo_origen_item = 'BASE'
-                                  AND estatus_ejecucion IN ('NO_ADQUIRIDO', 'REEMPLAZADO', 'CERRADO')
-                                THEN cantidad * precio_unitario * peso_grupo
-                                ELSE 0 END
-                       ) AS no_adquirido_mxn
-                FROM item_grupos_operativos
-                GROUP BY grupo_codigo, grupo_nombre, grupo_orden, categoria_id, categoria_nombre
+                       SUM(CASE
+                           WHEN moneda = 'MXN' THEN importe_asignado
+                           WHEN moneda = 'USD' AND tipo_cambio_xml IS NOT NULL
+                               THEN importe_asignado * tipo_cambio_xml
+                           ELSE 0
+                       END) AS importe,
+                       COUNT(*) FILTER (WHERE moneda IS NULL
+                         OR moneda NOT IN ('MXN', 'USD')
+                         OR (moneda = 'USD' AND tipo_cambio_xml IS NULL)) AS pendientes,
+                       COUNT(*) FILTER (WHERE grupo_pendiente) AS grupos_pendientes
+                FROM sugerencias_filas
+                GROUP BY grupo_codigo, grupo_nombre, grupo_orden,
+                         categoria_id, categoria_nombre
             ),
-            facturado_confirmado AS (
-                SELECT ig.grupo_codigo, ig.grupo_nombre, ig.grupo_orden,
-                       ig.categoria_id, ig.categoria_nombre,
-                       SUM(m.importe * COALESCE(m.tipo_cambio_xml, 1) * ig.peso_grupo) AS facturado_confirmado_mxn
-                FROM item_grupos_operativos ig
-                JOIN item_targets it ON it.current_id = ig.id_item
-                JOIN tb_materiales_historial m ON m.id_bom_item = it.target_id
-                GROUP BY ig.grupo_codigo, ig.grupo_nombre, ig.grupo_orden, ig.categoria_id, ig.categoria_nombre
+            cotizacion_totales AS (
+                SELECT autorizacion.id AS autorizacion_id,
+                       CASE WHEN COUNT(*) FILTER (
+                           WHERE linea.subtotal_linea IS NULL
+                       ) > 0 OR COALESCE(SUM(linea.subtotal_linea), 0) = 0
+                       THEN NULL ELSE SUM(linea.subtotal_linea) END AS subtotal
+                FROM tb_bom_autorizaciones autorizacion
+                JOIN tb_bom_cotizacion_items linea
+                  ON linea.cotizacion_id = autorizacion.cotizacion_id
+                WHERE autorizacion.bom_id = $1
+                GROUP BY autorizacion.id
             ),
-            facturado_sugerido AS (
-                SELECT ig.grupo_codigo, ig.grupo_nombre, ig.grupo_orden,
-                       ig.categoria_id, ig.categoria_nombre,
-                       SUM(m.importe * COALESCE(m.tipo_cambio_xml, 1) * ig.peso_grupo) AS facturado_sugerido_mxn
-                FROM item_grupos_operativos ig
-                JOIN item_targets it ON it.current_id = ig.id_item
-                JOIN tb_materiales_historial m ON m.id_bom_item_sugerido = it.target_id
-                WHERE m.id_bom_item IS NULL
-                GROUP BY ig.grupo_codigo, ig.grupo_nombre, ig.grupo_orden, ig.categoria_id, ig.categoria_nombre
+            pagos_autorizacion AS (
+                SELECT pago.autorizacion_id,
+                       SUM(CASE
+                           WHEN pago.moneda = 'MXN' THEN pago.monto_pagado
+                           WHEN pago.moneda = 'USD'
+                            AND pago.tipo_cambio_usado IS NOT NULL
+                               THEN pago.monto_pagado * pago.tipo_cambio_usado
+                           ELSE 0
+                       END) AS importe,
+                       COUNT(*) FILTER (WHERE pago.moneda IS NULL
+                         OR pago.moneda NOT IN ('MXN', 'USD')
+                         OR (pago.moneda = 'USD'
+                             AND pago.tipo_cambio_usado IS NULL)) AS pendientes
+                FROM tb_bom_pagos pago
+                JOIN tb_bom_autorizaciones autorizacion
+                  ON autorizacion.id = pago.autorizacion_id
+                WHERE autorizacion.bom_id = $1
+                GROUP BY pago.autorizacion_id
             ),
-            coti_lineas AS (
-                -- Una fila por linea de cotizacion (sin explotar por grupo): base del
-                -- denominador de prorrateo para que items multi-grupo no lo inflen.
-                SELECT a.id AS autorizacion_id, ci.subtotal_linea
-                FROM tb_bom_autorizaciones a
-                JOIN tb_bom_cotizacion_items ci ON ci.cotizacion_id = a.cotizacion_id
-                JOIN items_base ib ON ib.id_item = ci.bom_item_id
-                WHERE a.bom_id = $1
+            lineas_pago AS (
+                SELECT linea.cotizacion_id, linea.subtotal_linea,
+                       item.id_categoria AS categoria_id,
+                       COALESCE(categoria.nombre, 'Sin categoria')
+                           AS categoria_nombre,
+                       snapshot.codigo AS grupo_codigo,
+                       snapshot.nombre AS grupo_nombre,
+                       COALESCE(catalogo.orden,
+                                CASE WHEN snapshot.grupo_pendiente THEN 998 ELSE 999 END)
+                           AS grupo_orden,
+                       snapshot.porcentaje AS peso_grupo,
+                       snapshot.grupo_pendiente
+                FROM tb_bom_cotizacion_items linea
+                JOIN tb_bom_items item ON item.id_item = linea.bom_item_id
+                LEFT JOIN tb_cat_categorias_compra categoria
+                  ON categoria.id = item.id_categoria
+                CROSS JOIN LATERAL (
+                    SELECT distribucion.id_grupo,
+                           distribucion.codigo,
+                           distribucion.nombre,
+                           distribucion.porcentaje,
+                           FALSE AS grupo_pendiente
+                    FROM JSONB_TO_RECORDSET(COALESCE(
+                        linea.grupo_distribucion_snapshot, '[]'::JSONB
+                    )) AS distribucion(
+                        id_grupo INTEGER,
+                        codigo VARCHAR,
+                        nombre VARCHAR,
+                        porcentaje NUMERIC
+                    )
+                    UNION ALL
+                    SELECT NULL, 'PENDIENTE_DISTRIBUCION',
+                           'Pendiente de distribucion', 1::NUMERIC, TRUE
+                    WHERE JSONB_ARRAY_LENGTH(COALESCE(
+                        linea.grupo_distribucion_snapshot, '[]'::JSONB
+                    )) = 0
+                ) snapshot
+                LEFT JOIN tb_cat_grupos_bom catalogo
+                  ON catalogo.id = snapshot.id_grupo
             ),
-            coti_items AS (
-                SELECT a.id AS autorizacion_id,
-                       ci.subtotal_linea,
-                       ig.grupo_codigo, ig.grupo_nombre, ig.grupo_orden,
-                       ig.categoria_id, ig.categoria_nombre, ig.peso_grupo
-                FROM tb_bom_autorizaciones a
-                JOIN tb_bom_cotizacion_items ci ON ci.cotizacion_id = a.cotizacion_id
-                JOIN item_grupos_operativos ig ON ig.id_item = ci.bom_item_id
-                WHERE a.bom_id = $1
+            pagos_distribuidos AS (
+                SELECT linea.grupo_codigo, linea.grupo_nombre, linea.grupo_orden,
+                       linea.categoria_id, linea.categoria_nombre,
+                       SUM(pago.importe * linea.subtotal_linea / total.subtotal
+                           * linea.peso_grupo) AS importe,
+                       SUM(pago.pendientes) AS pendientes,
+                       COUNT(*) FILTER (WHERE linea.grupo_pendiente)
+                           AS grupos_pendientes
+                FROM tb_bom_autorizaciones autorizacion
+                JOIN pagos_autorizacion pago
+                  ON pago.autorizacion_id = autorizacion.id
+                JOIN cotizacion_totales total
+                  ON total.autorizacion_id = autorizacion.id
+                JOIN lineas_pago linea
+                  ON linea.cotizacion_id = autorizacion.cotizacion_id
+                WHERE autorizacion.bom_id = $1 AND total.subtotal IS NOT NULL
+                GROUP BY linea.grupo_codigo, linea.grupo_nombre,
+                         linea.grupo_orden, linea.categoria_id,
+                         linea.categoria_nombre
             ),
-            pago_por_auth AS (
-                SELECT p.autorizacion_id,
-                       SUM(p.monto_pagado * COALESCE(p.tipo_cambio_usado, 1)) AS pagado_mxn
-                FROM tb_bom_pagos p
-                JOIN tb_bom_autorizaciones a ON a.id = p.autorizacion_id
-                WHERE a.bom_id = $1
-                GROUP BY p.autorizacion_id
+            pagos_pendientes AS (
+                SELECT 'PENDIENTE_DISTRIBUCION' AS grupo_codigo,
+                       'Pendiente de distribucion' AS grupo_nombre,
+                       998 AS grupo_orden,
+                       NULL::INTEGER AS categoria_id,
+                       'Sin categoria' AS categoria_nombre,
+                       0::NUMERIC AS importe,
+                       SUM(pago.pendientes) + COUNT(*) AS pendientes,
+                       COUNT(*) AS grupos_pendientes
+                FROM tb_bom_autorizaciones autorizacion
+                JOIN pagos_autorizacion pago
+                  ON pago.autorizacion_id = autorizacion.id
+                JOIN cotizacion_totales total
+                  ON total.autorizacion_id = autorizacion.id
+                WHERE autorizacion.bom_id = $1 AND total.subtotal IS NULL
+                HAVING COUNT(*) > 0
             ),
-            auth_totales AS (
-                SELECT autorizacion_id,
-                       NULLIF(SUM(subtotal_linea), 0) AS total_subtotal
-                FROM coti_lineas
-                GROUP BY autorizacion_id
-            ),
-            pagado AS (
-                SELECT ci.grupo_codigo, ci.grupo_nombre, ci.grupo_orden,
-                       ci.categoria_id, ci.categoria_nombre,
-                       SUM(pa.pagado_mxn * (ci.subtotal_linea / at.total_subtotal) * ci.peso_grupo) AS pagado_mxn
-                FROM coti_items ci
-                JOIN pago_por_auth pa ON pa.autorizacion_id = ci.autorizacion_id
-                JOIN auth_totales at ON at.autorizacion_id = ci.autorizacion_id
-                WHERE at.total_subtotal IS NOT NULL
-                GROUP BY ci.grupo_codigo, ci.grupo_nombre, ci.grupo_orden, ci.categoria_id, ci.categoria_nombre
+            pagos AS (
+                SELECT * FROM pagos_distribuidos
+                UNION ALL
+                SELECT * FROM pagos_pendientes
             ),
             metricas AS (
                 SELECT grupo_codigo, grupo_nombre, grupo_orden,
                        categoria_id, categoria_nombre,
-                       presupuesto_mxn, 0::numeric AS facturado_confirmado_mxn,
-                       0::numeric AS facturado_sugerido_mxn, 0::numeric AS pagado_mxn,
-                       0::numeric AS compra_real_mxn,
-                       0::numeric AS compra_real_base_mxn,
-                       0::numeric AS reemplazos_mxn,
-                       0::numeric AS fuera_scope_mxn,
-                       0::numeric AS no_adquirido_mxn
-                FROM presupuesto
+                       presupuesto, presupuesto_pendiente,
+                       real, real_pendiente, real_base, real_base_pendiente,
+                       reemplazos, reemplazos_pendiente,
+                       fuera_scope, fuera_scope_pendiente,
+                       no_adquirido, no_adquirido_pendiente,
+                       0::numeric AS facturado, 0::bigint AS facturado_pendiente,
+                       0::numeric AS sugerido, 0::bigint AS sugerido_pendiente,
+                       0::numeric AS pagado, 0::bigint AS pagado_pendiente,
+                       grupos_pendientes
+                FROM costos
                 UNION ALL
                 SELECT grupo_codigo, grupo_nombre, grupo_orden,
                        categoria_id, categoria_nombre,
-                       0::numeric, 0::numeric, 0::numeric, 0::numeric,
-                       compra_real_mxn, compra_real_base_mxn, reemplazos_mxn,
-                       fuera_scope_mxn, no_adquirido_mxn
-                FROM compra_real
+                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       importe, pendientes, 0, 0, 0, 0, grupos_pendientes
+                FROM facturas
                 UNION ALL
                 SELECT grupo_codigo, grupo_nombre, grupo_orden,
                        categoria_id, categoria_nombre,
-                       0::numeric, facturado_confirmado_mxn, 0::numeric,
-                       0::numeric, 0::numeric, 0::numeric, 0::numeric,
-                       0::numeric, 0::numeric
-                FROM facturado_confirmado
+                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       0, 0, importe, pendientes, 0, 0, grupos_pendientes
+                FROM sugerencias
                 UNION ALL
                 SELECT grupo_codigo, grupo_nombre, grupo_orden,
                        categoria_id, categoria_nombre,
-                       0::numeric, 0::numeric, facturado_sugerido_mxn,
-                       0::numeric, 0::numeric, 0::numeric, 0::numeric,
-                       0::numeric, 0::numeric
-                FROM facturado_sugerido
-                UNION ALL
-                SELECT grupo_codigo, grupo_nombre, grupo_orden,
-                       categoria_id, categoria_nombre,
-                       0::numeric, 0::numeric, 0::numeric, pagado_mxn,
-                       0::numeric, 0::numeric, 0::numeric, 0::numeric, 0::numeric
-                FROM pagado
+                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       0, 0, 0, 0, importe, pendientes, grupos_pendientes
+                FROM pagos
             )
-            SELECT grupo_codigo,
-                   grupo_nombre,
-                   grupo_orden,
-                   categoria_id,
-                   categoria_nombre,
-                   SUM(presupuesto_mxn) AS presupuesto_mxn,
-                   SUM(facturado_confirmado_mxn) AS facturado_confirmado_mxn,
-                   SUM(facturado_sugerido_mxn) AS facturado_sugerido_mxn,
-                   SUM(pagado_mxn) AS pagado_mxn,
-                   SUM(compra_real_mxn) AS compra_real_mxn,
-                   SUM(compra_real_base_mxn) AS compra_real_base_mxn,
-                   SUM(reemplazos_mxn) AS reemplazos_mxn,
-                   SUM(fuera_scope_mxn) AS fuera_scope_mxn,
-                   SUM(no_adquirido_mxn) AS no_adquirido_mxn
+            SELECT grupo_codigo, grupo_nombre, grupo_orden,
+                   categoria_id, categoria_nombre,
+                   CASE WHEN SUM(presupuesto_pendiente) > 0 THEN NULL
+                        ELSE SUM(presupuesto) END AS presupuesto_mxn,
+                   CASE WHEN SUM(facturado_pendiente) > 0 THEN NULL
+                        ELSE SUM(facturado) END AS facturado_confirmado_mxn,
+                   CASE WHEN SUM(sugerido_pendiente) > 0 THEN NULL
+                        ELSE SUM(sugerido) END AS facturado_sugerido_mxn,
+                   CASE WHEN SUM(pagado_pendiente) > 0 THEN NULL
+                        ELSE SUM(pagado) END AS pagado_mxn,
+                   CASE WHEN SUM(real_pendiente) > 0 THEN NULL
+                        ELSE SUM(real) END AS compra_real_mxn,
+                   CASE WHEN SUM(real_base_pendiente) > 0 THEN NULL
+                        ELSE SUM(real_base) END AS compra_real_base_mxn,
+                   CASE WHEN SUM(reemplazos_pendiente) > 0 THEN NULL
+                        ELSE SUM(reemplazos) END AS reemplazos_mxn,
+                   CASE WHEN SUM(fuera_scope_pendiente) > 0 THEN NULL
+                        ELSE SUM(fuera_scope) END AS fuera_scope_mxn,
+                   CASE WHEN SUM(no_adquirido_pendiente) > 0 THEN NULL
+                        ELSE SUM(no_adquirido) END AS no_adquirido_mxn,
+                   SUM(presupuesto_pendiente + real_pendiente
+                       + facturado_pendiente + sugerido_pendiente
+                       + pagado_pendiente) AS valores_pendientes,
+                   SUM(grupos_pendientes) AS grupos_pendientes
             FROM metricas
-            GROUP BY grupo_codigo, grupo_nombre, grupo_orden, categoria_id, categoria_nombre
-            HAVING SUM(presupuesto_mxn) <> 0
-                OR SUM(facturado_confirmado_mxn) <> 0
-                OR SUM(facturado_sugerido_mxn) <> 0
-                OR SUM(pagado_mxn) <> 0
-                OR SUM(compra_real_mxn) <> 0
-                OR SUM(reemplazos_mxn) <> 0
-                OR SUM(fuera_scope_mxn) <> 0
-                OR SUM(no_adquirido_mxn) <> 0
+            GROUP BY grupo_codigo, grupo_nombre, grupo_orden,
+                     categoria_id, categoria_nombre
+            HAVING SUM(presupuesto + real + facturado + sugerido + pagado
+                       + reemplazos + fuera_scope + no_adquirido) <> 0
+                OR SUM(presupuesto_pendiente + real_pendiente
+                       + facturado_pendiente + sugerido_pendiente
+                       + pagado_pendiente + grupos_pendientes) > 0
             ORDER BY grupo_orden, grupo_codigo, categoria_nombre
         """, id_bom)
-        return [dict(r) for r in rows]
+        return [dict(row) for row in rows]
 
     async def get_divisores_bom(self, conn, id_bom: UUID) -> dict:
-        """Divisores para métricas normalizadas: kWp de cierre FV y módulos FV del BOM.
-
-        - kwp: potencia de cierre FV de la oportunidad ligada al proyecto del BOM.
-        - modulos_fv: suma de cantidades de items activos en la categoria Panel.
-        """
+        """Divisores FV congelados al aprobar la version oficial del paquete."""
         row = await conn.fetchrow("""
-            SELECT
-                (SELECT o.potencia_cierre_fv_kwp
-                   FROM tb_bom b
-                   JOIN tb_proyectos_gate g ON g.id_proyecto = b.id_proyecto
-                   JOIN tb_oportunidades o ON o.id_oportunidad = g.id_oportunidad
-                   WHERE b.id_bom = $1) AS kwp,
-                (SELECT SUM(i.cantidad)
-                   FROM tb_bom_items i
-                   JOIN tb_cat_categorias_compra c ON c.id = i.id_categoria
-                   WHERE i.id_bom = $1
-                     AND i.activo = TRUE
-                     AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
-                     AND lower(c.nombre) = 'panel') AS modulos_fv
+            SELECT potencia_pico_kwp_snapshot AS kwp,
+                   modulos_fv_snapshot AS modulos_fv
+            FROM tb_bom
+            WHERE id_bom = $1
         """, id_bom)
         return {
             "kwp": float(row["kwp"]) if row and row["kwp"] is not None else None,
@@ -893,7 +1313,7 @@ class BomComprasDBMixin:
         return [dict(r) for r in rows]
 
     async def bulk_replace_cotizacion_items(
-        self, conn, cotizacion_id: UUID, items: list
+        self, conn, cotizacion_id: UUID, bom_id: UUID, items: list
     ) -> None:
         """Reemplaza los items de una cotización preservando precios existentes.
 
@@ -927,12 +1347,56 @@ class BomComprasDBMixin:
 
             await conn.executemany("""
                 INSERT INTO tb_bom_cotizacion_items
-                    (cotizacion_id, bom_item_id, precio_unitario, cantidad, moneda, subtotal_linea)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                    (cotizacion_id, bom_id, bom_item_id, precio_unitario, cantidad,
+                     moneda, subtotal_linea, grupo_ids_snapshot,
+                     grupo_distribucion_snapshot)
+                SELECT $1, $2, $3, $4, $5, $6, $7,
+                       grupos.ids,
+                       COALESCE((
+                           SELECT JSONB_AGG(JSONB_BUILD_OBJECT(
+                               'id_grupo', d.id_grupo,
+                               'codigo', d.grupo_codigo_snapshot,
+                               'nombre', d.grupo_nombre_snapshot,
+                               'porcentaje', d.porcentaje
+                           ) ORDER BY d.id_grupo)
+                           FROM tb_bom_item_grupo_asignaciones d
+                           WHERE d.id_bom_item = $3
+                           HAVING ABS(SUM(d.porcentaje) - 1) <= 0.000001
+                       ), grupos.distribucion_unica, '[]'::JSONB)
+                CROSS JOIN LATERAL (
+                    WITH efectivos AS (
+                        SELECT operativo.id_grupo
+                        FROM tb_bom_item_grupos_operativos operativo
+                        WHERE operativo.id_item = $3
+                        UNION ALL
+                        SELECT base.id_grupo
+                        FROM tb_bom_item_grupos base
+                        WHERE base.id_item = $3
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM tb_bom_item_grupos_operativos operativo
+                              WHERE operativo.id_item = $3
+                          )
+                    )
+                    SELECT COALESCE(
+                               ARRAY_AGG(efectivo.id_grupo ORDER BY efectivo.id_grupo),
+                               ARRAY[]::INTEGER[]
+                           ) AS ids,
+                           CASE WHEN COUNT(*) = 1 THEN
+                               JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT(
+                                   'id_grupo', MIN(efectivo.id_grupo),
+                                   'codigo', MIN(catalogo.codigo),
+                                   'nombre', MIN(catalogo.nombre),
+                                   'porcentaje', 1
+                               ))
+                           END AS distribucion_unica
+                    FROM efectivos efectivo
+                    JOIN tb_cat_grupos_bom catalogo
+                      ON catalogo.id = efectivo.id_grupo
+                ) grupos
                 ON CONFLICT (cotizacion_id, bom_item_id) DO NOTHING
             """, [
-                (cotizacion_id, i['bom_item_id'], i.get('precio_unitario'),
-                 i.get('cantidad', 1), i.get('moneda', 'MXN'),
-                 i.get('subtotal_linea', 0))
+                (cotizacion_id, bom_id, i['bom_item_id'], i.get('precio_unitario'),
+                 i.get('cantidad', 1), i['moneda'], i.get('subtotal_linea'))
                 for i in merged
             ])

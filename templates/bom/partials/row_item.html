@@ -8,9 +8,9 @@
 {% set item_cerrado_compra = item.estatus_ejecucion in ['NO_ADQUIRIDO', 'REEMPLAZADO', 'CERRADO'] %}
 {% set item_compra_bloquea_adenda = item.estatus_compra in ['COTIZADO', 'AUTORIZADO', 'PAGADO', 'FACTURADO'] %}
 {% set grupos_filtro = item.grupos_operativos if item.grupos_operativos else item.grupos %}
-{% set puede_adenda_item = bom and bom.estatus == 'APROBADO_FINAL' and area_editor in ['construccion', 'compras'] and tipo_origen_item == 'BASE' and not item_cerrado_compra and not item_compra_bloquea_adenda and not item.bloqueado %}
-{% set puede_editar_item = bom and bom.estatus != 'CANCELADO' and (bom.estatus != 'APROBADO_FINAL' or area_editor in ['compras', 'construccion']) %}
-{% set puede_eliminar_item = bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and ((area_editor == 'construccion' and bom.estatus in ['EN_REVISION_OBRA', 'EN_REVISION_CONST']) or (area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria|default(false))) %}
+{% set puede_adenda_item = not solo_lectura|default(false) and bom and bom.estatus == 'APROBADO_FINAL' and area_editor in ['construccion', 'compras'] and tipo_origen_item == 'BASE' and not item_cerrado_compra and not item_compra_bloquea_adenda and not item.bloqueado %}
+{% set puede_editar_item = capacidades.editar_base|default(false) or capacidades.editar_ejecucion|default(false) %}
+{% set puede_eliminar_item = capacidades.eliminar_items|default(false) %}
 <tr id="item-{{ item.id_item }}"
     data-grupos="{{ grupos_filtro | join(',') if grupos_filtro else '' }}"
     data-tipo-partida="{{ item.tipo_partida or 'MATERIAL' }}"
@@ -141,6 +141,8 @@
                     {% endif %}
                     {% if puede_eliminar_item %}
                     <button hx-delete="/bom/items/{{ item.id_item }}" hx-target="#tabla-bom-items" hx-swap="innerHTML"
+                        hx-vals='{"lock_version": "{{ bom.lock_version }}"}'
+                        data-bom-lock-vals
                         hx-confirm="Eliminar este item del BOM?" @click="openMenu = false"
                         class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors font-medium">
                         <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -281,3 +283,6 @@
         {% endif %}
     </td>
 </tr>
+{% if actualizar_lock_oob|default(false) %}
+{% include "bom/partials/lock_version_oob.html" %}
+{% endif %}

@@ -42,7 +42,7 @@
 
         {# Botones de accion segun estatus #}
         <div class="flex flex-wrap gap-2">
-            {% if bom.estatus == 'BORRADOR' and puede_gestionar_bom_ingenieria %}
+            {% if bom.estatus == 'BORRADOR' and capacidades.editar_base|default(false) %}
             <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/enviar-revision" hx-target="#bom-modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition">
                 <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -52,7 +52,7 @@
             </button>
             {% endif %}
 
-            {% if bom.estatus == 'BORRADOR' and (es_ing_manager or puede_gestionar_bom_ingenieria) %}
+            {% if bom.estatus == 'BORRADOR' and puede_versionar|default(false) %}
             <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/cancelar" hx-target="#bom-modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-500 hover:bg-red-600 transition">
                 <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -73,14 +73,14 @@
             </button>
             {% endif %}
 
-            {% if bom.estatus == 'APROBADO_ING' and puede_gestionar_bom_ingenieria %}
+            {% if bom.estatus == 'APROBADO_ING' and capacidades.editar_base|default(false) %}
             <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/enviar-obra" hx-target="#bom-modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition">
                 Enviar a Revision Obra
             </button>
             {% endif %}
 
-            {% if bom.estatus == 'APROBADO_ING' and es_ing_manager %}
+            {% if bom.estatus == 'APROBADO_ING' and capacidades.editar_base|default(false) %}
             <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/devolver-borrador" hx-target="#bom-modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-gray-600 hover:bg-gray-700 transition">
                 <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -112,7 +112,7 @@
             </button>
             {% endif %}
 
-            {% if bom.estatus in ['APROBADO_CONST', 'APROBADO_FINAL'] and puede_gestionar_bom_ingenieria %}
+            {% if bom.estatus == 'APROBADO_FINAL' and puede_versionar|default(false) %}
             <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/solicitar-modificacion" hx-target="#bom-modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-amber-600 hover:bg-amber-700 transition">
                 Solicitar Modificacion

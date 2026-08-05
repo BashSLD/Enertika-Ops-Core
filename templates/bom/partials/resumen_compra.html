@@ -1,5 +1,5 @@
 {# Resumen de compra: Presupuesto vs Facturado vs Pagado por grupo BOM -> categoria. #}
-{% macro money(v) %}${{ "{:,.2f}".format(v | float) }}{% endmacro %}
+{% macro money(v) %}{% if v is none %}-{% else %}${{ "{:,.2f}".format(v | float) }}{% endif %}{% endmacro %}
 
 {% if resumen.sin_datos %}
 <div class="text-center py-10 px-4">
@@ -13,8 +13,17 @@
 
 {% set t = resumen.totales %}
 {% set m = resumen.metricas %}
-{% set escala = [t.presupuesto, t.real, t.facturado, t.facturado_sugerido, t.pagado, t.reemplazos, t.fuera_scope, t.no_adquirido] | max %}
-{% if not escala %}{% set escala = 1 %}{% endif %}
+{% set escala_ns = namespace(valor=1) %}
+{% for valor in [t.presupuesto, t.real, t.facturado, t.facturado_sugerido, t.pagado, t.reemplazos, t.fuera_scope, t.no_adquirido] %}
+    {% if valor is not none and valor > escala_ns.valor %}{% set escala_ns.valor = valor %}{% endif %}
+{% endfor %}
+{% set escala = escala_ns.valor %}
+
+{% if not resumen.reconciliacion_completa %}
+<div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+    La reconciliación tiene valores o distribuciones pendientes. Los montos desconocidos se muestran con un guion y no se incluyen como cero.
+</div>
+{% endif %}
 
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
     <div class="rounded-lg border border-gray-200 bg-white p-3">
@@ -114,15 +123,25 @@
                 <td class="px-3 py-2 text-right text-gray-700">{{ money(s.facturado) }}</td>
                 <td class="px-3 py-2 text-right text-amber-700">{{ money(s.facturado_sugerido) }}</td>
                 <td class="px-3 py-2 text-right text-gray-700">{{ money(s.pagado) }}</td>
-                <td class="px-3 py-2 text-right font-medium {{ 'text-emerald-600' if s.dif_real >= 0 else 'text-red-600' }}">{{ money(s.dif_real) }}</td>
-                <td class="px-3 py-2 text-right font-medium {{ 'text-emerald-600' if s.dif_facturado >= 0 else 'text-red-600' }}">{{ money(s.dif_facturado) }}</td>
+                <td class="px-3 py-2 text-right font-medium {{ 'text-emerald-600' if s.dif_real is not none and s.dif_real >= 0 else ('text-red-600' if s.dif_real is not none else 'text-gray-400') }}">{{ money(s.dif_real) }}</td>
+                <td class="px-3 py-2 text-right font-medium {{ 'text-emerald-600' if s.dif_facturado is not none and s.dif_facturado >= 0 else ('text-red-600' if s.dif_facturado is not none else 'text-gray-400') }}">{{ money(s.dif_facturado) }}</td>
                 <td class="px-3 py-2">
                     <div class="space-y-0.5">
+                        {% if s.presupuesto is not none %}
                         <div class="h-1.5 rounded-sm bg-blue-500" style="width: {{ "%.1f"|format(s.presupuesto / escala * 100) }}%"></div>
+                        {% endif %}
+                        {% if s.real is not none %}
                         <div class="h-1.5 rounded-sm bg-green-500" style="width: {{ "%.1f"|format(s.real / escala * 100) }}%"></div>
+                        {% endif %}
+                        {% if s.facturado is not none %}
                         <div class="h-1.5 rounded-sm bg-amber-500" style="width: {{ "%.1f"|format(s.facturado / escala * 100) }}%"></div>
+                        {% endif %}
+                        {% if s.facturado_sugerido is not none %}
                         <div class="h-1.5 rounded-sm bg-orange-300" style="width: {{ "%.1f"|format(s.facturado_sugerido / escala * 100) }}%"></div>
+                        {% endif %}
+                        {% if s.pagado is not none %}
                         <div class="h-1.5 rounded-sm bg-emerald-500" style="width: {{ "%.1f"|format(s.pagado / escala * 100) }}%"></div>
+                        {% endif %}
                     </div>
                 </td>
             </tr>
@@ -138,8 +157,8 @@
                 <td class="px-3 py-1.5 text-right">{{ money(c.facturado) }}</td>
                 <td class="px-3 py-1.5 text-right text-amber-700">{{ money(c.facturado_sugerido) }}</td>
                 <td class="px-3 py-1.5 text-right">{{ money(c.pagado) }}</td>
-                <td class="px-3 py-1.5 text-right {{ 'text-emerald-600' if c.dif_real >= 0 else 'text-red-600' }}">{{ money(c.dif_real) }}</td>
-                <td class="px-3 py-1.5 text-right {{ 'text-emerald-600' if c.dif_facturado >= 0 else 'text-red-600' }}">{{ money(c.dif_facturado) }}</td>
+                <td class="px-3 py-1.5 text-right {{ 'text-emerald-600' if c.dif_real is not none and c.dif_real >= 0 else ('text-red-600' if c.dif_real is not none else 'text-gray-400') }}">{{ money(c.dif_real) }}</td>
+                <td class="px-3 py-1.5 text-right {{ 'text-emerald-600' if c.dif_facturado is not none and c.dif_facturado >= 0 else ('text-red-600' if c.dif_facturado is not none else 'text-gray-400') }}">{{ money(c.dif_facturado) }}</td>
                 <td class="px-3 py-1.5"></td>
             </tr>
             {% endfor %}
@@ -157,8 +176,8 @@
                 <td class="px-3 py-2 text-right">{{ money(t.facturado) }}</td>
                 <td class="px-3 py-2 text-right text-amber-700">{{ money(t.facturado_sugerido) }}</td>
                 <td class="px-3 py-2 text-right">{{ money(t.pagado) }}</td>
-                <td class="px-3 py-2 text-right {{ 'text-emerald-700' if t.dif_real >= 0 else 'text-red-700' }}">{{ money(t.dif_real) }}</td>
-                <td class="px-3 py-2 text-right {{ 'text-emerald-700' if t.dif_facturado >= 0 else 'text-red-700' }}">{{ money(t.dif_facturado) }}</td>
+                <td class="px-3 py-2 text-right {{ 'text-emerald-700' if t.dif_real is not none and t.dif_real >= 0 else ('text-red-700' if t.dif_real is not none else 'text-gray-400') }}">{{ money(t.dif_real) }}</td>
+                <td class="px-3 py-2 text-right {{ 'text-emerald-700' if t.dif_facturado is not none and t.dif_facturado >= 0 else ('text-red-700' if t.dif_facturado is not none else 'text-gray-400') }}">{{ money(t.dif_facturado) }}</td>
                 <td class="px-3 py-2"></td>
             </tr>
         </tfoot>

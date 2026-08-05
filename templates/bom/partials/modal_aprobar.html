@@ -60,7 +60,7 @@
     },
     'rechazar-const': {
         'titulo': 'Rechazar BOM (Construccion)',
-        'descripcion': 'Selecciona si el BOM debe regresar a Obra o a Ingenieria para correccion.',
+        'descripcion': 'El BOM volvera a BORRADOR para que Ingenieria corrija y repita todo el flujo.',
         'url': '/bom/' ~ bom.id_bom ~ '/rechazar-const',
         'btn_text': 'Rechazar',
         'btn_class': 'bg-red-600 hover:bg-red-700',
@@ -147,7 +147,10 @@
             </div>
             {% endif %}
 
-            <form hx-post="{{ cfg.url }}" hx-target="#main-content" hx-swap="innerHTML">
+            <form hx-post="{{ cfg.url }}" hx-target="#main-content" hx-swap="innerHTML"
+                hx-disabled-elt="find button[type='submit']">
+                <input type="hidden" name="lock_version" value="{{ bom.lock_version }}">
+                <input type="hidden" name="paquete_lock_version" value="{{ bom.paquete_lock_version }}">
                 <div class="space-y-3">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">
@@ -159,31 +162,6 @@
                             {{ 'required' if cfg.get('require_comentario') }}></textarea>
                     </div>
 
-                    {% if accion == 'rechazar-const' %}
-                    <fieldset>
-                        <legend class="block text-sm font-medium text-gray-700 mb-2">
-                            Regresar BOM a
-                        </legend>
-                        <div class="space-y-2">
-                            <label class="flex items-start gap-2 rounded-lg border border-gray-300 p-3 text-sm text-gray-700">
-                                <input type="radio" name="destino_rechazo" value="obra" required
-                                    class="mt-0.5 border-gray-300 text-blue-600 focus:ring-blue-500">
-                                <span>
-                                    <span class="block font-medium">Coordinador de Obra</span>
-                                    <span class="block text-xs text-gray-500">Regresa a revision de Obra.</span>
-                                </span>
-                            </label>
-                            <label class="flex items-start gap-2 rounded-lg border border-gray-300 p-3 text-sm text-gray-700">
-                                <input type="radio" name="destino_rechazo" value="ingenieria" required
-                                    class="mt-0.5 border-gray-300 text-blue-600 focus:ring-blue-500">
-                                <span>
-                                    <span class="block font-medium">Ingeniero de Disenio</span>
-                                    <span class="block text-xs text-gray-500">Regresa a borrador y repite todo el flujo.</span>
-                                </span>
-                            </label>
-                        </div>
-                    </fieldset>
-                    {% endif %}
                 </div>
 
                 <div class="flex justify-end gap-2 mt-5">

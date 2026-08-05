@@ -63,6 +63,7 @@
                 <form hx-post="/bom/adendas/{{ adenda.id_adenda }}/aprobar-construccion"
                     hx-target="#tab-adendas" hx-swap="innerHTML"
                     class="rounded border border-emerald-100 bg-emerald-50 p-2">
+                    <input type="hidden" name="lock_version" value="{{ adenda.lock_version }}">
                     <label class="flex items-center gap-2 text-xs text-emerald-800">
                         <input type="checkbox" name="requiere_ingenieria"
                             class="rounded border-emerald-300 text-emerald-600">
@@ -76,6 +77,7 @@
                 {% elif adenda.estatus == 'PENDIENTE_INGENIERIA' and es_ing_editor %}
                 <form hx-post="/bom/adendas/{{ adenda.id_adenda }}/aprobar-ingenieria"
                     hx-target="#tab-adendas" hx-swap="innerHTML">
+                    <input type="hidden" name="lock_version" value="{{ adenda.lock_version }}">
                     <button type="submit"
                         class="w-full rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
                         Aprobar Ingeniería
@@ -87,6 +89,7 @@
                 <form hx-post="/bom/adendas/{{ adenda.id_adenda }}/rechazar"
                     hx-target="#tab-adendas" hx-swap="innerHTML"
                     class="space-y-1">
+                    <input type="hidden" name="lock_version" value="{{ adenda.lock_version }}">
                     <input type="text" name="motivo_rechazo" required
                         class="w-full rounded border-gray-300 text-xs"
                         placeholder="Motivo de rechazo">
@@ -100,6 +103,7 @@
                 <form hx-post="/bom/adendas/{{ adenda.id_adenda }}/cancelar"
                     hx-target="#tab-adendas" hx-swap="innerHTML"
                     hx-confirm="¿Cancelar esta adenda? Esta acción no se puede deshacer.">
+                    <input type="hidden" name="lock_version" value="{{ adenda.lock_version }}">
                     <button type="submit"
                         class="w-full rounded border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">
                         Cancelar adenda

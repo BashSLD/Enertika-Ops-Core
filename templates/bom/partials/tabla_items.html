@@ -1,4 +1,7 @@
 {# Tabla de items del BOM (partial HTMX) #}
+{% if actualizar_lock_oob|default(false) %}
+{% include "bom/partials/lock_version_oob.html" %}
+{% endif %}
 {% if oob_estadisticas and estadisticas %}
 {% with oob=True %}
 {% include "bom/partials/estadisticas_grid.html" %}

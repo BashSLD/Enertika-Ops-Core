@@ -16,6 +16,7 @@ from sentry_sdk.integrations.starlette import StarletteIntegration
 
 from core.config import settings
 from core.database import connect_to_db, close_db_connection
+from core.bom.outbox_worker import procesar_bom_outbox_periodically
 from core.tasks import (
     cleanup_temp_uploads_periodically,
     check_levantamientos_sin_asignar_periodically,
@@ -143,6 +144,7 @@ async def main():
         asyncio.create_task(_supervise("verificar_solicitudes_vencidas", verificar_solicitudes_vencidas_periodically)),
         asyncio.create_task(_supervise("sync_biotime", sync_biotime_periodically)),
         asyncio.create_task(_supervise("procesar_descargas_cfe", procesar_descargas_cfe_periodically)),
+        asyncio.create_task(_supervise("procesar_bom_outbox", procesar_bom_outbox_periodically)),
     ]
 
     logger.info("[WORKER] %d tareas activas", len(tasks))

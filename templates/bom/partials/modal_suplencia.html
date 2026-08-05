@@ -20,6 +20,7 @@
                 <p class="mt-1">{{ suplencia_activa.suplente_nombre }} hasta el {{ suplencia_activa.fecha_fin.strftime('%d/%m/%Y') }}</p>
                 <button
                     hx-delete="/bom/suplencia"
+                    hx-vals='{"suplencia_id": "{{ suplencia_activa.id }}", "lock_version": "{{ suplencia_activa.lock_version }}"}'
                     hx-target="#modal-suplencia"
                     hx-swap="outerHTML"
                     class="mt-2 text-xs text-red-600 hover:text-red-800 underline">
@@ -36,6 +37,8 @@
                 hx-target="#modal-suplencia"
                 hx-swap="outerHTML"
                 hx-disabled-elt="find button[type='submit']">
+                <input type="hidden" name="suplencia_id" value="{{ suplencia_activa.id if suplencia_activa else '' }}">
+                <input type="hidden" name="lock_version" value="{{ suplencia_activa.lock_version if suplencia_activa else '' }}">
                 <div class="space-y-3">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Suplente <span class="text-red-500">*</span></label>

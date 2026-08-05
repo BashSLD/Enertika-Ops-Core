@@ -5,8 +5,8 @@ filtrada que el matcher. El bug original corria el match sobre la lista sin
 filtrar y persistia id_bom_item/confianza/origen en el renglon equivocado.
 
 Posiciones en la tupla de INSERT (ver db_service.guardar_conceptos_historial):
-  [15] id_bom_item  [16] match_confianza  [17] match_origen
-  [18] id_bom_item_sugerido  [19] sugerencia_confianza  [20] sugerencia_origen
+  [16] id_bom_item  [17] match_confianza  [18] match_origen
+  [19] id_bom_item_sugerido  [20] sugerencia_confianza  [21] sugerencia_origen
 """
 
 from uuid import uuid4
@@ -58,20 +58,20 @@ async def test_match_meta_se_mapea_por_indice():
 
     assert conn.rows is not None and len(conn.rows) == 3
     # Fila 0: matcheada ALTA/CLAVE_SAT
-    assert conn.rows[0][15] == id_a
-    assert conn.rows[0][16] == 'ALTA'
-    assert conn.rows[0][17] == 'CLAVE_SAT'
+    assert conn.rows[0][16] == id_a
+    assert conn.rows[0][17] == 'ALTA'
+    assert conn.rows[0][18] == 'CLAVE_SAT'
     # Fila 1: sin match -> todo None (no se corre la meta de otra fila)
-    assert conn.rows[1][15] is None
     assert conn.rows[1][16] is None
     assert conn.rows[1][17] is None
+    assert conn.rows[1][18] is None
     # Fila 2: matcheada ALTA/COTIZACION
-    assert conn.rows[2][15] == id_c
-    assert conn.rows[2][16] == 'ALTA'
-    assert conn.rows[2][17] == 'COTIZACION'
-    assert conn.rows[2][18] is None
+    assert conn.rows[2][16] == id_c
+    assert conn.rows[2][17] == 'ALTA'
+    assert conn.rows[2][18] == 'COTIZACION'
     assert conn.rows[2][19] is None
     assert conn.rows[2][20] is None
+    assert conn.rows[2][21] is None
 
 
 @pytest.mark.asyncio
@@ -84,12 +84,12 @@ async def test_sin_match_meta_columnas_quedan_none():
         __import__('datetime').date(2026, 6, 23), uuid4(),
     )
 
-    assert conn.rows[0][15] is None
     assert conn.rows[0][16] is None
     assert conn.rows[0][17] is None
     assert conn.rows[0][18] is None
     assert conn.rows[0][19] is None
     assert conn.rows[0][20] is None
+    assert conn.rows[0][21] is None
 
 
 @pytest.mark.asyncio
@@ -106,9 +106,9 @@ async def test_sugerencia_baja_no_puebla_id_bom_item():
         },
     )
 
-    assert conn.rows[0][15] is None
     assert conn.rows[0][16] is None
     assert conn.rows[0][17] is None
-    assert conn.rows[0][18] == id_sugerido
-    assert conn.rows[0][19] == 'BAJA'
-    assert conn.rows[0][20] == 'TEXTO'
+    assert conn.rows[0][18] is None
+    assert conn.rows[0][19] == id_sugerido
+    assert conn.rows[0][20] == 'BAJA'
+    assert conn.rows[0][21] == 'TEXTO'

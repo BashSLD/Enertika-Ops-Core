@@ -52,6 +52,7 @@
                             <input type="checkbox"
                                 data-resp-id="{{ resp.id }}"
                                 data-item-id="{{ item.bom_item_id }}"
+                                data-lock-version="{{ resp.lock_version }}"
                                 {{ 'checked' if asignado else '' }}
                                 onchange="toggleAsignacion(this, '{{ resp.id }}', '{{ item.bom_item_id }}')"
                                 class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
@@ -102,12 +103,16 @@ async function guardarAsignaciones(rfqId) {
         const checkboxes = document.querySelectorAll(`[data-resp-id="${respId}"]`);
         const checkedIds = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.dataset.itemId);
 
-        if (checkedIds.length > 0) {
-            await fetch(`/bom/cotizaciones/${respId}/bulk-asignar`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({item_ids: checkedIds})
-            });
+        const lockVersion = Number(checkboxes[0]?.dataset.lockVersion);
+        const response = await fetch(`/bom/cotizaciones/${respId}/bulk-asignar`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({item_ids: checkedIds, lock_version: lockVersion})
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            alert(error.detail || 'La cotización cambió; recarga la comparativa.');
+            return;
         }
     }
     // Recargar

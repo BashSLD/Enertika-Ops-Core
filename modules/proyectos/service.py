@@ -9,7 +9,7 @@ import logging
 import asyncpg
 
 from core.config_service import ConfigService
-from core.transfers.service import TransferService, get_transfer_service
+from core.transfers.service import get_transfer_service
 from .db_service import ProyectosDBService, get_db_service, ROL_RESPONSABLE_POR_AREA
 
 logger = logging.getLogger("ProyectosService")
@@ -46,6 +46,13 @@ ROL_PROYECTO_LABELS = {
     **{r["rol"]: r["label"] for r in ROLES_EQUIPO},
     "responsable_ingenieria": "Responsable de Ingeniería (RI)",
     "responsable_construccion": "Responsable de Construcción (RC)",
+}
+
+# Excepcion de negocio: en Ingenieria una misma persona puede ejecutar el rol
+# operativo y conservar el ownership como RI. Cualquier otra combinacion de
+# roles activos para el mismo usuario y area sigue siendo invalida.
+ROLES_COMPATIBLES_MISMO_USUARIO = {
+    "INGENIERIA": frozenset({"ingeniero_asignado", "responsable_ingenieria"}),
 }
 
 
@@ -198,7 +205,7 @@ class ProyectosService:
         asignado_por_id: UUID,
         permisos: Dict[str, bool],
         context: Optional[Dict] = None,
-        responsables_explicitos: Optional[Dict[str, UUID]] = None,
+        responsables_explicitos: Optional[Dict[str, Optional[UUID]]] = None,
     ) -> None:
         """
         Actualiza solo las secciones del equipo que el usuario puede editar.
@@ -216,118 +223,153 @@ class ProyectosService:
                 raise ValueError("Asignacion de equipo invalida")
             asignaciones_por_rol[key] = item
 
+        if responsables_explicitos and not permisos.get("puede_reasignar_responsable"):
+            raise ValueError("Solo Direccion puede reasignar al responsable")
+
         async with conn.transaction():
-            for key in ROLES_EQUIPO_MAP:
+            areas_tocadas = {
+                area
+                for (rol, area) in asignaciones_por_rol
+                if permisos.get(PERMISO_POR_ROL[(rol, area)])
+            }
+            areas_tocadas.update(responsables_explicitos)
+
+            activas_por_area = {
+                area: await self.db.get_asignaciones_activas_area(conn, id_proyecto, area)
+                for area in sorted(areas_tocadas)
+            }
+            deseadas_por_area = {
+                area: {row["rol_proyecto"]: row["id_usuario"] for row in rows}
+                for area, rows in activas_por_area.items()
+            }
+            roles_gestionados = {area: set() for area in areas_tocadas}
+
+            for key, item in asignaciones_por_rol.items():
                 permiso = PERMISO_POR_ROL[key]
                 if not permisos.get(permiso):
                     continue
-
-                if key not in asignaciones_por_rol:
-                    continue
-
-                item = asignaciones_por_rol[key]
+                rol, area = key
                 id_usuario = item.get("id_usuario")
-
                 if id_usuario:
-                    activas_area = await self.db.get_asignaciones_activas_area(
-                        conn, id_proyecto, key[1]
-                    )
-
                     dept_slug = DEPARTAMENTO_POR_ROL[key]
                     usuario_valido = await self.db.usuario_activo_en_departamento(
                         conn, id_usuario, dept_slug
                     )
                     if not usuario_valido:
-                        raise ValueError("El usuario seleccionado no pertenece al departamento requerido")
-
-                    conflicto = next(
-                        (a for a in activas_area
-                         if str(a["id_usuario"]) == str(id_usuario) and a["rol_proyecto"] != key[0]),
-                        None,
-                    )
-                    if conflicto:
                         raise ValueError(
-                            _msg_rol_duplicado_area(key[1], conflicto["rol_proyecto"])
+                            "El usuario seleccionado no pertenece al departamento requerido"
                         )
+                deseadas_por_area[area][rol] = id_usuario
+                roles_gestionados[area].add(rol)
 
-                    asignacion_actual = next(
-                        (a for a in activas_area if a["rol_proyecto"] == key[0]), None
+            for area, responsable_id in responsables_explicitos.items():
+                if area not in RESPONSABLE_POR_AREA:
+                    raise ValueError("Area invalida")
+                rol_resp, rol_jefe = RESPONSABLE_POR_AREA[area]
+                if responsable_id is not None and not await self.db.usuario_tiene_rol_organizacional(
+                    conn, responsable_id, rol_jefe
+                ):
+                    raise ValueError(f"El responsable indicado no tiene el rol {rol_jefe}")
+                deseadas_por_area[area][rol_resp] = responsable_id
+                roles_gestionados[area].add(rol_resp)
+
+            for key, area in ROL_EDITABLE_DEFINE_RESPONSABLE.items():
+                if key not in asignaciones_por_rol or not permisos.get(PERMISO_POR_ROL[key]):
+                    continue
+                id_operativo = asignaciones_por_rol[key].get("id_usuario")
+                rol_resp, _ = RESPONSABLE_POR_AREA[area]
+                if not id_operativo or area in responsables_explicitos:
+                    continue
+                if not deseadas_por_area[area].get(rol_resp):
+                    responsable_existente = await self.db.get_responsable_proyecto(
+                        conn, id_proyecto, area
                     )
-                    if asignacion_actual and str(asignacion_actual["id_usuario"]) == str(id_usuario):
+                    if responsable_existente:
+                        deseadas_por_area[area][rol_resp] = responsable_existente
+                    else:
+                        responsable_inicial = await self._resolver_responsable_inicial(
+                            conn, area, asignado_por_id, context
+                        )
+                        if responsable_inicial:
+                            deseadas_por_area[area][rol_resp] = responsable_inicial
+                            roles_gestionados[area].add(rol_resp)
+
+            for area, deseadas in deseadas_por_area.items():
+                roles_por_usuario = {}
+                for rol, id_usuario in deseadas.items():
+                    if id_usuario is None:
                         continue
+                    usuario_key = str(id_usuario)
+                    roles_existentes = roles_por_usuario.setdefault(usuario_key, [])
+                    roles_resultantes = {*roles_existentes, rol}
+                    if (
+                        len(roles_resultantes) > 1
+                        and roles_resultantes
+                        != ROLES_COMPATIBLES_MISMO_USUARIO.get(area, frozenset())
+                    ):
+                        raise ValueError(
+                            _msg_rol_duplicado_area(area, roles_existentes[0])
+                        )
+                    roles_existentes.append(rol)
 
-                await self.db.desactivar_asignacion_equipo(
-                    conn, id_proyecto, key[0], key[1]
-                )
+            cambios = []
+            for area, roles in roles_gestionados.items():
+                actuales = {
+                    row["rol_proyecto"]: row["id_usuario"]
+                    for row in activas_por_area[area]
+                }
+                for rol in roles:
+                    actual = actuales.get(rol)
+                    deseada = deseadas_por_area[area].get(rol)
+                    if str(actual or "") != str(deseada or ""):
+                        cambios.append((area, rol, deseada))
 
+            # Desactivar primero permite intercambiar dos personas entre roles sin
+            # chocar temporalmente con la unicidad por usuario+area.
+            for area, rol, _ in sorted(cambios, key=lambda row: (row[0], row[1])):
+                await self.db.desactivar_asignacion_equipo(conn, id_proyecto, rol, area)
+
+            for area, rol, id_usuario in sorted(cambios, key=lambda row: (row[0], row[1])):
                 if id_usuario:
-                    try:
-                        await self.db.insertar_asignacion_equipo(
-                            conn, id_proyecto, id_usuario, key[0], key[1], asignado_por_id
-                        )
-                    except asyncpg.UniqueViolationError as e:
-                        # Carrera check-then-insert (doble click/concurrencia). Dos indices
-                        # distintos pueden dispararla: distinguir por constraint_name para no
-                        # acusar al usuario equivocado del conflicto de otro.
-                        if e.constraint_name == "uq_proyecto_rol_area_activo":
-                            raise ValueError(_msg_rol_tomado_por_otro(key[1]))
-                        raise ValueError(_msg_usuario_ya_tiene_rol_activo(key[1], key[0]))
-                    if key in ROL_EDITABLE_DEFINE_RESPONSABLE:
-                        await self._asegurar_responsable(
-                            conn, id_proyecto, ROL_EDITABLE_DEFINE_RESPONSABLE[key],
-                            asignado_por_id, context, responsables_explicitos,
-                        )
+                    await self._insertar_asignacion_segura(
+                        conn, id_proyecto, id_usuario, rol, area, asignado_por_id
+                    )
 
         logger.info("Equipo actualizado para proyecto %s por usuario %s", id_proyecto, asignado_por_id)
 
-    async def _asegurar_responsable(
-        self, conn, id_proyecto: UUID, area: str, asignado_por_id: UUID,
-        context: Dict, responsables_explicitos: Dict[str, UUID],
-    ) -> None:
-        """Define el RC/RI del proyecto si aun no existe. No lo cambia en rotaciones."""
-        rol_resp, rol_jefe = RESPONSABLE_POR_AREA[area]
-        existente = await self.db.get_responsable_proyecto(conn, id_proyecto, area)
-        if existente is not None:
-            return  # ya definido: las rotaciones de coordinador no cambian el RC/RI
-
+    async def _resolver_responsable_inicial(
+        self, conn, area: str, asignado_por_id: UUID, context: Dict
+    ) -> Optional[UUID]:
+        """Resuelve la autoasignacion inicial de RC/RI sin escribir en BD."""
+        _, rol_jefe = RESPONSABLE_POR_AREA[area]
         es_admin = context.get("role") == "ADMIN"
         rol_org = (context.get("rol_organizacional") or "").strip().lower()
         es_director = rol_org == "director"
+        if es_admin or es_director or rol_org != rol_jefe:
+            return None
         autoasignacion = await ConfigService.get_global_config(
             conn, "equipo.autoasignacion_rc_por_jefes", True, bool
         )
+        if autoasignacion:
+            return asignado_por_id
+        return None
 
-        if not es_admin and not es_director and autoasignacion and rol_org == rol_jefe:
-            responsable_id = asignado_por_id
-        elif area in responsables_explicitos and responsables_explicitos[area]:
-            responsable_id = responsables_explicitos[area]
-            if not await self.db.usuario_tiene_rol_organizacional(conn, responsable_id, rol_jefe):
-                raise ValueError(f"El responsable indicado no tiene el rol {rol_jefe}")
-        else:
-            # No se puede determinar el RC/RI automaticamente (ADMIN/Direccion sin
-            # seleccion explicita, o autoasignacion deshabilitada). No abortamos el
-            # guardado del coordinador: el RC/RI queda sin definir y Direccion lo fija
-            # luego via reasignacion. Evita el 400 + rollback del equipo completo.
-            logger.info(
-                "RC/RI no autodefinido en proyecto %s area %s: se guarda el equipo sin responsable",
-                id_proyecto, area,
-            )
-            return
-
-        # Savepoint anidado: si el jefe ya esta activo en esta area con otro rol
-        # (uq_proyecto_usuario_area_activo, mig 086), el INSERT viola el indice. Sin el
-        # savepoint, la excepcion abortaria la transaccion externa de save_equipo_proyecto.
-        # Con el savepoint solo se revierte este INSERT y el resto del guardado persiste.
+    async def _insertar_asignacion_segura(
+        self, conn, id_proyecto: UUID, id_usuario: UUID, rol_proyecto: str,
+        area: str, asignado_por_id: UUID,
+    ) -> None:
+        """Inserta con savepoint y traduce de forma uniforme las dos carreras posibles."""
         try:
             async with conn.transaction():
                 await self.db.insertar_asignacion_equipo(
-                    conn, id_proyecto, responsable_id, rol_resp, area, asignado_por_id
+                    conn, id_proyecto, id_usuario, rol_proyecto, area, asignado_por_id
                 )
-        except asyncpg.UniqueViolationError:
-            logger.warning(
-                "No se autoasigno RC/RI en proyecto %s area %s: usuario %s ya activo en el area",
-                id_proyecto, area, responsable_id,
-            )
+        except asyncpg.UniqueViolationError as exc:
+            if exc.constraint_name == "uq_proyecto_rol_area_activo":
+                raise ValueError(_msg_rol_tomado_por_otro(area)) from exc
+            raise ValueError(
+                _msg_usuario_ya_tiene_rol_activo(area, rol_proyecto)
+            ) from exc
 
     async def reasignar_responsable(
         self, conn, id_proyecto: UUID, area: str,
@@ -343,7 +385,7 @@ class ProyectosService:
         async with conn.transaction():
             await self.db.desactivar_asignacion_equipo(conn, id_proyecto, rol_resp, area)
             if nuevo_responsable_id is not None:
-                await self.db.insertar_asignacion_equipo(
+                await self._insertar_asignacion_segura(
                     conn, id_proyecto, nuevo_responsable_id, rol_resp, area, asignado_por_id
                 )
         logger.info("Responsable %s reasignado en proyecto %s por %s", area, id_proyecto, asignado_por_id)

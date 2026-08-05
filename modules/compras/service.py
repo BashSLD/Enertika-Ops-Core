@@ -1211,7 +1211,9 @@ class ComprasService:
                 tipo_cambio_xml=tc_xml,
                 bom_item_map=bom_item_map,
                 match_meta_map=match_meta_map,
-                suggestion_map=suggestion_map
+                suggestion_map=suggestion_map,
+                tipo_factura=tipo_factura,
+                moneda=cfdi_moneda,
             )
 
             if bom_item_map and bom_svc:

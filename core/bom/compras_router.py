@@ -102,11 +102,20 @@ async def _render_cotizaciones_tab(
     role = context.get("role")
     module_roles = context.get("module_roles", {})
     es_compras_editor = role == "ADMIN" or module_roles.get("compras") in ("editor", "admin")
+    user_id = context.get("user_db_id")
+    aprobador_direccion = await service.db.get_aprobador_final_id(conn)
+    representados = (
+        await service.get_titulares_que_representa(conn, user_id) if user_id else set()
+    )
+    es_aprobador_direccion = bool(
+        aprobador_direccion and aprobador_direccion in representados
+    )
     return templates.TemplateResponse(
         request, "bom/partials/cotizaciones.html",
         {
             **_cotizacion_ctx(request, cotizaciones, bom, es_compras_editor),
             "items_disponibles": items_disponibles,
+            "es_aprobador_direccion": es_aprobador_direccion,
             **extra,
         }
     )
@@ -158,6 +167,7 @@ async def crear_cotizacion(
     rfq_origen_id_str = body.get("rfq_origen_id")
     rfq_origen_id = UUID(rfq_origen_id_str) if rfq_origen_id_str else None
     subtotal_externo = body.get("subtotal")  # modo simplificado: el usuario ingresa subtotal
+    bom_lock_version_raw = body.get("bom_lock_version")
 
     items_data = []
     for it in items_raw:
@@ -174,9 +184,12 @@ async def crear_cotizacion(
             items_data, iva_pct, notas, user_id,
             es_rfq=es_rfq,
             rfq_origen_id=rfq_origen_id,
-            subtotal_externo=float(subtotal_externo) if subtotal_externo is not None else None
+            subtotal_externo=float(subtotal_externo) if subtotal_externo is not None else None,
+            bom_lock_version_esperado=(
+                int(bom_lock_version_raw) if bom_lock_version_raw is not None else None
+            ),
         )
-    except ValueError as e:
+    except (ValueError, TypeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     return await _render_cotizaciones_tab(request, conn, service, context, id_bom)
@@ -235,6 +248,7 @@ async def crear_rfq_rapido(
             None, None, "MXN",
             items_data, 16, None, user_id,
             es_rfq=True,
+            bom_lock_version_esperado=int(form.get("lock_version", "")),
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -253,6 +267,7 @@ async def solicitar_aclaracion(
     request: Request,
     cotizacion_id: UUID,
     motivo: str = Form(...),
+    lock_version: int = Form(...),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -261,7 +276,9 @@ async def solicitar_aclaracion(
     """Devuelve una cotización a BORRADOR con motivo de aclaración."""
     user_id = context.get("user_db_id")
     try:
-        await service.solicitar_aclaracion_cotizacion(conn, cotizacion_id, user_id, motivo)
+        await service.solicitar_aclaracion_cotizacion(
+            conn, cotizacion_id, user_id, motivo, lock_version
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -315,12 +332,14 @@ async def bulk_asignar_items(
     """Asigna items a una cotización de proveedor en lote."""
     body = await request.json()
     item_ids = body.get("item_ids", [])
+    lock_version = body.get("lock_version")
 
     try:
         await service.bulk_asignar_items(
-            conn, cotizacion_id, item_ids
+            conn, cotizacion_id, item_ids,
+            lock_version_esperado=int(lock_version),
         )
-    except ValueError as e:
+    except (TypeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     return {"ok": True, "asignados": len(item_ids)}
@@ -336,9 +355,13 @@ async def seleccionar_cotizacion(
     _=require_module_access("compras", "editor"),
 ):
     user_id = context.get("user_db_id")
+    form = await request.form()
     try:
-        cotizacion = await service.seleccionar_cotizacion(conn, cotizacion_id, user_id)
-    except ValueError as e:
+        cotizacion = await service.seleccionar_cotizacion(
+            conn, cotizacion_id, user_id,
+            int(form.get("lock_version", "")),
+        )
+    except (TypeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not cotizacion:
         raise HTTPException(status_code=404, detail="Cotización no encontrada")
@@ -355,9 +378,12 @@ async def rechazar_cotizacion(
     _=require_module_access("compras", "editor"),
 ):
     user_id = context.get("user_db_id")
+    form = await request.form()
     try:
-        cotizacion = await service.rechazar_cotizacion(conn, cotizacion_id, user_id)
-    except ValueError as e:
+        cotizacion = await service.rechazar_cotizacion(
+            conn, cotizacion_id, user_id, int(form.get("lock_version", ""))
+        )
+    except (TypeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not cotizacion:
         raise HTTPException(status_code=404, detail="Cotización no encontrada")
@@ -379,8 +405,10 @@ async def subir_pdf_cotizacion(
     if not pdf_url:
         raise HTTPException(status_code=400, detail="URL del PDF es requerida")
     try:
-        await service.actualizar_pdf_cotizacion(conn, cotizacion_id, pdf_url)
-    except ValueError as e:
+        await service.actualizar_pdf_cotizacion(
+            conn, cotizacion_id, pdf_url, int(form.get("lock_version", ""))
+        )
+    except (TypeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except asyncpg.PostgresError:
         raise HTTPException(status_code=500, detail="Error al actualizar PDF")
@@ -400,6 +428,8 @@ async def solicitar_aprobacion_cotizacion(
     request: Request,
     cotizacion_id: UUID,
     comentarios: Optional[str] = Form(None),
+    cotizacion_lock_version: int = Form(...),
+    autorizacion_lock_version: int = Form(...),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -408,7 +438,10 @@ async def solicitar_aprobacion_cotizacion(
     """Solicita aprobación de Dirección para una cotización seleccionada (post-BOM)."""
     user_id = context.get("user_db_id")
     try:
-        aprobacion = await service.solicitar_aprobacion_cotizacion(conn, cotizacion_id, user_id, comentarios)
+        aprobacion = await service.solicitar_aprobacion_cotizacion(
+            conn, cotizacion_id, user_id, comentarios,
+            cotizacion_lock_version, autorizacion_lock_version,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except asyncpg.PostgresError:
@@ -423,6 +456,8 @@ async def aprobar_cotizacion_direccion(
     request: Request,
     cotizacion_id: UUID,
     comentarios: Optional[str] = Form(None),
+    aprobacion_lock_version: int = Form(...),
+    autorizacion_lock_version: int = Form(...),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -434,7 +469,8 @@ async def aprobar_cotizacion_direccion(
     rol_org = context.get("rol_organizacional")
     try:
         aprobacion = await service.aprobar_cotizacion_direccion(
-            conn, cotizacion_id, user_id, user_role, rol_org, comentarios
+            conn, cotizacion_id, user_id, user_role, rol_org, comentarios,
+            aprobacion_lock_version, autorizacion_lock_version,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -450,6 +486,8 @@ async def rechazar_cotizacion_direccion(
     request: Request,
     cotizacion_id: UUID,
     motivo: str = Form(...),
+    aprobacion_lock_version: int = Form(...),
+    autorizacion_lock_version: int = Form(...),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -461,7 +499,8 @@ async def rechazar_cotizacion_direccion(
     rol_org = context.get("rol_organizacional")
     try:
         aprobacion = await service.rechazar_cotizacion_direccion(
-            conn, cotizacion_id, user_id, motivo, user_role, rol_org
+            conn, cotizacion_id, user_id, motivo, user_role, rol_org,
+            aprobacion_lock_version, autorizacion_lock_version,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -476,7 +515,7 @@ async def rechazar_cotizacion_direccion(
 # AUTORIZACIONES (Fase D)
 # ========================================
 
-def _autorizacion_ctx(request, autorizaciones, bom, context) -> dict:
+async def _autorizacion_ctx(request, autorizaciones, bom, context, conn, service) -> dict:
     role = context.get("role")
     module_roles = context.get("module_roles", {})
     user_id = context.get("user_db_id")
@@ -484,8 +523,17 @@ def _autorizacion_ctx(request, autorizaciones, bom, context) -> dict:
     finanzas_role = module_roles.get("finanzas")
 
     es_admin = role == "ADMIN"
-    es_director = rol_org == "director"
-    es_coordinador_obra = bom.get("coordinador_obra") == user_id if bom else False
+    representados = (
+        await service.get_titulares_que_representa(conn, user_id) if user_id else set()
+    )
+    aprobador_direccion = await service.db.get_aprobador_final_id(conn)
+    es_director = bool(aprobador_direccion and aprobador_direccion in representados)
+    coordinador_obra = bom.get("coordinador_obra") if bom else None
+    es_coordinador_obra = (
+        coordinador_obra in representados
+        if coordinador_obra
+        else rol_org == "jefe_construccion"
+    )
     es_finanzas = finanzas_role in ("editor", "admin")
     es_compras_editor = es_admin or module_roles.get("compras") in ("editor", "admin")
 
@@ -516,7 +564,7 @@ async def get_autorizaciones_tab(
     autorizaciones = await service.listar_autorizaciones(conn, id_bom)
     return templates.TemplateResponse(
         request, "bom/partials/autorizaciones.html",
-        _autorizacion_ctx(request, autorizaciones, bom, context),
+        await _autorizacion_ctx(request, autorizaciones, bom, context, conn, service),
     )
 
 
@@ -575,6 +623,9 @@ async def asignar_match_concepto(
     autorizacion_id: UUID,
     historial_id: UUID,
     id_bom_item: Optional[str] = Form(None),
+    id_bom_item_anterior: Optional[str] = Form(None),
+    concepto_lock_version: int = Form(...),
+    id_grupo: Optional[int] = Form(None),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -590,13 +641,41 @@ async def asignar_match_concepto(
             item_uuid = UUID(valor)
         except ValueError:
             raise HTTPException(status_code=400, detail="Ítem inválido.")
-        if not any(it["id_item"] == item_uuid for it in data["items"]):
+        item_seleccionado = next(
+            (it for it in data["items"] if it["id_item"] == item_uuid), None
+        )
+        if not item_seleccionado:
             raise HTTPException(status_code=400, detail="El ítem no pertenece a esta autorización.")
+        grupos_validos = {
+            grupo["id"] for grupo in item_seleccionado.get("grupos_conciliacion", [])
+        }
+        if id_grupo is not None and id_grupo not in grupos_validos:
+            raise HTTPException(status_code=400, detail="El grupo no pertenece al ítem seleccionado.")
+        if len(grupos_validos) > 1 and id_grupo is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Selecciona el grupo al que se asignará el importe del concepto.",
+            )
+    elif id_grupo is not None:
+        raise HTTPException(status_code=400, detail="No puedes asignar un grupo sin un ítem.")
     if not any(c["historial_id"] == historial_id for c in data["conceptos"]):
         raise HTTPException(status_code=404, detail="Concepto no encontrado en esta autorización.")
 
+    anterior_uuid = None
+    anterior_valor = (id_bom_item_anterior or "").strip()
+    if anterior_valor:
+        try:
+            anterior_uuid = UUID(anterior_valor)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Match anterior invalido.")
+
     try:
-        await service.confirmar_match_concepto(conn, historial_id, item_uuid)
+        await service.confirmar_match_concepto(
+            conn, historial_id, item_uuid, anterior_uuid,
+            concepto_lock_version, id_grupo,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except asyncpg.PostgresError:
         raise HTTPException(status_code=500, detail="Error al guardar la conciliación.")
 
@@ -612,6 +691,7 @@ async def aprobar_autorizacion_obra(
     request: Request,
     autorizacion_id: UUID,
     nota: Optional[str] = Form(None),
+    lock_version: int = Form(...),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -620,7 +700,9 @@ async def aprobar_autorizacion_obra(
     user_id = context.get("user_db_id")
     user_role = context.get("role")
     try:
-        aut = await service.aprobar_obra(conn, autorizacion_id, user_id, nota, user_role)
+        aut = await service.aprobar_obra(
+            conn, autorizacion_id, user_id, nota, user_role, lock_version
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except asyncpg.PostgresError:
@@ -630,7 +712,7 @@ async def aprobar_autorizacion_obra(
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
     return templates.TemplateResponse(
         request, "bom/partials/autorizaciones.html",
-        _autorizacion_ctx(request, autorizaciones, bom, context),
+        await _autorizacion_ctx(request, autorizaciones, bom, context, conn, service),
     )
 
 
@@ -639,6 +721,7 @@ async def aprobar_autorizacion_direccion(
     request: Request,
     autorizacion_id: UUID,
     nota: Optional[str] = Form(None),
+    lock_version: int = Form(...),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -648,7 +731,10 @@ async def aprobar_autorizacion_direccion(
     user_role = context.get("role")
     rol_org = context.get("rol_organizacional")
     try:
-        aut = await service.aprobar_direccion(conn, autorizacion_id, user_id, nota, user_role, rol_org)
+        aut = await service.aprobar_direccion(
+            conn, autorizacion_id, user_id, nota, user_role, rol_org,
+            lock_version,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except asyncpg.PostgresError:
@@ -658,7 +744,7 @@ async def aprobar_autorizacion_direccion(
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
     return templates.TemplateResponse(
         request, "bom/partials/autorizaciones.html",
-        _autorizacion_ctx(request, autorizaciones, bom, context),
+        await _autorizacion_ctx(request, autorizaciones, bom, context, conn, service),
     )
 
 
@@ -667,6 +753,7 @@ async def aprobar_autorizacion_finanzas(
     request: Request,
     autorizacion_id: UUID,
     nota: Optional[str] = Form(None),
+    lock_version: int = Form(...),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -678,7 +765,10 @@ async def aprobar_autorizacion_finanzas(
     if user_role != "ADMIN" and finanzas_role not in ("editor", "admin"):
         raise HTTPException(status_code=403, detail="Requiere rol editor o admin en Finanzas")
     try:
-        aut = await service.aprobar_finanzas(conn, autorizacion_id, user_id, nota, user_role, finanzas_role)
+        aut = await service.aprobar_finanzas(
+            conn, autorizacion_id, user_id, nota, user_role, finanzas_role,
+            lock_version,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except asyncpg.PostgresError:
@@ -688,7 +778,7 @@ async def aprobar_autorizacion_finanzas(
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
     return templates.TemplateResponse(
         request, "bom/partials/autorizaciones.html",
-        _autorizacion_ctx(request, autorizaciones, bom, context),
+        await _autorizacion_ctx(request, autorizaciones, bom, context, conn, service),
     )
 
 
@@ -697,6 +787,7 @@ async def rechazar_autorizacion(
     request: Request,
     autorizacion_id: UUID,
     motivo: str = Form(...),
+    lock_version: int = Form(...),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -707,7 +798,10 @@ async def rechazar_autorizacion(
     rol_org = context.get("rol_organizacional")
     finanzas_role = context.get("module_roles", {}).get("finanzas")
     try:
-        aut = await service.rechazar_autorizacion(conn, autorizacion_id, user_id, motivo, user_role, rol_org, finanzas_role)
+        aut = await service.rechazar_autorizacion(
+            conn, autorizacion_id, user_id, motivo, user_role, rol_org,
+            finanzas_role, lock_version,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except asyncpg.PostgresError:
@@ -717,7 +811,7 @@ async def rechazar_autorizacion(
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
     return templates.TemplateResponse(
         request, "bom/partials/autorizaciones.html",
-        _autorizacion_ctx(request, autorizaciones, bom, context),
+        await _autorizacion_ctx(request, autorizaciones, bom, context, conn, service),
     )
 
 

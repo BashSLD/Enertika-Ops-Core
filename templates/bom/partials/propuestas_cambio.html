@@ -77,6 +77,8 @@
                 <form hx-post="/bom/propuestas-cambio/{{ propuesta.id_propuesta }}/aprobar"
                     hx-target="#tab-propuestas-cambio" hx-swap="innerHTML"
                     class="rounded border border-green-100 bg-green-50 p-2">
+                    <input type="hidden" name="lock_version" value="{{ propuesta.lock_version }}">
+                    <input type="hidden" name="bom_lock_version" value="{{ bom.lock_version }}" data-bom-lock-version>
                     <label class="flex items-center gap-2 text-xs text-green-800">
                         <input type="checkbox" name="ingenieria_modifico"
                             class="rounded border-green-300 text-green-600">
@@ -94,6 +96,7 @@
                 <form hx-post="/bom/propuestas-cambio/{{ propuesta.id_propuesta }}/rechazar"
                     hx-target="#tab-propuestas-cambio" hx-swap="innerHTML"
                     class="space-y-1">
+                    <input type="hidden" name="lock_version" value="{{ propuesta.lock_version }}">
                     <input type="text" name="comentario_revision" required
                         class="w-full rounded border-gray-300 text-xs"
                         placeholder="Motivo de rechazo">

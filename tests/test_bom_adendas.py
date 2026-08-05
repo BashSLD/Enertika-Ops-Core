@@ -1,3 +1,4 @@
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -6,6 +7,11 @@ from core.bom.service import BomService
 
 
 class FakeConn:
+    async def fetchrow(self, query, *args):
+        if args == ("bom.gestion_solo_responsable",):
+            return {"valor": "true", "tipo_dato": "boolean"}
+        return None
+
     def transaction(self):
         return self
 
@@ -16,12 +22,17 @@ class FakeConn:
         return False
 
 
-def _bom(bom_id):
+def _bom(bom_id, *, owner_id=None):
     return {
         "id_bom": bom_id,
+        "id_paquete": uuid4(),
         "id_proyecto": uuid4(),
         "estatus": "APROBADO_FINAL",
         "version": 1,
+        "lock_version": 0,
+        "es_cabeza_trabajo": True,
+        "jefe_construccion": owner_id,
+        "responsable_ing": owner_id,
     }
 
 
@@ -54,9 +65,13 @@ class FakeAdendaDB:
         self.execution_updates = []
         self.historial = []
         self.grupos = []
+        self.distribuciones = []
 
     async def get_bom_by_id(self, conn, id_bom):
         return dict(self.bom) if id_bom == self.bom["id_bom"] else None
+
+    async def get_bom_for_update(self, conn, id_bom):
+        return await self.get_bom_by_id(conn, id_bom)
 
     async def get_item_by_id(self, conn, id_item):
         item = self.items.get(id_item)
@@ -71,8 +86,11 @@ class FakeAdendaDB:
             "motivo": motivo,
             "creado_por": creado_por,
             "estatus": "PENDIENTE_CONSTRUCCION",
+            "lock_version": 0,
             "bom_estatus": self.bom["estatus"],
             "bom_version": self.bom["version"],
+            "id_proyecto": self.bom["id_proyecto"],
+            "id_paquete": self.bom["id_paquete"],
             "jefe_construccion": self.bom.get("jefe_construccion"),
             "responsable_ing": self.bom.get("responsable_ing"),
         }
@@ -80,12 +98,13 @@ class FakeAdendaDB:
         return adenda
 
     async def registrar_adenda_item(
-        self, conn, id_adenda, tipo_linea, motivo,
+        self, conn, id_adenda, id_bom, tipo_linea, motivo,
         id_item_origen=None, id_item_bom=None, datos_item=None, grupo_ids=None,
     ):
         row = {
             "id_adenda_item": uuid4(),
             "id_adenda": id_adenda,
+            "id_bom": id_bom,
             "tipo_linea": tipo_linea,
             "motivo": motivo,
             "id_item_origen": id_item_origen,
@@ -102,34 +121,70 @@ class FakeAdendaDB:
                 return dict(adenda)
         return None
 
+    async def get_adenda_for_update(self, conn, id_adenda):
+        return await self.get_adenda_by_id(conn, id_adenda)
+
     async def get_adenda_items(self, conn, id_adenda):
-        return [dict(i) for i in self.adenda_items if i["id_adenda"] == id_adenda]
+        rows = []
+        for linea in self.adenda_items:
+            if linea["id_adenda"] != id_adenda:
+                continue
+            row = dict(linea)
+            origen = self.items.get(linea.get("id_item_origen"), {})
+            row.update({
+                "origen_descripcion": origen.get("descripcion"),
+                "origen_cantidad": origen.get("cantidad"),
+                "origen_precio_unitario": origen.get("precio_unitario"),
+                "origen_moneda": origen.get("moneda"),
+            })
+            rows.append(row)
+        return rows
 
     async def marcar_adenda_construccion(
-        self, conn, id_adenda, user_id, requiere_ingenieria
+        self, conn, id_adenda, user_id, requiere_ingenieria,
+        lock_version_esperado, **snapshot,
     ):
         adenda = await self.get_adenda_by_id(conn, id_adenda)
+        if adenda["lock_version"] != lock_version_esperado:
+            return None
         adenda["estatus"] = (
             "PENDIENTE_INGENIERIA" if requiere_ingenieria else "APROBADA"
         )
         adenda["requiere_aprobacion_ingenieria"] = requiere_ingenieria
+        adenda["lock_version"] += 1
+        adenda.update(snapshot)
         for idx, actual in enumerate(self.adendas):
             if actual["id_adenda"] == id_adenda:
                 self.adendas[idx].update(adenda)
         return adenda
 
-    async def aprobar_adenda_ingenieria(self, conn, id_adenda, user_id):
+    async def aprobar_adenda_ingenieria(
+        self, conn, id_adenda, user_id, lock_version_esperado, **snapshot,
+    ):
         adenda = await self.get_adenda_by_id(conn, id_adenda)
+        if adenda["lock_version"] != lock_version_esperado:
+            return None
         adenda["estatus"] = "APROBADA"
+        adenda["lock_version"] += 1
+        adenda.update(snapshot)
         for idx, actual in enumerate(self.adendas):
             if actual["id_adenda"] == id_adenda:
                 self.adendas[idx].update(adenda)
         return adenda
 
-    async def rechazar_adenda(self, conn, id_adenda, user_id, motivo_rechazo):
+    async def rechazar_adenda(
+        self, conn, id_adenda, user_id, motivo_rechazo,
+        estatus_esperado, lock_version_esperado,
+    ):
         adenda = await self.get_adenda_by_id(conn, id_adenda)
+        if (
+            adenda["estatus"] != estatus_esperado
+            or adenda["lock_version"] != lock_version_esperado
+        ):
+            return None
         adenda["estatus"] = "RECHAZADA"
         adenda["motivo_rechazo"] = motivo_rechazo
+        adenda["lock_version"] += 1
         for idx, actual in enumerate(self.adendas):
             if actual["id_adenda"] == id_adenda:
                 self.adendas[idx].update(adenda)
@@ -160,6 +215,15 @@ class FakeAdendaDB:
     async def get_next_orden(self, conn, id_bom):
         return len(self.items) + 1
 
+    async def lock_items_context_by_ids(self, conn, item_ids):
+        return [dict(self.items[item_id]) for item_id in item_ids if item_id in self.items]
+
+    async def get_tipo_cambio_vigente(self, conn):
+        return {"tasa_mxn": 18, "fecha": "2026-07-31"}
+
+    async def registrar_evento_outbox(self, *args, **kwargs):
+        return {}
+
     async def agregar_item(self, conn, id_bom, descripcion, cantidad, **kwargs):
         item_id = uuid4()
         item = {
@@ -184,13 +248,24 @@ class FakeAdendaDB:
     async def set_item_grupos_operativos(self, conn, id_item, grupo_ids, user_id=None):
         self.grupos.append((id_item, list(grupo_ids)))
 
+    async def set_distribucion_grupos_item(self, conn, id_item, porcentajes):
+        self.distribuciones.append((id_item, dict(porcentajes)))
+
     async def get_adendas_by_bom(self, conn, id_bom):
         return [a for a in self.adendas if a["id_bom_base"] == id_bom]
 
-    async def cancelar_adenda(self, conn, id_adenda, user_id):
+    async def cancelar_adenda(
+        self, conn, id_adenda, user_id, lock_version_esperado,
+    ):
         adenda = await self.get_adenda_by_id(conn, id_adenda)
+        if (
+            adenda["estatus"] != "PENDIENTE_CONSTRUCCION"
+            or adenda["lock_version"] != lock_version_esperado
+        ):
+            return None
         adenda["estatus"] = "CANCELADA"
         adenda["cancelado_por"] = user_id
+        adenda["lock_version"] += 1
         for idx, actual in enumerate(self.adendas):
             if actual["id_adenda"] == id_adenda:
                 self.adendas[idx].update(adenda)
@@ -208,7 +283,7 @@ async def test_cerrar_item_sin_compra_registra_adenda_y_no_muta_base():
     bom_id = uuid4()
     item_id = uuid4()
     user_id = uuid4()
-    db = FakeAdendaDB(_bom(bom_id), [_item(item_id, bom_id)])
+    db = FakeAdendaDB(_bom(bom_id, owner_id=user_id), [_item(item_id, bom_id)])
     svc = _service(db)
 
     adenda = await svc.cerrar_item_sin_compra(
@@ -223,6 +298,7 @@ async def test_cerrar_item_sin_compra_registra_adenda_y_no_muta_base():
         {
             "id_adenda_item": db.adenda_items[0]["id_adenda_item"],
             "id_adenda": db.adendas[0]["id_adenda"],
+            "id_bom": bom_id,
             "tipo_linea": "NO_ADQUIRIDO",
             "motivo": "Proveedor sin disponibilidad",
             "id_item_origen": item_id,
@@ -238,7 +314,7 @@ async def test_aprobar_cierre_sin_compra_aplica_cambio():
     bom_id = uuid4()
     item_id = uuid4()
     user_id = uuid4()
-    db = FakeAdendaDB(_bom(bom_id), [_item(item_id, bom_id)])
+    db = FakeAdendaDB(_bom(bom_id, owner_id=user_id), [_item(item_id, bom_id)])
     svc = _service(db)
 
     adenda = await svc.cerrar_item_sin_compra(
@@ -246,7 +322,8 @@ async def test_aprobar_cierre_sin_compra_aplica_cambio():
     )
 
     await svc.aprobar_adenda_construccion(
-        FakeConn(), adenda["id_adenda"], user_id, "ADMIN"
+        FakeConn(), adenda["id_adenda"], user_id, "ADMIN",
+        lock_version_esperado=0,
     )
 
     assert db.items[item_id]["estatus_ejecucion"] == "NO_ADQUIRIDO"
@@ -254,11 +331,11 @@ async def test_aprobar_cierre_sin_compra_aplica_cambio():
 
 
 @pytest.mark.asyncio
-async def test_crear_reemplazo_queda_pendiente_hasta_aprobacion():
+async def test_reemplazo_multi_grupo_persiste_json_y_aplica_porcentajes():
     bom_id = uuid4()
     item_id = uuid4()
     user_id = uuid4()
-    db = FakeAdendaDB(_bom(bom_id), [_item(item_id, bom_id)])
+    db = FakeAdendaDB(_bom(bom_id, owner_id=user_id), [_item(item_id, bom_id)])
     svc = _service(db)
 
     adenda = await svc.crear_reemplazo_item(
@@ -266,17 +343,25 @@ async def test_crear_reemplazo_queda_pendiente_hasta_aprobacion():
         descripcion="Modulo FV equivalente",
         cantidad=10,
         grupo_ids=[1, 2],
+        grupo_porcentajes={1: Decimal("0.6"), 2: Decimal("0.4")},
         motivo="Cambio por disponibilidad",
         id_categoria=11,
         unidad_medida="pza",
+        precio_unitario=100,
     )
 
     assert adenda["estatus"] == "PENDIENTE_CONSTRUCCION"
     assert len(db.items) == 1
     assert db.items[item_id]["estatus_ejecucion"] is None
+    assert db.adenda_items[0]["datos_item"]["_grupo_porcentajes"] == {
+        "1": "0.6",
+        "2": "0.4",
+    }
+    assert db.distribuciones == []
 
     await svc.aprobar_adenda_construccion(
-        FakeConn(), adenda["id_adenda"], user_id, "ADMIN"
+        FakeConn(), adenda["id_adenda"], user_id, "ADMIN",
+        lock_version_esperado=0,
     )
 
     reemplazos = [
@@ -290,15 +375,41 @@ async def test_crear_reemplazo_queda_pendiente_hasta_aprobacion():
     assert reemplazo["motivo_adenda"] == "Cambio por disponibilidad"
     assert db.items[item_id]["estatus_ejecucion"] == "REEMPLAZADO"
     assert db.grupos == [(reemplazo["id_item"], [1, 2])]
+    assert db.distribuciones == [(
+        reemplazo["id_item"],
+        {1: Decimal("0.6"), 2: Decimal("0.4")},
+    )]
     assert db.adenda_items[0]["id_item_origen"] == item_id
     assert db.adenda_items[0]["id_item_bom"] == reemplazo["id_item"]
+
+
+@pytest.mark.asyncio
+async def test_reemplazo_multi_grupo_rechaza_porcentajes_incompletos():
+    bom_id = uuid4()
+    item_id = uuid4()
+    db = FakeAdendaDB(_bom(bom_id), [_item(item_id, bom_id)])
+    svc = _service(db)
+
+    with pytest.raises(ValueError, match="porcentaje de cada grupo"):
+        await svc.crear_reemplazo_item(
+            FakeConn(), item_id, uuid4(),
+            descripcion="Modulo FV equivalente",
+            cantidad=10,
+            grupo_ids=[1, 2],
+            grupo_porcentajes={1: Decimal("1")},
+            motivo="Cambio por disponibilidad",
+            precio_unitario=100,
+        )
+
+    assert db.adendas == []
+    assert db.adenda_items == []
 
 
 @pytest.mark.asyncio
 async def test_agregar_fuera_scope_crea_item_al_aprobar():
     bom_id = uuid4()
     user_id = uuid4()
-    db = FakeAdendaDB(_bom(bom_id))
+    db = FakeAdendaDB(_bom(bom_id, owner_id=user_id))
     svc = _service(db)
 
     adenda = await svc.agregar_fuera_scope(
@@ -308,11 +419,13 @@ async def test_agregar_fuera_scope_crea_item_al_aprobar():
         grupo_ids=[3],
         motivo="Solicitud de obra",
         unidad_medida="servicio",
+        precio_unitario=100,
     )
 
     assert len(db.items) == 0
     await svc.aprobar_adenda_construccion(
-        FakeConn(), adenda["id_adenda"], user_id, "ADMIN"
+        FakeConn(), adenda["id_adenda"], user_id, "ADMIN",
+        lock_version_esperado=0,
     )
 
     item = next(iter(db.items.values()))
@@ -384,7 +497,7 @@ async def test_adenda_con_ok_ingenieria_no_aplica_hasta_aprobacion_tecnica():
     bom_id = uuid4()
     item_id = uuid4()
     user_id = uuid4()
-    db = FakeAdendaDB(_bom(bom_id), [_item(item_id, bom_id)])
+    db = FakeAdendaDB(_bom(bom_id, owner_id=user_id), [_item(item_id, bom_id)])
     svc = _service(db)
 
     adenda = await svc.crear_reemplazo_item(
@@ -395,18 +508,21 @@ async def test_adenda_con_ok_ingenieria_no_aplica_hasta_aprobacion_tecnica():
         motivo="Cambio tecnico",
         id_categoria=11,
         unidad_medida="pza",
+        precio_unitario=100,
     )
 
     updated = await svc.aprobar_adenda_construccion(
         FakeConn(), adenda["id_adenda"], user_id, "ADMIN",
         requiere_ingenieria=True,
+        lock_version_esperado=0,
     )
 
     assert updated["estatus"] == "PENDIENTE_INGENIERIA"
     assert len(db.items) == 1
 
     await svc.aprobar_adenda_ingenieria(
-        FakeConn(), adenda["id_adenda"], user_id, "ADMIN"
+        FakeConn(), adenda["id_adenda"], user_id, "ADMIN",
+        lock_version_esperado=1,
     )
 
     assert len(db.items) == 2
@@ -443,7 +559,7 @@ async def test_cancelar_adenda_pendiente_construccion_ok():
     bom_id = uuid4()
     item_id = uuid4()
     user_id = uuid4()
-    db = FakeAdendaDB(_bom(bom_id), [_item(item_id, bom_id)])
+    db = FakeAdendaDB(_bom(bom_id, owner_id=user_id), [_item(item_id, bom_id)])
     svc = _service(db)
 
     adenda = await svc.cerrar_item_sin_compra(
@@ -451,7 +567,10 @@ async def test_cancelar_adenda_pendiente_construccion_ok():
     )
     assert adenda["estatus"] == "PENDIENTE_CONSTRUCCION"
 
-    resultado = await svc.cancelar_adenda(FakeConn(), adenda["id_adenda"], user_id, "ADMIN")
+    resultado = await svc.cancelar_adenda(
+        FakeConn(), adenda["id_adenda"], user_id, "ADMIN",
+        lock_version_esperado=0,
+    )
 
     assert resultado["estatus"] == "CANCELADA"
     assert db.items[item_id]["estatus_ejecucion"] is None
@@ -462,16 +581,69 @@ async def test_cancelar_adenda_falla_si_no_pendiente_construccion():
     bom_id = uuid4()
     item_id = uuid4()
     user_id = uuid4()
-    db = FakeAdendaDB(_bom(bom_id), [_item(item_id, bom_id)])
+    db = FakeAdendaDB(_bom(bom_id, owner_id=user_id), [_item(item_id, bom_id)])
     svc = _service(db)
 
     adenda = await svc.cerrar_item_sin_compra(
         FakeConn(), item_id, user_id, "Proveedor sin stock"
     )
     await svc.aprobar_adenda_construccion(
-        FakeConn(), adenda["id_adenda"], user_id, "ADMIN", requiere_ingenieria=True
+        FakeConn(), adenda["id_adenda"], user_id, "ADMIN",
+        requiere_ingenieria=True, lock_version_esperado=0,
     )
     assert db.adendas[0]["estatus"] == "PENDIENTE_INGENIERIA"
 
     with pytest.raises(ValueError, match="Solo se pueden cancelar adendas pendientes de Construccion"):
-        await svc.cancelar_adenda(FakeConn(), adenda["id_adenda"], user_id, "ADMIN")
+        await svc.cancelar_adenda(
+            FakeConn(), adenda["id_adenda"], user_id, "ADMIN",
+            lock_version_esperado=1,
+        )
+
+
+@pytest.mark.asyncio
+async def test_aprobar_adenda_rechaza_admin_sin_ownership():
+    bom_id = uuid4()
+    owner_id = uuid4()
+    actor_id = uuid4()
+    item_id = uuid4()
+    db = FakeAdendaDB(
+        _bom(bom_id, owner_id=owner_id),
+        [_item(item_id, bom_id)],
+    )
+    svc = _service(db)
+    adenda = await svc.cerrar_item_sin_compra(
+        FakeConn(), item_id, actor_id, "Proveedor sin stock"
+    )
+
+    with pytest.raises(ValueError, match="Solo el Jefe de Construccion"):
+        await svc.aprobar_adenda_construccion(
+            FakeConn(), adenda["id_adenda"], actor_id, "ADMIN",
+            lock_version_esperado=0,
+        )
+
+    assert db.adendas[0]["estatus"] == "PENDIENTE_CONSTRUCCION"
+    assert db.items[item_id]["estatus_ejecucion"] is None
+
+
+@pytest.mark.asyncio
+async def test_aprobar_adenda_rechaza_lock_obsoleto():
+    bom_id = uuid4()
+    item_id = uuid4()
+    user_id = uuid4()
+    db = FakeAdendaDB(
+        _bom(bom_id, owner_id=user_id),
+        [_item(item_id, bom_id)],
+    )
+    svc = _service(db)
+    adenda = await svc.cerrar_item_sin_compra(
+        FakeConn(), item_id, user_id, "Proveedor sin stock"
+    )
+
+    with pytest.raises(ValueError, match="La adenda cambio"):
+        await svc.aprobar_adenda_construccion(
+            FakeConn(), adenda["id_adenda"], user_id, "USER",
+            requiere_ingenieria=True, lock_version_esperado=99,
+        )
+
+    assert db.adendas[0]["estatus"] == "PENDIENTE_CONSTRUCCION"
+    assert db.items[item_id]["estatus_ejecucion"] is None

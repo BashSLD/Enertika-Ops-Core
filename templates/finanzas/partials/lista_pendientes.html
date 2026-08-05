@@ -24,12 +24,20 @@
                 <td class="py-2.5 pr-3">
                     <div class="font-medium text-gray-800">{{ a.proyecto_id_estandar or '—' }}</div>
                     <div class="text-xs text-gray-500">{{ a.nombre_proyecto or '' }}</div>
+                    <a href="/bom/paquetes/{{ a.id_paquete }}/ui" class="text-xs font-medium text-blue-700 hover:underline">
+                        {{ a.paquete_codigo }} - {{ a.paquete_nombre }} · v{{ a.bom_version }}
+                    </a>
                 </td>
                 <td class="py-2.5 pr-3 text-gray-700">{{ a.nombre_proveedor or '—' }}</td>
                 <td class="py-2.5 pr-3">
                     <span class="font-semibold text-gray-800">
-                        {{ a.moneda }} ${{ "{:,.2f}".format(a.monto_total) }}
+                        {{ a.moneda }} ${{ "{:,.2f}".format(a.saldo_pendiente) }} pendiente
                     </span>
+                    {% if a.monto_pagado_acumulado %}
+                    <div class="text-xs text-gray-400">
+                        Pagado ${{ "{:,.2f}".format(a.monto_pagado_acumulado) }} de ${{ "{:,.2f}".format(a.monto_total) }}
+                    </div>
+                    {% endif %}
                     {% if a.tipo_cambio_snapshot and a.moneda == 'USD' %}
                     <div class="text-xs text-gray-400">TC {{ a.tipo_cambio_snapshot }}</div>
                     {% endif %}

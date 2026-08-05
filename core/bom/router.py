@@ -5,8 +5,8 @@ Endpoints HTMX para CRUD de items, workflow de aprobaciones y exportacion Excel.
 
 from fastapi import APIRouter, Depends, Request, HTTPException, Form, Query
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import Response
-from uuid import UUID
+from fastapi.responses import RedirectResponse, Response
+from uuid import UUID, uuid4
 from typing import Optional
 import json
 import asyncpg
@@ -16,6 +16,7 @@ from core.database import get_db_connection
 from core.security import get_current_user_context
 from core.permissions import require_module_access, require_manager_access, require_role, require_any_module_access, require_authenticated_session
 from core.config import settings
+from core.config_service import ConfigService
 from core.timezone import now_mx
 from core.materials.normalizer import normalizar_descripcion
 from modules.shared.utils import is_htmx
@@ -42,25 +43,6 @@ router = APIRouter(
 )
 
 
-def _get_area_editor(context: dict) -> str:
-    """Determina el area del editor basado en sus roles de modulo."""
-    role = context.get("role")
-    module_roles = context.get("module_roles", {})
-
-    if role == "ADMIN":
-        return "ingenieria"
-
-    # Prioridad: ingenieria > construccion > compras
-    if module_roles.get("ingenieria") in ("editor", "admin"):
-        return "ingenieria"
-    if module_roles.get("construccion") in ("editor", "admin"):
-        return "construccion"
-    if module_roles.get("compras") in ("editor", "admin"):
-        return "compras"
-
-    return "viewer"
-
-
 def _build_bom_context(request, context, bom, **extra) -> dict:
     """Construye el contexto comun para templates de BOM.
 
@@ -77,7 +59,7 @@ def _build_bom_context(request, context, bom, **extra) -> dict:
     Returns:
         dict con request, bom, flags de permisos y cualquier clave extra.
     """
-    area_editor = _get_area_editor(context)
+    area_editor = BomService.resolver_area_editor(context, bom)
     role = context.get("role")
     module_roles = context.get("module_roles", {})
 
@@ -119,9 +101,17 @@ def _build_bom_context(request, context, bom, **extra) -> dict:
         "es_aprobador_final": extra.get("es_aprobador_final", False),
         "es_rol_bom": extra.get("es_rol_bom", False),
         "puede_aprobar": extra.get("puede_aprobar", False),
+        "capacidades": extra.get("capacidades", {}),
     }
     ctx.update(extra)
     return ctx
+
+
+async def _capacidades_actuales(conn, service: BomService, context: dict, bom: dict) -> dict:
+    return await service.get_capacidades_bom(
+        conn, bom, context.get("user_db_id"), context.get("role"),
+        context.get("rol_organizacional"), context.get("module_roles"),
+    )
 
 
 def _toast_response(
@@ -170,6 +160,36 @@ def _parse_grupo_ids(form) -> list[int]:
     return grupo_ids
 
 
+def _parse_distribucion_grupos(form) -> tuple[list[int], dict[int, object]]:
+    from decimal import Decimal, InvalidOperation
+
+    grupo_ids = _parse_grupo_ids(form)
+    if len(grupo_ids) == 1:
+        return grupo_ids, {grupo_ids[0]: Decimal("1")}
+    porcentajes = {}
+    try:
+        for grupo_id in grupo_ids:
+            raw = (form.get(f"grupo_porcentaje_{grupo_id}") or "").strip()
+            if not raw:
+                raise ValueError(
+                    "Indica el porcentaje de cada grupo seleccionado"
+                )
+            porcentajes[grupo_id] = Decimal(raw) / Decimal("100")
+    except InvalidOperation:
+        raise ValueError("Los porcentajes de grupo no son validos") from None
+    return grupo_ids, porcentajes
+
+
+def _parse_lock_version(form) -> Optional[int]:
+    raw = form.get("lock_version")
+    if raw in (None, ""):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise ValueError("La revision del BOM no es valida; recarga la pagina") from None
+
+
 def _parse_bulk_valor(campo: str, raw: Optional[str]):
     """Convierte el valor crudo del form al tipo correcto segun el campo del bulk."""
     from decimal import Decimal
@@ -193,7 +213,7 @@ def _parse_bulk_valor(campo: str, raw: Optional[str]):
     return raw or None
 
 
-def _parse_item_form_data(form) -> tuple[dict, list[int]]:
+def _parse_item_form_data(form) -> tuple[dict, list[int], dict[int, object]]:
     """Parsea campos comunes de alta de item/adenda desde FormData."""
     from decimal import Decimal, InvalidOperation
 
@@ -226,7 +246,8 @@ def _parse_item_form_data(form) -> tuple[dict, list[int]]:
         "tipo_partida": form.get("tipo_partida", "MATERIAL").strip() or "MATERIAL",
         "moneda": form.get("moneda", "MXN").strip() or "MXN",
     }
-    return data, _parse_grupo_ids(form)
+    grupo_ids, grupo_porcentajes = _parse_distribucion_grupos(form)
+    return data, grupo_ids, grupo_porcentajes
 
 
 # ========================================
@@ -234,7 +255,7 @@ def _parse_item_form_data(form) -> tuple[dict, list[int]]:
 # ========================================
 
 @router.get("/{id_proyecto}/ui", include_in_schema=False)
-async def bom_ui(
+async def bom_hub_ui(
     request: Request,
     id_proyecto: UUID,
     context=Depends(get_current_user_context),
@@ -242,7 +263,131 @@ async def bom_ui(
     service: BomService = Depends(get_bom_service),
     _=require_authenticated_session(),
 ):
-    """Vista principal del BOM de un proyecto."""
+    """Hub del conjunto BOM: nunca elige silenciosamente un paquete para escribir."""
+    module_roles = context.get("module_roles", {})
+    role = context.get("role")
+    es_director = context.get("rol_organizacional") == "director"
+    tiene_acceso = role == "ADMIN" or es_director or any(
+        module_roles.get(slug)
+        for slug in ("ingenieria", "construccion", "compras", "finanzas")
+    )
+    if not tiene_acceso:
+        return _toast_response(
+            request,
+            "El BOM solo lo pueden abrir Ingenieria, Construccion, Compras o Finanzas.",
+        )
+
+    proyecto = await service.get_proyecto_info(conn, id_proyecto)
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    paquetes = await service.listar_paquetes(conn, id_proyecto)
+    estado = await service.get_estado_conjunto(conn, id_proyecto)
+    metricas_fv = await service.get_metricas_paneles(conn, id_proyecto)
+    consolidado_curso = await service.get_consolidado_proyecto(
+        conn, id_proyecto, "CURSO"
+    )
+    consolidado_oficial = await service.get_consolidado_proyecto(
+        conn, id_proyecto, "OFICIAL"
+    )
+    puede_crear = role == "ADMIN" or await service.puede_crear_o_retomar_bom(
+        conn, id_proyecto, context.get("user_db_id")
+    )
+    multi_habilitado = await ConfigService.get_global_config(
+        conn, "bom.multi_paquete_habilitado", False, bool
+    )
+    puede_gestionar_captura = await service.puede_administrar_paquete(
+        conn, id_proyecto, context.get("user_db_id"), role
+    )
+
+    ctx = {
+        "proyecto": proyecto,
+        "id_proyecto": id_proyecto,
+        "paquetes": paquetes,
+        "estado_conjunto": estado,
+        "metricas_fv": metricas_fv,
+        "consolidado_curso": consolidado_curso,
+        "consolidado_oficial": consolidado_oficial,
+        "puede_crear": puede_crear,
+        "multi_habilitado": multi_habilitado,
+        "puede_gestionar_captura": puede_gestionar_captura,
+        "es_admin": role == "ADMIN",
+        "clave_idempotencia_paquete": str(uuid4()),
+    }
+    template = "bom/partials/hub.html" if is_htmx(request) else "bom/hub.html"
+    return templates.TemplateResponse(request, template, ctx)
+
+
+@router.get("/{id_proyecto}/consolidado/ui", include_in_schema=False)
+async def bom_consolidado_ui(
+    request: Request,
+    id_proyecto: UUID,
+    modo: str = Query("CURSO"),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(
+        ["ingenieria", "construccion", "compras", "finanzas"],
+        "viewer", allow_org_roles={"director"},
+    ),
+):
+    """Consolidado de lectura en curso u oficial, siempre con procedencia."""
+    proyecto = await service.get_proyecto_info(conn, id_proyecto)
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    try:
+        consolidado = await service.get_consolidado_proyecto(conn, id_proyecto, modo)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    ctx = {
+        "proyecto": proyecto,
+        "id_proyecto": id_proyecto,
+        "consolidado": consolidado,
+    }
+    template = (
+        "bom/partials/consolidado.html"
+        if is_htmx(request)
+        else "bom/consolidado.html"
+    )
+    return templates.TemplateResponse(request, template, ctx)
+
+
+@router.get("/{id_proyecto}/consolidado/export-excel", include_in_schema=False)
+async def exportar_bom_consolidado(
+    id_proyecto: UUID,
+    modo: str = Query("CURSO"),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(
+        ["ingenieria", "construccion", "compras", "finanzas"],
+        "viewer", allow_org_roles={"director"},
+    ),
+):
+    proyecto = await service.get_proyecto_info(conn, id_proyecto)
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    try:
+        contenido = await service.export_consolidado_excel(conn, id_proyecto, modo)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    modo_normalizado = (modo or "CURSO").strip().upper()
+    proyecto_codigo = proyecto.get("proyecto_id_estandar") or str(id_proyecto)
+    filename = f"BOM_{proyecto_codigo}_CONSOLIDADO_{modo_normalizado}.xlsx"
+    return Response(
+        content=contenido,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+@router.get("/paquetes/{id_paquete}/ui", include_in_schema=False)
+async def paquete_ui(
+    request: Request,
+    id_paquete: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_authenticated_session(),
+):
+    """Vista de la cabeza de trabajo de un paquete BOM exacto."""
     module_roles = context.get("module_roles", {})
     role = context.get("role")
     is_admin = role == "ADMIN"
@@ -259,11 +404,15 @@ async def bom_ui(
             "El BOM solo lo pueden abrir Ingeniería, Construcción, Compras o Finanzas.",
         )
 
+    try:
+        paquete = await service.get_paquete(conn, id_paquete)
+        bom = await service.get_bom_cabeza_trabajo(conn, id_paquete)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    id_proyecto = paquete["id_proyecto"]
     proyecto = await service.get_proyecto_info(conn, id_proyecto)
     if not proyecto:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
-
-    bom = await service.get_bom_proyecto(conn, id_proyecto)
 
     user_id_ctx = context.get("user_db_id")
     ingeniero_asignado = None
@@ -336,11 +485,21 @@ async def bom_ui(
     es_aprobador_final = False
     es_rol_bom = False
     puede_aprobar = False
+    puede_versionar = False
+    puede_administrar_paquete = await service.puede_administrar_paquete(
+        conn, id_proyecto, user_id_ctx, context.get("role")
+    )
 
     if bom:
+        capacidades = await service.get_capacidades_bom(
+            conn, bom, user_id_ctx,
+            context.get("role"),
+            context.get("rol_organizacional"),
+            context.get("module_roles"),
+        )
         items = await service.get_items(conn, bom['id_bom'])
         estadisticas = await service.get_estadisticas(conn, bom['id_bom'])
-        versiones = await service.get_all_bom_versions(conn, id_proyecto)
+        versiones = await service.get_versiones_paquete(conn, id_paquete)
         if bom['estatus'] == 'BORRADOR':
             ultimo_rechazo = await service.get_ultimo_rechazo(conn, bom['id_bom'])
         aprobador_final_id = await service.get_aprobador_final_id(conn)
@@ -353,23 +512,14 @@ async def bom_ui(
         # Suplencias del usuario: se calcula una vez y se reusa en ambas validaciones.
         representados = await service.get_titulares_que_representa(conn, user_id_ctx)
         es_rol_bom = await service.es_bom_role(conn, bom, user_id_ctx, representados=representados)
+        puede_versionar = service.puede_versionar_bom(
+            bom, representados, context.get("role")
+        )
 
         # Flag para mostrar los botones de accion del responsable del rol solo a quien
         # el service aceptaria (propietario del rol, su suplente o ADMIN).
         # Incluye APROBADO_CONST: enviar a final lo hace el jefe de construccion.
-        aprob_map = {
-            'EN_REVISION_ING': (bom.get('responsable_ing'), 'jefe_ingenieria'),
-            'EN_REVISION_OBRA': (bom.get('coordinador_obra'), 'jefe_construccion'),
-            'EN_REVISION_CONST': (bom.get('jefe_construccion'), 'jefe_construccion'),
-            'APROBADO_CONST': (bom.get('jefe_construccion'), 'jefe_construccion'),
-        }
-        if bom['estatus'] in aprob_map:
-            responsable_id, fallback_rol_org = aprob_map[bom['estatus']]
-            puede_aprobar = await service.puede_aprobar_bom(
-                conn, user_id_ctx, context.get("role"),
-                context.get("rol_organizacional"), responsable_id, fallback_rol_org,
-                representados=representados
-            )
+        puede_aprobar = capacidades["editar_base"]
 
     ctx = _build_bom_context(
         request, context, bom,
@@ -379,13 +529,192 @@ async def bom_ui(
         catalogos=catalogos,
         versiones=versiones,
         id_proyecto=id_proyecto,
+        paquete=paquete,
         ultimo_rechazo=ultimo_rechazo,
         es_aprobador_final=es_aprobador_final,
         es_rol_bom=es_rol_bom,
         puede_aprobar=puede_aprobar,
+        capacidades=capacidades if bom else {},
+        puede_versionar=puede_versionar,
         puede_gestionar_bom_ingenieria=puede_gestionar_bom_ingenieria,
+        puede_administrar_paquete=puede_administrar_paquete,
     )
 
+    template = "bom/partials/content.html" if is_htmx(request) else "bom/dashboard.html"
+    return templates.TemplateResponse(request, template, ctx)
+
+
+@router.get("/paquetes/{id_paquete}/administrar-modal", include_in_schema=False)
+async def administrar_paquete_modal(
+    request: Request,
+    id_paquete: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_authenticated_session(),
+):
+    try:
+        paquete = await service.get_paquete(conn, id_paquete)
+        bom = await service.get_bom_cabeza_trabajo(conn, id_paquete)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    puede = await service.puede_administrar_paquete(
+        conn, paquete["id_proyecto"], context.get("user_db_id"), context.get("role")
+    )
+    if not puede:
+        raise HTTPException(status_code=403, detail="No puedes administrar este paquete")
+    return templates.TemplateResponse(
+        request,
+        "bom/partials/modal_administrar_paquete.html",
+        {
+            "paquete": paquete,
+            "bom": bom,
+            "catalogos": await service.get_catalogos(conn),
+        },
+    )
+
+
+@router.post("/paquetes/{id_paquete}/estado", include_in_schema=False)
+async def cambiar_estado_paquete(
+    request: Request,
+    id_paquete: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_authenticated_session(),
+):
+    form = await request.form()
+    try:
+        lock_version = int(form.get("lock_version", ""))
+        actualizado = await service.cambiar_estado_paquete(
+            conn, id_paquete, context["user_db_id"], context.get("role"),
+            context.get("rol_organizacional"),
+            (form.get("nuevo_estado") or "").strip().upper(),
+            lock_version, form.get("motivo", ""),
+        )
+        destino = (
+            f"/bom/{actualizado['id_proyecto']}/ui"
+            if actualizado["estado_paquete"] == "CANCELADO"
+            else f"/bom/paquetes/{id_paquete}/ui"
+        )
+        return _toast_response(
+            request, "Estado del paquete actualizado.", "success", "Listo",
+            redirect_url=destino, close_modal=True,
+        )
+    except (TypeError, ValueError) as exc:
+        return _toast_response(request, str(exc), status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al cambiar estado de paquete BOM")
+        return _toast_response(request, "Error interno al actualizar el paquete", "error", status_code=500)
+
+
+@router.post("/paquetes/{id_paquete}/reclasificar", include_in_schema=False)
+async def reclasificar_paquete(
+    request: Request,
+    id_paquete: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_authenticated_session(),
+):
+    form = await request.form()
+    try:
+        await service.reclasificar_paquete(
+            conn, id_paquete, context["user_db_id"], context.get("role"),
+            context.get("rol_organizacional"), form.get("tipo_alcance", ""),
+            form.get("nombre", ""), form.get("descripcion_alcance"),
+            int(form.get("lock_version", "")), form.get("motivo", ""),
+        )
+        return _toast_response(
+            request, "Alcance del paquete actualizado.", "success", "Listo",
+            redirect_url=f"/bom/paquetes/{id_paquete}/ui", close_modal=True,
+        )
+    except (TypeError, ValueError) as exc:
+        return _toast_response(request, str(exc), status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al reclasificar paquete BOM")
+        return _toast_response(request, "Error interno al actualizar el paquete", "error", status_code=500)
+
+
+@router.post("/paquetes/{id_paquete}/reasignar", include_in_schema=False)
+async def reasignar_paquete(
+    request: Request,
+    id_paquete: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_authenticated_session(),
+):
+    form = await request.form()
+
+    def uuid_opcional(nombre: str) -> Optional[UUID]:
+        valor = (form.get(nombre) or "").strip()
+        return UUID(valor) if valor else None
+
+    try:
+        ingeniero_id = uuid_opcional("ingeniero_responsable_id")
+        if not ingeniero_id:
+            raise ValueError("Selecciona un Ingeniero responsable")
+        await service.reasignar_paquete(
+            conn, id_paquete, context["user_db_id"], context.get("role"),
+            context.get("rol_organizacional"), form.get("motivo", ""),
+            int(form.get("lock_version_paquete", "")),
+            int(form.get("lock_version_bom", "")),
+            ingeniero_id, uuid_opcional("responsable_ing_id"),
+            uuid_opcional("coordinador_obra_id"),
+            uuid_opcional("jefe_construccion_id"),
+        )
+        return _toast_response(
+            request, "Responsables del paquete actualizados.", "success", "Listo",
+            redirect_url=f"/bom/paquetes/{id_paquete}/ui", close_modal=True,
+        )
+    except (TypeError, ValueError) as exc:
+        return _toast_response(request, str(exc), status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al reasignar paquete BOM")
+        return _toast_response(request, "Error interno al actualizar el paquete", "error", status_code=500)
+
+
+@router.get("/versiones/{id_bom}/ui", include_in_schema=False)
+async def version_bom_ui(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(
+        ["ingenieria", "construccion", "compras", "finanzas"],
+        "viewer", allow_org_roles={"director"},
+    ),
+):
+    """Lectura inmutable de una version exacta, incluso si ya no es cabeza."""
+    try:
+        bom = await service.get_bom(conn, id_bom)
+        if bom.get("es_cabeza_trabajo"):
+            return RedirectResponse(
+                url=f"/bom/paquetes/{bom['id_paquete']}/ui",
+                status_code=303,
+            )
+        paquete = await service.get_paquete(conn, bom["id_paquete"])
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    proyecto = await service.get_proyecto_info(conn, bom["id_proyecto"])
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    items = await service.get_items(conn, id_bom)
+    ctx = _build_bom_context(
+        request, context, bom,
+        proyecto=proyecto,
+        items=items,
+        estadisticas=await service.get_estadisticas(conn, id_bom),
+        catalogos=await service.get_catalogos(conn),
+        versiones=await service.get_versiones_paquete(conn, bom["id_paquete"]),
+        id_proyecto=bom["id_proyecto"],
+        paquete=paquete,
+        capacidades={},
+        puede_versionar=False,
+        solo_lectura=True,
+    )
     template = "bom/partials/content.html" if is_htmx(request) else "bom/dashboard.html"
     return templates.TemplateResponse(request, template, ctx)
 
@@ -405,25 +734,11 @@ async def bom_acceso(
         ["ingenieria", "construccion", "compras", "finanzas"], "viewer", allow_org_roles={"director"}
     ),
 ):
-    """Gate de entrada al BOM: si ya existe un BOM para el proyecto, exige capturar
-    el panel FV antes de continuar; si aun no existe BOM, lo sugiere pero permite
-    continuar sin configurarlo."""
+    """Entrada compatible: los paneles FV son informativos y nunca bloquean."""
     proyecto = await service.get_proyecto_info(conn, id_proyecto)
     if not proyecto:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
-
-    if await service.paneles_configurados(conn, id_proyecto):
-        return _redirigir_a_bom(id_proyecto)
-
-    tiene_bom = await service.get_bom_proyecto(conn, id_proyecto) is not None
-    user_id = context.get("user_db_id")
-    puede_configurar, jefe_label = await service.get_permiso_configurar_paneles(conn, id_proyecto, user_id)
-    return templates.TemplateResponse(request, "bom/partials/modal_gate_paneles.html", {
-        "id_proyecto": id_proyecto,
-        "bloqueante": tiene_bom,
-        "puede_configurar": puede_configurar,
-        "jefe_label": jefe_label,
-    })
+    return _redirigir_a_bom(id_proyecto)
 
 
 @router.get("/{id_proyecto}/paneles-modal", include_in_schema=False)
@@ -512,11 +827,11 @@ async def guardar_paneles(
 
     if origen == "bom":
         return _toast_response(
-            request, "Panel FV guardado correctamente", "success",
+            request, "Configuracion FV actualizada correctamente", "success",
             redirect_url=f"/bom/{id_proyecto}/ui",
         )
     return _toast_response(
-        request, "Panel FV guardado correctamente", "success",
+        request, "Configuracion FV actualizada correctamente", "success",
         close_modal=True,
     )
 
@@ -538,16 +853,27 @@ async def crear_bom(
     form = await request.form()
     user_id = context.get("user_db_id")
     notas = form.get("notas", "").strip() or None
+    tipo_alcance = form.get("tipo_alcance", "").strip().upper()
+    nombre = form.get("nombre", "").strip()
+    descripcion_alcance = form.get("descripcion_alcance", "").strip() or None
+    clave_idempotencia = form.get("clave_idempotencia", "").strip()
 
     try:
-        bom = await service.crear_bom(
+        bom = await service.crear_paquete(
             conn, id_proyecto, user_id,
-            notas=notas
+            tipo_alcance, nombre,
+            descripcion_alcance=descripcion_alcance,
+            notas=notas,
+            user_role=context.get("role"),
+            aceptar_responsabilidad=(
+                form.get("aceptar_responsabilidad") == "true"
+            ),
+            clave_idempotencia=clave_idempotencia,
         )
 
         return _toast_response(
-            request, f"BOM v{bom['version']} creado exitosamente", "success",
-            redirect_url=f"/bom/{id_proyecto}/ui",
+            request, f"{bom['paquete_codigo']} v{bom['version']} creado exitosamente", "success",
+            redirect_url=f"/bom/paquetes/{bom['id_paquete']}/ui",
         )
 
     except ValueError as e:
@@ -557,26 +883,54 @@ async def crear_bom(
         return _toast_response(request, "Error interno al crear el BOM", "error", status_code=500)
 
 
-# ========================================
-# ITEMS CRUD
-# ========================================
-
-@router.get("/{id_proyecto}/items", include_in_schema=False)
-async def get_items(
+@router.post("/{id_proyecto}/captura", include_in_schema=False)
+async def cambiar_captura_paquetes(
     request: Request,
     id_proyecto: UUID,
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria", "viewer"),
+):
+    form = await request.form()
+    try:
+        cerrar = form.get("captura_cerrada") == "true"
+        actualizado = await service.cambiar_captura_paquetes(
+            conn, id_proyecto, context.get("user_db_id"),
+            context.get("role"), context.get("rol_organizacional"),
+            cerrar, int(form.get("lock_version", "0")),
+            form.get("motivo", ""),
+        )
+        accion = "cerrada" if actualizado["captura_cerrada"] else "reabierta"
+        return _toast_response(
+            request, f"Captura de paquetes {accion}", "success",
+            redirect_url=f"/bom/{id_proyecto}/ui",
+        )
+    except (TypeError, ValueError) as exc:
+        return _toast_response(request, str(exc), "error", status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al cambiar captura de paquetes BOM")
+        return _toast_response(request, "Error interno al actualizar la captura", "error", status_code=500)
+
+
+# ========================================
+# ITEMS CRUD
+# ========================================
+
+@router.get("/{id_bom}/items", include_in_schema=False)
+async def get_items(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
     _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"]),
 ):
-    """Tabla de items del BOM (partial HTMX)."""
-    bom = await service.get_bom_proyecto(conn, id_proyecto)
-    items = []
-    if bom:
-        items = await service.get_items(conn, bom['id_bom'])
+    """Tabla de items de la version exacta indicada."""
+    bom = await service.get_bom(conn, id_bom)
+    items = await service.get_items(conn, id_bom)
     puede_gestionar_bom_ingenieria = await service.puede_crear_o_retomar_bom(
-        conn, id_proyecto, context.get("user_db_id")
+        conn, bom["id_proyecto"], context.get("user_db_id")
     )
 
     ctx = _build_bom_context(
@@ -587,10 +941,10 @@ async def get_items(
     return templates.TemplateResponse(request, "bom/partials/tabla_items.html", ctx)
 
 
-@router.post("/{id_proyecto}/items", include_in_schema=False)
+@router.post("/{id_bom}/items", include_in_schema=False)
 async def agregar_item(
     request: Request,
-    id_proyecto: UUID,
+    id_bom: UUID,
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -599,7 +953,11 @@ async def agregar_item(
     """Agrega un item al BOM. Permite Ingenieria y Construccion."""
     form = await request.form()
     user_id = context.get("user_db_id")
-    area_editor = _get_area_editor(context)
+    try:
+        bom = await service.get_bom(conn, id_bom)
+    except ValueError as exc:
+        return _toast_response(request, str(exc), "error", status_code=404)
+    area_editor = BomService.resolver_area_editor(context, bom)
 
     if area_editor not in ("ingenieria", "construccion"):
         return _toast_response(
@@ -607,10 +965,6 @@ async def agregar_item(
             "Solo Ingenieria y Construccion pueden agregar items al BOM. Compras solo puede editar proveedor y precio de items existentes.",
             "error",
         )
-
-    bom = await service.get_bom_proyecto(conn, id_proyecto)
-    if not bom:
-        return _toast_response(request, "No existe un BOM para este proyecto", "error")
 
     id_categoria = form.get("id_categoria")
     cantidad = form.get("cantidad", "0")
@@ -621,7 +975,7 @@ async def agregar_item(
 
     try:
         from decimal import Decimal
-        grupo_ids = _parse_grupo_ids(form)
+        grupo_ids, grupo_porcentajes = _parse_distribucion_grupos(form)
         precio_unitario = Decimal(precio_unitario_raw) if precio_unitario_raw else None
         id_material_ref = UUID(id_material_ref_raw) if id_material_ref_raw else None
         id_material_interno = UUID(id_material_interno_raw) if id_material_interno_raw else None
@@ -669,12 +1023,16 @@ async def agregar_item(
             )
 
         item = await service.agregar_item(
-            conn, bom['id_bom'], user_id,
+            conn, id_bom, user_id,
             **item_data,
             area_editor=area_editor,
+            grupo_ids=grupo_ids,
+            grupo_porcentajes=grupo_porcentajes,
+            lock_version_esperado=_parse_lock_version(form),
+            user_role=context.get("role"),
+            rol_org=context.get("rol_organizacional"),
+            module_roles=context.get("module_roles"),
         )
-
-        await service.set_item_grupos(conn, item['id_item'], user_id, grupo_ids, area_editor)
 
         # Retornar tabla actualizada
         items = await service.get_items(conn, bom['id_bom'])
@@ -698,6 +1056,8 @@ async def agregar_item(
             request, context, bom,
             items=items, estadisticas=estadisticas,
             bulk_toast=bulk_toast,
+            actualizar_lock_oob=True,
+            capacidades=await _capacidades_actuales(conn, service, context, bom),
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
             ),
@@ -723,14 +1083,6 @@ async def editar_item(
     """Edita un item del BOM."""
     form = await request.form()
     user_id = context.get("user_db_id")
-    area_editor = _get_area_editor(context)
-
-    if area_editor == "viewer":
-        return _toast_response(
-            request, "Sin permisos para editar items del BOM", "error",
-            status_code=403,
-        )
-
     # Construir campos desde el form
     campos = {}
     for key in form.keys():
@@ -766,6 +1118,12 @@ async def editar_item(
     try:
         item_actual = await service.get_item(conn, id_item)
         bom_actual = await service.get_bom(conn, item_actual['id_bom'])
+        area_editor = BomService.resolver_area_editor(context, bom_actual)
+        if area_editor == "viewer":
+            return _toast_response(
+                request, "Sin permisos para editar items del BOM", "error",
+                status_code=403,
+            )
         actualiza_grupos = (
             (area_editor == "ingenieria" and bom_actual["estatus"] != "APROBADO_FINAL")
             or (
@@ -773,7 +1131,10 @@ async def editar_item(
                 and bom_actual["estatus"] in {"EN_REVISION_OBRA", "EN_REVISION_CONST", "APROBADO_FINAL"}
             )
         )
-        grupo_ids = _parse_grupo_ids(form) if actualiza_grupos else None
+        if actualiza_grupos:
+            grupo_ids, grupo_porcentajes = _parse_distribucion_grupos(form)
+        else:
+            grupo_ids, grupo_porcentajes = None, None
         propuesta_creada = False
         if service.requiere_propuesta_construccion(bom_actual, area_editor):
             campos_propuesta = {
@@ -799,13 +1160,22 @@ async def editar_item(
                 )
                 propuesta_creada = True
                 grupo_ids = None
-        if campos:
+        if campos or grupo_ids is not None:
             await service.editar_item(
-                conn, id_item, user_id, area_editor, **campos
+                conn, id_item, user_id, area_editor,
+                lock_version_esperado=_parse_lock_version(form),
+                ejecucion_lock_version_esperado=(
+                    int(form.get("ejecucion_lock_version"))
+                    if form.get("ejecucion_lock_version") not in (None, "")
+                    else None
+                ),
+                user_role=context.get("role"),
+                rol_org=context.get("rol_organizacional"),
+                module_roles=context.get("module_roles"),
+                grupo_ids=grupo_ids,
+                grupo_porcentajes=grupo_porcentajes,
+                **campos,
             )
-
-        if grupo_ids is not None:
-            await service.set_item_grupos(conn, id_item, user_id, grupo_ids, area_editor)
 
         if propuesta_creada and not campos:
             return _toast_response(
@@ -824,6 +1194,8 @@ async def editar_item(
             request, context, bom,
             item=item,
             warning_message=service.mensaje_item_sin_costo() if service.item_sin_costo(item) else None,
+            actualizar_lock_oob=True,
+            capacidades=await _capacidades_actuales(conn, service, context, bom),
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
             ),
@@ -849,11 +1221,6 @@ async def bulk_editar_items(
     """Aplica un mismo cambio a varios items del BOM (edicion masiva)."""
     form = await request.form()
     user_id = context.get("user_db_id")
-    area_editor = _get_area_editor(context)
-
-    if area_editor == "viewer":
-        return _toast_response(request, "Sin permisos para editar items del BOM", "error", "Error")
-
     campo = (form.get("campo") or "").strip()
 
     try:
@@ -867,6 +1234,11 @@ async def bulk_editar_items(
             raise ValueError("Selecciona un campo a editar")
 
         bom = await service.get_bom(conn, id_bom)
+        area_editor = BomService.resolver_area_editor(context, bom)
+        if area_editor == "viewer":
+            return _toast_response(
+                request, "Sin permisos para editar items del BOM", "error", "Error"
+            )
         if service.requiere_propuesta_construccion(bom, area_editor) and (
             campo == "grupos" or campo in CAMPOS_CONSTRUCCION_BASE
         ):
@@ -911,17 +1283,24 @@ async def bulk_editar_items(
             resultado = await service.editar_items_bulk(
                 conn, id_bom, item_ids, user_id, area_editor, campo,
                 grupo_ids=_parse_grupo_ids(form),
+                lock_version_esperado=_parse_lock_version(form),
+                user_role=context.get("role"),
+                rol_org=context.get("rol_organizacional"),
+                module_roles=context.get("module_roles"),
             )
         else:
             valor = _parse_bulk_valor(campo, form.get("valor"))
             resultado = await service.editar_items_bulk(
-                conn, id_bom, item_ids, user_id, area_editor, campo, valor=valor
+                conn, id_bom, item_ids, user_id, area_editor, campo, valor=valor,
+                lock_version_esperado=_parse_lock_version(form),
+                user_role=context.get("role"),
+                rol_org=context.get("rol_organizacional"),
+                module_roles=context.get("module_roles"),
             )
 
         items = await service.get_items(conn, id_bom)
 
         n = resultado["actualizados"]
-        m = len(resultado["omitidos"])
         pendientes_sin_costo = await service.get_items_sin_costo(conn, id_bom)
         aviso_costo = (
             f"Hay {len(pendientes_sin_costo)} item(s) sin presupuesto base. Captura el presupuesto antes de avanzar el BOM."
@@ -930,12 +1309,8 @@ async def bulk_editar_items(
 
         if aviso_costo:
             toast = {"message": aviso_costo, "type": "warning", "title": "Presupuesto pendiente"}
-        elif n and m:
-            toast = {"message": f"{n} items actualizados, {m} omitidos", "type": "warning", "title": "Edicion masiva"}
         elif n:
             toast = {"message": f"{n} items actualizados", "type": "success", "title": "Edicion masiva"}
-        elif m:
-            toast = {"message": f"0 items actualizados, {m} omitidos", "type": "error", "title": "Edicion masiva"}
         else:
             toast = {"message": "Ningun item se pudo actualizar", "type": "error", "title": "Edicion masiva"}
 
@@ -945,6 +1320,8 @@ async def bulk_editar_items(
             request, context, bom,
             items=items,
             bulk_toast=toast,
+            actualizar_lock_oob=True,
+            capacidades=await _capacidades_actuales(conn, service, context, bom),
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
             ),
@@ -969,14 +1346,13 @@ async def eliminar_item(
 ):
     """Elimina (soft) un item del BOM. Permite Ingenieria y Construccion."""
     user_id = context.get("user_db_id")
-    area_editor = _get_area_editor(context)
-
-    if area_editor not in ("ingenieria", "construccion"):
-        return _toast_response(request, "No tienes permisos para eliminar items", "error")
-
     try:
+        form = await request.form()
         item = await service.get_item(conn, id_item)
         bom = await service.get_bom(conn, item['id_bom'])
+        area_editor = BomService.resolver_area_editor(context, bom)
+        if area_editor not in ("ingenieria", "construccion"):
+            return _toast_response(request, "No tienes permisos para eliminar items", "error")
         if service.requiere_propuesta_construccion(bom, area_editor):
             await service.registrar_propuesta_auto(
                 conn,
@@ -992,15 +1368,24 @@ async def eliminar_item(
                 "success",
                 "Propuesta registrada",
             )
-        await service.eliminar_item(conn, id_item, user_id, area_editor=area_editor)
+        await service.eliminar_item(
+            conn, id_item, user_id, area_editor=area_editor,
+            lock_version_esperado=_parse_lock_version(form),
+            user_role=context.get("role"),
+            rol_org=context.get("rol_organizacional"),
+            module_roles=context.get("module_roles"),
+        )
 
         # Retornar tabla actualizada
+        bom = await service.get_bom(conn, bom["id_bom"])
         items = await service.get_items(conn, bom['id_bom'])
         estadisticas = await service.get_estadisticas(conn, bom['id_bom'])
 
         ctx = _build_bom_context(
             request, context, bom,
             items=items, estadisticas=estadisticas,
+            actualizar_lock_oob=True,
+            capacidades=await _capacidades_actuales(conn, service, context, bom),
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
             ),
@@ -1027,7 +1412,14 @@ async def restaurar_item(
     user_id = context.get("user_db_id")
     try:
         item = await service.get_item(conn, id_item)
-        await service.restaurar_item(conn, id_item)
+        form = await request.form()
+        await service.restaurar_item(
+            conn, id_item, user_id,
+            lock_version_esperado=_parse_lock_version(form),
+            user_role=context.get("role"),
+            rol_org=context.get("rol_organizacional"),
+            module_roles=context.get("module_roles"),
+        )
 
         bom = await service.get_bom(conn, item['id_bom'])
         items = await service.get_items(conn, bom['id_bom'])
@@ -1036,6 +1428,8 @@ async def restaurar_item(
         ctx = _build_bom_context(
             request, context, bom,
             items=items, estadisticas=estadisticas,
+            actualizar_lock_oob=True,
+            capacidades=await _capacidades_actuales(conn, service, context, bom),
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
             ),
@@ -1060,7 +1454,14 @@ async def refrescar_costos_catalogo(
     """Ingenieria sincroniza precio_unitario de items sin costo desde el catalogo interno."""
     user_id = context.get("user_db_id")
     try:
-        resultado = await service.refrescar_costos_catalogo(conn, id_bom, user_id)
+        form = await request.form()
+        resultado = await service.refrescar_costos_catalogo(
+            conn, id_bom, user_id,
+            lock_version_esperado=_parse_lock_version(form),
+            user_role=context.get("role"),
+            rol_org=context.get("rol_organizacional"),
+            module_roles=context.get("module_roles"),
+        )
         bom = resultado["bom"]
         items = await service.get_items(conn, id_bom)
 
@@ -1088,6 +1489,8 @@ async def refrescar_costos_catalogo(
             bulk_toast=toast,
             estadisticas=await service.get_estadisticas(conn, id_bom),
             oob_estadisticas=True,
+            actualizar_lock_oob=True,
+            capacidades=await _capacidades_actuales(conn, service, context, bom),
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
             ),
@@ -1112,8 +1515,31 @@ async def get_modal_editar_item(
     """Modal para editar un item."""
     item = await service.get_item(conn, id_item)
     item["grupos"], item["grupos_operativos"] = await service.get_item_grupos(conn, id_item)
+    distribucion_getter = getattr(service.db, "get_distribucion_grupos_item", None)
+    item["distribucion_grupos"] = (
+        await distribucion_getter(conn, id_item) if distribucion_getter else []
+    )
     bom = await service.get_bom(conn, item['id_bom'])
+    capacidades = await service.get_capacidades_bom(
+        conn, bom, context.get("user_db_id"), context.get("role"),
+        context.get("rol_organizacional"), context.get("module_roles"),
+    )
     catalogos = await service.get_catalogos(conn)
+    grupos_visibles = (
+        item["grupos_operativos"]
+        if bom["estatus"] == "APROBADO_FINAL" and item["grupos_operativos"]
+        else item["grupos"]
+    )
+    ids_por_codigo = {
+        grupo["codigo"]: grupo["id"] for grupo in catalogos["grupos_bom"]
+    }
+    item["grupo_ids_actuales"] = [
+        fila["id_grupo"] for fila in item["distribucion_grupos"]
+    ] or [ids_por_codigo[codigo] for codigo in grupos_visibles if codigo in ids_por_codigo]
+    item["grupo_porcentajes_actuales"] = {
+        str(fila["id_grupo"]): float(fila["porcentaje"] * 100)
+        for fila in item["distribucion_grupos"]
+    }
 
     # id_item puede no estar en la lista si el item esta inactivo (eliminado por
     # otro usuario mientras este modal estaba abierto): sin navegacion en ese caso.
@@ -1128,6 +1554,7 @@ async def get_modal_editar_item(
         prev_id=prev_id, next_id=next_id,
         posicion_item=(idx + 1) if idx is not None else None,
         total_items=len(ids_ordenados),
+        capacidades=capacidades,
     )
     return templates.TemplateResponse(request, "bom/partials/modal_item.html", ctx)
 
@@ -1147,6 +1574,13 @@ async def get_modal_adenda_item(
         raise HTTPException(status_code=400, detail="Accion invalida")
     item = await service.get_item(conn, id_item)
     item["grupos"] = await service.get_item_grupos_base(conn, id_item)
+    item["distribucion_grupos"] = await service.db.get_distribucion_grupos_item(
+        conn, id_item
+    )
+    item["grupo_porcentajes_actuales"] = {
+        str(fila["id_grupo"]): float(fila["porcentaje"] * 100)
+        for fila in item["distribucion_grupos"]
+    }
     bom = await service.get_bom(conn, item["id_bom"])
     catalogos = await service.get_catalogos(conn)
     ctx = _build_bom_context(
@@ -1199,6 +1633,8 @@ async def _tabla_items_bom_ctx(
         items=items,
         estadisticas=estadisticas,
         bulk_toast=bulk_toast,
+        actualizar_lock_oob=True,
+        capacidades=await _capacidades_actuales(conn, service, context, bom),
         puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
             conn, bom["id_proyecto"], user_id
         ),
@@ -1250,10 +1686,11 @@ async def crear_reemplazo_item(
     form = await request.form()
     user_id = context.get("user_db_id")
     try:
-        item_data, grupo_ids = _parse_item_form_data(form)
+        item_data, grupo_ids, grupo_porcentajes = _parse_item_form_data(form)
         adenda = await service.crear_reemplazo_item(
             conn, id_item, user_id,
             grupo_ids=grupo_ids,
+            grupo_porcentajes=grupo_porcentajes,
             motivo=form.get("motivo", ""),
             **item_data,
         )
@@ -1286,10 +1723,11 @@ async def agregar_fuera_scope(
     form = await request.form()
     user_id = context.get("user_db_id")
     try:
-        item_data, grupo_ids = _parse_item_form_data(form)
+        item_data, grupo_ids, grupo_porcentajes = _parse_item_form_data(form)
         await service.agregar_fuera_scope(
             conn, id_bom, user_id,
             grupo_ids=grupo_ids,
+            grupo_porcentajes=grupo_porcentajes,
             motivo=form.get("motivo", ""),
             **item_data,
         )
@@ -1364,6 +1802,7 @@ async def aprobar_adenda_construccion(
             context.get("role"),
             context.get("rol_organizacional"),
             requiere_ingenieria=requiere_ingenieria,
+            lock_version_esperado=_parse_lock_version(form),
         )
         return await _adendas_tab_response(
             request, context, conn, service, adenda["id_bom_base"]
@@ -1385,6 +1824,7 @@ async def aprobar_adenda_ingenieria(
     _=require_module_access("ingenieria", "editor"),
 ):
     """Aprueba tecnicamente una adenda desde Ingenieria."""
+    form = await request.form()
     user_id = context.get("user_db_id")
     try:
         adenda = await service.aprobar_adenda_ingenieria(
@@ -1393,6 +1833,7 @@ async def aprobar_adenda_ingenieria(
             user_id,
             context.get("role"),
             context.get("rol_organizacional"),
+            lock_version_esperado=_parse_lock_version(form),
         )
         return await _adendas_tab_response(
             request, context, conn, service, adenda["id_bom_base"]
@@ -1424,6 +1865,7 @@ async def rechazar_adenda(
             context.get("role"),
             context.get("rol_organizacional"),
             form.get("motivo_rechazo", ""),
+            lock_version_esperado=_parse_lock_version(form),
         )
         return await _adendas_tab_response(
             request, context, conn, service, adenda["id_bom_base"]
@@ -1445,6 +1887,7 @@ async def cancelar_adenda(
     _=require_module_access("construccion", "editor"),
 ):
     """Cancela una adenda pendiente de Construccion."""
+    form = await request.form()
     user_id = context.get("user_db_id")
     try:
         adenda = await service.cancelar_adenda(
@@ -1453,6 +1896,7 @@ async def cancelar_adenda(
             user_id,
             context.get("role"),
             context.get("rol_organizacional"),
+            lock_version_esperado=_parse_lock_version(form),
         )
         return await _adendas_tab_response(
             request, context, conn, service, adenda["id_bom_base"]
@@ -1573,6 +2017,12 @@ async def aprobar_propuesta_cambio(
             lineas_revision=lineas_revision,
             ingenieria_modifico=ingenieria_modifico,
             comentario_revision=form.get("comentario_revision"),
+            lock_version_esperado=_parse_lock_version(form),
+            bom_lock_version_esperado=(
+                int(form.get("bom_lock_version"))
+                if form.get("bom_lock_version") not in (None, "")
+                else None
+            ),
         )
         return await _propuestas_tab_response(
             request, context, conn, service, propuesta["id_bom"]
@@ -1604,6 +2054,7 @@ async def rechazar_propuesta_cambio(
             context.get("role"),
             context.get("rol_organizacional"),
             form.get("comentario_revision", ""),
+            _parse_lock_version(form),
         )
         return await _propuestas_tab_response(
             request, context, conn, service, propuesta["id_bom"]
@@ -1678,13 +2129,14 @@ async def enviar_revision(
     user_id = context.get("user_db_id")
 
     try:
+        form = await request.form()
         bom = await service.enviar_revision_ing(
-            conn, id_bom, user_id
+            conn, id_bom, user_id, _parse_lock_version(form)
         )
 
         return _toast_response(
             request, "BOM enviado a revision de ingenieria", "success",
-            redirect_url=f"/bom/{bom['id_proyecto']}/ui",
+            redirect_url=f"/bom/paquetes/{bom['id_paquete']}/ui",
         )
 
     except ValueError as e:
@@ -1710,10 +2162,13 @@ async def aprobar_ing(
     comentarios = form.get("comentarios", "").strip() or None
 
     try:
-        bom = await service.aprobar_ing(conn, id_bom, user_id, user_role, rol_org, comentarios)
+        bom = await service.aprobar_ing(
+            conn, id_bom, user_id, user_role, rol_org, comentarios,
+            _parse_lock_version(form),
+        )
         return _toast_response(
             request, "BOM aprobado por ingenieria", "success",
-            redirect_url=f"/bom/{bom['id_proyecto']}/ui",
+            redirect_url=f"/bom/paquetes/{bom['id_paquete']}/ui",
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -1738,10 +2193,13 @@ async def rechazar_ing(
     comentarios = form.get("comentarios", "").strip() or None
 
     try:
-        bom = await service.rechazar_ing(conn, id_bom, user_id, user_role, rol_org, comentarios)
+        bom = await service.rechazar_ing(
+            conn, id_bom, user_id, user_role, rol_org, comentarios,
+            _parse_lock_version(form),
+        )
         return _toast_response(
             request, "BOM rechazado. Se devolvio a borrador.", "warning",
-            redirect_url=f"/bom/{bom['id_proyecto']}/ui",
+            redirect_url=f"/bom/paquetes/{bom['id_paquete']}/ui",
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -1766,10 +2224,13 @@ async def aprobar_const(
     comentarios = form.get("comentarios", "").strip() or None
 
     try:
-        bom = await service.aprobar_const(conn, id_bom, user_id, user_role, rol_org, comentarios)
+        bom = await service.aprobar_const(
+            conn, id_bom, user_id, user_role, rol_org, comentarios,
+            _parse_lock_version(form),
+        )
         return _toast_response(
             request, "BOM aprobado por construccion. Listo para compras.", "success",
-            redirect_url=f"/bom/{bom['id_proyecto']}/ui",
+            redirect_url=f"/bom/paquetes/{bom['id_paquete']}/ui",
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -1792,24 +2253,15 @@ async def rechazar_const(
     user_role = context.get("role")
     rol_org = context.get("rol_organizacional")
     comentarios = form.get("comentarios", "").strip() or None
-    destino_rechazo = form.get("destino_rechazo", "").strip()
-
     try:
-        if destino_rechazo not in {"obra", "ingenieria"}:
-            raise ValueError("Selecciona a donde debe regresar el BOM")
-
         bom = await service.rechazar_const(
             conn, id_bom, user_id, user_role, rol_org, comentarios,
-            destino_rechazo=destino_rechazo
-        )
-        message = (
-            "BOM devuelto a revision de Obra."
-            if destino_rechazo == "obra"
-            else "BOM devuelto a borrador para correccion de Disenio."
+            destino_rechazo="ingenieria",
+            lock_version_esperado=_parse_lock_version(form),
         )
         return _toast_response(
-            request, message, "warning",
-            redirect_url=f"/bom/{bom['id_proyecto']}/ui",
+            request, "BOM devuelto a borrador para correccion de Disenio.", "warning",
+            redirect_url=f"/bom/paquetes/{bom['id_paquete']}/ui",
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -1833,11 +2285,14 @@ async def devolver_borrador(
     comentarios = form.get("comentarios", "").strip() or None
 
     try:
-        bom = await service.devolver_a_borrador(conn, id_bom, user_id, comentarios)
+        bom = await service.devolver_a_borrador(
+            conn, id_bom, user_id, comentarios,
+            context.get("role"), _parse_lock_version(form),
+        )
 
         return _toast_response(
             request, "BOM devuelto a borrador para correccion", "warning",
-            redirect_url=f"/bom/{bom['id_proyecto']}/ui",
+            redirect_url=f"/bom/paquetes/{bom['id_paquete']}/ui",
         )
 
     except ValueError as e:
@@ -1862,7 +2317,10 @@ async def cancelar_bom(
     comentarios = form.get("comentarios", "").strip() or None
 
     try:
-        bom = await service.cancelar_bom(conn, id_bom, user_id, comentarios)
+        bom = await service.cancelar_bom(
+            conn, id_bom, user_id, comentarios,
+            context.get("role"), _parse_lock_version(form),
+        )
 
         return _toast_response(
             request, "BOM cancelado", "warning",
@@ -1892,12 +2350,14 @@ async def solicitar_modificacion(
 
     try:
         nuevo_bom = await service.solicitar_modificacion(
-            conn, id_bom, user_id, comentarios
+            conn, id_bom, user_id, comentarios, context.get("role"),
+            _parse_lock_version(form),
+            int(form.get("paquete_lock_version", "")),
         )
 
         return _toast_response(
             request, f"Nueva version v{nuevo_bom['version']} creada en borrador", "success",
-            redirect_url=f"/bom/{nuevo_bom['id_proyecto']}/ui",
+            redirect_url=f"/bom/paquetes/{nuevo_bom['id_paquete']}/ui",
         )
 
     except ValueError as e:
@@ -2061,10 +2521,10 @@ async def set_item_grupos(
     user_id = context.get("user_db_id")
 
     try:
-        grupo_ids = _parse_grupo_ids(form)
-        area_editor = _get_area_editor(context)
+        grupo_ids, grupo_porcentajes = _parse_distribucion_grupos(form)
         item = await service.get_item(conn, id_item)
         bom = await service.get_bom(conn, item['id_bom'])
+        area_editor = BomService.resolver_area_editor(context, bom)
         if service.requiere_propuesta_construccion(bom, area_editor):
             await service.registrar_propuesta_auto(
                 conn,
@@ -2085,10 +2545,21 @@ async def set_item_grupos(
                 "success",
                 "Propuesta registrada",
             )
-        await service.set_item_grupos(conn, id_item, user_id, grupo_ids, area_editor)
+        await service.set_item_grupos(
+            conn, id_item, user_id, grupo_ids, area_editor,
+            lock_version_esperado=_parse_lock_version(form),
+            user_role=context.get("role"),
+            rol_org=context.get("rol_organizacional"),
+            module_roles=context.get("module_roles"),
+            grupo_porcentajes=grupo_porcentajes,
+        )
 
         item['grupos'], item['grupos_operativos'] = await service.get_item_grupos(conn, id_item)
-        ctx = _build_bom_context(request, context, bom, item=item)
+        ctx = _build_bom_context(
+            request, context, bom, item=item,
+            actualizar_lock_oob=True,
+            capacidades=await _capacidades_actuales(conn, service, context, bom),
+        )
         return templates.TemplateResponse(request, "bom/partials/row_item.html", ctx)
 
     except ValueError as e:
@@ -2135,13 +2606,19 @@ async def configurar_suplencia(
     user_id = context.get("user_db_id")
     suplente_id_raw = form.get("suplente_id", "").strip()
     fecha_fin_raw = form.get("fecha_fin", "").strip()
+    suplencia_id_raw = form.get("suplencia_id", "").strip()
+    lock_version_raw = form.get("lock_version", "").strip()
 
     try:
         from uuid import UUID as _UUID
         from datetime import date as date_type
         suplente_id = _UUID(suplente_id_raw)
         fecha_fin = date_type.fromisoformat(fecha_fin_raw)
-        await service.configurar_suplente(conn, user_id, suplente_id, fecha_fin)
+        await service.configurar_suplente(
+            conn, user_id, suplente_id, fecha_fin,
+            int(suplencia_id_raw) if suplencia_id_raw else None,
+            int(lock_version_raw) if lock_version_raw else None,
+        )
         return _toast_response(request, "Suplencia configurada exitosamente", "success")
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -2161,8 +2638,15 @@ async def eliminar_suplencia(
     """Elimina la suplencia activa del usuario actual."""
     user_id = context.get("user_db_id")
     try:
-        await service.eliminar_suplencia(conn, user_id)
+        form = await request.form()
+        await service.eliminar_suplencia(
+            conn, user_id,
+            int(form.get("suplencia_id", "")),
+            int(form.get("lock_version", "")),
+        )
         return _toast_response(request, "Suplencia eliminada", "success")
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
         logger.exception("Error de BD al eliminar suplencia")
         return _toast_response(request, "Error interno al eliminar suplencia", "error", status_code=500)
@@ -2184,10 +2668,13 @@ async def enviar_revision_obra(
     """Envia BOM aprobado por ing a revision del coordinador de obra."""
     user_id = context.get("user_db_id")
     try:
-        bom = await service.enviar_revision_obra(conn, id_bom, user_id)
+        form = await request.form()
+        bom = await service.enviar_revision_obra(
+            conn, id_bom, user_id, context.get("role"), _parse_lock_version(form)
+        )
         return _toast_response(
             request, "BOM enviado a revision de Obra", "success",
-            redirect_url=f"/bom/{bom['id_proyecto']}/ui",
+            redirect_url=f"/bom/paquetes/{bom['id_paquete']}/ui",
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -2211,10 +2698,13 @@ async def aprobar_obra(
     rol_org = context.get("rol_organizacional")
     comentarios = form.get("comentarios", "").strip() or None
     try:
-        bom = await service.aprobar_revision_obra(conn, id_bom, user_id, user_role, rol_org, comentarios)
+        bom = await service.aprobar_revision_obra(
+            conn, id_bom, user_id, user_role, rol_org, comentarios,
+            _parse_lock_version(form),
+        )
         return _toast_response(
             request, "BOM aprobado por Obra y enviado a Construccion", "success",
-            redirect_url=f"/bom/{bom['id_proyecto']}/ui",
+            redirect_url=f"/bom/paquetes/{bom['id_paquete']}/ui",
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -2238,10 +2728,13 @@ async def rechazar_obra(
     rol_org = context.get("rol_organizacional")
     comentarios = form.get("comentarios", "").strip() or None
     try:
-        bom = await service.rechazar_obra(conn, id_bom, user_id, user_role, rol_org, comentarios)
+        bom = await service.rechazar_obra(
+            conn, id_bom, user_id, user_role, rol_org, comentarios,
+            _parse_lock_version(form),
+        )
         return _toast_response(
             request, "BOM devuelto a borrador para correccion de Disenio.", "warning",
-            redirect_url=f"/bom/{bom['id_proyecto']}/ui",
+            redirect_url=f"/bom/paquetes/{bom['id_paquete']}/ui",
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -2268,10 +2761,13 @@ async def enviar_revision_final(
     user_role = context.get("role")
     rol_org = context.get("rol_organizacional")
     try:
-        bom = await service.enviar_revision_final(conn, id_bom, user_id, user_role, rol_org)
+        form = await request.form()
+        bom = await service.enviar_revision_final(
+            conn, id_bom, user_id, user_role, rol_org, _parse_lock_version(form)
+        )
         return _toast_response(
             request, "BOM enviado al aprobador final", "success",
-            redirect_url=f"/bom/{bom['id_proyecto']}/ui",
+            redirect_url=f"/bom/paquetes/{bom['id_paquete']}/ui",
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -2294,10 +2790,12 @@ async def aprobar_final(
     user_id = context.get("user_db_id")
     comentarios = form.get("comentarios", "").strip() or None
     try:
-        bom = await service.aprobar_final(conn, id_bom, user_id, comentarios)
+        bom = await service.aprobar_final(
+            conn, id_bom, user_id, comentarios, _parse_lock_version(form)
+        )
         return _toast_response(
             request, "BOM aprobado de forma definitiva", "success",
-            redirect_url=f"/bom/{bom['id_proyecto']}/ui",
+            redirect_url=f"/bom/paquetes/{bom['id_paquete']}/ui",
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -2320,10 +2818,12 @@ async def rechazar_final(
     user_id = context.get("user_db_id")
     comentarios = form.get("comentarios", "").strip() or None
     try:
-        bom = await service.rechazar_final(conn, id_bom, user_id, comentarios)
+        bom = await service.rechazar_final(
+            conn, id_bom, user_id, comentarios, _parse_lock_version(form)
+        )
         return _toast_response(
             request, "BOM devuelto a borrador por Direccion.", "warning",
-            redirect_url=f"/bom/{bom['id_proyecto']}/ui",
+            redirect_url=f"/bom/paquetes/{bom['id_paquete']}/ui",
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -2336,24 +2836,26 @@ async def rechazar_final(
 # EXPORT EXCEL
 # ========================================
 
-@router.get("/{id_proyecto}/export-excel", include_in_schema=False)
+@router.get("/versiones/{id_bom}/export-excel", include_in_schema=False)
 async def export_excel(
     request: Request,
-    id_proyecto: UUID,
+    id_bom: UUID,
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
     _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
 ):
-    """Descarga Excel del BOM del proyecto."""
-    bom = await service.get_bom_proyecto(conn, id_proyecto)
-    if not bom:
-        raise HTTPException(status_code=404, detail="No existe BOM para este proyecto")
+    """Descarga una version exacta sin seleccionar implicitamente por proyecto."""
+    try:
+        bom = await service.get_bom(conn, id_bom)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    excel_bytes = await service.export_to_excel(conn, bom['id_bom'])
+    excel_bytes = await service.export_to_excel(conn, id_bom)
 
     timestamp = now_mx().strftime("%Y%m%d_%H%M%S")
     proyecto_id = bom.get('proyecto_id_estandar', 'BOM')
-    filename = f"BOM_{proyecto_id}_v{bom['version']}_{timestamp}.xlsx"
+    paquete_codigo = bom.get("paquete_codigo", "BOM")
+    filename = f"BOM_{proyecto_id}_{paquete_codigo}_v{bom['version']}_{timestamp}.xlsx"
 
     return Response(
         content=excel_bytes,

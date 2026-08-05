@@ -19,6 +19,8 @@
     x-data="cotizacionesBom()"
     x-init="init()"
     data-bom-id="{{ bom.id_bom }}"
+    data-bom-lock-version="{{ bom.lock_version }}"
+    data-bom-lock-version-container
     data-items='{{ items_disponibles | tojson | replace("'", "&#39;") }}'>
 
     {# Header #}
@@ -103,11 +105,53 @@
                 </div>
 
                 {# Acciones #}
-                {% if es_compras_editor and cot.estatus not in ('SELECCIONADA', 'RECHAZADA') %}
+                {% if cot.estatus == 'SELECCIONADA'
+                      and cot.autorizacion_estatus == 'AUTORIZADO_OBRA'
+                      and cot.aprobacion_estatus not in ('PENDIENTE_DIRECCION', 'APROBADA')
+                      and es_compras_editor %}
+                <form class="flex shrink-0 items-center gap-2"
+                    hx-post="/bom/cotizaciones/{{ cot.id }}/solicitar-aprobacion"
+                    hx-target="#tab-cotizaciones" hx-swap="innerHTML"
+                    hx-disabled-elt="find button[type='submit']"
+                    hx-sync="this:replace">
+                    <input type="hidden" name="cotizacion_lock_version" value="{{ cot.lock_version }}">
+                    <input type="hidden" name="autorizacion_lock_version" value="{{ cot.autorizacion_lock_version }}">
+                    <button type="submit"
+                        class="rounded-lg bg-violet-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:cursor-wait disabled:opacity-60">
+                        Solicitar aprobación de Dirección
+                    </button>
+                </form>
+                {% elif cot.aprobacion_estatus == 'PENDIENTE_DIRECCION' and es_aprobador_direccion %}
+                <div class="flex shrink-0 items-center gap-2">
+                    <form hx-post="/bom/cotizaciones/{{ cot.id }}/aprobar-direccion"
+                        hx-target="#tab-cotizaciones" hx-swap="innerHTML"
+                        hx-disabled-elt="find button[type='submit']" hx-sync="this:replace">
+                        <input type="hidden" name="aprobacion_lock_version" value="{{ cot.aprobacion_lock_version }}">
+                        <input type="hidden" name="autorizacion_lock_version" value="{{ cot.autorizacion_lock_version }}">
+                        <button type="submit"
+                            class="rounded-lg bg-violet-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:cursor-wait disabled:opacity-60">
+                            Aprobar por Dirección
+                        </button>
+                    </form>
+                    <form hx-post="/bom/cotizaciones/{{ cot.id }}/rechazar-direccion"
+                        hx-target="#tab-cotizaciones" hx-swap="innerHTML"
+                        hx-disabled-elt="find button[type='submit']" hx-sync="this:replace"
+                        onsubmit="const motivo = prompt('Motivo de rechazo (obligatorio):'); if(!motivo || !motivo.trim()){ event.preventDefault(); return false; } this.querySelector('input[name=motivo]').value = motivo.trim(); return true;">
+                        <input type="hidden" name="motivo" value="">
+                        <input type="hidden" name="aprobacion_lock_version" value="{{ cot.aprobacion_lock_version }}">
+                        <input type="hidden" name="autorizacion_lock_version" value="{{ cot.autorizacion_lock_version }}">
+                        <button type="submit"
+                            class="rounded-lg bg-red-500 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-red-600 disabled:cursor-wait disabled:opacity-60">
+                            Rechazar
+                        </button>
+                    </form>
+                </div>
+                {% elif es_compras_editor and cot.estatus not in ('SELECCIONADA', 'RECHAZADA') %}
                 <div class="flex items-center gap-2 shrink-0">
                     {% if cot.estatus in ('BORRADOR', 'RECIBIDA') %}
                     <button
                         hx-post="/bom/cotizaciones/{{ cot.id }}/seleccionar"
+                        hx-vals='{"lock_version": "{{ cot.lock_version }}"}'
                         hx-target="#tab-cotizaciones"
                         hx-swap="innerHTML"
                         hx-confirm="¿Marcar esta cotización como SELECCIONADA? Esto actualizará el estado de los ítems cubiertos."
@@ -116,6 +160,7 @@
                     </button>
                     <button
                         hx-post="/bom/cotizaciones/{{ cot.id }}/rechazar"
+                        hx-vals='{"lock_version": "{{ cot.lock_version }}"}'
                         hx-target="#tab-cotizaciones"
                         hx-swap="innerHTML"
                         hx-confirm="¿Rechazar esta cotización?"
@@ -130,6 +175,7 @@
                         hx-target="#tab-cotizaciones" hx-swap="innerHTML"
                         onsubmit="const m = prompt('Motivo de la aclaración:'); if(!m || !m.trim()){ event.preventDefault(); return false; } this.querySelector('input[name=motivo]').value = m; return true;">
                         <input type="hidden" name="motivo" value="">
+                        <input type="hidden" name="lock_version" value="{{ cot.lock_version }}">
                         <button type="submit"
                             class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-amber-700 bg-amber-50 border border-amber-300 hover:bg-amber-100 transition">
                             Solicitar aclaración
@@ -138,6 +184,21 @@
                 </div>
                 {% endif %}
             </div>
+
+            {% if cot.aprobacion_estatus %}
+            <div class="mt-2 rounded-lg border px-2.5 py-1.5 text-xs
+                {% if cot.aprobacion_estatus == 'APROBADA' %}border-emerald-200 bg-emerald-50 text-emerald-700
+                {% elif cot.aprobacion_estatus == 'RECHAZADA' %}border-red-200 bg-red-50 text-red-700
+                {% else %}border-violet-200 bg-violet-50 text-violet-700{% endif %}">
+                {% if cot.aprobacion_estatus == 'APROBADA' %}
+                Cotización aprobada por Dirección.
+                {% elif cot.aprobacion_estatus == 'RECHAZADA' %}
+                Rechazada por Dirección: {{ cot.aprobacion_motivo_rechazo or 'Sin motivo registrado' }}
+                {% else %}
+                Aprobación de Dirección pendiente.
+                {% endif %}
+            </div>
+            {% endif %}
 
             {# PDF badge #}
             {% if cot.pdf_url %}
@@ -432,6 +493,7 @@ function cotizacionesBom() {
                     moneda: this.moneda,
                     iva_pct: this.ivaPct,
                     notas: this.notas || null,
+                    bom_lock_version: Number(this.$el.dataset.bomLockVersion),
                     items: this.itemsSeleccionados.map(item => ({
                         bom_item_id: item.id_item,
                         precio_unitario: parseFloat(this.precios[item.id_item]) || 0,

@@ -6,8 +6,9 @@ Logica de negocio, workflow de aprobaciones, versionado y exportacion Excel.
 import logging
 import json
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from decimal import Decimal, InvalidOperation
-from uuid import UUID
+from uuid import UUID, uuid4
 from typing import Optional, List, Set
 
 import asyncpg
@@ -37,6 +38,7 @@ CAMPOS_CONSTRUCCION_EJECUCION = {
     'fecha_estimada_entrega', 'fecha_llegada_real', 'estatus_ejecucion'
 }
 CAMPOS_CONSTRUCCION = CAMPOS_CONSTRUCCION_BASE | CAMPOS_CONSTRUCCION_EJECUCION
+CAMPOS_BASE_BOM = CAMPOS_INGENIERIA | CAMPOS_CONSTRUCCION_BASE
 CAMPOS_COMPRAS = {
     'id_proveedor', 'tipo_entrega', 'fecha_estimada_entrega',
     'fecha_llegada_real', 'comentarios', 'comentarios_operativos',
@@ -49,10 +51,11 @@ CAMPOS_COMPRAS = {
 # del individual (evita drift al agregar/quitar campos).
 _CAMPOS_BULK_EXCLUIDOS = {'descripcion', 'cantidad', 'cantidad_recibida'}
 CAMPOS_BULK = {
-    'ingenieria': CAMPOS_INGENIERIA - _CAMPOS_BULK_EXCLUIDOS,
-    'construccion': CAMPOS_CONSTRUCCION - _CAMPOS_BULK_EXCLUIDOS,
+    'ingenieria': CAMPOS_BASE_BOM - _CAMPOS_BULK_EXCLUIDOS,
+    'construccion': (CAMPOS_BASE_BOM | CAMPOS_CONSTRUCCION_EJECUCION) - _CAMPOS_BULK_EXCLUIDOS,
     'compras': CAMPOS_COMPRAS - _CAMPOS_BULK_EXCLUIDOS,
 }
+CAMPOS_BULK_BASE = CAMPOS_BASE_BOM - _CAMPOS_BULK_EXCLUIDOS
 
 # Estados en los que NO se puede editar de ninguna forma
 ESTATUS_BLOQUEADOS = {EstatusBOM.CANCELADO, EstatusBOM.APROBADO_FINAL}
@@ -121,10 +124,12 @@ BOM_COSTOS_REGLAS_MODULOS = {"BOM"}
 BOM_COSTOS_ASUNTO_KEY = "bom.costos_notificacion_asunto"
 BOM_COSTOS_TEMPLATE_KEY = "bom.costos_notificacion_template"
 BOM_COSTOS_SSE_KEY = "bom.costos_notificacion_sse_activa"
-BOM_COSTOS_DEFAULT_ASUNTO = "BOM {proyecto_id} - Items sin presupuesto base"
+BOM_COSTOS_DEFAULT_ASUNTO = (
+    "BOM {proyecto_id} - {paquete_codigo} v{version} - Items sin presupuesto base"
+)
 BOM_COSTOS_DEFAULT_TEMPLATE = (
-    "El ingeniero ingreso {total_items} item(s) para el BOM del proyecto "
-    "{proyecto_id} sin presupuesto base. Ingresa para actualizar el/los item(s)."
+    "El ingeniero ingreso {total_items} item(s) para {paquete_codigo} v{version} "
+    "del proyecto {proyecto_id} sin presupuesto base. Ingresa para actualizarlos."
 )
 
 
@@ -135,9 +140,263 @@ class BomService(BomComprasServiceMixin):
         self.db = BomDBService()
 
     @staticmethod
+    @asynccontextmanager
+    async def _transaction(conn):
+        """Transaccion real; el fallback solo facilita dobles unitarios sin I/O."""
+        if hasattr(conn, "transaction"):
+            async with conn.transaction():
+                yield
+        else:
+            yield
+
+    @staticmethod
     def _limpiar_fechas_flujo(*campos: str) -> dict:
         campos_limpieza = campos or FECHAS_FLUJO_BOM
         return {campo: None for campo in campos_limpieza}
+
+    _ORDEN_AREA_POR_ETAPA = {
+        "BORRADOR": ("ingenieria", "construccion", "compras"),
+        "EN_REVISION_ING": ("ingenieria", "construccion", "compras"),
+        "APROBADO_ING": ("ingenieria", "construccion", "compras"),
+        "EN_REVISION_OBRA": ("construccion", "ingenieria", "compras"),
+        "EN_REVISION_CONST": ("construccion", "ingenieria", "compras"),
+        "APROBADO_CONST": ("construccion", "ingenieria", "compras"),
+        "EN_REVISION_FINAL": ("construccion", "ingenieria", "compras"),
+        "APROBADO_FINAL": ("construccion", "compras", "ingenieria"),
+    }
+
+    @classmethod
+    def resolver_area_editor(cls, context: dict, bom: Optional[dict] = None) -> str:
+        """Resuelve el area por la etapa activa, sin prioridad fija entre modulos."""
+        role = context.get("role")
+        module_roles = context.get("module_roles", {})
+        areas = {
+            area for area in ("ingenieria", "construccion", "compras")
+            if role == "ADMIN" or module_roles.get(area) in ("editor", "admin")
+        }
+        estado = bom.get("estatus") if bom else None
+        for area in cls._ORDEN_AREA_POR_ETAPA.get(
+            estado, ("ingenieria", "construccion", "compras")
+        ):
+            if area in areas:
+                return area
+        return "viewer"
+
+    async def get_capacidades_bom(
+        self, conn, bom: dict, user_id: Optional[UUID],
+        user_role: Optional[str] = None,
+        rol_org: Optional[str] = None,
+        module_roles: Optional[dict] = None,
+    ) -> dict:
+        """Matriz unica de turno para una version exacta del BOM.
+
+        Los permisos de modulo habilitan la clase de operacion; el turno y el
+        ownership del paquete deciden si esa operacion puede ejecutarse.
+        """
+        capacidades = {
+            "editar_base": False,
+            "editar_ejecucion": False,
+            "agregar_items": False,
+            "eliminar_items": False,
+            "restaurar_items": False,
+            "editar_grupos": False,
+            "refrescar_costos": False,
+            "actor_turno": None,
+            "es_cabeza_trabajo": bool(bom and bom.get("es_cabeza_trabajo")),
+            "es_cabeza_oficial": bool(bom and bom.get("es_cabeza_oficial")),
+        }
+        if not bom or not user_id:
+            return capacidades
+
+        estado = EstatusBOM(bom["estatus"])
+        activo = bom.get("estado_paquete", "ACTIVO") == "ACTIVO"
+        es_cabeza_trabajo = bool(bom.get("es_cabeza_trabajo", True))
+        es_cabeza_oficial = bool(bom.get("es_cabeza_oficial"))
+        es_oficial_downstream = (
+            estado == EstatusBOM.APROBADO_FINAL and es_cabeza_oficial
+        )
+        if (
+            not activo
+            or estado == EstatusBOM.CANCELADO
+            or not (es_cabeza_trabajo or es_oficial_downstream)
+        ):
+            return capacidades
+
+        roles_modulo = module_roles or {}
+        representados = await self.get_titulares_que_representa(conn, user_id)
+
+        ingeniero = bom.get("ingeniero_responsable_id") or bom.get("elaborado_por")
+        ri = bom.get("responsable_ing")
+        coordinador = bom.get("coordinador_obra")
+        responsable_const = bom.get("jefe_construccion")
+        direccion = await self.db.get_aprobador_final_id(conn)
+
+        actores_por_estado = {
+            EstatusBOM.BORRADOR: ({ingeniero, ri} - {None}, "Ingenieria"),
+            EstatusBOM.EN_REVISION_ING: ({ri} - {None}, "Responsable de Ingenieria"),
+            EstatusBOM.APROBADO_ING: ({ri} - {None}, "Responsable de Ingenieria"),
+            EstatusBOM.EN_REVISION_OBRA: (
+                {coordinador, responsable_const} - {None},
+                "Coordinacion de Obra / Responsable de Construccion",
+            ),
+            EstatusBOM.EN_REVISION_CONST: (
+                {responsable_const} - {None}, "Responsable de Construccion"
+            ),
+            EstatusBOM.APROBADO_CONST: (
+                {responsable_const} - {None}, "Responsable de Construccion"
+            ),
+            EstatusBOM.EN_REVISION_FINAL: ({direccion} - {None}, "Direccion"),
+            EstatusBOM.APROBADO_FINAL: (set(), "Operacion downstream"),
+        }
+        actores, turno = actores_por_estado.get(estado, (set(), None))
+        capacidades["actor_turno"] = turno
+        controla_turno = bool(representados & actores)
+
+        tiene_ing = roles_modulo.get("ingenieria") in {"editor", "admin"}
+        tiene_const = roles_modulo.get("construccion") in {"editor", "admin"}
+        tiene_compras = roles_modulo.get("compras") in {"editor", "admin"}
+        # Compatibilidad de llamadas internas existentes: el ownership sigue
+        # siendo obligatorio aunque el caller aun no transporte module_roles.
+        tiene_base = tiene_ing or tiene_const or not module_roles
+
+        if estado not in {
+            EstatusBOM.EN_REVISION_FINAL,
+            EstatusBOM.APROBADO_FINAL,
+            EstatusBOM.CANCELADO,
+        } and controla_turno and tiene_base:
+            capacidades.update({
+                "editar_base": True,
+                "agregar_items": True,
+                "eliminar_items": True,
+                "restaurar_items": True,
+                "editar_grupos": True,
+                "refrescar_costos": True,
+            })
+
+        capacidades["editar_ejecucion"] = (
+            es_oficial_downstream and (tiene_const or tiene_compras)
+        ) or (
+            estado != EstatusBOM.APROBADO_FINAL
+            and controla_turno
+            and tiene_base
+        )
+        capacidades["aprobar_final"] = (
+            estado == EstatusBOM.EN_REVISION_FINAL
+            and direccion in representados
+        )
+        return capacidades
+
+    @staticmethod
+    def _resolver_revision(lock_version_esperado: Optional[int]) -> int:
+        """Exige la revision esperada por el caller; sin ella no hay CAS real."""
+        if lock_version_esperado is None:
+            raise ValueError(
+                "Falta la revision de la adenda; recarga el BOM e intenta de nuevo"
+            )
+        return lock_version_esperado
+
+    async def _reservar_mutacion_base(
+        self, conn, id_bom: UUID, user_id: UUID,
+        lock_version_esperado: Optional[int] = None,
+        user_role: Optional[str] = None,
+        rol_org: Optional[str] = None,
+        module_roles: Optional[dict] = None,
+    ) -> dict:
+        """Valida cabeza, turno y revision antes de una mutacion de base."""
+        bom = await self.db.get_bom_for_update(conn, id_bom)
+        if not bom:
+            raise ValueError("BOM no encontrado")
+        if not bom.get("es_cabeza_trabajo", True):
+            raise ValueError("Esta version es historica; abre la cabeza de trabajo del paquete")
+        capacidades = await self.get_capacidades_bom(
+            conn, bom, user_id, user_role, rol_org, module_roles
+        )
+        if not capacidades["editar_base"]:
+            turno = capacidades.get("actor_turno") or "el actor asignado"
+            raise ValueError(f"Solo {turno} puede modificar el BOM en esta etapa")
+        if lock_version_esperado is None:
+            raise ValueError(
+                "Falta la revision del BOM; recarga el paquete e intenta de nuevo"
+            )
+        revision = lock_version_esperado
+        reservado = await self.db.incrementar_lock_bom_cas(
+            conn, id_bom, revision, bom["estatus"]
+        )
+        if not reservado:
+            raise ValueError(
+                "El BOM cambio desde que abriste el formulario; recarga el paquete e intenta de nuevo"
+            )
+        return {**bom, **reservado}
+
+    async def _validar_actor_asignado(
+        self, conn, user_id: UUID, user_role: Optional[str],
+        responsables: Set[Optional[UUID]], label: str,
+    ) -> None:
+        actores = responsables - {None}
+        representados = await self.get_titulares_que_representa(conn, user_id)
+        if not actores or not (actores & representados):
+            raise ValueError(f"Solo {label} (o su suplente) puede ejecutar esta accion")
+
+    async def _transicionar_bom(
+        self, conn, id_bom: UUID, user_id: UUID,
+        estado_esperado: EstatusBOM, nuevo_estado: EstatusBOM,
+        tipo_aprobacion: TipoAprobacion,
+        comentarios: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
+        invalidar_ciclo: bool = False,
+        destino_rechazo: Optional[str] = None,
+        **campos,
+    ) -> dict:
+        """Aplica estado, aprobacion, auditoria y outbox en una transaccion."""
+        async with self._transaction(conn):
+            bom = await self.db.get_bom_for_update(conn, id_bom)
+            if not bom:
+                raise ValueError("BOM no encontrado")
+            if not bom.get("es_cabeza_trabajo", True):
+                raise ValueError("Solo la cabeza de trabajo puede cambiar de estado")
+            if bom.get("estado_paquete", "ACTIVO") != "ACTIVO":
+                raise ValueError("El paquete no esta activo")
+            if EstatusBOM(bom["estatus"]) != estado_esperado:
+                raise ValueError(
+                    f"El BOM debe estar {estado_esperado.value} para ejecutar esta accion"
+                )
+            if lock_version_esperado is None:
+                raise ValueError(
+                    "Falta la revision del BOM; recarga el paquete e intenta de nuevo"
+                )
+            revision = lock_version_esperado
+            actualizado = await self.db.update_bom_estatus_cas(
+                conn, id_bom, estado_esperado.value, revision,
+                nuevo_estado.value, **campos,
+            )
+            if not actualizado:
+                raise ValueError(
+                    "El BOM cambio desde que abriste la pagina; recarga el paquete e intenta de nuevo"
+                )
+            if invalidar_ciclo:
+                await self.db.invalidar_aprobaciones_vigentes(conn, id_bom, user_id)
+            await self.db.registrar_aprobacion(
+                conn, id_bom, tipo_aprobacion,
+                bom["version"], user_id,
+                comentarios=comentarios,
+                destino_rechazo=destino_rechazo,
+            )
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"BOM:{id_bom}:{actualizado['lock_version']}:{tipo_aprobacion.value}",
+                tipo_aprobacion.value,
+                bom["id_proyecto"],
+                user_id,
+                {
+                    "version": bom["version"],
+                    "estado_anterior": estado_esperado.value,
+                    "estado_nuevo": nuevo_estado.value,
+                    "comentarios": comentarios,
+                },
+                id_paquete=bom.get("id_paquete"),
+                id_bom=id_bom,
+            )
+        return await self.db.get_bom_by_id(conn, id_bom)
 
     async def puede_crear_o_retomar_bom(
         self, conn, id_proyecto: UUID, user_id: Optional[UUID],
@@ -157,6 +416,23 @@ class BomService(BomComprasServiceMixin):
         return await self.db.usuario_tiene_asignacion_proyecto(
             conn, id_proyecto, user_id, "ingeniero_asignado", "INGENIERIA"
         )
+
+    async def puede_administrar_paquete(
+        self, conn, id_proyecto: UUID, user_id: Optional[UUID],
+        role: Optional[str] = None,
+    ) -> bool:
+        """ADMIN global u owner/suplente del jefe de Ingenieria del proyecto."""
+        if role == "ADMIN":
+            return True
+        if not user_id:
+            return False
+        responsable = await self.db.get_responsable_proyecto_o_global(
+            conn, id_proyecto, "jefe_ingenieria"
+        )
+        if not responsable:
+            return False
+        representados = await self.get_titulares_que_representa(conn, user_id)
+        return responsable["id_usuario"] in representados
 
     async def get_permiso_configurar_paneles(
         self, conn, id_proyecto: UUID, user_id: Optional[UUID],
@@ -183,14 +459,15 @@ class BomService(BomComprasServiceMixin):
     async def _validar_aprobador_bom(
         self, conn, user_id: UUID, user_role: str, rol_org: Optional[str],
         responsable_id: Optional[UUID], label: str, fallback_rol_org: str,
-        representados: Optional[Set[UUID]] = None
+        representados: Optional[Set[UUID]] = None,
+        permitir_admin_gestion: bool = False,
     ) -> None:
         if not fallback_rol_org:
             raise ValueError(
                 "_validar_aprobador_bom requiere fallback_rol_org: sin el, un BOM con "
                 "responsable_id=None y gestion_solo_responsable=True quedaria sin validar"
             )
-        if user_role == 'ADMIN':
+        if permitir_admin_gestion and user_role == 'ADMIN':
             return
         solo_responsable = await ConfigService.get_global_config(
             conn, 'bom.gestion_solo_responsable', True, bool
@@ -215,7 +492,7 @@ class BomService(BomComprasServiceMixin):
         """Version booleana de _validar_aprobador_bom para la UI (no lanza).
 
         Permite que el template oculte botones que el service rechazaria, usando
-        exactamente la misma logica (ADMIN, propiedad, suplencia y fallback de rol
+        exactamente la misma logica (propiedad, suplencia y fallback de rol
         global). Acepta `representados` precalculado para no repetir la consulta de
         suplencias dentro del mismo render.
         """
@@ -230,94 +507,462 @@ class BomService(BomComprasServiceMixin):
 
     # ─── CREAR BOM ──────────────────────────────────────────
 
-    async def crear_bom(
-        self, conn, id_proyecto: UUID, elaborado_por: UUID,
-        responsable_ing: Optional[UUID] = None,
-        jefe_construccion: Optional[UUID] = None,
-        coordinador_obra: Optional[UUID] = None,
-        notas: Optional[str] = None
+    async def crear_paquete(
+        self, conn, id_proyecto: UUID, creado_por: UUID,
+        tipo_alcance: str, nombre: str,
+        descripcion_alcance: Optional[str] = None,
+        notas: Optional[str] = None,
+        user_role: Optional[str] = None,
+        aceptar_responsabilidad: bool = False,
+        clave_idempotencia: Optional[str] = None,
     ) -> dict:
-        """Crea un nuevo BOM resolviendo responsables desde reglas del proyecto."""
-        # Verificar proyecto existe
+        """Crea paquete, v1 y cabeza de trabajo de forma atomica."""
         proyecto = await self.db.get_proyecto_info(conn, id_proyecto)
         if not proyecto:
             raise ValueError("Proyecto no encontrado")
+        if user_role == "ADMIN":
+            if not aceptar_responsabilidad:
+                raise ValueError(
+                    "Confirma que asumirás la responsabilidad de Ingeniería del paquete"
+                )
+        else:
+            await self._validar_retomar_bom_ingenieria(conn, id_proyecto, creado_por)
 
-        await self._validar_retomar_bom_ingenieria(conn, id_proyecto, elaborado_por)
+        tipo = (tipo_alcance or "").strip().upper()
+        nombre_limpio = (nombre or "").strip()
+        alcance_limpio = (descripcion_alcance or "").strip() or None
+        if tipo not in {"COMPLETO", "PARCIAL"}:
+            raise ValueError("El tipo de paquete debe ser COMPLETO o PARCIAL")
+        if not nombre_limpio:
+            raise ValueError("El nombre del paquete es obligatorio")
+        if tipo == "PARCIAL" and not alcance_limpio:
+            raise ValueError("Describe el alcance del paquete parcial")
+        clave_limpia = (clave_idempotencia or "").strip()
+        if not clave_limpia or len(clave_limpia) > 120:
+            raise ValueError(
+                "Falta la clave de reintento del formulario; recarga la pagina"
+            )
 
         responsable = await self.db.get_responsable_proyecto_o_global(
             conn, id_proyecto, "jefe_ingenieria"
         )
         if not responsable:
-            raise ValueError("No hay jefe de Ingenieria activo configurado")
-
+            raise ValueError("No hay Responsable de Ingenieria activo configurado")
         jefe_const = await self.db.get_responsable_proyecto_o_global(
             conn, id_proyecto, "jefe_construccion"
         )
-
-        ingeniero = await self.db.get_asignacion_proyecto(
-            conn, id_proyecto, "ingeniero_asignado", "INGENIERIA"
-        )
-        if not ingeniero:
-            raise ValueError("Asigna un Ingeniero de Diseño al proyecto antes de crear el BOM")
-
         coordinador = await self.db.get_asignacion_proyecto(
             conn, id_proyecto, "coordinador_obra", "CONSTRUCCION"
         )
 
-        # Verificar no hay BOM en BORRADOR
-        borrador = await self.db.get_bom_borrador_by_proyecto(conn, id_proyecto)
-        if borrador:
-            raise ValueError(
-                f"Ya existe un BOM en borrador (v{borrador['version']}). "
-                "Edita el existente o eliminalo antes de crear uno nuevo."
+        async with conn.transaction():
+            estado = await self.db.get_estado_proyecto_for_update(conn, id_proyecto)
+            existente = await self.db.get_paquete_por_clave_idempotencia(
+                conn, id_proyecto, clave_limpia
             )
+            if existente:
+                if existente["creado_por"] != creado_por:
+                    raise ValueError("La clave de reintento pertenece a otra solicitud")
+                bom_existente = await self.db.get_bom_by_id(
+                    conn, existente["cabeza_trabajo_id"]
+                )
+                if not bom_existente:
+                    raise ValueError(
+                        "El paquete existente no tiene una cabeza de trabajo valida"
+                    )
+                return bom_existente
+            paquetes = await self.db.listar_paquetes_proyecto(conn, id_proyecto)
+            multi_habilitado = await ConfigService.get_global_config(
+                conn, "bom.multi_paquete_habilitado", False, bool
+            )
+            if paquetes and not multi_habilitado:
+                raise ValueError(
+                    "La creacion de multiples paquetes BOM aun no esta habilitada"
+                )
+            if estado["captura_cerrada"]:
+                raise ValueError(
+                    "La captura de paquetes BOM esta cerrada; reabre el conjunto antes de continuar"
+                )
+            paquetes_activos = [
+                p for p in paquetes if p.get("estado_paquete") == "ACTIVO"
+            ]
+            tipos_activos = {p["tipo_alcance"] for p in paquetes_activos}
+            if tipo == "COMPLETO" and paquetes_activos:
+                raise ValueError(
+                    "No se puede crear un BOM completo mientras existan otros paquetes activos"
+                )
+            if tipo == "PARCIAL" and "COMPLETO" in tipos_activos:
+                raise ValueError(
+                    "No se puede crear un paquete parcial mientras exista un BOM completo activo"
+                )
 
-        # Obtener siguiente version
-        max_version = await self.db.get_max_version(conn, id_proyecto)
-        nueva_version = max_version + 1
-
-        bom = await self.db.crear_bom(
-            conn, id_proyecto, elaborado_por,
-            responsable_ing=responsable["id_usuario"],
-            jefe_construccion=jefe_const["id_usuario"] if jefe_const else None,
-            coordinador_obra=coordinador["id_usuario"] if coordinador else None,
-            notas=notas,
-            version=nueva_version
-        )
-
-        # Registrar en historial
-        await self.db.registrar_historial(
-            conn, bom['id_bom'], AccionHistorial.CREADO,
-            nueva_version, elaborado_por
-        )
+            codigo = await self.db.get_siguiente_codigo_paquete(conn, id_proyecto)
+            paquete = await self.db.crear_paquete(
+                conn,
+                id_proyecto,
+                codigo,
+                nombre_limpio,
+                tipo,
+                alcance_limpio,
+                creado_por,
+                creado_por,
+                responsable["id_usuario"],
+                coordinador["id_usuario"] if coordinador else None,
+                jefe_const["id_usuario"] if jefe_const else None,
+                clave_limpia,
+            )
+            bom = await self.db.crear_bom(
+                conn,
+                id_proyecto,
+                creado_por,
+                responsable_ing=responsable["id_usuario"],
+                jefe_construccion=jefe_const["id_usuario"] if jefe_const else None,
+                coordinador_obra=coordinador["id_usuario"] if coordinador else None,
+                notas=notas,
+                version=1,
+                id_paquete=paquete["id_paquete"],
+                ingeniero_responsable_id=creado_por,
+            )
+            cabeza = await self.db.actualizar_cabeza_trabajo(
+                conn, paquete["id_paquete"], bom["id_bom"], paquete["lock_version"]
+            )
+            if not cabeza:
+                raise ValueError(
+                    "El paquete cambio mientras se creaba; actualiza e intenta de nuevo"
+                )
+            await self.db.registrar_historial(
+                conn, bom["id_bom"], AccionHistorial.CREADO, 1, creado_por
+            )
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"BOM:{bom['id_bom']}:0:PAQUETE_CREADO",
+                "PAQUETE_CREADO",
+                id_proyecto,
+                creado_por,
+                {
+                    "codigo": codigo,
+                    "nombre": nombre_limpio,
+                    "tipo_alcance": tipo,
+                    "version": 1,
+                },
+                id_paquete=paquete["id_paquete"],
+                id_bom=bom["id_bom"],
+            )
 
         logger.info(
-            "BOM creado: proyecto=%s, version=%d, por=%s",
-            id_proyecto, nueva_version, elaborado_por
+            "Paquete BOM creado: proyecto=%s paquete=%s bom=%s actor=%s",
+            id_proyecto, paquete["id_paquete"], bom["id_bom"], creado_por,
         )
+        return await self.db.get_bom_by_id(conn, bom["id_bom"])
 
-        bom_creado = await self.db.get_bom_by_id(conn, bom['id_bom'])
-        if not coordinador:
-            await self._notify_bom(
-                conn,
-                bom_creado,
-                jefe_const["id_usuario"],
-                "FALTA_COORDINADOR_OBRA",
-                por_user_id=elaborado_por,
-                comentarios=(
-                    "El BOM se creo sin coordinador de obra. "
-                    "Asigna el coordinador desde Proyectos."
-                ),
-            )
-
-        return bom_creado
+    async def crear_bom(
+        self, conn, id_proyecto: UUID, elaborado_por: UUID,
+        responsable_ing: Optional[UUID] = None,
+        jefe_construccion: Optional[UUID] = None,
+        coordinador_obra: Optional[UUID] = None,
+        notas: Optional[str] = None,
+    ) -> dict:
+        """Compatibilidad: crea un paquete completo con su v1."""
+        return await self.crear_paquete(
+            conn,
+            id_proyecto,
+            elaborado_por,
+            "COMPLETO",
+            "BOM completo",
+            notas=notas,
+            clave_idempotencia=str(uuid4()),
+        )
 
     # ─── OBTENER BOM ────────────────────────────────────────
 
-    async def get_bom_proyecto(self, conn, id_proyecto: UUID) -> Optional[dict]:
-        """Obtiene el BOM mas reciente del proyecto."""
-        return await self.db.get_bom_by_proyecto(conn, id_proyecto)
+    async def listar_paquetes(self, conn, id_proyecto: UUID) -> list[dict]:
+        return await self.db.listar_paquetes_proyecto(conn, id_proyecto)
+
+    async def get_estado_conjunto(self, conn, id_proyecto: UUID) -> dict:
+        estado = await self.db.get_estado_proyecto(conn, id_proyecto)
+        return estado or {
+            "id_proyecto": id_proyecto,
+            "captura_cerrada": False,
+            "lock_version": 0,
+            "motivo": None,
+        }
+
+    async def get_metricas_paneles(self, conn, id_proyecto: UUID) -> dict:
+        return await self.db.get_metricas_paneles_proyecto(conn, id_proyecto)
+
+    async def get_paquete(self, conn, id_paquete: UUID) -> dict:
+        paquete = await self.db.get_paquete_by_id(conn, id_paquete)
+        if not paquete:
+            raise ValueError("Paquete BOM no encontrado")
+        return paquete
+
+    async def get_bom_cabeza_trabajo(self, conn, id_paquete: UUID) -> dict:
+        bom = await self.db.get_bom_cabeza_trabajo(conn, id_paquete)
+        if not bom:
+            raise ValueError("El paquete no tiene una cabeza de trabajo valida")
+        return bom
+
+    async def get_bom_cabeza_oficial(self, conn, id_paquete: UUID) -> Optional[dict]:
+        return await self.db.get_bom_cabeza_oficial(conn, id_paquete)
+
+    async def get_versiones_paquete(self, conn, id_paquete: UUID) -> list[dict]:
+        return await self.db.listar_versiones_paquete(conn, id_paquete)
+
+    async def cambiar_captura_paquetes(
+        self, conn, id_proyecto: UUID, actor_id: UUID,
+        user_role: str, rol_org: Optional[str], captura_cerrada: bool,
+        lock_version_esperado: int, motivo: str,
+    ) -> dict:
+        responsable = await self.db.get_responsable_proyecto_o_global(
+            conn, id_proyecto, "jefe_ingenieria"
+        )
+        await self._validar_aprobador_bom(
+            conn,
+            actor_id,
+            user_role,
+            rol_org,
+            responsable["id_usuario"] if responsable else None,
+            "Responsable de Ingenieria",
+            "jefe_ingenieria",
+            permitir_admin_gestion=True,
+        )
+        motivo_limpio = (motivo or "").strip()
+        if not motivo_limpio:
+            raise ValueError("El motivo es obligatorio")
+        async with conn.transaction():
+            estado = await self.db.get_estado_proyecto_for_update(conn, id_proyecto)
+            if estado["lock_version"] != lock_version_esperado:
+                raise ValueError(
+                    "El estado del conjunto BOM cambio; actualiza la pagina e intenta de nuevo"
+                )
+            metricas_fv = (
+                await self.db.get_metricas_paneles_proyecto(conn, id_proyecto)
+                if captura_cerrada else {}
+            )
+            actualizado = await self.db.actualizar_captura_proyecto_cas(
+                conn,
+                id_proyecto,
+                lock_version_esperado,
+                captura_cerrada,
+                actor_id,
+                motivo_limpio,
+                metricas_fv.get("modulos_fv"),
+                metricas_fv.get("potencia_pico_kwp"),
+            )
+            if not actualizado:
+                raise ValueError(
+                    "El estado del conjunto BOM cambio; actualiza la pagina e intenta de nuevo"
+                )
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"BOM-PROYECTO:{id_proyecto}:{actualizado['lock_version']}:CAPTURA",
+                "CAPTURA_CERRADA" if captura_cerrada else "CAPTURA_REABIERTA",
+                id_proyecto,
+                actor_id,
+                {
+                    "motivo": motivo_limpio,
+                    "modulos_fv_snapshot": metricas_fv.get("modulos_fv"),
+                    "potencia_pico_kwp_snapshot": str(
+                        metricas_fv.get("potencia_pico_kwp") or ""
+                    ),
+                },
+            )
+        return actualizado
+
+    async def cambiar_estado_paquete(
+        self, conn, id_paquete: UUID, actor_id: UUID,
+        user_role: str, rol_org: Optional[str], nuevo_estado: str,
+        lock_version_esperado: int, motivo: str,
+    ) -> dict:
+        """Archiva o cancela sin eliminar la trazabilidad del paquete."""
+        if nuevo_estado not in {"ACTIVO", "ARCHIVADO", "CANCELADO"}:
+            raise ValueError("Estado de paquete invalido")
+        motivo_limpio = (motivo or "").strip()
+        if not motivo_limpio:
+            raise ValueError("El motivo es obligatorio")
+        paquete = await self.get_paquete(conn, id_paquete)
+        responsable = await self.db.get_responsable_proyecto_o_global(
+            conn, paquete["id_proyecto"], "jefe_ingenieria"
+        )
+        await self._validar_aprobador_bom(
+            conn, actor_id, user_role, rol_org,
+            responsable["id_usuario"] if responsable else None,
+            "Responsable de Ingenieria", "jefe_ingenieria",
+            permitir_admin_gestion=True,
+        )
+        async with conn.transaction():
+            bloqueado = await self.db.get_paquete_for_update(conn, id_paquete)
+            if not bloqueado:
+                raise ValueError("Paquete BOM no encontrado")
+            if nuevo_estado == "ACTIVO":
+                paquetes = await self.db.listar_paquetes_proyecto(
+                    conn, bloqueado["id_proyecto"]
+                )
+                otros_activos = [
+                    p for p in paquetes
+                    if p["id_paquete"] != id_paquete
+                    and p.get("estado_paquete") == "ACTIVO"
+                ]
+                if bloqueado["tipo_alcance"] == "COMPLETO" and otros_activos:
+                    raise ValueError(
+                        "Un BOM completo no puede reactivarse junto con otros paquetes activos"
+                    )
+                if bloqueado["tipo_alcance"] != "COMPLETO" and any(
+                    p.get("tipo_alcance") == "COMPLETO" for p in otros_activos
+                ):
+                    raise ValueError(
+                        "No se puede reactivar el paquete mientras exista un BOM completo activo"
+                    )
+            if nuevo_estado == "CANCELADO":
+                actividad = await self.db.get_actividad_downstream_paquete(conn, id_paquete)
+                if bloqueado.get("cabeza_oficial_id") or actividad:
+                    raise ValueError(
+                        "El paquete tiene una version oficial o actividad downstream; debe archivarse"
+                    )
+            actualizado = await self.db.actualizar_estado_paquete_cas(
+                conn, id_paquete, lock_version_esperado,
+                bloqueado["estado_paquete"], nuevo_estado,
+            )
+            if not actualizado:
+                raise ValueError(
+                    "El paquete cambio desde que abriste la pagina; recarga e intenta de nuevo"
+                )
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"BOM-PAQUETE:{id_paquete}:{actualizado['lock_version']}:ESTADO",
+                f"PAQUETE_{nuevo_estado}",
+                bloqueado["id_proyecto"],
+                actor_id,
+                {"motivo": motivo_limpio, "estado_anterior": bloqueado["estado_paquete"]},
+                id_paquete=id_paquete,
+                id_bom=bloqueado.get("cabeza_trabajo_id"),
+            )
+        return actualizado
+
+    async def reclasificar_paquete(
+        self, conn, id_paquete: UUID, actor_id: UUID,
+        user_role: str, rol_org: Optional[str], tipo_alcance: str,
+        nombre: str, descripcion_alcance: Optional[str],
+        lock_version_esperado: int, motivo: str,
+    ) -> dict:
+        """Cambia metadatos de alcance con validacion de coexistencia y auditoria."""
+        tipo = (tipo_alcance or "").strip().upper()
+        nombre_limpio = (nombre or "").strip()
+        alcance = (descripcion_alcance or "").strip() or None
+        motivo_limpio = (motivo or "").strip()
+        if tipo not in {"COMPLETO", "PARCIAL", "LEGACY"}:
+            raise ValueError("Tipo de alcance invalido")
+        if not nombre_limpio:
+            raise ValueError("El nombre del paquete es obligatorio")
+        if tipo == "PARCIAL" and not alcance:
+            raise ValueError("Describe el alcance del paquete parcial")
+        if not motivo_limpio:
+            raise ValueError("El motivo es obligatorio")
+
+        paquete = await self.get_paquete(conn, id_paquete)
+        responsable = await self.db.get_responsable_proyecto_o_global(
+            conn, paquete["id_proyecto"], "jefe_ingenieria"
+        )
+        await self._validar_aprobador_bom(
+            conn, actor_id, user_role, rol_org,
+            responsable["id_usuario"] if responsable else None,
+            "Responsable de Ingenieria", "jefe_ingenieria",
+            permitir_admin_gestion=True,
+        )
+
+        async with conn.transaction():
+            bloqueado = await self.db.get_paquete_for_update(conn, id_paquete)
+            if not bloqueado or bloqueado["estado_paquete"] == "CANCELADO":
+                raise ValueError("El paquete no esta disponible para reclasificacion")
+            if bloqueado["lock_version"] != lock_version_esperado:
+                raise ValueError(
+                    "El paquete cambio desde que abriste la pagina; recarga e intenta de nuevo"
+                )
+            paquetes = await self.db.listar_paquetes_proyecto(
+                conn, bloqueado["id_proyecto"]
+            )
+            otros_activos = [
+                p for p in paquetes
+                if p["id_paquete"] != id_paquete
+                and p.get("estado_paquete") == "ACTIVO"
+            ]
+            if bloqueado["estado_paquete"] == "ACTIVO":
+                if tipo == "COMPLETO" and otros_activos:
+                    raise ValueError(
+                        "Archiva los otros paquetes antes de clasificar este BOM como completo"
+                    )
+                if tipo != "COMPLETO" and any(
+                    p.get("tipo_alcance") == "COMPLETO" for p in otros_activos
+                ):
+                    raise ValueError(
+                        "No puede coexistir un paquete parcial con un BOM completo activo"
+                    )
+            actualizado = await self.db.reclasificar_paquete_cas(
+                conn, id_paquete, lock_version_esperado,
+                tipo, nombre_limpio, alcance,
+            )
+            if not actualizado:
+                raise ValueError(
+                    "El paquete cambio desde que abriste la pagina; recarga e intenta de nuevo"
+                )
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"BOM-PAQUETE:{id_paquete}:{actualizado['lock_version']}:RECLASIFICADO",
+                "PAQUETE_RECLASIFICADO", bloqueado["id_proyecto"], actor_id,
+                {
+                    "motivo": motivo_limpio,
+                    "tipo_anterior": bloqueado["tipo_alcance"],
+                    "tipo_nuevo": tipo,
+                },
+                id_paquete=id_paquete,
+                id_bom=bloqueado.get("cabeza_trabajo_id"),
+            )
+        return actualizado
+
+    async def reasignar_paquete(
+        self, conn, id_paquete: UUID, actor_id: UUID,
+        user_role: str, rol_org: Optional[str], motivo: str,
+        lock_version_paquete: int, lock_version_bom: int,
+        ingeniero_responsable_id: UUID,
+        responsable_ing_id: Optional[UUID],
+        coordinador_obra_id: Optional[UUID],
+        jefe_construccion_id: Optional[UUID],
+    ) -> dict:
+        motivo_limpio = (motivo or "").strip()
+        if not motivo_limpio:
+            raise ValueError("El motivo es obligatorio")
+        paquete = await self.get_paquete(conn, id_paquete)
+        responsable = await self.db.get_responsable_proyecto_o_global(
+            conn, paquete["id_proyecto"], "jefe_ingenieria"
+        )
+        await self._validar_aprobador_bom(
+            conn, actor_id, user_role, rol_org,
+            responsable["id_usuario"] if responsable else None,
+            "Responsable de Ingenieria", "jefe_ingenieria",
+            permitir_admin_gestion=True,
+        )
+        async with conn.transaction():
+            bom = await self.db.get_bom_for_update(conn, paquete["cabeza_trabajo_id"])
+            if not bom or bom["estatus"] != EstatusBOM.BORRADOR:
+                raise ValueError("Solo se puede reasignar un paquete en BORRADOR")
+            actualizado = await self.db.reasignar_paquete_borrador_cas(
+                conn, id_paquete, bom["id_bom"], lock_version_paquete,
+                lock_version_bom, ingeniero_responsable_id, responsable_ing_id,
+                coordinador_obra_id, jefe_construccion_id,
+            )
+            if not actualizado:
+                raise ValueError(
+                    "El paquete cambio desde que abriste la pagina; recarga e intenta de nuevo"
+                )
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"BOM-PAQUETE:{id_paquete}:{lock_version_paquete + 1}:REASIGNADO",
+                "PAQUETE_REASIGNADO",
+                paquete["id_proyecto"], actor_id,
+                {"motivo": motivo_limpio},
+                id_paquete=id_paquete, id_bom=bom["id_bom"],
+            )
+        return await self.get_paquete(conn, id_paquete)
 
     async def get_bom(self, conn, id_bom: UUID) -> dict:
         """Obtiene un BOM por ID. Lanza error si no existe."""
@@ -383,18 +1028,33 @@ class BomService(BomComprasServiceMixin):
         if items_sin_costo:
             raise ValueError(self._build_costos_pendientes_error(items_sin_costo))
 
-    async def refrescar_costos_catalogo(self, conn, id_bom: UUID, user_id: UUID) -> dict:
-        """Ingenieria sincroniza precio_unitario de items sin costo desde el catalogo
-        interno (precio_referencia o factura XML vinculada mas reciente). Solo en BORRADOR."""
+    async def refrescar_costos_catalogo(
+        self, conn, id_bom: UUID, user_id: UUID,
+        lock_version_esperado: Optional[int] = None,
+        user_role: Optional[str] = None,
+        rol_org: Optional[str] = None,
+        module_roles: Optional[dict] = None,
+    ) -> dict:
+        """Sincroniza precio_unitario de items sin costo desde el catalogo interno
+        (precio_referencia o factura XML vinculada mas reciente). Permitido para el
+        actor de turno en cualquier estado previo al cierre (hasta APROBADO_CONST):
+        el costo es un presupuesto aproximado, no bloquea el avance hacia Compras.
+        Se congela en EN_REVISION_FINAL/APROBADO_FINAL porque ahi ya afecta a todos
+        los actores downstream."""
         bom = await self.get_bom(conn, id_bom)
-        await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
-        if EstatusBOM(bom['estatus']) != EstatusBOM.BORRADOR:
-            raise ValueError("Solo se pueden refrescar costos mientras el BOM esta en BORRADOR")
-
         async with conn.transaction():
-            # Sin historial: esta accion solo corre en BORRADOR (linea 379), y los
-            # cambios de item en BORRADOR ya no se auditan (solo interesa post-liberacion).
+            bom = await self._reservar_mutacion_base(
+                conn, id_bom, user_id, lock_version_esperado,
+                user_role, rol_org, module_roles,
+            )
             sincronizados = await self.db.sincronizar_costos_catalogo(conn, id_bom)
+            if sincronizados:
+                await self.db.registrar_historial(
+                    conn, id_bom, AccionHistorial.EDITADO,
+                    bom["version"], user_id,
+                    campo_modificado="presupuesto_catalogo",
+                    valor_nuevo=f"{len(sincronizados)} item(s) sincronizados",
+                )
         return {"sincronizados": len(sincronizados), "bom": bom}
 
     async def _get_aprobador_final_direccion_id(self, conn) -> UUID:
@@ -439,32 +1099,20 @@ class BomService(BomComprasServiceMixin):
         unidad_medida: Optional[str] = None,
         comentarios: Optional[str] = None,
         precio_unitario=None,
-        origen_precio: Optional[str] = 'MANUAL',
+        origen_precio: Optional[str] = "MANUAL",
         id_material_ref: Optional[UUID] = None,
         id_material_interno: Optional[UUID] = None,
-        tipo_partida: Optional[str] = 'MATERIAL',
-        moneda: Optional[str] = 'MXN',
-        area_editor: str = 'ingenieria'
+        tipo_partida: Optional[str] = "MATERIAL",
+        moneda: Optional[str] = "MXN",
+        area_editor: str = "ingenieria",
+        grupo_ids: Optional[List[int]] = None,
+        grupo_porcentajes: Optional[dict[int, Decimal]] = None,
+        lock_version_esperado: Optional[int] = None,
+        user_role: Optional[str] = None,
+        rol_org: Optional[str] = None,
+        module_roles: Optional[dict] = None,
     ) -> dict:
-        """Agrega un item al BOM. Permite edicion segun area y estado."""
-        bom = await self.get_bom(conn, id_bom)
-        estatus = EstatusBOM(bom['estatus'])
-        if estatus in ESTATUS_BLOQUEADOS:
-            raise ValueError(f"El BOM esta en estado {estatus} y no permite modificaciones")
-        if (
-            area_editor == "construccion"
-            and estatus in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA
-        ):
-            raise ValueError(self._mensaje_propuesta_requerida())
-
-        if area_editor == 'ingenieria':
-            await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
-
-        es_rol_bom = await self.es_bom_role(conn, bom, user_id)
-        if not es_rol_bom:
-            # Fallback: permisos originales por area_editor
-            await self._validar_edicion_items(conn, id_bom, area_editor)
-
+        """Agrega linea, grupos e historial como una sola mutacion de la cabeza."""
         if self._decimal_o_error(cantidad, "La cantidad debe ser mayor a cero") <= 0:
             raise ValueError("La cantidad debe ser mayor a cero")
         if (
@@ -474,32 +1122,43 @@ class BomService(BomComprasServiceMixin):
             ) < 0
         ):
             raise ValueError("El precio unitario no puede ser negativo")
-
-        orden = await self.db.get_next_orden(conn, id_bom)
-
-        item = await self.db.agregar_item(
-            conn, id_bom, descripcion, cantidad,
-            id_categoria=id_categoria,
-            unidad_medida=unidad_medida,
-            comentarios=comentarios,
-            orden=orden,
-            precio_unitario=precio_unitario,
-            origen_precio=origen_precio,
-            id_material_ref=id_material_ref,
-            id_material_interno=id_material_interno,
-            tipo_partida=tipo_partida,
-            moneda=moneda
+        if not grupo_ids:
+            raise ValueError("Selecciona al menos un grupo BOM")
+        distribucion_grupos = self._normalizar_distribucion_grupos(
+            grupo_ids, grupo_porcentajes
         )
 
-        if estatus != EstatusBOM.BORRADOR:
+        async with conn.transaction():
+            bom = await self._reservar_mutacion_base(
+                conn, id_bom, user_id, lock_version_esperado,
+                user_role, rol_org, module_roles,
+            )
+            orden = await self.db.get_next_orden(conn, id_bom)
+            item = await self.db.agregar_item(
+                conn, id_bom, descripcion, cantidad,
+                id_categoria=id_categoria,
+                unidad_medida=unidad_medida,
+                comentarios=comentarios,
+                orden=orden,
+                precio_unitario=precio_unitario,
+                origen_precio=origen_precio,
+                id_material_ref=id_material_ref,
+                id_material_interno=id_material_interno,
+                tipo_partida=tipo_partida,
+                moneda=moneda,
+                creado_por=user_id,
+            )
+            await self.db.set_item_grupos(conn, item["id_item"], grupo_ids)
+            await self._guardar_distribucion_grupos(
+                conn, item["id_item"], distribucion_grupos
+            )
             await self.db.registrar_historial(
                 conn, id_bom, AccionHistorial.AGREGADO,
-                bom['version'], user_id,
-                id_item=item['id_item'],
-                campo_modificado='item',
-                valor_nuevo=descripcion
+                bom["version"], user_id,
+                id_item=item["id_item"],
+                campo_modificado="item",
+                valor_nuevo=descripcion,
             )
-
         return item
 
     @staticmethod
@@ -515,6 +1174,37 @@ class BomService(BomComprasServiceMixin):
             return Decimal(str(valor))
         except (InvalidOperation, TypeError, ValueError):
             raise ValueError(mensaje) from None
+
+    @staticmethod
+    def _normalizar_distribucion_grupos(
+        grupo_ids: List[int], porcentajes: Optional[dict[int, Decimal]] = None,
+    ) -> dict[int, Decimal]:
+        ids = list(dict.fromkeys(grupo_ids))
+        if not ids:
+            raise ValueError("Selecciona al menos un grupo BOM")
+        if len(ids) == 1 and not porcentajes:
+            return {ids[0]: Decimal("1")}
+        if not porcentajes or set(porcentajes) != set(ids):
+            raise ValueError(
+                "Indica el porcentaje de cada grupo cuando un item pertenece a varios grupos"
+            )
+        normalizados = {
+            grupo_id: Decimal(str(porcentajes[grupo_id])) for grupo_id in ids
+        }
+        if any(valor <= 0 or valor > 1 for valor in normalizados.values()):
+            raise ValueError(
+                "Cada porcentaje de grupo debe ser mayor a cero y menor o igual a 100"
+            )
+        if abs(sum(normalizados.values()) - Decimal("1")) > Decimal("0.000001"):
+            raise ValueError("Los porcentajes de grupo deben sumar 100")
+        return normalizados
+
+    async def _guardar_distribucion_grupos(
+        self, conn, id_item: UUID, porcentajes: dict[int, Decimal],
+    ) -> None:
+        guardar = getattr(self.db, "set_distribucion_grupos_item", None)
+        if guardar:
+            await guardar(conn, id_item, porcentajes)
 
     @staticmethod
     def _datos_item_adenda(**campos) -> dict:
@@ -595,7 +1285,7 @@ class BomService(BomComprasServiceMixin):
                 conn, item["id_bom"], "NO_ADQUIRIDO", motivo, user_id
             )
             await self.db.registrar_adenda_item(
-                conn, adenda["id_adenda"], "NO_ADQUIRIDO", motivo,
+                conn, adenda["id_adenda"], item["id_bom"], "NO_ADQUIRIDO", motivo,
                 id_item_origen=id_item,
             )
             await self.db.registrar_historial(
@@ -611,6 +1301,7 @@ class BomService(BomComprasServiceMixin):
     async def crear_reemplazo_item(
         self, conn, id_item_origen: UUID, user_id: UUID,
         descripcion: str, cantidad, grupo_ids: List[int], motivo: str,
+        grupo_porcentajes: Optional[dict[int, Decimal]] = None,
         id_categoria: Optional[int] = None,
         unidad_medida: Optional[str] = None,
         comentarios: Optional[str] = None,
@@ -637,6 +1328,9 @@ class BomService(BomComprasServiceMixin):
             raise ValueError("El precio unitario no puede ser negativo")
         if not grupo_ids:
             raise ValueError("Selecciona al menos un grupo BOM")
+        distribucion_grupos = self._normalizar_distribucion_grupos(
+            grupo_ids, grupo_porcentajes
+        )
 
         item_origen, bom = await self._validar_item_base_para_adenda(conn, id_item_origen)
 
@@ -645,7 +1339,7 @@ class BomService(BomComprasServiceMixin):
                 conn, item_origen["id_bom"], "REEMPLAZO", motivo, user_id
             )
             await self.db.registrar_adenda_item(
-                conn, adenda["id_adenda"], "REEMPLAZO", motivo,
+                conn, adenda["id_adenda"], item_origen["id_bom"], "REEMPLAZO", motivo,
                 id_item_origen=id_item_origen,
                 datos_item=self._datos_item_adenda(
                     descripcion=descripcion,
@@ -659,6 +1353,10 @@ class BomService(BomComprasServiceMixin):
                     id_material_interno=id_material_interno,
                     tipo_partida=tipo_partida,
                     moneda=moneda,
+                    _grupo_porcentajes={
+                        str(grupo_id): str(porcentaje)
+                        for grupo_id, porcentaje in distribucion_grupos.items()
+                    },
                 ),
                 grupo_ids=grupo_ids,
             )
@@ -675,6 +1373,7 @@ class BomService(BomComprasServiceMixin):
     async def agregar_fuera_scope(
         self, conn, id_bom: UUID, user_id: UUID,
         descripcion: str, cantidad, grupo_ids: List[int], motivo: str,
+        grupo_porcentajes: Optional[dict[int, Decimal]] = None,
         id_categoria: Optional[int] = None,
         unidad_medida: Optional[str] = None,
         comentarios: Optional[str] = None,
@@ -701,6 +1400,9 @@ class BomService(BomComprasServiceMixin):
             raise ValueError("El precio unitario no puede ser negativo")
         if not grupo_ids:
             raise ValueError("Selecciona al menos un grupo BOM")
+        distribucion_grupos = self._normalizar_distribucion_grupos(
+            grupo_ids, grupo_porcentajes
+        )
 
         bom = await self._validar_bom_aprobado_final_para_adenda(conn, id_bom)
 
@@ -709,7 +1411,7 @@ class BomService(BomComprasServiceMixin):
                 conn, id_bom, "FUERA_SCOPE", motivo, user_id
             )
             await self.db.registrar_adenda_item(
-                conn, adenda["id_adenda"], "FUERA_SCOPE", motivo,
+                conn, adenda["id_adenda"], id_bom, "FUERA_SCOPE", motivo,
                 datos_item=self._datos_item_adenda(
                     descripcion=descripcion,
                     cantidad=cantidad,
@@ -722,6 +1424,10 @@ class BomService(BomComprasServiceMixin):
                     id_material_interno=id_material_interno,
                     tipo_partida=tipo_partida,
                     moneda=moneda,
+                    _grupo_porcentajes={
+                        str(grupo_id): str(porcentaje)
+                        for grupo_id, porcentaje in distribucion_grupos.items()
+                    },
                 ),
                 grupo_ids=grupo_ids,
             )
@@ -763,19 +1469,13 @@ class BomService(BomComprasServiceMixin):
 
     @staticmethod
     def requiere_propuesta_construccion(bom: dict, area_editor: str) -> bool:
-        return (
-            area_editor == "construccion"
-            and bom
-            and bom.get("estatus") in ESTATUS_PROPUESTA_CAMBIO
-        )
+        # El actor que controla Obra/Construccion edita directamente; las
+        # propuestas quedan solo como sugerencias explicitas fuera de turno.
+        return False
 
     @staticmethod
     def base_construccion_bloqueada(bom: dict, area_editor: str) -> bool:
-        return (
-            area_editor == "construccion"
-            and bom
-            and bom.get("estatus") in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA
-        )
+        return False
 
     @staticmethod
     def _lineas_propuesta_json_safe(lineas: list) -> list:
@@ -804,6 +1504,82 @@ class BomService(BomComprasServiceMixin):
             conn, id_adenda, comentario_limpio, user_id
         )
 
+    async def _calcular_snapshot_adenda(self, conn, adenda: dict) -> dict:
+        """Congela el impacto monetario firmado de una adenda aprobada."""
+        lineas = await self.db.get_adenda_items(conn, adenda["id_adenda"])
+        if not lineas:
+            raise ValueError("La adenda no tiene lineas para aplicar")
+        ids_origen = sorted(
+            {
+                linea["id_item_origen"]
+                for linea in lineas
+                if linea.get("id_item_origen")
+            },
+            key=str,
+        )
+        if ids_origen:
+            bloqueados = await self.db.lock_items_context_by_ids(conn, ids_origen)
+            if len(bloqueados) != len(ids_origen) or any(
+                str(item["id_bom"]) != str(adenda["id_bom_base"])
+                for item in bloqueados
+            ):
+                raise ValueError("La adenda contiene un item invalido")
+
+        impacto_mxn = Decimal("0")
+        impacto_usd = Decimal("0")
+
+        def acumular(moneda, importe):
+            nonlocal impacto_mxn, impacto_usd
+            moneda_normalizada = (moneda or "").strip().upper()
+            if moneda_normalizada not in {"MXN", "USD"}:
+                raise ValueError(
+                    "La adenda contiene una moneda desconocida; corrige el item antes de aprobar"
+                )
+            if moneda_normalizada == "USD":
+                impacto_usd += importe
+            else:
+                impacto_mxn += importe
+
+        for linea in lineas:
+            tipo = linea["tipo_linea"]
+            if tipo in {"REEMPLAZO", "NO_ADQUIRIDO"}:
+                if (
+                    linea.get("origen_cantidad") is None
+                    or linea.get("origen_precio_unitario") is None
+                ):
+                    raise ValueError(
+                        "La adenda contiene un costo base desconocido; corrige el item antes de aprobar"
+                    )
+                cantidad_origen = Decimal(str(linea["origen_cantidad"]))
+                precio_origen = Decimal(str(linea["origen_precio_unitario"]))
+                acumular(linea.get("origen_moneda"), -(cantidad_origen * precio_origen))
+            if tipo in {"REEMPLAZO", "FUERA_SCOPE"}:
+                datos = self._datos_item_desde_adenda(linea.get("datos_item"))
+                if datos.get("cantidad") is None or datos.get("precio_unitario") is None:
+                    raise ValueError(
+                        "La adenda contiene un costo nuevo desconocido; corrige el item antes de aprobar"
+                    )
+                cantidad = Decimal(str(datos["cantidad"]))
+                precio = Decimal(str(datos["precio_unitario"]))
+                acumular(datos.get("moneda"), cantidad * precio)
+
+        tipo_cambio = await self.db.get_tipo_cambio_vigente(conn)
+        tasa = Decimal(str(tipo_cambio["tasa_mxn"])) if tipo_cambio else None
+        if impacto_usd and not tasa:
+            raise ValueError(
+                "No hay tipo de cambio vigente para congelar el impacto de la adenda"
+            )
+        impacto_total = impacto_mxn + (impacto_usd * tasa if tasa else 0)
+        return {
+            "tipo_cambio_aprobacion": tasa,
+            "fecha_tipo_cambio_aprobacion": (
+                tipo_cambio.get("fecha") if tipo_cambio else None
+            ),
+            "impacto_base_mxn_snapshot": impacto_mxn,
+            "impacto_base_usd_snapshot": impacto_usd,
+            "impacto_aprobado_mxn": impacto_total,
+        }
+
     async def _aplicar_adenda(self, conn, adenda: dict, user_id: UUID) -> None:
         """Aplica lineas de adenda aprobadas dentro de la transaccion activa."""
         lineas = await self.db.get_adenda_items(conn, adenda["id_adenda"])
@@ -816,12 +1592,21 @@ class BomService(BomComprasServiceMixin):
 
             if tipo_linea == "NO_ADQUIRIDO":
                 id_item_origen = linea["id_item_origen"]
-                await self._validar_item_base_para_adenda(conn, id_item_origen)
-                await self.db.upsert_item_ejecucion(
+                item_origen, _ = await self._validar_item_base_para_adenda(
+                    conn, id_item_origen
+                )
+                ejecucion = await self.db.upsert_item_ejecucion(
                     conn, id_item_origen, updated_by=user_id,
+                    lock_version_esperado=item_origen.get(
+                        "ejecucion_lock_version", 0
+                    ),
                     estatus_ejecucion="NO_ADQUIRIDO",
                     comentarios_operativos=motivo,
                 )
+                if not ejecucion:
+                    raise ValueError(
+                        "La ejecución del ítem cambió; recarga la adenda"
+                    )
                 await self.db.registrar_historial(
                     conn, adenda["id_bom_base"], AccionHistorial.EDITADO,
                     adenda["bom_version"], user_id,
@@ -832,6 +1617,19 @@ class BomService(BomComprasServiceMixin):
                 continue
 
             datos = self._datos_item_desde_adenda(linea.get("datos_item"))
+            grupo_ids = list(linea.get("grupo_ids") or [])
+            porcentajes_json = datos.pop("_grupo_porcentajes", None)
+            grupo_porcentajes = (
+                {
+                    int(grupo_id): Decimal(str(porcentaje))
+                    for grupo_id, porcentaje in porcentajes_json.items()
+                }
+                if porcentajes_json
+                else None
+            )
+            distribucion_grupos = self._normalizar_distribucion_grupos(
+                grupo_ids, grupo_porcentajes
+            )
             orden = await self.db.get_next_orden(conn, adenda["id_bom_base"])
             tipo_origen = (
                 TIPO_ITEM_REEMPLAZO
@@ -839,8 +1637,11 @@ class BomService(BomComprasServiceMixin):
                 else TIPO_ITEM_FUERA_SCOPE
             )
             id_item_origen = linea.get("id_item_origen")
+            item_origen = None
             if tipo_linea == "REEMPLAZO":
-                await self._validar_item_base_para_adenda(conn, id_item_origen)
+                item_origen, _ = await self._validar_item_base_para_adenda(
+                    conn, id_item_origen
+                )
 
             item = await self.db.agregar_item(
                 conn,
@@ -861,20 +1662,31 @@ class BomService(BomComprasServiceMixin):
                 id_item_reemplazado=id_item_origen,
                 motivo_adenda=motivo,
                 creado_en_adenda=adenda["id_adenda"],
+                creado_por=user_id,
             )
             await self.db.set_item_grupos_operativos(
-                conn, item["id_item"], list(linea.get("grupo_ids") or []), user_id
+                conn, item["id_item"], grupo_ids, user_id
+            )
+            await self._guardar_distribucion_grupos(
+                conn, item["id_item"], distribucion_grupos
             )
             await self.db.vincular_adenda_item_bom(
                 conn, linea["id_adenda_item"], item["id_item"]
             )
 
             if tipo_linea == "REEMPLAZO":
-                await self.db.upsert_item_ejecucion(
+                ejecucion = await self.db.upsert_item_ejecucion(
                     conn, id_item_origen, updated_by=user_id,
+                    lock_version_esperado=item_origen.get(
+                        "ejecucion_lock_version", 0
+                    ),
                     estatus_ejecucion="REEMPLAZADO",
                     comentarios_operativos=motivo,
                 )
+                if not ejecucion:
+                    raise ValueError(
+                        "La ejecución del ítem cambió; recarga la adenda"
+                    )
 
             await self.db.registrar_historial(
                 conn, adenda["id_bom_base"], AccionHistorial.AGREGADO,
@@ -890,7 +1702,8 @@ class BomService(BomComprasServiceMixin):
 
     async def aprobar_adenda_construccion(
         self, conn, id_adenda: UUID, user_id: UUID, user_role: str,
-        rol_org: Optional[str] = None, requiere_ingenieria: bool = False
+        rol_org: Optional[str] = None, requiere_ingenieria: bool = False,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Aprueba una adenda por Construccion y la aplica si no requiere Ingenieria."""
         adenda = await self.db.get_adenda_by_id(conn, id_adenda)
@@ -906,16 +1719,42 @@ class BomService(BomComprasServiceMixin):
         )
 
         async with conn.transaction():
+            bom_bloqueado = await self.db.get_bom_for_update(
+                conn, adenda["id_bom_base"]
+            )
+            if not bom_bloqueado or bom_bloqueado["estatus"] != "APROBADO_FINAL":
+                raise ValueError("El BOM ya no esta aprobado final")
+            bloqueada = await self.db.get_adenda_for_update(conn, id_adenda)
+            if not bloqueada or bloqueada["estatus"] != ESTATUS_ADENDA_PENDIENTE_CONSTRUCCION:
+                raise ValueError("La adenda cambio; recarga el BOM e intenta de nuevo")
+            revision = self._resolver_revision(lock_version_esperado)
+            snapshot = (
+                await self._calcular_snapshot_adenda(conn, adenda)
+                if not requiere_ingenieria
+                else {}
+            )
             if not requiere_ingenieria:
                 await self._aplicar_adenda(conn, adenda, user_id)
             updated = await self.db.marcar_adenda_construccion(
-                conn, id_adenda, user_id, requiere_ingenieria
+                conn, id_adenda, user_id, requiere_ingenieria, revision, **snapshot
+            )
+            if not updated:
+                raise ValueError("La adenda cambio; recarga el BOM e intenta de nuevo")
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"BOM-ADENDA:{id_adenda}:{updated['lock_version']}:CONSTRUCCION",
+                "ADENDA_APROBADA" if not requiere_ingenieria else "ADENDA_PENDIENTE_INGENIERIA",
+                adenda["id_proyecto"], user_id,
+                {"tipo_adenda": adenda["tipo_adenda"], "version": adenda["bom_version"]},
+                id_paquete=adenda.get("id_paquete"), id_bom=adenda["id_bom_base"],
+                id_documento=id_adenda,
             )
         return updated
 
     async def aprobar_adenda_ingenieria(
         self, conn, id_adenda: UUID, user_id: UUID, user_role: str,
-        rol_org: Optional[str] = None
+        rol_org: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Aprueba tecnicamente una adenda y aplica sus cambios."""
         adenda = await self.db.get_adenda_by_id(conn, id_adenda)
@@ -931,13 +1770,36 @@ class BomService(BomComprasServiceMixin):
         )
 
         async with conn.transaction():
+            bom_bloqueado = await self.db.get_bom_for_update(
+                conn, adenda["id_bom_base"]
+            )
+            if not bom_bloqueado or bom_bloqueado["estatus"] != "APROBADO_FINAL":
+                raise ValueError("El BOM ya no esta aprobado final")
+            bloqueada = await self.db.get_adenda_for_update(conn, id_adenda)
+            if not bloqueada or bloqueada["estatus"] != ESTATUS_ADENDA_PENDIENTE_INGENIERIA:
+                raise ValueError("La adenda cambio; recarga el BOM e intenta de nuevo")
+            revision = self._resolver_revision(lock_version_esperado)
+            snapshot = await self._calcular_snapshot_adenda(conn, adenda)
             await self._aplicar_adenda(conn, adenda, user_id)
-            updated = await self.db.aprobar_adenda_ingenieria(conn, id_adenda, user_id)
+            updated = await self.db.aprobar_adenda_ingenieria(
+                conn, id_adenda, user_id, revision, **snapshot
+            )
+            if not updated:
+                raise ValueError("La adenda cambio; recarga el BOM e intenta de nuevo")
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"BOM-ADENDA:{id_adenda}:{updated['lock_version']}:INGENIERIA",
+                "ADENDA_APROBADA", adenda["id_proyecto"], user_id,
+                {"tipo_adenda": adenda["tipo_adenda"], "version": adenda["bom_version"]},
+                id_paquete=adenda.get("id_paquete"), id_bom=adenda["id_bom_base"],
+                id_documento=id_adenda,
+            )
         return updated
 
     async def rechazar_adenda(
         self, conn, id_adenda: UUID, user_id: UUID, user_role: str,
-        rol_org: Optional[str], motivo_rechazo: str
+        rol_org: Optional[str], motivo_rechazo: str,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Rechaza una adenda pendiente sin mutar items."""
         motivo = (motivo_rechazo or "").strip()
@@ -960,11 +1822,29 @@ class BomService(BomComprasServiceMixin):
             )
         else:
             raise ValueError("La adenda no esta pendiente de aprobacion")
-        return await self.db.rechazar_adenda(conn, id_adenda, user_id, motivo)
+        async with conn.transaction():
+            bloqueada = await self.db.get_adenda_for_update(conn, id_adenda)
+            if not bloqueada or bloqueada["estatus"] != adenda["estatus"]:
+                raise ValueError("La adenda cambio; recarga el BOM e intenta de nuevo")
+            revision = self._resolver_revision(lock_version_esperado)
+            updated = await self.db.rechazar_adenda(
+                conn, id_adenda, user_id, motivo, adenda["estatus"], revision
+            )
+            if not updated:
+                raise ValueError("La adenda cambio; recarga el BOM e intenta de nuevo")
+            await self.db.registrar_evento_outbox(
+                conn, f"BOM-ADENDA:{id_adenda}:{updated['lock_version']}:RECHAZADA",
+                "ADENDA_RECHAZADA", adenda["id_proyecto"], user_id,
+                {"motivo": motivo, "version": adenda["bom_version"]},
+                id_paquete=adenda.get("id_paquete"), id_bom=adenda["id_bom_base"],
+                id_documento=id_adenda,
+            )
+        return updated
 
     async def cancelar_adenda(
         self, conn, id_adenda: UUID, user_id: UUID, user_role: str,
-        rol_org: Optional[str] = None
+        rol_org: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Cancela una adenda pendiente de construccion sin mutar items."""
         adenda = await self.db.get_adenda_by_id(conn, id_adenda)
@@ -976,7 +1856,17 @@ class BomService(BomComprasServiceMixin):
             conn, user_id, user_role, rol_org,
             adenda.get("jefe_construccion"), "Jefe de Construccion", "jefe_construccion"
         )
-        return await self.db.cancelar_adenda(conn, id_adenda, user_id)
+        async with conn.transaction():
+            bloqueada = await self.db.get_adenda_for_update(conn, id_adenda)
+            if not bloqueada or bloqueada["estatus"] != ESTATUS_ADENDA_PENDIENTE_CONSTRUCCION:
+                raise ValueError("La adenda cambio; recarga el BOM e intenta de nuevo")
+            revision = self._resolver_revision(lock_version_esperado)
+            updated = await self.db.cancelar_adenda(
+                conn, id_adenda, user_id, revision
+            )
+            if not updated:
+                raise ValueError("La adenda cambio; recarga el BOM e intenta de nuevo")
+        return updated
 
     @staticmethod
     def _normalizar_lineas_propuesta(lineas) -> list:
@@ -1176,6 +2066,8 @@ class BomService(BomComprasServiceMixin):
         rol_org: Optional[str] = None, lineas_revision=None,
         ingenieria_modifico: bool = False,
         comentario_revision: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
+        bom_lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Aprueba una propuesta pre-final y aplica sus lineas en transaccion."""
         propuesta = await self.db.get_propuesta_cambio_by_id(conn, id_propuesta)
@@ -1221,19 +2113,71 @@ class BomService(BomComprasServiceMixin):
             )
             campos_limpios["fecha_envio_final"] = now_mx()
 
+        if lock_version_esperado is None or bom_lock_version_esperado is None:
+            raise ValueError("La propuesta cambio; recarga el paquete e intenta de nuevo")
+
         async with conn.transaction():
-            await self._aplicar_lineas_propuesta(conn, propuesta, lineas, user_id)
-            updated = await self.db.actualizar_propuesta_cambio_revision(
-                conn, id_propuesta, "APLICADA", user_id, comentario_revision
+            bom_bloqueado = await self.db.get_bom_for_update(
+                conn, propuesta["id_bom"]
             )
-            await self.db.update_bom_estatus(
-                conn, propuesta["id_bom"], siguiente_estatus, **campos_limpios
+            if not bom_bloqueado:
+                raise ValueError("BOM no encontrado")
+            if bom_bloqueado["estatus"] != propuesta["bom_estatus"]:
+                raise ValueError("El BOM cambio de etapa; recarga el paquete")
+            propuesta_bloqueada = await self.db.get_propuesta_cambio_for_update(
+                conn, id_propuesta
+            )
+            if (
+                not propuesta_bloqueada
+                or propuesta_bloqueada["estatus"] != "PENDIENTE_INGENIERIA"
+                or propuesta_bloqueada["lock_version"] != lock_version_esperado
+            ):
+                raise ValueError("La propuesta ya fue atendida o cambio; recarga el paquete")
+            ids_afectados = sorted(
+                {
+                    UUID(str(linea["id_item"]))
+                    for linea in lineas
+                    if linea.get("id_item")
+                },
+                key=str,
+            )
+            if ids_afectados:
+                bloqueados = await self.db.lock_items_context_by_ids(conn, ids_afectados)
+                if len(bloqueados) != len(ids_afectados) or any(
+                    str(item["id_bom"]) != str(propuesta["id_bom"])
+                    for item in bloqueados
+                ):
+                    raise ValueError("La propuesta contiene un item invalido")
+            bom_actualizado = await self.db.update_bom_estatus_cas(
+                conn, propuesta["id_bom"], propuesta["bom_estatus"],
+                bom_lock_version_esperado, siguiente_estatus.value, **campos_limpios,
+            )
+            if not bom_actualizado:
+                raise ValueError("El BOM cambio; recarga el paquete e intenta de nuevo")
+            await self._aplicar_lineas_propuesta(
+                conn, propuesta_bloqueada, lineas, user_id
+            )
+            updated = await self.db.actualizar_propuesta_cambio_revision(
+                conn, id_propuesta, "APLICADA", user_id, comentario_revision,
+                lock_version_esperado,
+            )
+            if not updated:
+                raise ValueError("La propuesta ya fue atendida; recarga el paquete")
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"PROPUESTA:{id_propuesta}:{updated['lock_version']}:APLICADA",
+                "PROPUESTA_APLICADA", propuesta["id_proyecto"], user_id,
+                {"id_propuesta": str(id_propuesta), "estado": "APLICADA"},
+                id_paquete=propuesta.get("id_paquete"),
+                id_bom=propuesta["id_bom"],
+                id_documento=id_propuesta,
             )
         return updated
 
     async def rechazar_propuesta_cambio(
         self, conn, id_propuesta: UUID, user_id: UUID, user_role: str,
-        rol_org: Optional[str], comentario_revision: str
+        rol_org: Optional[str], comentario_revision: str,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Rechaza una propuesta pre-final sin aplicar cambios."""
         comentario = (comentario_revision or "").strip()
@@ -1248,187 +2192,236 @@ class BomService(BomComprasServiceMixin):
             conn, user_id, user_role, rol_org,
             propuesta.get("responsable_ing"), "Responsable de Ingenieria", "jefe_ingenieria"
         )
-        return await self.db.actualizar_propuesta_cambio_revision(
-            conn, id_propuesta, "RECHAZADA", user_id, comentario
-        )
+        if lock_version_esperado is None:
+            raise ValueError("La propuesta cambio; recarga el paquete e intenta de nuevo")
+        async with conn.transaction():
+            bloqueada = await self.db.get_propuesta_cambio_for_update(conn, id_propuesta)
+            if (
+                not bloqueada
+                or bloqueada["estatus"] != "PENDIENTE_INGENIERIA"
+                or bloqueada["lock_version"] != lock_version_esperado
+            ):
+                raise ValueError("La propuesta ya fue atendida o cambio; recarga el paquete")
+            updated = await self.db.actualizar_propuesta_cambio_revision(
+                conn, id_propuesta, "RECHAZADA", user_id, comentario,
+                lock_version_esperado,
+            )
+            if not updated:
+                raise ValueError("La propuesta ya fue atendida; recarga el paquete")
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"PROPUESTA:{id_propuesta}:{updated['lock_version']}:RECHAZADA",
+                "PROPUESTA_RECHAZADA", propuesta["id_proyecto"], user_id,
+                {"id_propuesta": str(id_propuesta), "estado": "RECHAZADA"},
+                id_paquete=propuesta.get("id_paquete"),
+                id_bom=propuesta["id_bom"],
+                id_documento=id_propuesta,
+            )
+        return updated
 
     async def editar_item(
         self, conn, id_item: UUID, user_id: UUID,
-        area_editor: str, **campos
+        area_editor: str, lock_version_esperado: Optional[int] = None,
+        ejecucion_lock_version_esperado: Optional[int] = None,
+        user_role: Optional[str] = None,
+        rol_org: Optional[str] = None,
+        module_roles: Optional[dict] = None,
+        grupo_ids: Optional[List[int]] = None,
+        grupo_porcentajes: Optional[dict[int, Decimal]] = None,
+        reservar_bom: bool = True,
+        **campos,
     ) -> dict:
-        """
-        Edita un item del BOM. Valida permisos segun area del editor.
-        area_editor: 'ingenieria', 'construccion', 'compras'
-        """
+        """Edita base por turno y ejecucion por modulo, sin dividir secciones por actor."""
         item = await self.db.get_item_by_id(conn, id_item)
         if not item:
             raise ValueError("Item no encontrado")
-        if not item.get('activo', True):
+        if not item.get("activo", True):
             raise ValueError("No se puede editar un item eliminado")
-        if item.get('bloqueado'):
-            raise ValueError("Este item fue completado en una version anterior del BOM y no se puede modificar")
+        if item.get("bloqueado") and any(k in CAMPOS_BASE_BOM for k in campos):
+            raise ValueError("Este item pertenece a una linea historica bloqueada")
 
-        bom_estatus = EstatusBOM(item['bom_estatus'])
-        es_catalogo = item.get('origen_precio') == 'CATALOGO'
-
-        if area_editor == 'ingenieria':
-            await self._validar_retomar_bom_ingenieria(conn, item['id_proyecto'], user_id)
-
-        # Campos protegidos: items de catalogo no permiten cambiar identidad tecnica.
-        # El costo si queda editable para resolver items sin presupuesto.
-        campos_protegidos_catalogo = {
-            'descripcion', 'id_material_ref', 'unidad_medida'
+        campos_base = {k: v for k, v in campos.items() if k in CAMPOS_BASE_BOM}
+        if area_editor == "compras":
+            for campo_real in {"precio_unitario", "moneda", "comentarios"}:
+                campos_base.pop(campo_real, None)
+        campos_ejecucion_permitidos = (
+            CAMPOS_CONSTRUCCION_EJECUCION
+            if area_editor == "construccion"
+            else CAMPOS_COMPRAS if area_editor == "compras" else set()
+        )
+        campos_ejecucion_entrada = {
+            k: v for k, v in campos.items()
+            if k in campos_ejecucion_permitidos
         }
+        entregado_manual = campos_ejecucion_entrada.get("entregado")
+        if item.get("origen_precio") == "CATALOGO":
+            for protegido in {"descripcion", "id_material_ref", "unidad_medida"}:
+                campos_base.pop(protegido, None)
+        if "cantidad" in campos_base:
+            cantidad = self._decimal_o_error(
+                campos_base["cantidad"], "La cantidad debe ser mayor a cero"
+            )
+            if cantidad <= 0:
+                raise ValueError("La cantidad debe ser mayor a cero")
+        if campos_base.get("precio_unitario") is not None:
+            precio = self._decimal_o_error(
+                campos_base["precio_unitario"],
+                "El precio unitario no puede ser negativo",
+            )
+            if precio < 0:
+                raise ValueError("El precio unitario no puede ser negativo")
 
-        # Validar que campos correspondan al area del editor y separar base vs ejecucion.
-        campos_base = {}
-        campos_ejecucion = {}
-        if area_editor == 'ingenieria':
-            if bom_estatus not in ESTATUS_EDITABLE_ING:
-                raise ValueError("El BOM no esta en estado editable para ingenieria")
-            campos_base = {k: v for k, v in campos.items() if k in CAMPOS_INGENIERIA}
-            if 'precio_unitario' in campos_base and campos_base['precio_unitario'] is not None:
-                if self._decimal_o_error(
-                    campos_base['precio_unitario'],
-                    "El precio unitario no puede ser negativo",
-                ) < 0:
-                    raise ValueError("El precio unitario no puede ser negativo")
-            # Items de catalogo: remover campos protegidos
-            if es_catalogo:
-                campos_base = {
-                    k: v for k, v in campos_base.items()
-                    if k not in campos_protegidos_catalogo
-                }
-        elif area_editor == 'construccion':
-            if bom_estatus not in ESTATUS_EDITABLE_CONST_COMPRAS:
-                raise ValueError("El BOM no esta en estado editable para construccion")
-            if (
-                bom_estatus in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA
-                and any(k in CAMPOS_CONSTRUCCION_BASE for k in campos)
-            ):
-                raise ValueError(self._mensaje_propuesta_requerida())
-            puede_actualizar_base_construccion = bom_estatus not in ESTATUS_BLOQUEADOS
-            if puede_actualizar_base_construccion:
-                campos_base = {
-                    k: v for k, v in campos.items()
-                    if k in CAMPOS_CONSTRUCCION_BASE
-                }
-            campos_ejecucion = {
-                k: v for k, v in campos.items()
-                if k in CAMPOS_CONSTRUCCION_EJECUCION
-            }
-            if 'comentarios' in campos_ejecucion:
-                campos_ejecucion['comentarios_operativos'] = campos_ejecucion.pop('comentarios')
-            # Recepcion parcial: auto-calcular entregado segun cantidad recibida
-            if 'cantidad_recibida' in campos_ejecucion:
-                cant_recibida = self._decimal_o_error(
-                    campos_ejecucion['cantidad_recibida'],
-                    "La cantidad recibida no puede ser negativa",
-                )
-                cant_total = self._decimal_o_error(
-                    item['cantidad'],
-                    "La cantidad total del item no es valida",
-                )
-                if cant_recibida < 0:
-                    raise ValueError("La cantidad recibida no puede ser negativa")
-                if cant_recibida > cant_total:
-                    raise ValueError("La cantidad recibida no puede exceder la cantidad total del item")
-                if cant_recibida >= cant_total:
-                    campos_ejecucion.setdefault('estatus_ejecucion', 'RECIBIDO_TOTAL')
-                    if puede_actualizar_base_construccion:
-                        campos_base['entregado'] = True
-                        campos_base['fecha_entrega_check'] = now_mx()
-                elif cant_recibida > 0:
-                    campos_ejecucion.setdefault('estatus_ejecucion', 'RECIBIDO_PARCIAL')
-                    if puede_actualizar_base_construccion:
-                        campos_base['entregado'] = False
-                        campos_base['fecha_entrega_check'] = None
-                else:
-                    if puede_actualizar_base_construccion:
-                        campos_base['entregado'] = False
-                        campos_base['fecha_entrega_check'] = None
-            # Marcar entregado manualmente (si no viene cantidad_recibida)
-            elif 'entregado' in campos_ejecucion and campos_ejecucion['entregado']:
-                campos_ejecucion['cantidad_recibida'] = item['cantidad']
-                campos_ejecucion.setdefault('estatus_ejecucion', 'RECIBIDO_TOTAL')
-                if puede_actualizar_base_construccion:
-                    campos_base['entregado'] = True
-                    campos_base['fecha_entrega_check'] = now_mx()
-            elif 'entregado' in campos_ejecucion and not campos_ejecucion['entregado']:
-                campos_ejecucion['cantidad_recibida'] = 0
-                if puede_actualizar_base_construccion:
-                    campos_base['entregado'] = False
-                    campos_base['fecha_entrega_check'] = None
-            campos_ejecucion.pop('entregado', None)
-        elif area_editor == 'compras':
-            if bom_estatus not in ESTATUS_EDITABLE_CONST_COMPRAS:
-                raise ValueError("El BOM no esta en estado editable para compras")
-            campos_compras = {k: v for k, v in campos.items() if k in CAMPOS_COMPRAS}
-            mapping = {
-                'id_proveedor': 'id_proveedor_real',
-                'precio_unitario': 'precio_real',
-                'moneda': 'moneda_real',
-                'comentarios': 'comentarios_operativos',
-            }
-            campos_ejecucion = {
-                mapping.get(k, k): v for k, v in campos_compras.items()
-                if k not in {'origen_precio'}
-            }
-            if 'precio_real' in campos_ejecucion and campos_ejecucion['precio_real'] is not None:
-                if self._decimal_o_error(
-                    campos_ejecucion['precio_real'],
-                    "El precio unitario no puede ser negativo",
-                ) < 0:
-                    raise ValueError("El precio unitario no puede ser negativo")
-                campos_ejecucion.setdefault('estatus_ejecucion', 'COTIZADO')
-        else:
-            raise ValueError("Sin permisos para editar items del BOM")
-
-        if not campos_base and not campos_ejecucion:
+        mapping_ejecucion = {
+            "id_proveedor": "id_proveedor_real",
+            "precio_unitario": "precio_real",
+            "moneda": "moneda_real",
+            "comentarios": "comentarios_operativos",
+        }
+        campos_ejecucion = {
+            mapping_ejecucion.get(k, k): v
+            for k, v in campos_ejecucion_entrada.items()
+            if k not in {"origen_precio", "entregado"}
+        }
+        if "cantidad_recibida" in campos_ejecucion:
+            recibida = self._decimal_o_error(
+                campos_ejecucion["cantidad_recibida"],
+                "La cantidad recibida no puede ser negativa",
+            )
+            total = self._decimal_o_error(item["cantidad"], "Cantidad de item invalida")
+            if recibida < 0 or recibida > total:
+                raise ValueError("La cantidad recibida debe estar entre cero y la cantidad total")
+            campos_ejecucion.setdefault(
+                "estatus_ejecucion",
+                "RECIBIDO_TOTAL" if recibida == total else (
+                    "RECIBIDO_PARCIAL" if recibida > 0 else "PENDIENTE"
+                ),
+            )
+        elif entregado_manual is True:
+            campos_ejecucion["cantidad_recibida"] = item["cantidad"]
+            campos_ejecucion.setdefault("estatus_ejecucion", "RECIBIDO_TOTAL")
+        elif entregado_manual is False:
+            campos_ejecucion["cantidad_recibida"] = 0
+        if campos_ejecucion.get("precio_real") is not None:
+            precio_real = self._decimal_o_error(
+                campos_ejecucion["precio_real"], "El costo real no puede ser negativo"
+            )
+            if precio_real < 0:
+                raise ValueError("El costo real no puede ser negativo")
+            campos_ejecucion.setdefault("estatus_ejecucion", "COTIZADO")
+        if grupo_ids is not None and not grupo_ids:
+            raise ValueError("Selecciona al menos un grupo BOM")
+        distribucion_grupos = (
+            self._normalizar_distribucion_grupos(grupo_ids, grupo_porcentajes)
+            if grupo_ids is not None else None
+        )
+        if not campos_base and not campos_ejecucion and grupo_ids is None:
             raise ValueError("No hay campos validos para actualizar")
 
-        # Registrar cambios en historial
-        historial_campos = []
-        historial_campos.extend((campo, campo, valor) for campo, valor in campos_base.items())
-        ejecucion_public_keys = {
-            'id_proveedor_real': 'id_proveedor',
-            'precio_real': 'precio_real',
-            'moneda_real': 'moneda_real',
-            'cantidad_recibida': 'cantidad_recibida',
-            'fecha_estimada_entrega': 'fecha_estimada_entrega',
-            'fecha_llegada_real': 'fecha_llegada_real',
-            'tipo_entrega': 'tipo_entrega',
-            'estatus_ejecucion': 'estatus_ejecucion',
-            'comentarios_operativos': 'comentarios_operativos',
-        }
-        historial_campos.extend(
-            (campo, ejecucion_public_keys.get(campo, campo), valor)
-            for campo, valor in campos_ejecucion.items()
-        )
-        if bom_estatus != EstatusBOM.BORRADOR:
-            for campo_hist, campo_actual, valor_nuevo in historial_campos:
-                valor_anterior = item.get(campo_actual)
-                if str(valor_anterior) != str(valor_nuevo):
-                    await self.db.registrar_historial(
-                        conn, item['id_bom'], AccionHistorial.EDITADO,
-                        item['bom_version'], user_id,
-                        id_item=id_item,
-                        campo_modificado=CAMPO_LABELS.get(campo_hist, campo_hist),
-                        valor_anterior=str(valor_anterior) if valor_anterior is not None else None,
-                        valor_nuevo=str(valor_nuevo) if valor_nuevo is not None else None
-                    )
-
-        if campos_base:
-            await self.db.update_item(conn, id_item, **campos_base)
-        if campos_ejecucion:
-            await self.db.upsert_item_ejecucion(
-                conn, id_item, updated_by=user_id, **campos_ejecucion
+        async with conn.transaction():
+            bom = await self.db.get_bom_by_id(conn, item["id_bom"])
+            if not bom:
+                raise ValueError("BOM no encontrado")
+            capacidades = await self.get_capacidades_bom(
+                conn, bom, user_id, user_role, rol_org, module_roles
             )
+            grupos_base = (
+                grupo_ids is not None
+                and EstatusBOM(bom["estatus"]) != EstatusBOM.APROBADO_FINAL
+            )
+            muta_ejecucion = bool(
+                campos_ejecucion or (grupo_ids is not None and not grupos_base)
+            )
+            if muta_ejecucion and ejecucion_lock_version_esperado is None:
+                raise ValueError(
+                    "Falta la revisión de ejecución; recarga el paquete e intenta de nuevo"
+                )
+            if (campos_base or grupos_base) and reservar_bom:
+                bom = await self._reservar_mutacion_base(
+                    conn, item["id_bom"], user_id, lock_version_esperado,
+                    user_role, rol_org, module_roles,
+                )
+            elif (campos_base or grupos_base) and not capacidades["editar_base"]:
+                turno = capacidades.get("actor_turno") or "el actor asignado"
+                raise ValueError(f"Solo {turno} puede modificar el BOM en esta etapa")
+            if campos_ejecucion and not capacidades["editar_ejecucion"]:
+                raise ValueError("Solo Construccion o Compras pueden actualizar la ejecucion")
+            if grupo_ids is not None and not grupos_base and not capacidades["editar_ejecucion"]:
+                raise ValueError("Solo Construccion puede actualizar grupos operativos")
+
+            cambios = []
+            for campo, valor in campos_base.items():
+                cambios.append((campo, item.get(campo), valor))
+            publicos = {
+                "id_proveedor_real": "id_proveedor",
+                "precio_real": "precio_real",
+                "moneda_real": "moneda_real",
+            }
+            for campo, valor in campos_ejecucion.items():
+                cambios.append((campo, item.get(publicos.get(campo, campo)), valor))
+
+            if campos_base:
+                await self.db.update_item(conn, id_item, **campos_base)
+            if campos_ejecucion:
+                ejecucion = await self.db.upsert_item_ejecucion(
+                    conn, id_item, updated_by=user_id,
+                    lock_version_esperado=ejecucion_lock_version_esperado,
+                    **campos_ejecucion,
+                )
+                if not ejecucion:
+                    raise ValueError(
+                        "La ejecución del item cambió; recarga el paquete e intenta de nuevo"
+                    )
+            elif grupo_ids is not None and not grupos_base:
+                ejecucion = await self.db.upsert_item_ejecucion(
+                    conn, id_item, updated_by=user_id,
+                    lock_version_esperado=ejecucion_lock_version_esperado,
+                    estatus_ejecucion=(
+                        item.get("estatus_ejecucion") or "PENDIENTE"
+                    ),
+                )
+                if not ejecucion:
+                    raise ValueError(
+                        "La ejecución del item cambió; recarga el paquete e intenta de nuevo"
+                    )
+            if grupo_ids is not None:
+                anteriores = (
+                    await self.db.get_grupos_por_item(conn, id_item)
+                    if grupos_base
+                    else await self.db.get_grupos_operativos_por_item(conn, id_item)
+                )
+                if grupos_base:
+                    await self.db.set_item_grupos(conn, id_item, grupo_ids)
+                    campo_grupo = "grupos_bom"
+                else:
+                    await self.db.set_item_grupos_operativos(
+                        conn, id_item, grupo_ids, user_id
+                    )
+                    campo_grupo = "grupos_operativos"
+                await self._guardar_distribucion_grupos(
+                    conn, id_item, distribucion_grupos
+                )
+                await self.db.registrar_historial(
+                    conn, item["id_bom"], AccionHistorial.EDITADO,
+                    item["bom_version"], user_id,
+                    id_item=id_item,
+                    campo_modificado=CAMPO_LABELS[campo_grupo],
+                    valor_anterior=", ".join(anteriores) if anteriores else None,
+                    valor_nuevo=", ".join(str(value) for value in grupo_ids),
+                )
+            for campo, anterior, nuevo in cambios:
+                if str(anterior) != str(nuevo):
+                    await self.db.registrar_historial(
+                        conn, item["id_bom"], AccionHistorial.EDITADO,
+                        item["bom_version"], user_id,
+                        id_item=id_item,
+                        campo_modificado=CAMPO_LABELS.get(campo, campo),
+                        valor_anterior=str(anterior) if anterior is not None else None,
+                        valor_nuevo=str(nuevo) if nuevo is not None else None,
+                    )
         return await self.db.get_item_by_id(conn, id_item)
 
     async def _validar_item_bulk(
-        self, conn, item: Optional[dict], id_bom: UUID, user_id: UUID,
-        area_editor: str, permisos_ing_cache: dict
+        self, item: Optional[dict], id_bom: UUID, area_editor: str,
     ) -> None:
         """Valida que un item pueda editarse dentro de una operacion bulk."""
         if not item:
@@ -1440,45 +2433,19 @@ class BomService(BomComprasServiceMixin):
         if item.get('bloqueado'):
             raise ValueError("Este item fue completado en una version anterior del BOM y no se puede modificar")
 
-        bom_estatus = EstatusBOM(item['bom_estatus'])
-        if area_editor == 'ingenieria':
-            id_proyecto = item['id_proyecto']
-            cache_key = str(id_proyecto)
-            if cache_key not in permisos_ing_cache:
-                try:
-                    await self._validar_retomar_bom_ingenieria(conn, id_proyecto, user_id)
-                    permisos_ing_cache[cache_key] = None
-                except ValueError as exc:
-                    permisos_ing_cache[cache_key] = str(exc)
-            if permisos_ing_cache[cache_key]:
-                raise ValueError(permisos_ing_cache[cache_key])
-            if bom_estatus not in ESTATUS_EDITABLE_ING:
-                raise ValueError("El BOM no esta en estado editable para ingenieria")
-        elif area_editor == 'construccion':
-            if bom_estatus in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA:
-                raise ValueError(self._mensaje_propuesta_requerida())
-            if bom_estatus not in ESTATUS_EDITABLE_CONST_COMPRAS:
-                raise ValueError("El BOM no esta en estado editable para construccion")
-        elif area_editor == 'compras':
-            if bom_estatus not in ESTATUS_EDITABLE_CONST_COMPRAS:
-                raise ValueError("El BOM no esta en estado editable para compras")
-        else:
+        if area_editor not in {"ingenieria", "construccion", "compras"}:
             raise ValueError("Sin permisos para editar items del BOM")
 
     async def editar_items_bulk(
         self, conn, id_bom: UUID, item_ids: List[UUID], user_id: UUID,
         area_editor: str, campo: str,
         valor=None, grupo_ids: Optional[List[int]] = None,
+        lock_version_esperado: Optional[int] = None,
+        user_role: Optional[str] = None,
+        rol_org: Optional[str] = None,
+        module_roles: Optional[dict] = None,
     ) -> dict:
-        """Aplica un mismo cambio a varios items del BOM.
-
-        Reutiliza editar_item/set_item_grupos por item, heredando validacion,
-        proteccion de catalogo e historial. Captura ValueError por item y
-        continua, devolviendo cuantos se actualizaron y cuales se omitieron
-        (decision: aplicar a los validos, reportar el resto).
-
-        campo == 'grupos' reemplaza la clasificacion tecnica con grupo_ids.
-        """
+        """Aplica un cambio atomico al lote con una sola reserva de la base."""
         if area_editor not in ('ingenieria', 'construccion', 'compras'):
             raise ValueError("Sin permisos para editar items del BOM")
         if not item_ids:
@@ -1487,83 +2454,91 @@ class BomService(BomComprasServiceMixin):
 
         es_grupos = campo == 'grupos'
         if es_grupos:
-            if area_editor not in ('ingenieria', 'construccion'):
-                raise ValueError("Solo Ingenieria y Construccion pueden cambiar grupos")
             if not grupo_ids:
                 raise ValueError("Selecciona al menos un grupo BOM")
-        elif campo not in CAMPOS_BULK.get(area_editor, set()):
+            if len(set(grupo_ids)) != 1:
+                raise ValueError(
+                    "La edición masiva de grupos permite un solo grupo; distribuye porcentajes por item"
+                )
+        elif (
+            campo not in CAMPOS_BULK_BASE
+            and campo not in CAMPOS_BULK.get(area_editor, set())
+        ):
             raise ValueError("Campo no editable en lote para tu area")
 
-        items_context = await self.db.get_items_context_by_ids(conn, item_ids)
-        items_por_id = {str(item['id_item']): item for item in items_context}
-        permisos_ing_cache = {}
-        actualizados = 0
-        omitidos = []
-        # Transaccion unica: los items omitidos por ValueError no escriben nada
-        # (se validan antes de tocar BD), y un PostgresError a mitad del lote
-        # revierte todo en vez de dejar items a medio aplicar.
         async with conn.transaction():
-            for id_item in item_ids:
-                try:
-                    item = items_por_id.get(str(id_item))
-                    await self._validar_item_bulk(
-                        conn, item, id_bom, user_id, area_editor, permisos_ing_cache
+            bom = await self.db.get_bom_by_id(conn, id_bom)
+            if not bom:
+                raise ValueError("BOM no encontrado")
+            grupos_base = es_grupos and EstatusBOM(bom["estatus"]) != EstatusBOM.APROBADO_FINAL
+            redirigido_a_ejecucion = (
+                area_editor == "compras"
+                and campo in {"precio_unitario", "moneda", "comentarios"}
+            )
+            muta_base = (
+                campo in CAMPOS_BASE_BOM and not redirigido_a_ejecucion
+            ) or grupos_base
+            if muta_base:
+                if lock_version_esperado is None:
+                    raise ValueError(
+                        "Falta la revision del BOM; recarga el paquete e intenta de nuevo"
                     )
-                    if es_grupos:
-                        if EstatusBOM(item['bom_estatus']) == EstatusBOM.APROBADO_FINAL:
-                            raise ValueError("El BOM aprobado final no permite cambiar grupos")
-                        if (
-                            area_editor == "construccion"
-                            and EstatusBOM(item["bom_estatus"])
-                            in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA
-                        ):
-                            raise ValueError(self._mensaje_propuesta_requerida())
-                        await self.set_item_grupos(
-                            conn, id_item, user_id, grupo_ids, area_editor
-                        )
-                    else:
-                        await self.editar_item(conn, id_item, user_id, area_editor, **{campo: valor})
-                    actualizados += 1
-                except ValueError as e:
-                    omitidos.append({'id_item': id_item, 'motivo': str(e)})
-        return {'actualizados': actualizados, 'omitidos': omitidos}
+                await self._reservar_mutacion_base(
+                    conn, id_bom, user_id, lock_version_esperado,
+                    user_role, rol_org, module_roles,
+                )
 
-    async def eliminar_item(self, conn, id_item: UUID, user_id: UUID, area_editor: str = 'ingenieria') -> dict:
-        """Soft delete de un item. Valida permisos segun area."""
+            items_context = await self.db.lock_items_context_by_ids(conn, item_ids)
+            items_por_id = {str(item["id_item"]): item for item in items_context}
+            for id_item in item_ids:
+                item = items_por_id.get(str(id_item))
+                await self._validar_item_bulk(item, id_bom, area_editor)
+
+            for id_item in item_ids:
+                item = items_por_id[str(id_item)]
+                await self.editar_item(
+                    conn, id_item, user_id, area_editor,
+                    ejecucion_lock_version_esperado=item.get("ejecucion_lock_version"),
+                    user_role=user_role,
+                    rol_org=rol_org,
+                    module_roles=module_roles,
+                    grupo_ids=grupo_ids if es_grupos else None,
+                    grupo_porcentajes=(
+                        {grupo_ids[0]: Decimal("1")} if es_grupos else None
+                    ),
+                    reservar_bom=False,
+                    **({} if es_grupos else {campo: valor}),
+                )
+        return {"actualizados": len(item_ids), "omitidos": []}
+
+    async def eliminar_item(
+        self, conn, id_item: UUID, user_id: UUID,
+        area_editor: str = "ingenieria",
+        lock_version_esperado: Optional[int] = None,
+        user_role: Optional[str] = None,
+        rol_org: Optional[str] = None,
+        module_roles: Optional[dict] = None,
+    ) -> dict:
         item = await self.db.get_item_by_id(conn, id_item)
         if not item:
             raise ValueError("Item no encontrado")
-        if item.get('bloqueado'):
-            raise ValueError("Este item fue completado en una version anterior del BOM y no se puede eliminar")
-
-        bom = await self.get_bom(conn, item['id_bom'])
-        estatus = EstatusBOM(bom['estatus'])
-        if estatus in ESTATUS_BLOQUEADOS:
-            raise ValueError(f"El BOM esta en estado {estatus} y no permite modificaciones")
-        if (
-            area_editor == "construccion"
-            and estatus in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA
-        ):
-            raise ValueError(self._mensaje_propuesta_requerida())
-
-        if area_editor == 'ingenieria':
-            await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
-
-        es_rol_bom = await self.es_bom_role(conn, bom, user_id)
-        if not es_rol_bom:
-            await self._validar_edicion_items(conn, item['id_bom'], area_editor)
-
-        deleted = await self.db.soft_delete_item(conn, id_item)
-
-        if estatus != EstatusBOM.BORRADOR:
-            await self.db.registrar_historial(
-                conn, item['id_bom'], AccionHistorial.ELIMINADO,
-                item['bom_version'], user_id,
-                id_item=id_item,
-                campo_modificado='item',
-                valor_anterior=item.get('descripcion')
+        if not item.get("activo", True):
+            raise ValueError("El item ya esta eliminado")
+        if item.get("bloqueado"):
+            raise ValueError("Este item pertenece a una linea historica bloqueada")
+        async with conn.transaction():
+            bom = await self._reservar_mutacion_base(
+                conn, item["id_bom"], user_id, lock_version_esperado,
+                user_role, rol_org, module_roles,
             )
-
+            deleted = await self.db.soft_delete_item(conn, id_item)
+            await self.db.registrar_historial(
+                conn, item["id_bom"], AccionHistorial.ELIMINADO,
+                bom["version"], user_id,
+                id_item=id_item,
+                campo_modificado="item",
+                valor_anterior=item.get("descripcion"),
+            )
         return deleted
 
     async def get_items(self, conn, id_bom: UUID) -> list:
@@ -1684,6 +2659,25 @@ class BomService(BomComprasServiceMixin):
         filas = await self.db.get_resumen_compra(conn, id_bom)
         divisores = await self.db.get_divisores_bom(conn, id_bom)
 
+        def _decimal(valor):
+            return None if valor is None else Decimal(str(valor))
+
+        def _sumar(valores):
+            valores = list(valores)
+            if any(valor is None for valor in valores):
+                return None
+            return sum(valores, Decimal("0"))
+
+        def _restar(minuendo, sustraendo):
+            if minuendo is None or sustraendo is None:
+                return None
+            return minuendo - sustraendo
+
+        def _sumar_dos(izquierdo, derecho):
+            if izquierdo is None or derecho is None:
+                return None
+            return izquierdo + derecho
+
         por_grupo: dict[str, dict] = {}
         for f in filas:
             grupo_codigo = f["grupo_codigo"] or "SIN_CLASIFICAR"
@@ -1693,47 +2687,46 @@ class BomService(BomComprasServiceMixin):
                 "orden": int(f["grupo_orden"] or 999),
                 "categorias": [],
             })
-            facturado = Decimal(str(f["facturado_confirmado_mxn"]))
-            facturado_sugerido = Decimal(str(f["facturado_sugerido_mxn"]))
+            facturado = _decimal(f["facturado_confirmado_mxn"])
+            facturado_sugerido = _decimal(f["facturado_sugerido_mxn"])
             cat = {
                 "categoria_id": f["categoria_id"],
                 "categoria_nombre": f["categoria_nombre"],
-                "presupuesto": Decimal(str(f["presupuesto_mxn"])),
-                "real": Decimal(str(f.get("compra_real_mxn") or 0)),
-                "real_base": Decimal(str(f.get("compra_real_base_mxn") or 0)),
-                "reemplazos": Decimal(str(f.get("reemplazos_mxn") or 0)),
-                "fuera_scope": Decimal(str(f.get("fuera_scope_mxn") or 0)),
-                "no_adquirido": Decimal(str(f.get("no_adquirido_mxn") or 0)),
+                "presupuesto": _decimal(f["presupuesto_mxn"]),
+                "real": _decimal(f.get("compra_real_mxn")),
+                "real_base": _decimal(f.get("compra_real_base_mxn")),
+                "reemplazos": _decimal(f.get("reemplazos_mxn")),
+                "fuera_scope": _decimal(f.get("fuera_scope_mxn")),
+                "no_adquirido": _decimal(f.get("no_adquirido_mxn")),
                 "facturado": facturado,
                 "facturado_sugerido": facturado_sugerido,
-                "facturado_total_potencial": facturado + facturado_sugerido,
-                "pagado": Decimal(str(f["pagado_mxn"])),
+                "facturado_total_potencial": _sumar_dos(
+                    facturado, facturado_sugerido
+                ),
+                "pagado": _decimal(f["pagado_mxn"]),
+                "valores_pendientes": int(f.get("valores_pendientes") or 0),
+                "grupos_pendientes": int(f.get("grupos_pendientes") or 0),
             }
-            cat["dif_real"] = cat["presupuesto"] - cat["real"]
-            cat["dif_facturado"] = cat["presupuesto"] - cat["facturado"]
-            cat["dif_pagado"] = cat["presupuesto"] - cat["pagado"]
+            cat["dif_real"] = _restar(cat["presupuesto"], cat["real"])
+            cat["dif_facturado"] = _restar(
+                cat["presupuesto"], cat["facturado"]
+            )
+            cat["dif_pagado"] = _restar(cat["presupuesto"], cat["pagado"])
             grupo["categorias"].append(cat)
 
         secciones = []
-        tot_presup = tot_fact = tot_pag = Decimal("0")
-        tot_sugerido = Decimal("0")
-        tot_real = Decimal("0")
-        tot_real_base = Decimal("0")
-        tot_reemplazos = Decimal("0")
-        tot_fuera_scope = Decimal("0")
-        tot_no_adquirido = Decimal("0")
 
         for grupo in sorted(por_grupo.values(), key=lambda g: (g["orden"], g["codigo"])):
             cats = grupo["categorias"]
-            s_presup = sum(c["presupuesto"] for c in cats)
-            s_real = sum(c["real"] for c in cats)
-            s_real_base = sum(c["real_base"] for c in cats)
-            s_reemplazos = sum(c["reemplazos"] for c in cats)
-            s_fuera_scope = sum(c["fuera_scope"] for c in cats)
-            s_no_adquirido = sum(c["no_adquirido"] for c in cats)
-            s_fact = sum(c["facturado"] for c in cats)
-            s_sug = sum(c["facturado_sugerido"] for c in cats)
-            s_pag = sum(c["pagado"] for c in cats)
+            s_presup = _sumar(c["presupuesto"] for c in cats)
+            s_real = _sumar(c["real"] for c in cats)
+            s_real_base = _sumar(c["real_base"] for c in cats)
+            s_reemplazos = _sumar(c["reemplazos"] for c in cats)
+            s_fuera_scope = _sumar(c["fuera_scope"] for c in cats)
+            s_no_adquirido = _sumar(c["no_adquirido"] for c in cats)
+            s_fact = _sumar(c["facturado"] for c in cats)
+            s_sug = _sumar(c["facturado_sugerido"] for c in cats)
+            s_pag = _sumar(c["pagado"] for c in cats)
             secciones.append({
                 "codigo": grupo["codigo"],
                 "nombre": grupo["nombre"],
@@ -1745,22 +2738,27 @@ class BomService(BomComprasServiceMixin):
                 "no_adquirido": s_no_adquirido,
                 "facturado": s_fact,
                 "facturado_sugerido": s_sug,
-                "facturado_total_potencial": s_fact + s_sug,
+                "facturado_total_potencial": _sumar_dos(s_fact, s_sug),
                 "pagado": s_pag,
-                "dif_real": s_presup - s_real,
-                "dif_facturado": s_presup - s_fact,
-                "dif_pagado": s_presup - s_pag,
+                "dif_real": _restar(s_presup, s_real),
+                "dif_facturado": _restar(s_presup, s_fact),
+                "dif_pagado": _restar(s_presup, s_pag),
+                "valores_pendientes": sum(
+                    c["valores_pendientes"] for c in cats
+                ),
+                "grupos_pendientes": sum(c["grupos_pendientes"] for c in cats),
                 "categorias": cats,
             })
-            tot_presup += s_presup
-            tot_real += s_real
-            tot_real_base += s_real_base
-            tot_reemplazos += s_reemplazos
-            tot_fuera_scope += s_fuera_scope
-            tot_no_adquirido += s_no_adquirido
-            tot_fact += s_fact
-            tot_sugerido += s_sug
-            tot_pag += s_pag
+
+        tot_presup = _sumar(s["presupuesto"] for s in secciones)
+        tot_real = _sumar(s["real"] for s in secciones)
+        tot_real_base = _sumar(s["real_base"] for s in secciones)
+        tot_reemplazos = _sumar(s["reemplazos"] for s in secciones)
+        tot_fuera_scope = _sumar(s["fuera_scope"] for s in secciones)
+        tot_no_adquirido = _sumar(s["no_adquirido"] for s in secciones)
+        tot_fact = _sumar(s["facturado"] for s in secciones)
+        tot_sugerido = _sumar(s["facturado_sugerido"] for s in secciones)
+        tot_pag = _sumar(s["pagado"] for s in secciones)
 
         totales = {
             "presupuesto": tot_presup,
@@ -1771,18 +2769,22 @@ class BomService(BomComprasServiceMixin):
             "no_adquirido": tot_no_adquirido,
             "facturado": tot_fact,
             "facturado_sugerido": tot_sugerido,
-            "facturado_total_potencial": tot_fact + tot_sugerido,
+            "facturado_total_potencial": _sumar_dos(tot_fact, tot_sugerido),
             "pagado": tot_pag,
-            "dif_real": tot_presup - tot_real,
-            "dif_facturado": tot_presup - tot_fact,
-            "dif_pagado": tot_presup - tot_pag,
+            "dif_real": _restar(tot_presup, tot_real),
+            "dif_facturado": _restar(tot_presup, tot_fact),
+            "dif_pagado": _restar(tot_presup, tot_pag),
+            "valores_pendientes": sum(
+                s["valores_pendientes"] for s in secciones
+            ),
+            "grupos_pendientes": sum(s["grupos_pendientes"] for s in secciones),
         }
 
         modulos = divisores["modulos_fv"]
         kwp = divisores["kwp"]
 
         def _por(divisor, valor):
-            if not divisor:
+            if not divisor or valor is None:
                 return None
             return round(valor / Decimal(str(divisor)), 2)
 
@@ -1804,19 +2806,22 @@ class BomService(BomComprasServiceMixin):
             "totales": totales,
             "metricas": metricas,
             "sin_datos": not secciones,
+            "reconciliacion_completa": not (
+                totales["valores_pendientes"] or totales["grupos_pendientes"]
+            ),
         }
 
     # ─── WORKFLOW DE APROBACION ──────────────────────────────
 
     async def enviar_revision_ing(
-        self, conn, id_bom: UUID, user_id: UUID
+        self, conn, id_bom: UUID, user_id: UUID,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Envia BOM a revision de responsable de ingenieria."""
         bom = await self.get_bom(conn, id_bom)
-        await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
-
-        if EstatusBOM(bom['estatus']) != EstatusBOM.BORRADOR:
-            raise ValueError("Solo se puede enviar a revision desde BORRADOR")
+        capacidades = await self.get_capacidades_bom(conn, bom, user_id)
+        if not capacidades["editar_base"]:
+            raise ValueError("Solo el Ingeniero responsable o el RI pueden enviar el borrador")
         await self.validar_responsables_workflow_bom(conn, bom)
 
         # Verificar que tenga items
@@ -1825,29 +2830,22 @@ class BomService(BomComprasServiceMixin):
             raise ValueError("El BOM debe tener al menos un item")
         await self.validar_sin_costos_pendientes(conn, id_bom)
 
-        update_kwargs = {
-            'fecha_envio_ing': now_mx()
-        }
-
-        await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.EN_REVISION_ING, **update_kwargs
-        )
-
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.ENVIO_REVISION_ING,
-            bom['version'], user_id
+        bom_updated = await self._transicionar_bom(
+            conn, id_bom, user_id,
+            EstatusBOM.BORRADOR, EstatusBOM.EN_REVISION_ING,
+            TipoAprobacion.ENVIO_REVISION_ING,
+            lock_version_esperado=lock_version_esperado,
+            fecha_envio_ing=now_mx(),
         )
 
         logger.info("BOM %s enviado a revision ing por %s", id_bom, user_id)
-        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
-        await self._notify_bom(conn, bom_updated, bom_updated.get('responsable_ing'),
-                               'ENVIADO_REVISION_ING', por_user_id=user_id)
 
         return bom_updated
 
     async def aprobar_ing(
         self, conn, id_bom: UUID, user_id: UUID, user_role: str,
-        rol_org: Optional[str] = None, comentarios: Optional[str] = None
+        rol_org: Optional[str] = None, comentarios: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Aprueba BOM por responsable de ingenieria."""
         bom = await self.get_bom(conn, id_bom)
@@ -1860,23 +2858,21 @@ class BomService(BomComprasServiceMixin):
             raise ValueError("El BOM debe estar EN_REVISION_ING para aprobar")
         await self.validar_sin_costos_pendientes(conn, id_bom)
 
-        await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.APROBADO_ING,
-            fecha_aprobacion_ing=now_mx()
-        )
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.APROBACION_ING,
-            bom['version'], user_id, comentarios=comentarios
+        bom_updated = await self._transicionar_bom(
+            conn, id_bom, user_id,
+            EstatusBOM.EN_REVISION_ING, EstatusBOM.APROBADO_ING,
+            TipoAprobacion.APROBACION_ING,
+            comentarios=comentarios,
+            lock_version_esperado=lock_version_esperado,
+            fecha_aprobacion_ing=now_mx(),
         )
         logger.info("BOM %s aprobado por ing %s", id_bom, user_id)
-        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
-        await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
-                               'APROBADO_ING', por_user_id=user_id)
         return bom_updated
 
     async def rechazar_ing(
         self, conn, id_bom: UUID, user_id: UUID, user_role: str,
-        rol_org: Optional[str] = None, comentarios: Optional[str] = None
+        rol_org: Optional[str] = None, comentarios: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Rechaza BOM por responsable de ingenieria. Vuelve a BORRADOR."""
         if not comentarios or not comentarios.strip():
@@ -1891,24 +2887,22 @@ class BomService(BomComprasServiceMixin):
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_ING:
             raise ValueError("El BOM debe estar EN_REVISION_ING para rechazar")
 
-        await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.BORRADOR,
-            fecha_envio_ing=None,
-            fecha_aprobacion_ing=None
-        )
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.RECHAZO_ING,
-            bom['version'], user_id, comentarios=comentarios
+        bom_updated = await self._transicionar_bom(
+            conn, id_bom, user_id,
+            EstatusBOM.EN_REVISION_ING, EstatusBOM.BORRADOR,
+            TipoAprobacion.RECHAZO_ING,
+            comentarios=comentarios,
+            lock_version_esperado=lock_version_esperado,
+            invalidar_ciclo=True,
+            **self._limpiar_fechas_flujo(),
         )
         logger.info("BOM %s rechazado por ing %s: %s", id_bom, user_id, comentarios)
-        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
-        await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
-                               'RECHAZADO_ING', por_user_id=user_id, comentarios=comentarios)
         return bom_updated
 
     async def aprobar_const(
         self, conn, id_bom: UUID, user_id: UUID, user_role: str,
-        rol_org: Optional[str] = None, comentarios: Optional[str] = None
+        rol_org: Optional[str] = None, comentarios: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Aprueba BOM por jefe de construccion. Estado final antes de compras."""
         bom = await self.get_bom(conn, id_bom)
@@ -1921,31 +2915,26 @@ class BomService(BomComprasServiceMixin):
             raise ValueError("El BOM debe estar EN_REVISION_CONST para aprobar")
         await self.validar_sin_costos_pendientes(conn, id_bom)
 
-        await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.APROBADO_CONST,
-            fecha_aprobacion_const=now_mx()
-        )
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.APROBACION_CONST,
-            bom['version'], user_id, comentarios=comentarios
+        bom_updated = await self._transicionar_bom(
+            conn, id_bom, user_id,
+            EstatusBOM.EN_REVISION_CONST, EstatusBOM.APROBADO_CONST,
+            TipoAprobacion.APROBACION_CONST,
+            comentarios=comentarios,
+            lock_version_esperado=lock_version_esperado,
+            fecha_aprobacion_const=now_mx(),
         )
         logger.info("BOM %s aprobado por const %s", id_bom, user_id)
-        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
-        await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
-                               'APROBADO_CONST', por_user_id=user_id)
         return bom_updated
 
     async def rechazar_const(
         self, conn, id_bom: UUID, user_id: UUID, user_role: str,
         rol_org: Optional[str] = None, comentarios: Optional[str] = None,
-        destino_rechazo: Optional[str] = None
+        destino_rechazo: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Rechaza BOM por construccion. Vuelve a Obra o a Borrador."""
         if not comentarios or not comentarios.strip():
             raise ValueError("El motivo del rechazo es obligatorio")
-        if destino_rechazo not in {"obra", "ingenieria"}:
-            raise ValueError("Destino de rechazo invalido")
-
         bom = await self.get_bom(conn, id_bom)
         await self._validar_aprobador_bom(
             conn, user_id, user_role, rol_org,
@@ -1955,66 +2944,42 @@ class BomService(BomComprasServiceMixin):
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_CONST:
             raise ValueError("El BOM debe estar EN_REVISION_CONST para rechazar")
 
-        if destino_rechazo == "obra":
-            nuevo_estatus = EstatusBOM.EN_REVISION_OBRA
-            campos_limpios = self._limpiar_fechas_flujo(
-                "fecha_aprobacion_obra",
-                "fecha_envio_const",
-                "fecha_aprobacion_const",
-                "fecha_envio_final",
-                "fecha_aprobacion_final",
-            )
-            notify_to = bom.get('coordinador_obra')
-        else:
-            nuevo_estatus = EstatusBOM.BORRADOR
-            campos_limpios = self._limpiar_fechas_flujo()
-            notify_to = bom.get('elaborado_por')
-
-        await self.db.update_bom_estatus(conn, id_bom, nuevo_estatus, **campos_limpios)
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.RECHAZO_CONST,
-            bom['version'], user_id, comentarios=comentarios,
-            destino_rechazo=destino_rechazo
+        bom_updated = await self._transicionar_bom(
+            conn, id_bom, user_id,
+            EstatusBOM.EN_REVISION_CONST, EstatusBOM.BORRADOR,
+            TipoAprobacion.RECHAZO_CONST,
+            comentarios=comentarios,
+            destino_rechazo="ingenieria",
+            lock_version_esperado=lock_version_esperado,
+            invalidar_ciclo=True,
+            **self._limpiar_fechas_flujo(),
         )
         logger.info(
             "BOM %s rechazado por const %s hacia %s: %s",
-            id_bom, user_id, destino_rechazo, comentarios
+            id_bom, user_id, "ingenieria", comentarios
         )
-        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
-        await self._notify_bom(conn, bom_updated, notify_to,
-                               'RECHAZADO_CONST', por_user_id=user_id, comentarios=comentarios)
         return bom_updated
 
     async def enviar_revision_obra(
-        self, conn, id_bom: UUID, user_id: UUID
+        self, conn, id_bom: UUID, user_id: UUID,
+        user_role: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Envia BOM aprobado por ing a revision del coordinador de obra."""
         bom = await self.get_bom(conn, id_bom)
-        await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
+        await self._validar_actor_asignado(
+            conn, user_id, user_role, {bom.get("responsable_ing")},
+            "el Responsable de Ingenieria",
+        )
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_ING:
             raise ValueError("El BOM debe estar APROBADO_ING para enviar a obra")
         await self.validar_sin_costos_pendientes(conn, id_bom)
 
-        # Coordinador de Obra y Jefe de Construccion se resuelven en vivo aqui (no se
-        # confia en la foto tomada al crear el BOM) para detectar personal asignado
-        # despues de la creacion, y se autocorrige tb_bom si cambiaron.
-        coordinador = await self.db.get_asignacion_proyecto(
-            conn, bom['id_proyecto'], "coordinador_obra", "CONSTRUCCION"
-        )
-        jefe_const = await self.db.get_responsable_proyecto_o_global(
-            conn, bom['id_proyecto'], "jefe_construccion"
-        )
-        # Sin fallback a bom.get(...): si la asignacion en vivo no encuentra a nadie,
-        # es porque el responsable original ya no esta activo en el proyecto y debe
-        # bloquear, no reusar la foto obsoleta tomada al crear el BOM.
-        coordinador_obra_id = coordinador["id_usuario"] if coordinador else None
-        jefe_construccion_id = jefe_const["id_usuario"] if jefe_const else None
-
         problemas = []
-        if not coordinador_obra_id:
+        if not bom.get("coordinador_obra"):
             problemas.append("falta Coordinador de Obra")
-        if not jefe_construccion_id:
+        if not bom.get("jefe_construccion"):
             problemas.append("falta Jefe de Construccion")
         if problemas:
             raise ValueError(
@@ -2022,127 +2987,162 @@ class BomService(BomComprasServiceMixin):
                 + ". Solicita al Jefe de Construccion que lo asigne."
             )
 
-        await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.EN_REVISION_OBRA,
+        bom_updated = await self._transicionar_bom(
+            conn, id_bom, user_id,
+            EstatusBOM.APROBADO_ING, EstatusBOM.EN_REVISION_OBRA,
+            TipoAprobacion.ENVIO_REVISION_OBRA,
+            lock_version_esperado=lock_version_esperado,
             fecha_envio_obra=now_mx(),
-            coordinador_obra=coordinador_obra_id,
-            jefe_construccion=jefe_construccion_id,
-        )
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.ENVIO_REVISION_OBRA,
-            bom['version'], user_id
         )
         logger.info("BOM %s enviado a revision obra por %s", id_bom, user_id)
-        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
-        await self._notify_bom(conn, bom_updated, bom_updated.get('coordinador_obra'),
-                               'ENVIADO_REVISION_OBRA', por_user_id=user_id)
         return bom_updated
 
     async def aprobar_revision_obra(
         self, conn, id_bom: UUID, user_id: UUID, user_role: str,
-        rol_org: Optional[str] = None, comentarios: Optional[str] = None
+        rol_org: Optional[str] = None, comentarios: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Aprueba BOM por coordinador de obra. Avanza automaticamente a EN_REVISION_CONST."""
         bom = await self.get_bom(conn, id_bom)
-        await self._validar_aprobador_bom(
-            conn, user_id, user_role, rol_org,
-            bom.get('coordinador_obra'), "Coordinador de Obra", "jefe_construccion"
+        await self._validar_actor_asignado(
+            conn, user_id, user_role,
+            {bom.get("coordinador_obra"), bom.get("jefe_construccion")},
+            "el Coordinador de Obra o el Responsable de Construccion",
         )
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_OBRA:
             raise ValueError("El BOM debe estar EN_REVISION_OBRA para aprobar")
         await self.validar_sin_costos_pendientes(conn, id_bom)
 
-        await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.EN_REVISION_CONST,
+        bom_updated = await self._transicionar_bom(
+            conn, id_bom, user_id,
+            EstatusBOM.EN_REVISION_OBRA, EstatusBOM.EN_REVISION_CONST,
+            TipoAprobacion.APROBACION_OBRA,
+            comentarios=comentarios,
+            lock_version_esperado=lock_version_esperado,
             fecha_aprobacion_obra=now_mx(),
-            fecha_envio_const=now_mx()
-        )
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.APROBACION_OBRA,
-            bom['version'], user_id, comentarios=comentarios
+            fecha_envio_const=now_mx(),
         )
         logger.info("BOM %s aprobado por obra %s, avanza a EN_REVISION_CONST", id_bom, user_id)
-        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
-        await self._notify_bom(conn, bom_updated, bom_updated.get('jefe_construccion'),
-                               'ENVIADO_REVISION_CONST', por_user_id=user_id)
         return bom_updated
 
     async def rechazar_obra(
         self, conn, id_bom: UUID, user_id: UUID, user_role: str,
-        rol_org: Optional[str] = None, comentarios: Optional[str] = None
+        rol_org: Optional[str] = None, comentarios: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Rechaza BOM por coordinador de obra. Vuelve a BORRADOR."""
         if not comentarios or not comentarios.strip():
             raise ValueError("El motivo del rechazo es obligatorio")
 
         bom = await self.get_bom(conn, id_bom)
-        await self._validar_aprobador_bom(
-            conn, user_id, user_role, rol_org,
-            bom.get('coordinador_obra'), "Coordinador de Obra", "jefe_construccion"
+        await self._validar_actor_asignado(
+            conn, user_id, user_role,
+            {bom.get("coordinador_obra"), bom.get("jefe_construccion")},
+            "el Coordinador de Obra o el Responsable de Construccion",
         )
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_OBRA:
             raise ValueError("El BOM debe estar EN_REVISION_OBRA para rechazar")
 
-        await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.BORRADOR,
-            **self._limpiar_fechas_flujo()
-        )
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.RECHAZO_OBRA,
-            bom['version'], user_id, comentarios=comentarios
+        bom_updated = await self._transicionar_bom(
+            conn, id_bom, user_id,
+            EstatusBOM.EN_REVISION_OBRA, EstatusBOM.BORRADOR,
+            TipoAprobacion.RECHAZO_OBRA,
+            comentarios=comentarios,
+            lock_version_esperado=lock_version_esperado,
+            invalidar_ciclo=True,
+            **self._limpiar_fechas_flujo(),
         )
         logger.info("BOM %s rechazado por obra %s: %s", id_bom, user_id, comentarios)
-        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
-        await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
-                               'RECHAZADO_OBRA', por_user_id=user_id, comentarios=comentarios)
         return bom_updated
 
     async def devolver_a_borrador(
         self, conn, id_bom: UUID, user_id: UUID,
-        comentarios: Optional[str] = None
+        comentarios: Optional[str] = None,
+        user_role: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Devuelve BOM de APROBADO_ING a BORRADOR para corregir tras rechazo de construccion."""
         bom = await self.get_bom(conn, id_bom)
-        await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
+        await self._validar_actor_asignado(
+            conn, user_id, user_role, {bom.get("responsable_ing")},
+            "el Responsable de Ingenieria",
+        )
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_ING:
             raise ValueError("Solo se puede devolver a borrador desde APROBADO_ING")
 
-        await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.BORRADOR,
-            fecha_envio_ing=None,
-            fecha_aprobacion_ing=None,
-            fecha_envio_const=None,
-            fecha_aprobacion_const=None
-        )
-
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.DEVOLUCION_BORRADOR,
-            bom['version'], user_id, comentarios=comentarios
+        actualizado = await self._transicionar_bom(
+            conn, id_bom, user_id,
+            EstatusBOM.APROBADO_ING, EstatusBOM.BORRADOR,
+            TipoAprobacion.DEVOLUCION_BORRADOR,
+            comentarios=comentarios,
+            lock_version_esperado=lock_version_esperado,
+            invalidar_ciclo=True,
+            **self._limpiar_fechas_flujo(),
         )
 
         logger.info("BOM %s devuelto a borrador por %s", id_bom, user_id)
-        return await self.db.get_bom_by_id(conn, id_bom)
+        return actualizado
 
     async def cancelar_bom(
         self, conn, id_bom: UUID, user_id: UUID,
-        comentarios: Optional[str] = None
+        comentarios: Optional[str] = None,
+        user_role: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Cancela un BOM en BORRADOR."""
         bom = await self.get_bom(conn, id_bom)
-        await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
+        await self._validar_actor_asignado(
+            conn, user_id, user_role,
+            {bom.get("ingeniero_responsable_id"), bom.get("responsable_ing")},
+            "el Ingeniero responsable o el Responsable de Ingenieria",
+        )
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.BORRADOR:
             raise ValueError("Solo se puede cancelar un BOM en BORRADOR")
+        if lock_version_esperado is None:
+            raise ValueError(
+                "Falta la revision del BOM; recarga el paquete e intenta de nuevo"
+            )
 
-        await self.db.update_bom_estatus(conn, id_bom, EstatusBOM.CANCELADO)
-
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.CANCELACION,
-            bom['version'], user_id, comentarios=comentarios
-        )
+        async with conn.transaction():
+            paquete = await self.db.get_paquete_for_update(conn, bom["id_paquete"])
+            bloqueado = await self.db.get_bom_for_update(conn, id_bom)
+            if not paquete or not bloqueado or paquete["cabeza_trabajo_id"] != id_bom:
+                raise ValueError("Solo se puede cancelar la cabeza de trabajo vigente")
+            cancelado = await self.db.update_bom_estatus_cas(
+                conn, id_bom, EstatusBOM.BORRADOR.value,
+                lock_version_esperado, EstatusBOM.CANCELADO.value,
+            )
+            if not cancelado:
+                raise ValueError(
+                    "El BOM cambio desde que abriste la pagina; recarga el paquete e intenta de nuevo"
+                )
+            await self.db.registrar_aprobacion(
+                conn, id_bom, TipoAprobacion.CANCELACION,
+                bom["version"], user_id, comentarios=comentarios,
+            )
+            if paquete.get("cabeza_oficial_id"):
+                cabeza = await self.db.actualizar_cabeza_trabajo(
+                    conn, bom["id_paquete"], paquete["cabeza_oficial_id"],
+                    paquete["lock_version"],
+                )
+            else:
+                cabeza = await self.db.actualizar_estado_paquete_cas(
+                    conn, bom["id_paquete"], paquete["lock_version"],
+                    paquete["estado_paquete"], "CANCELADO",
+                )
+            if not cabeza:
+                raise ValueError("No se pudo restaurar la cabeza vigente del paquete")
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"BOM:{id_bom}:{cancelado['lock_version']}:CANCELACION",
+                "CANCELACION", bom["id_proyecto"], user_id,
+                {"version": bom["version"], "comentarios": comentarios},
+                id_paquete=bom["id_paquete"], id_bom=id_bom,
+            )
 
         logger.info("BOM %s cancelado por %s", id_bom, user_id)
         return await self.db.get_bom_by_id(conn, id_bom)
@@ -2153,60 +3153,85 @@ class BomService(BomComprasServiceMixin):
 
     async def solicitar_modificacion(
         self, conn, id_bom: UUID, user_id: UUID,
-        comentarios: Optional[str] = None
+        comentarios: Optional[str] = None,
+        user_role: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
+        paquete_lock_version_esperado: Optional[int] = None,
     ) -> dict:
-        """
-        Solicita modificacion post-aprobacion.
-        Crea nueva version copiando items y pone en BORRADOR.
-        """
+        """Crea vN+1 unicamente desde la cabeza oficial vigente del paquete."""
         bom = await self.get_bom(conn, id_bom)
-        await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
-
-        ESTATUS_MODIFICABLE = {EstatusBOM.APROBADO_CONST, EstatusBOM.APROBADO_FINAL}
-        if EstatusBOM(bom['estatus']) not in ESTATUS_MODIFICABLE:
-            raise ValueError("Solo se puede solicitar modificacion de un BOM APROBADO_CONST o APROBADO_FINAL")
-
-        # Registrar solicitud en version actual
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.SOLICITUD_MODIFICACION,
-            bom['version'], user_id, comentarios=comentarios
+        await self._validar_actor_asignado(
+            conn, user_id, user_role,
+            {bom.get("ingeniero_responsable_id"), bom.get("responsable_ing")},
+            "el Ingeniero responsable o el Responsable de Ingenieria",
         )
+        if EstatusBOM(bom["estatus"]) != EstatusBOM.APROBADO_FINAL:
+            raise ValueError("Solo la cabeza oficial APROBADO_FINAL puede originar otra version")
+        if lock_version_esperado is None or paquete_lock_version_esperado is None:
+            raise ValueError("El paquete o BOM cambió; recarga la página.")
 
-        # Crear nueva version — re-resolver responsables frescos con fallback al BOM anterior
-        nueva_version = bom['version'] + 1
-        responsable = await self.db.get_responsable_proyecto_o_global(conn, bom['id_proyecto'], "jefe_ingenieria")
-        jefe_const = await self.db.get_responsable_proyecto_o_global(conn, bom['id_proyecto'], "jefe_construccion")
-        coordinador = await self.db.get_asignacion_proyecto(
-            conn, bom['id_proyecto'], "coordinador_obra", "CONSTRUCCION"
-        )
-        nuevo_bom = await self.db.crear_bom(
-            conn, bom['id_proyecto'], user_id,
-            responsable_ing=responsable["id_usuario"] if responsable else bom.get('responsable_ing'),
-            jefe_construccion=jefe_const["id_usuario"] if jefe_const else bom.get('jefe_construccion'),
-            coordinador_obra=coordinador["id_usuario"] if coordinador else bom.get('coordinador_obra'),
-            notas=f"Modificacion solicitada sobre v{bom['version']}. {comentarios or ''}".strip(),
-            version=nueva_version
-        )
-
-        # Copiar items activos
-        items_copiados = await self.db.copiar_items_a_nueva_version(
-            conn, id_bom, nuevo_bom['id_bom']
-        )
-
-        await self.db.registrar_historial(
-            conn, nuevo_bom['id_bom'], AccionHistorial.CREADO,
-            nueva_version, user_id,
-            campo_modificado='version',
-            valor_anterior=str(bom['version']),
-            valor_nuevo=str(nueva_version)
-        )
+        async with conn.transaction():
+            paquete = await self.db.get_paquete_for_update(conn, bom["id_paquete"])
+            origen = await self.db.get_bom_for_update(conn, id_bom)
+            if (
+                not paquete
+                or not origen
+                or paquete["lock_version"] != paquete_lock_version_esperado
+                or origen["lock_version"] != lock_version_esperado
+                or paquete.get("cabeza_oficial_id") != id_bom
+                or paquete.get("cabeza_trabajo_id") != id_bom
+            ):
+                raise ValueError(
+                    "El paquete ya tiene otra version en curso o esta version dejo de ser oficial"
+                )
+            nueva_version = origen["version"] + 1
+            nuevo_bom = await self.db.crear_bom(
+                conn, origen["id_proyecto"], user_id,
+                responsable_ing=origen.get("responsable_ing"),
+                jefe_construccion=origen.get("jefe_construccion"),
+                coordinador_obra=origen.get("coordinador_obra"),
+                notas=(
+                    f"Modificacion solicitada sobre v{origen['version']}. "
+                    f"{comentarios or ''}"
+                ).strip(),
+                version=nueva_version,
+                id_paquete=origen["id_paquete"],
+                ingeniero_responsable_id=paquete["ingeniero_responsable_id"],
+            )
+            items_copiados = await self.db.copiar_items_a_nueva_version(
+                conn, id_bom, nuevo_bom["id_bom"]
+            )
+            cabeza = await self.db.actualizar_cabeza_trabajo(
+                conn, origen["id_paquete"], nuevo_bom["id_bom"],
+                paquete_lock_version_esperado,
+            )
+            if not cabeza:
+                raise ValueError("Otra solicitud de modificacion gano la carrera")
+            await self.db.registrar_aprobacion(
+                conn, id_bom, TipoAprobacion.SOLICITUD_MODIFICACION,
+                origen["version"], user_id, comentarios=comentarios,
+            )
+            await self.db.registrar_historial(
+                conn, nuevo_bom["id_bom"], AccionHistorial.CREADO,
+                nueva_version, user_id,
+                campo_modificado="version",
+                valor_anterior=str(origen["version"]),
+                valor_nuevo=str(nueva_version),
+            )
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"BOM:{nuevo_bom['id_bom']}:0:NUEVA_VERSION",
+                "NUEVA_VERSION", origen["id_proyecto"], user_id,
+                {"version_origen": origen["version"], "version_nueva": nueva_version},
+                id_paquete=origen["id_paquete"], id_bom=nuevo_bom["id_bom"],
+            )
 
         logger.info(
-            "Nueva version BOM creada: proyecto=%s, v%d->v%d, %d items copiados",
-            bom['id_proyecto'], bom['version'], nueva_version, items_copiados
+            "Nueva version BOM creada: proyecto=%s paquete=%s v%d->v%d items=%d",
+            origen["id_proyecto"], origen["id_paquete"], origen["version"],
+            nueva_version, items_copiados,
         )
-
-        return await self.db.get_bom_by_id(conn, nuevo_bom['id_bom'])
+        return await self.db.get_bom_by_id(conn, nuevo_bom["id_bom"])
 
     # ─── HISTORIAL Y APROBACIONES ────────────────────────────
 
@@ -2226,7 +3251,8 @@ class BomService(BomComprasServiceMixin):
 
     async def get_titulares_que_representa(self, conn, user_id: UUID) -> Set[UUID]:
         """Retorna el user_id + los titulares cuya suplencia activa tiene este usuario."""
-        titulares = await self.db.get_titulares_que_representa(conn, user_id)
+        getter = getattr(self.db, "get_titulares_que_representa", None)
+        titulares = await getter(conn, user_id) if getter else []
         result = set(titulares)
         result.add(user_id)
         return result
@@ -2248,58 +3274,52 @@ class BomService(BomComprasServiceMixin):
         } - {None}
         return bool(representados & bom_roles)
 
+    @staticmethod
+    def puede_versionar_bom(
+        bom: dict, representados: Set[UUID], role: Optional[str] = None,
+    ) -> bool:
+        """ADMIN o titular/suplente del ingeniero responsable/de diseno del BOM."""
+        if role == "ADMIN":
+            return True
+        return bool(
+            representados
+            & {bom.get("ingeniero_responsable_id"), bom.get("responsable_ing")}
+            - {None}
+        )
+
     # ─── GRUPOS BOM ─────────────────────────────────────────
+
+    # ─── SUPLENCIAS ─────────────────────────────────────────
 
     async def set_item_grupos(
         self, conn, id_item: UUID, user_id: UUID, grupo_ids: List[int],
-        area_editor: str = "ingenieria"
+        area_editor: str = "ingenieria",
+        grupo_porcentajes: Optional[dict[int, Decimal]] = None,
+        lock_version_esperado: Optional[int] = None,
+        user_role: Optional[str] = None,
+        rol_org: Optional[str] = None,
+        module_roles: Optional[dict] = None,
     ) -> None:
-        """Asigna grupos base u operativos a un item segun estado del BOM."""
         if not grupo_ids:
             raise ValueError("Selecciona al menos un grupo BOM")
-        item = await self.db.get_item_by_id(conn, id_item)
-        if not item:
-            raise ValueError("Item no encontrado")
-        bom_estatus = EstatusBOM(item["bom_estatus"])
-        auditar = bom_estatus != EstatusBOM.BORRADOR
-        if bom_estatus == EstatusBOM.APROBADO_FINAL:
-            if area_editor != "construccion":
-                raise ValueError("Solo Construccion puede cambiar grupos operativos en aprobado final")
-            grupos_anteriores = await self.db.get_grupos_operativos_por_item(conn, id_item) if auditar else None
-            await self.db.set_item_grupos_operativos(conn, id_item, grupo_ids, user_id)
-            campo_modificado = "grupos_operativos"
-        else:
-            if area_editor not in {"ingenieria", "construccion"}:
-                raise ValueError("Sin permisos para asignar grupos BOM")
-            if (
-                area_editor == "construccion"
-                and bom_estatus in ESTATUS_BASE_CONSTRUCCION_BLOQUEADA
-            ):
-                raise ValueError(self._mensaje_propuesta_requerida())
-            grupos_anteriores = await self.db.get_grupos_por_item(conn, id_item) if auditar else None
-            await self.db.set_item_grupos(conn, id_item, grupo_ids)
-            campo_modificado = "grupos_bom"
-        if auditar:
-            catalogo_grupos = await self.db.get_grupos_bom(conn)
-            codigos_por_id = {g['id']: g['codigo'] for g in catalogo_grupos}
-            grupos_nuevos = [codigos_por_id.get(gid, str(gid)) for gid in grupo_ids]
-            await self.db.registrar_historial(
-                conn, item['id_bom'], AccionHistorial.EDITADO,
-                item['bom_version'], user_id,
-                id_item=id_item,
-                campo_modificado=CAMPO_LABELS.get(campo_modificado, campo_modificado),
-                valor_anterior=", ".join(grupos_anteriores) if grupos_anteriores else None,
-                valor_nuevo=", ".join(grupos_nuevos)
-            )
-
-    # ─── SUPLENCIAS ─────────────────────────────────────────
+        await self.editar_item(
+            conn, id_item, user_id, area_editor,
+            lock_version_esperado=lock_version_esperado,
+            user_role=user_role,
+            rol_org=rol_org,
+            module_roles=module_roles,
+            grupo_ids=grupo_ids,
+            grupo_porcentajes=grupo_porcentajes,
+        )
 
     async def get_suplencia_activa(self, conn, user_id: UUID) -> Optional[dict]:
         """Suplencia activa vigente del usuario (como titular)."""
         return await self.db.get_suplencia_activa_del_titular(conn, user_id)
 
     async def configurar_suplente(
-        self, conn, titular_id: UUID, suplente_id: UUID, fecha_fin
+        self, conn, titular_id: UUID, suplente_id: UUID, fecha_fin,
+        id_esperado: Optional[int] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Configura suplente para el usuario. Valida que la fecha sea futura."""
         from datetime import date as date_type
@@ -2307,20 +3327,38 @@ class BomService(BomComprasServiceMixin):
             fecha_fin = date_type.fromisoformat(fecha_fin)
         if fecha_fin < today_mx():
             raise ValueError("La fecha fin de la suplencia debe ser futura")
+        if suplente_id == titular_id:
+            raise ValueError("No puedes designarte como tu propio suplente")
         suplente = await self.db.get_usuario_activo_basico(conn, suplente_id)
         if not suplente:
             raise ValueError("El usuario suplente no existe o no esta activo")
-        return await self.db.crear_suplencia(conn, titular_id, suplente_id, fecha_fin)
+        async with conn.transaction():
+            suplencia = await self.db.crear_suplencia(
+                conn, titular_id, suplente_id, fecha_fin,
+                id_esperado, lock_version_esperado,
+            )
+            if not suplencia:
+                raise ValueError("La suplencia cambió; vuelve a abrir el formulario.")
+        return suplencia
 
-    async def eliminar_suplencia(self, conn, titular_id: UUID) -> None:
+    async def eliminar_suplencia(
+        self, conn, titular_id: UUID, id_esperado: int,
+        lock_version_esperado: int,
+    ) -> None:
         """Desactiva la suplencia activa del usuario."""
-        await self.db.desactivar_suplencia(conn, titular_id)
+        async with conn.transaction():
+            eliminada = await self.db.desactivar_suplencia(
+                conn, titular_id, id_esperado, lock_version_esperado
+            )
+            if not eliminada:
+                raise ValueError("La suplencia cambió; vuelve a abrir el formulario.")
 
     # ─── APROBADOR FINAL ────────────────────────────────────
 
     async def enviar_revision_final(
         self, conn, id_bom: UUID, user_id: UUID, user_role: str,
-        rol_org: Optional[str] = None
+        rol_org: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Envia BOM APROBADO_CONST a revision del aprobador final."""
         bom = await self.get_bom(conn, id_bom)
@@ -2334,51 +3372,115 @@ class BomService(BomComprasServiceMixin):
         await self.validar_sin_costos_pendientes(conn, id_bom)
 
         aprobador_id = await self._get_aprobador_final_direccion_id(conn)
-        await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.EN_REVISION_FINAL,
-            fecha_envio_final=now_mx()
-        )
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.ENVIO_REVISION_FINAL,
-            bom['version'], user_id
+        bom_updated = await self._transicionar_bom(
+            conn, id_bom, user_id,
+            EstatusBOM.APROBADO_CONST, EstatusBOM.EN_REVISION_FINAL,
+            TipoAprobacion.ENVIO_REVISION_FINAL,
+            lock_version_esperado=lock_version_esperado,
+            fecha_envio_final=now_mx(),
         )
         logger.info("BOM %s enviado a revision final por %s", id_bom, user_id)
-        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
-        await self._notify_bom(conn, bom_updated, aprobador_id,
-                               'ENVIADO_REVISION_FINAL', por_user_id=user_id)
         return bom_updated
 
     async def aprobar_final(
         self, conn, id_bom: UUID, user_id: UUID,
-        comentarios: Optional[str] = None
+        comentarios: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Aprobacion final del BOM por el aprobador final."""
         bom = await self.get_bom(conn, id_bom)
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_FINAL:
             raise ValueError("El BOM debe estar EN_REVISION_FINAL para aprobar")
         await self.validar_sin_costos_pendientes(conn, id_bom)
+        if lock_version_esperado is None:
+            raise ValueError(
+                "Falta la revision del BOM; recarga el paquete e intenta de nuevo"
+            )
 
         aprobador_id = await self._get_aprobador_final_direccion_id(conn)
-        if str(user_id) != str(aprobador_id):
-            raise ValueError("Solo el aprobador final designado puede ejecutar esta accion")
+        representados = await self.get_titulares_que_representa(conn, user_id)
+        if aprobador_id not in representados:
+            raise ValueError(
+                "Solo el aprobador final designado o su suplente puede ejecutar esta accion"
+            )
 
-        await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.APROBADO_FINAL,
-            fecha_aprobacion_final=now_mx()
-        )
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.APROBACION_FINAL,
-            bom['version'], user_id, comentarios=comentarios
-        )
+        async with conn.transaction():
+            paquete = await self.db.get_paquete_for_update(conn, bom["id_paquete"])
+            bloqueado = await self.db.get_bom_for_update(conn, id_bom)
+            if not paquete or not bloqueado or not bloqueado.get("es_cabeza_trabajo"):
+                raise ValueError("Solo la cabeza de trabajo vigente puede aprobarse")
+            if paquete.get("estado_paquete") != "ACTIVO":
+                raise ValueError("El paquete no esta activo")
+            if EstatusBOM(bloqueado["estatus"]) != EstatusBOM.EN_REVISION_FINAL:
+                raise ValueError("El BOM ya no esta en revision final")
+            await self.db.lock_configuracion_proyecto(conn, bom["id_proyecto"])
+            metricas_fv = await self.db.get_metricas_paneles_proyecto(
+                conn, bom["id_proyecto"]
+            )
+            totales = await self.db.get_totales_base_por_moneda(conn, id_bom)
+            if totales.get("costos_desconocidos"):
+                raise ValueError(
+                    "No se puede congelar el presupuesto: hay costos o monedas desconocidos"
+                )
+            tipo_cambio = await self.db.get_tipo_cambio_vigente(conn)
+            total_usd = Decimal(str(totales["total_usd"]))
+            tasa = Decimal(str(tipo_cambio["tasa_mxn"])) if tipo_cambio else None
+            if total_usd and not tasa:
+                raise ValueError(
+                    "No hay tipo de cambio vigente para congelar el total oficial en MXN"
+                )
+            total_aprobado = Decimal(str(totales["total_mxn"]))
+            if tasa:
+                total_aprobado += total_usd * tasa
+            actualizado = await self.db.update_bom_estatus_cas(
+                conn, id_bom, EstatusBOM.EN_REVISION_FINAL.value,
+                lock_version_esperado, EstatusBOM.APROBADO_FINAL.value,
+                fecha_aprobacion_final=now_mx(),
+                modulos_fv_snapshot=metricas_fv.get("modulos_fv"),
+                potencia_pico_kwp_snapshot=metricas_fv.get("potencia_pico_kwp"),
+                tipo_cambio_aprobacion=tasa,
+                fecha_tipo_cambio_aprobacion=(
+                    tipo_cambio.get("fecha") if tipo_cambio else None
+                ),
+                subtotal_base_mxn_snapshot=totales["total_mxn"],
+                subtotal_base_usd_snapshot=totales["total_usd"],
+                total_aprobado_mxn=total_aprobado,
+            )
+            if not actualizado:
+                raise ValueError(
+                    "El BOM cambio desde que abriste la pagina; recarga el paquete e intenta de nuevo"
+                )
+            await self.db.registrar_aprobacion(
+                conn, id_bom, TipoAprobacion.APROBACION_FINAL,
+                bom["version"], user_id, comentarios=comentarios,
+            )
+            cabeza = await self.db.actualizar_cabeza_oficial(
+                conn, bom["id_paquete"], id_bom, paquete["lock_version"]
+            )
+            if not cabeza:
+                raise ValueError("No se pudo actualizar la cabeza oficial del paquete")
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"BOM:{id_bom}:{actualizado['lock_version']}:APROBACION_FINAL",
+                "APROBACION_FINAL", bom["id_proyecto"], user_id,
+                {
+                    "version": bom["version"],
+                    "modulos_fv_snapshot": metricas_fv.get("modulos_fv"),
+                    "potencia_pico_kwp_snapshot": str(
+                        metricas_fv.get("potencia_pico_kwp") or ""
+                    ),
+                    "total_aprobado_mxn": str(total_aprobado),
+                },
+                id_paquete=bom["id_paquete"], id_bom=id_bom,
+            )
         logger.info("BOM %s aprobado final por %s", id_bom, user_id)
         bom_updated = await self.db.get_bom_by_id(conn, id_bom)
-        await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
-                               'APROBADO_FINAL', por_user_id=user_id)
         return bom_updated
 
     async def rechazar_final(
         self, conn, id_bom: UUID, user_id: UUID,
-        comentarios: Optional[str] = None
+        comentarios: Optional[str] = None,
+        lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Rechazo por aprobador final. Vuelve a BORRADOR."""
         if not comentarios or not comentarios.strip():
@@ -2389,21 +3491,22 @@ class BomService(BomComprasServiceMixin):
             raise ValueError("El BOM debe estar EN_REVISION_FINAL para rechazar")
 
         aprobador_id = await self._get_aprobador_final_direccion_id(conn)
-        if str(user_id) != str(aprobador_id):
-            raise ValueError("Solo el aprobador final designado puede ejecutar esta accion")
+        representados = await self.get_titulares_que_representa(conn, user_id)
+        if aprobador_id not in representados:
+            raise ValueError(
+                "Solo el aprobador final designado o su suplente puede ejecutar esta accion"
+            )
 
-        await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.BORRADOR,
-            **self._limpiar_fechas_flujo()
-        )
-        await self.db.registrar_aprobacion(
-            conn, id_bom, TipoAprobacion.RECHAZO_FINAL,
-            bom['version'], user_id, comentarios=comentarios
+        bom_updated = await self._transicionar_bom(
+            conn, id_bom, user_id,
+            EstatusBOM.EN_REVISION_FINAL, EstatusBOM.BORRADOR,
+            TipoAprobacion.RECHAZO_FINAL,
+            comentarios=comentarios,
+            lock_version_esperado=lock_version_esperado,
+            invalidar_ciclo=True,
+            **self._limpiar_fechas_flujo(),
         )
         logger.info("BOM %s rechazado final por %s: %s", id_bom, user_id, comentarios)
-        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
-        await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
-                               'RECHAZADO_FINAL', por_user_id=user_id, comentarios=comentarios)
         return bom_updated
 
     async def get_aprobador_final_id(self, conn) -> Optional[UUID]:
@@ -2458,9 +3561,11 @@ class BomService(BomComprasServiceMixin):
                     "total_items": len(items),
                     "proyecto_id": proyecto_id,
                     "proyecto_nombre": bom.get("proyecto_nombre") or "",
+                    "paquete_codigo": bom.get("paquete_codigo") or "BOM",
+                    "paquete_nombre": bom.get("paquete_nombre") or "",
                     "version": bom.get("version", ""),
                     "por_nombre": por_nombre or "Sistema",
-                    "app_url": f"{settings.APP_BASE_URL}/bom/{bom.get('id_proyecto')}/ui",
+                    "app_url": f"{settings.APP_BASE_URL}/bom/versiones/{bom.get('id_bom')}/ui",
                 }
                 sender = await notif._get_notification_sender(conn, "BOM")
                 subject_template = await ConfigService.get_global_config(
@@ -2523,7 +3628,11 @@ class BomService(BomComprasServiceMixin):
             return 0
 
         notif_svc = get_notifications_service()
-        titulo = f"BOM {bom.get('proyecto_id_estandar', '')} - Items sin presupuesto"
+        titulo = (
+            f"BOM {bom.get('proyecto_id_estandar', '')} - "
+            f"{bom.get('paquete_codigo', 'BOM')} v{bom.get('version', '')} - "
+            "Items sin presupuesto"
+        )
         mensaje = f"{len(items)} item(s) sin presupuesto pendiente(s) de actualizar."
         count = 0
         for usuario in usuarios_compras:
@@ -2592,24 +3701,29 @@ class BomService(BomComprasServiceMixin):
                 'evento': evento,
                 'por_nombre': por_nombre or 'Sistema',
                 'comentarios': comentarios,
-                'app_url': f"{settings.APP_BASE_URL}/bom/{bom.get('id_proyecto')}/ui",
+                'app_url': f"{settings.APP_BASE_URL}/bom/versiones/{bom.get('id_bom')}/ui",
             })
 
+            identidad = (
+                f"{bom.get('proyecto_id_estandar', '')} - "
+                f"{bom.get('paquete_codigo', 'BOM')} v{bom.get('version', '')}"
+            )
+
             subject_map = {
-                'ENVIADO_REVISION_ING':   f"BOM {bom.get('proyecto_id_estandar', '')} - Revision requerida (Ingenieria)",
-                'APROBADO_ING':           f"BOM {bom.get('proyecto_id_estandar', '')} - Aprobado por Ingenieria",
-                'RECHAZADO_ING':          f"BOM {bom.get('proyecto_id_estandar', '')} - Devuelto por Ingenieria",
-                'ENVIADO_REVISION_OBRA':  f"BOM {bom.get('proyecto_id_estandar', '')} - Revision requerida (Obra)",
-                'RECHAZADO_OBRA':         f"BOM {bom.get('proyecto_id_estandar', '')} - Devuelto por Obra",
-                'ENVIADO_REVISION_CONST': f"BOM {bom.get('proyecto_id_estandar', '')} - Revision requerida (Construccion)",
-                'APROBADO_CONST':         f"BOM {bom.get('proyecto_id_estandar', '')} - Aprobado por Construccion",
-                'RECHAZADO_CONST':        f"BOM {bom.get('proyecto_id_estandar', '')} - Devuelto por Construccion",
-                'ENVIADO_REVISION_FINAL': f"BOM {bom.get('proyecto_id_estandar', '')} - Aprobacion final requerida",
-                'APROBADO_FINAL':         f"BOM {bom.get('proyecto_id_estandar', '')} - Aprobado definitivamente",
-                'RECHAZADO_FINAL':        f"BOM {bom.get('proyecto_id_estandar', '')} - Devuelto por Aprobador Final",
-                'FALTA_COORDINADOR_OBRA': f"BOM {bom.get('proyecto_id_estandar', '')} - Asignar coordinador de obra",
+                'ENVIADO_REVISION_ING':   f"BOM {identidad} - Revision requerida (Ingenieria)",
+                'APROBADO_ING':           f"BOM {identidad} - Aprobado por Ingenieria",
+                'RECHAZADO_ING':          f"BOM {identidad} - Devuelto por Ingenieria",
+                'ENVIADO_REVISION_OBRA':  f"BOM {identidad} - Revision requerida (Obra)",
+                'RECHAZADO_OBRA':         f"BOM {identidad} - Devuelto por Obra",
+                'ENVIADO_REVISION_CONST': f"BOM {identidad} - Revision requerida (Construccion)",
+                'APROBADO_CONST':         f"BOM {identidad} - Aprobado por Construccion",
+                'RECHAZADO_CONST':        f"BOM {identidad} - Devuelto por Construccion",
+                'ENVIADO_REVISION_FINAL': f"BOM {identidad} - Aprobacion final requerida",
+                'APROBADO_FINAL':         f"BOM {identidad} - Aprobado definitivamente",
+                'RECHAZADO_FINAL':        f"BOM {identidad} - Devuelto por Aprobador Final",
+                'FALTA_COORDINADOR_OBRA': f"BOM {identidad} - Asignar coordinador de obra",
             }
-            subject = subject_map.get(evento, f"BOM {bom.get('proyecto_id_estandar', '')} - Actualizacion")
+            subject = subject_map.get(evento, f"BOM {identidad} - Actualizacion")
 
             await notif._send_email({to_email}, set(), subject, html, sender_email)
             logger.info("BOM notify enviada: evento=%s to_user=%s", evento, to_user_id)
@@ -2664,9 +3778,304 @@ class BomService(BomComprasServiceMixin):
             if p["cantidad"] <= 0:
                 raise ValueError("La cantidad debe ser mayor a 0")
         async with conn.transaction():
+            await self.db.lock_configuracion_proyecto(conn, id_proyecto)
             await self.db.reemplazar_paneles_proyecto(conn, id_proyecto, paneles, user_id)
 
     # ─── EXPORT EXCEL ────────────────────────────────────────
+
+    async def get_consolidado_proyecto(
+        self, conn, id_proyecto: UUID, modo: str = "CURSO",
+    ) -> dict:
+        """Lee cabezas, hechos y divisor dentro de un snapshot consistente."""
+        if conn.__class__.__module__.startswith("asyncpg"):
+            async with conn.transaction(isolation="repeatable_read", readonly=True):
+                return await self._get_consolidado_proyecto_snapshot(
+                    conn, id_proyecto, modo
+                )
+        return await self._get_consolidado_proyecto_snapshot(conn, id_proyecto, modo)
+
+    async def _get_consolidado_proyecto_snapshot(
+        self, conn, id_proyecto: UUID, modo: str = "CURSO",
+    ) -> dict:
+        """Read model del conjunto sin crear un BOM consolidado persistente."""
+        modo_normalizado = (modo or "CURSO").strip().upper()
+        if modo_normalizado not in {"CURSO", "OFICIAL"}:
+            raise ValueError("La vista consolidada debe ser CURSO u OFICIAL")
+        if not await self.db.get_proyecto_info(conn, id_proyecto):
+            raise ValueError("Proyecto no encontrado")
+
+        paquetes = await self.db.get_consolidado_paquetes(
+            conn, id_proyecto, modo_normalizado
+        )
+        lineas = await self.db.get_consolidado_lineas(
+            conn, id_proyecto, modo_normalizado
+        )
+        todos_paquetes = await self.db.listar_paquetes_proyecto(conn, id_proyecto)
+        estado = await self.get_estado_conjunto(conn, id_proyecto)
+        tipo_cambio = await self.db.get_tipo_cambio_vigente(conn)
+        tasa_curso = Decimal(str(tipo_cambio["tasa_mxn"])) if tipo_cambio else None
+
+        if modo_normalizado == "CURSO":
+            for paquete in paquetes:
+                total_raw = paquete.get("presupuesto_mxn")
+                usd_raw = paquete.get("presupuesto_usd")
+                if total_raw is None or usd_raw is None:
+                    paquete["presupuesto_total_mxn"] = None
+                    continue
+                total = Decimal(str(total_raw))
+                usd = Decimal(str(usd_raw))
+                paquete["presupuesto_total_mxn"] = (
+                    total + usd * tasa_curso
+                    if tasa_curso is not None
+                    else (None if usd != 0 else total)
+                )
+
+        for paquete in paquetes:
+            cot_mxn = Decimal(str(paquete.get("cotizado_mxn") or 0))
+            cot_usd = Decimal(str(paquete.get("cotizado_usd") or 0))
+            paquete["cotizado_total_mxn"] = (
+                cot_mxn + cot_usd * tasa_curso
+                if tasa_curso is not None
+                else (None if cot_usd != 0 else cot_mxn)
+            )
+
+        nombres_totales = (
+            "presupuesto_mxn", "presupuesto_usd", "presupuesto_total_mxn",
+            "cotizado_mxn", "cotizado_usd", "cotizado_total_mxn",
+            "autorizado_mxn", "autorizado_usd",
+            "autorizado_total_mxn", "facturado_mxn", "facturado_usd",
+            "facturado_total_mxn", "pagado_mxn", "pagado_usd", "pagado_total_mxn",
+        )
+        totales = {}
+        for nombre in nombres_totales:
+            valores = [paquete.get(nombre) for paquete in paquetes]
+            totales[nombre] = (
+                None
+                if any(valor is None for valor in valores)
+                else sum((Decimal(str(valor)) for valor in valores), Decimal("0"))
+            )
+        conversion_pendiente = (
+            modo_normalizado == "CURSO"
+            and tasa_curso is None
+            and any(
+                p.get("presupuesto_usd") is not None
+                and Decimal(str(p["presupuesto_usd"])) != 0
+                for p in paquetes
+            )
+        )
+        if conversion_pendiente:
+            totales["presupuesto_total_mxn"] = None
+        presupuesto = totales["presupuesto_total_mxn"]
+        autorizado = totales["autorizado_total_mxn"]
+        totales["diferencia_mxn"] = (
+            presupuesto - autorizado
+            if presupuesto is not None and autorizado is not None else None
+        )
+        totales["porcentaje_autorizado"] = (
+            autorizado / presupuesto * 100
+            if presupuesto and autorizado is not None else None
+        )
+
+        if modo_normalizado == "OFICIAL":
+            divisor = await self.db.get_divisor_oficial_consolidado(conn, id_proyecto)
+            modulos = divisor.get("modulos_fv_snapshot") if divisor else None
+            potencia = divisor.get("potencia_pico_kwp_snapshot") if divisor else None
+        else:
+            divisor = None
+            metricas = await self.db.get_metricas_paneles_proyecto(conn, id_proyecto)
+            modulos = metricas.get("modulos_fv")
+            potencia = metricas.get("potencia_pico_kwp")
+
+        totales["mxn_por_modulo"] = (
+            presupuesto / modulos if presupuesto is not None and modulos else None
+        )
+        totales["mxn_por_kwp"] = (
+            presupuesto / Decimal(str(potencia))
+            if presupuesto is not None and potencia else None
+        )
+
+        grupos = defaultdict(lambda: {
+            "presupuesto_mxn": Decimal("0"),
+            "presupuesto_usd": Decimal("0"),
+            "facturado_mxn": Decimal("0"),
+            "lineas": 0,
+            "paquetes": set(),
+            "presupuesto_pendiente": False,
+        })
+        for linea in lineas:
+            codigos = list(linea.get("grupos") or []) or ["SIN_GRUPO"]
+            distribucion = linea.get("distribucion_grupos") or {}
+            if isinstance(distribucion, str):
+                distribucion = json.loads(distribucion or "{}")
+            if distribucion:
+                asignaciones = [
+                    (codigo, Decimal(str(porcentaje)))
+                    for codigo, porcentaje in distribucion.items()
+                ]
+            elif len(codigos) == 1:
+                asignaciones = [(codigos[0], Decimal("1"))]
+            else:
+                asignaciones = [("PENDIENTE_ASIGNACION", Decimal("1"))]
+            importe_raw = linea.get("costo_estimado")
+            for codigo, porcentaje in asignaciones:
+                grupos[codigo]["lineas"] += 1
+                grupos[codigo]["paquetes"].add(linea["paquete_codigo"])
+                if importe_raw is None or linea.get("moneda") not in {"MXN", "USD"}:
+                    grupos[codigo]["presupuesto_pendiente"] = True
+                    continue
+                importe = Decimal(str(importe_raw)) * porcentaje
+                clave = (
+                    "presupuesto_usd" if linea.get("moneda") == "USD"
+                    else "presupuesto_mxn"
+                )
+                grupos[codigo][clave] += importe
+            facturado_por_grupo = linea.get("facturado_por_grupo") or {}
+            if isinstance(facturado_por_grupo, str):
+                facturado_por_grupo = json.loads(facturado_por_grupo or "{}")
+            for codigo, importe_facturado in facturado_por_grupo.items():
+                if importe_facturado is None:
+                    grupos[codigo]["presupuesto_pendiente"] = True
+                else:
+                    grupos[codigo]["facturado_mxn"] += Decimal(
+                        str(importe_facturado)
+                    )
+
+        desglose_grupos = []
+        for codigo, datos in sorted(grupos.items()):
+            desglose_grupos.append({
+                **datos,
+                "codigo": codigo,
+                "paquetes": sorted(datos["paquetes"]),
+            })
+
+        solapamientos = [
+            linea for linea in lineas if linea.get("posible_solapamiento")
+        ]
+        pendientes_oficiales = sum(
+            1 for paquete in todos_paquetes
+            if paquete.get("estado_paquete") == "ACTIVO"
+            and not paquete.get("version_oficial")
+        )
+        return {
+            "modo": modo_normalizado,
+            "paquetes": paquetes,
+            "lineas": lineas,
+            "totales": totales,
+            "desglose_grupos": desglose_grupos,
+            "solapamientos": solapamientos,
+            "captura_cerrada": bool(estado.get("captura_cerrada")),
+            "pendientes_oficiales": pendientes_oficiales,
+            "divisor_fv": {
+                "modulos_fv": modulos,
+                "potencia_pico_kwp": potencia,
+                "origen": divisor,
+            },
+            "tipo_cambio_curso": tipo_cambio if modo_normalizado == "CURSO" else None,
+            "conversion_pendiente": conversion_pendiente,
+        }
+
+    async def export_consolidado_excel(
+        self, conn, id_proyecto: UUID, modo: str = "CURSO",
+    ) -> bytes:
+        """Exporta el read model consolidado con procedencia por paquete y linea."""
+        from io import BytesIO
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+
+        consolidado = await self.get_consolidado_proyecto(conn, id_proyecto, modo)
+        proyecto = await self.db.get_proyecto_info(conn, id_proyecto)
+        wb = Workbook()
+        resumen = wb.active
+        resumen.title = "Resumen"
+        encabezado = PatternFill("solid", fgColor="1F4E79")
+        fuente = Font(bold=True, color="FFFFFF")
+
+        resumen.append([
+            "Paquete", "Nombre", "Versión", "Estatus", "Presupuesto MXN",
+            "Presupuesto USD", "Presupuesto total MXN", "Cotizado total MXN",
+            "Autorizado total MXN", "Facturado total MXN", "Pagado total MXN",
+            "Fecha snapshot",
+        ])
+        for celda in resumen[1]:
+            celda.fill = encabezado
+            celda.font = fuente
+        for paquete in consolidado["paquetes"]:
+            resumen.append([
+                paquete["codigo"], paquete["nombre"], paquete["version"],
+                paquete["estatus"],
+                (
+                    float(paquete["presupuesto_mxn"])
+                    if paquete.get("presupuesto_mxn") is not None else None
+                ),
+                (
+                    float(paquete["presupuesto_usd"])
+                    if paquete.get("presupuesto_usd") is not None else None
+                ),
+                (
+                    float(paquete["presupuesto_total_mxn"])
+                    if paquete.get("presupuesto_total_mxn") is not None else None
+                ),
+                (
+                    float(paquete["cotizado_total_mxn"])
+                    if paquete.get("cotizado_total_mxn") is not None else None
+                ),
+                (
+                    float(paquete["autorizado_total_mxn"])
+                    if paquete.get("autorizado_total_mxn") is not None else None
+                ),
+                (
+                    float(paquete["facturado_total_mxn"])
+                    if paquete.get("facturado_total_mxn") is not None else None
+                ),
+                (
+                    float(paquete["pagado_total_mxn"])
+                    if paquete.get("pagado_total_mxn") is not None else None
+                ),
+                paquete.get("fecha_aprobacion_final"),
+            ])
+
+        lineas_ws = wb.create_sheet("Líneas")
+        lineas_ws.append([
+            "Proyecto", "Paquete", "Nombre paquete", "Versión", "ID BOM",
+            "ID línea estable", "Descripción", "Cantidad", "Unidad", "Grupos",
+            "Moneda", "Precio unitario", "Costo estimado", "Costo facturado",
+            "Estado", "Posible solapamiento", "Paquetes solapados",
+        ])
+        for celda in lineas_ws[1]:
+            celda.fill = encabezado
+            celda.font = fuente
+        proyecto_id = proyecto.get("proyecto_id_estandar") if proyecto else str(id_proyecto)
+        for linea in consolidado["lineas"]:
+            lineas_ws.append([
+                proyecto_id, linea["paquete_codigo"], linea["paquete_nombre"],
+                linea["version"], str(linea["id_bom"]), str(linea["id_linea_bom"]),
+                linea["descripcion"], (
+                    float(linea["cantidad"]) if linea.get("cantidad") is not None else None
+                ),
+                linea.get("unidad_medida"), ", ".join(linea.get("grupos") or []),
+                linea["moneda"], (
+                    float(linea["precio_unitario"])
+                    if linea.get("precio_unitario") is not None else None
+                ),
+                (
+                    float(linea["costo_estimado"])
+                    if linea.get("costo_estimado") is not None else None
+                ),
+                (
+                    float(linea["costo_facturado"])
+                    if linea.get("costo_facturado") is not None else None
+                ),
+                linea.get("estado_ejecucion"),
+                "Sí" if linea.get("posible_solapamiento") else "No",
+                ", ".join(linea.get("paquetes_solapados") or []),
+            ])
+
+        for hoja in (resumen, lineas_ws):
+            hoja.freeze_panes = "A2"
+            hoja.auto_filter.ref = hoja.dimensions
+        output = BytesIO()
+        wb.save(output)
+        return output.getvalue()
 
     async def export_to_excel(self, conn, id_bom: UUID) -> bytes:
         """Genera archivo Excel con los items del BOM."""
@@ -2828,11 +4237,32 @@ class BomService(BomComprasServiceMixin):
     async def get_proyecto_info(self, conn, id_proyecto: UUID) -> Optional[dict]:
         return await self.db.get_proyecto_info(conn, id_proyecto)
 
-    async def get_all_bom_versions(self, conn, id_proyecto: UUID) -> List[dict]:
-        return await self.db.get_all_bom_versions(conn, id_proyecto)
-
-    async def restaurar_item(self, conn, id_item: UUID) -> dict:
-        return await self.db.restaurar_item(conn, id_item)
+    async def restaurar_item(
+        self, conn, id_item: UUID, user_id: UUID,
+        lock_version_esperado: Optional[int] = None,
+        user_role: Optional[str] = None,
+        rol_org: Optional[str] = None,
+        module_roles: Optional[dict] = None,
+    ) -> dict:
+        item = await self.db.get_item_by_id(conn, id_item)
+        if not item:
+            raise ValueError("Item no encontrado")
+        if item.get("activo", True):
+            raise ValueError("El item ya esta activo")
+        async with conn.transaction():
+            bom = await self._reservar_mutacion_base(
+                conn, item["id_bom"], user_id, lock_version_esperado,
+                user_role, rol_org, module_roles,
+            )
+            restaurado = await self.db.restaurar_item(conn, id_item)
+            await self.db.registrar_historial(
+                conn, item["id_bom"], AccionHistorial.RESTAURADO,
+                bom["version"], user_id,
+                id_item=id_item,
+                campo_modificado="item",
+                valor_nuevo=item.get("descripcion"),
+            )
+        return restaurado
 
     async def buscar_materiales_para_bom(self, conn, query: str, **kwargs) -> dict:
         return await self.db.buscar_materiales_para_bom(conn, query, **kwargs)
@@ -2855,8 +4285,15 @@ class BomService(BomComprasServiceMixin):
     async def get_items_cotizacion(self, conn, cotizacion_id: UUID) -> List[dict]:
         return await self.db.get_items_cotizacion(conn, cotizacion_id)
 
-    async def actualizar_pdf_cotizacion(self, conn, cotizacion_id: UUID, pdf_url: str) -> Optional[dict]:
-        updated = await self.db.actualizar_pdf_cotizacion(conn, cotizacion_id, pdf_url)
+    async def actualizar_pdf_cotizacion(
+        self, conn, cotizacion_id: UUID, pdf_url: str,
+        lock_version_esperado: Optional[int] = None,
+    ) -> Optional[dict]:
+        if lock_version_esperado is None:
+            raise ValueError("La cotizacion cambio; recarga la pestaña")
+        updated = await self.db.actualizar_pdf_cotizacion(
+            conn, cotizacion_id, pdf_url, lock_version_esperado
+        )
         if not updated:
             cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
             if not cotizacion:

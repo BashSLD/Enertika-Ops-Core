@@ -27,8 +27,12 @@ def _bom(bom_id, estatus="APROBADO_FINAL"):
     return {
         "id_bom": bom_id,
         "id_proyecto": uuid4(),
+        "id_paquete": uuid4(),
         "estatus": estatus,
         "version": 1,
+        "lock_version": 0,
+        "es_cabeza_oficial": estatus == "APROBADO_FINAL",
+        "estado_paquete": "ACTIVO",
     }
 
 
@@ -43,6 +47,7 @@ def _cotizacion(cotizacion_id, bom_id, **extra):
         "moneda": "MXN",
         "proveedor_id": uuid4(),
         "nombre_proveedor": "Proveedor Uno",
+        "lock_version": 0,
     }
     data.update(extra)
     return data
@@ -55,6 +60,8 @@ def _autorizacion(cotizacion_id, bom_id, estatus="AUTORIZADO_OBRA", **extra):
         "bom_id": bom_id,
         "estatus": estatus,
         "creado_por": uuid4(),
+        "proyecto_id": uuid4(),
+        "lock_version": 0,
     }
     data.update(extra)
     return data
@@ -63,6 +70,13 @@ def _autorizacion(cotizacion_id, bom_id, estatus="AUTORIZADO_OBRA", **extra):
 class FakeAprobacionesDB:
     def __init__(self, bom, cotizacion, autorizacion=None, items=None):
         self.bom = bom
+        self.paquete = {
+            "id_paquete": bom["id_paquete"],
+            "estado_paquete": "ACTIVO",
+            "lock_version": 0,
+        }
+        self.aprobador_direccion_id = uuid4()
+        self.titulares_por_suplente = {}
         self.cotizaciones = {cotizacion["id"]: dict(cotizacion)}
         self.autorizaciones = {}
         if autorizacion:
@@ -70,17 +84,36 @@ class FakeAprobacionesDB:
         self.aprobaciones = {}
         self.items_cotizacion = list(items or [])
         self.items_estatus_updates = []
+        self.eventos_outbox = []
 
     # ── BOM / cotizaciones ──
     async def get_bom_by_id(self, conn, id_bom):
         return dict(self.bom) if id_bom == self.bom["id_bom"] else None
 
+    async def get_bom_for_update(self, conn, id_bom):
+        return await self.get_bom_by_id(conn, id_bom)
+
+    async def get_paquete_for_update(self, conn, id_paquete):
+        return dict(self.paquete) if id_paquete == self.paquete["id_paquete"] else None
+
     async def get_cotizacion_by_id(self, conn, cotizacion_id):
         cot = self.cotizaciones.get(cotizacion_id)
         return dict(cot) if cot else None
 
-    async def actualizar_estatus_cotizacion(self, conn, cotizacion_id, estatus):
-        self.cotizaciones[cotizacion_id]["estatus"] = estatus
+    async def get_cotizacion_for_update(self, conn, cotizacion_id):
+        return await self.get_cotizacion_by_id(conn, cotizacion_id)
+
+    async def actualizar_estatus_cotizacion(
+        self, conn, cotizacion_id, estatus, estatus_esperado, lock_version_esperado
+    ):
+        cotizacion = self.cotizaciones[cotizacion_id]
+        if (
+            cotizacion["estatus"] != estatus_esperado
+            or cotizacion["lock_version"] != lock_version_esperado
+        ):
+            return None
+        cotizacion["estatus"] = estatus
+        cotizacion["lock_version"] += 1
         return dict(self.cotizaciones[cotizacion_id])
 
     async def get_items_cotizacion(self, conn, cotizacion_id):
@@ -88,6 +121,41 @@ class FakeAprobacionesDB:
 
     async def actualizar_estatus_compra_items(self, conn, item_ids, estatus):
         self.items_estatus_updates.append((list(item_ids), estatus))
+
+    async def get_items_by_ids(self, conn, item_ids):
+        return [
+            {
+                "id_item": item["bom_item_id"],
+                "id_bom": self.bom["id_bom"],
+                "descripcion": "Item",
+                "cantidad": 1,
+                "precio_unitario": 100,
+                "estatus_compra": "SIN_COTIZAR",
+                "activo": True,
+            }
+            for item in self.items_cotizacion
+            if item["bom_item_id"] in item_ids
+        ]
+
+    async def lock_items_context_by_ids(self, conn, item_ids):
+        return await self.get_items_by_ids(conn, item_ids)
+
+    async def upsert_item_ejecucion(self, conn, item_id, updated_by=None, **campos):
+        return {"id_item": item_id, **campos}
+
+    async def registrar_evento_outbox(self, conn, id_evento, tipo_evento, *args, **kwargs):
+        self.eventos_outbox.append({
+            "id_evento": id_evento,
+            "tipo_evento": tipo_evento,
+            **kwargs,
+        })
+        return None
+
+    async def get_aprobador_final_id(self, conn):
+        return self.aprobador_direccion_id
+
+    async def get_titulares_que_representa(self, conn, suplente_id):
+        return list(self.titulares_por_suplente.get(suplente_id, []))
 
     # ── Autorizaciones Fase D ──
     async def get_autorizacion_by_cotizacion(self, conn, cotizacion_id):
@@ -100,22 +168,39 @@ class FakeAprobacionesDB:
         aut = self.autorizaciones.get(autorizacion_id)
         return dict(aut) if aut else None
 
-    async def update_autorizacion_paso_direccion(self, conn, autorizacion_id, user_id, nota):
+    async def get_autorizacion_for_update(self, conn, autorizacion_id):
+        return await self.get_autorizacion_by_id(conn, autorizacion_id)
+
+    async def update_autorizacion_paso_direccion(
+        self, conn, autorizacion_id, user_id, nota, lock_version_esperado
+    ):
         aut = self.autorizaciones[autorizacion_id]
+        if aut["lock_version"] != lock_version_esperado:
+            return None
         aut.update({
             "estatus": "AUTORIZADO_DIRECCION",
             "aprobador_direccion_id": user_id,
             "nota_direccion": nota,
+            "lock_version": lock_version_esperado + 1,
         })
         return dict(aut)
 
-    async def rechazar_autorizacion_db(self, conn, autorizacion_id, user_id, motivo, paso):
+    async def rechazar_autorizacion_db(
+        self, conn, autorizacion_id, user_id, motivo, paso,
+        estatus_esperado, lock_version_esperado,
+    ):
         aut = self.autorizaciones[autorizacion_id]
+        if (
+            aut["estatus"] != estatus_esperado
+            or aut["lock_version"] != lock_version_esperado
+        ):
+            return None
         aut.update({
             "estatus": "RECHAZADO",
             "rechazado_en_paso": paso,
             "rechazado_por": user_id,
             "motivo_rechazo": motivo,
+            "lock_version": lock_version_esperado + 1,
         })
         return dict(aut)
 
@@ -124,9 +209,14 @@ class FakeAprobacionesDB:
 
     async def reabrir_autorizacion_db(
         self, conn, autorizacion_id, monto_total, moneda, tipo_cambio_snapshot, creado_por,
+        lock_version_esperado,
     ):
         aut = self.autorizaciones.get(autorizacion_id)
-        if not aut or aut["estatus"] != "RECHAZADO":
+        if (
+            not aut
+            or aut["estatus"] != "RECHAZADO"
+            or aut["lock_version"] != lock_version_esperado
+        ):
             return None
         aut.update({
             "estatus": "PENDIENTE",
@@ -136,6 +226,7 @@ class FakeAprobacionesDB:
             "rechazado_en_paso": None,
             "rechazado_por": None,
             "motivo_rechazo": None,
+            "lock_version": lock_version_esperado + 1,
         })
         return dict(aut)
 
@@ -152,6 +243,7 @@ class FakeAprobacionesDB:
             "estatus": "PENDIENTE_DIRECCION",
             "solicitado_por": solicitado_por,
             "comentarios_solicitud": comentarios_solicitud,
+            "lock_version": 0,
         }
         self.aprobaciones[aprobacion["id"]] = aprobacion
         return dict(aprobacion)
@@ -164,25 +256,43 @@ class FakeAprobacionesDB:
                 return dict(ap)
         return None
 
-    async def aprobar_cotizacion_aprobacion_db(self, conn, aprobacion_id, user_id, comentarios):
+    async def get_cotizacion_aprobacion_for_update(self, conn, aprobacion_id):
+        aprobacion = self.aprobaciones.get(aprobacion_id)
+        return dict(aprobacion) if aprobacion else None
+
+    async def aprobar_cotizacion_aprobacion_db(
+        self, conn, aprobacion_id, user_id, comentarios, lock_version_esperado
+    ):
         ap = self.aprobaciones.get(aprobacion_id)
-        if not ap or ap["estatus"] != "PENDIENTE_DIRECCION":
+        if (
+            not ap
+            or ap["estatus"] != "PENDIENTE_DIRECCION"
+            or ap["lock_version"] != lock_version_esperado
+        ):
             return None
         ap.update({
             "estatus": "APROBADA",
             "aprobado_por": user_id,
             "comentarios_direccion": comentarios,
+            "lock_version": lock_version_esperado + 1,
         })
         return dict(ap)
 
-    async def rechazar_cotizacion_aprobacion_db(self, conn, aprobacion_id, user_id, motivo):
+    async def rechazar_cotizacion_aprobacion_db(
+        self, conn, aprobacion_id, user_id, motivo, lock_version_esperado
+    ):
         ap = self.aprobaciones.get(aprobacion_id)
-        if not ap or ap["estatus"] != "PENDIENTE_DIRECCION":
+        if (
+            not ap
+            or ap["estatus"] != "PENDIENTE_DIRECCION"
+            or ap["lock_version"] != lock_version_esperado
+        ):
             return None
         ap.update({
             "estatus": "RECHAZADA",
             "rechazado_por": user_id,
             "motivo_rechazo": motivo,
+            "lock_version": lock_version_esperado + 1,
         })
         return dict(ap)
 
@@ -190,13 +300,7 @@ class FakeAprobacionesDB:
 def make_service(db):
     svc = BomService()
     svc.db = db
-    notificaciones = []
-
-    async def _fake_notify(conn, autorizacion, bom, to_user_id, evento, por_user_id=None, nota=None):
-        notificaciones.append({"evento": evento, "to_user_id": to_user_id})
-
-    svc._notify_autorizacion = _fake_notify
-    return svc, notificaciones
+    return svc, db.eventos_outbox
 
 
 def build_escenario(
@@ -218,14 +322,61 @@ def build_escenario(
     return svc, db, notificaciones, cotizacion_id
 
 
+async def _solicitar(svc, db, cotizacion_id, user_id=None, comentarios=None):
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    return await svc.solicitar_aprobacion_cotizacion(
+        FakeConn(),
+        cotizacion_id,
+        user_id or uuid4(),
+        comentarios,
+        cotizacion_lock_version_esperado=db.cotizaciones[cotizacion_id]["lock_version"],
+        autorizacion_lock_version_esperado=autorizacion["lock_version"],
+    )
+
+
+async def _aprobar(svc, db, cotizacion_id, user_id=None, comentarios=None, user_role="USER"):
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    aprobacion = await db.get_cotizacion_aprobacion_activa(None, cotizacion_id)
+    return await svc.aprobar_cotizacion_direccion(
+        FakeConn(),
+        cotizacion_id,
+        user_id or db.aprobador_direccion_id,
+        user_role,
+        None,
+        comentarios,
+        aprobacion_lock_version_esperado=aprobacion["lock_version"],
+        autorizacion_lock_version_esperado=autorizacion["lock_version"],
+    )
+
+
+async def _rechazar(
+    svc,
+    db,
+    cotizacion_id,
+    motivo,
+    user_id=None,
+    user_role="USER",
+):
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    aprobacion = await db.get_cotizacion_aprobacion_activa(None, cotizacion_id)
+    return await svc.rechazar_cotizacion_direccion(
+        FakeConn(),
+        cotizacion_id,
+        user_id or db.aprobador_direccion_id,
+        motivo,
+        user_role,
+        None,
+        aprobacion_lock_version_esperado=aprobacion["lock_version"],
+        autorizacion_lock_version_esperado=autorizacion["lock_version"],
+    )
+
+
 # ─── SOLICITAR ───────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_solicitar_crea_aprobacion_pendiente():
     svc, db, _, cotizacion_id = build_escenario()
-    aprobacion = await svc.solicitar_aprobacion_cotizacion(
-        FakeConn(), cotizacion_id, uuid4(), "Urge para obra"
-    )
+    aprobacion = await _solicitar(svc, db, cotizacion_id, comentarios="Urge para obra")
     assert aprobacion["estatus"] == "PENDIENTE_DIRECCION"
     assert aprobacion["cotizacion_id"] == cotizacion_id
     assert aprobacion["comentarios_solicitud"] == "Urge para obra"
@@ -234,44 +385,44 @@ async def test_solicitar_crea_aprobacion_pendiente():
 
 @pytest.mark.asyncio
 async def test_solicitar_falla_si_es_rfq():
-    svc, _, _, cotizacion_id = build_escenario(cotizacion_extra={"es_rfq": True})
+    svc, db, _, cotizacion_id = build_escenario(cotizacion_extra={"es_rfq": True})
     with pytest.raises(ValueError, match="RFQ"):
-        await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
+        await _solicitar(svc, db, cotizacion_id)
 
 
 @pytest.mark.asyncio
 async def test_solicitar_falla_sin_pdf():
-    svc, _, _, cotizacion_id = build_escenario(cotizacion_extra={"pdf_url": None})
+    svc, db, _, cotizacion_id = build_escenario(cotizacion_extra={"pdf_url": None})
     with pytest.raises(ValueError, match="PDF"):
-        await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
+        await _solicitar(svc, db, cotizacion_id)
 
 
 @pytest.mark.asyncio
 async def test_solicitar_falla_sin_total():
-    svc, _, _, cotizacion_id = build_escenario(cotizacion_extra={"total": 0})
+    svc, db, _, cotizacion_id = build_escenario(cotizacion_extra={"total": 0})
     with pytest.raises(ValueError, match="total"):
-        await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
+        await _solicitar(svc, db, cotizacion_id)
 
 
 @pytest.mark.asyncio
 async def test_solicitar_falla_si_no_seleccionada():
-    svc, _, _, cotizacion_id = build_escenario(cotizacion_extra={"estatus": "RECIBIDA"})
+    svc, db, _, cotizacion_id = build_escenario(cotizacion_extra={"estatus": "RECIBIDA"})
     with pytest.raises(ValueError, match="seleccionada"):
-        await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
+        await _solicitar(svc, db, cotizacion_id)
 
 
 @pytest.mark.asyncio
 async def test_solicitar_falla_si_bom_no_aprobado_final():
-    svc, _, _, cotizacion_id = build_escenario(bom_estatus="APROBADO_CONST")
+    svc, db, _, cotizacion_id = build_escenario(bom_estatus="APROBADO_CONST")
     with pytest.raises(ValueError, match="APROBADO_FINAL"):
-        await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
+        await _solicitar(svc, db, cotizacion_id)
 
 
 @pytest.mark.asyncio
 async def test_solicitar_falla_si_fase_d_no_autorizada_por_obra():
-    svc, _, _, cotizacion_id = build_escenario(aut_estatus="PENDIENTE")
+    svc, db, _, cotizacion_id = build_escenario(aut_estatus="PENDIENTE")
     with pytest.raises(ValueError, match="Obra"):
-        await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
+        await _solicitar(svc, db, cotizacion_id)
 
 
 @pytest.mark.asyncio
@@ -283,91 +434,137 @@ async def test_solicitar_falla_sin_autorizacion_fase_d():
 
 @pytest.mark.asyncio
 async def test_solicitar_falla_si_ya_hay_aprobacion_activa():
-    svc, _, _, cotizacion_id = build_escenario()
-    await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
+    svc, db, _, cotizacion_id = build_escenario()
+    await _solicitar(svc, db, cotizacion_id)
     with pytest.raises(ValueError, match="ya tiene"):
-        await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
+        await _solicitar(svc, db, cotizacion_id)
+
+
+@pytest.mark.asyncio
+async def test_solicitar_falla_si_falta_un_lock_documental():
+    svc, db, _, cotizacion_id = build_escenario()
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+
+    with pytest.raises(ValueError, match="recarga"):
+        await svc.solicitar_aprobacion_cotizacion(
+            FakeConn(),
+            cotizacion_id,
+            uuid4(),
+            cotizacion_lock_version_esperado=db.cotizaciones[cotizacion_id]["lock_version"],
+            autorizacion_lock_version_esperado=None,
+        )
+
+    assert autorizacion["lock_version"] == 0
+    assert db.aprobaciones == {}
 
 
 # ─── APROBAR (Direccion) ─────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_aprobar_auto_avanza_fase_d_via_service():
-    svc, db, notificaciones, cotizacion_id = build_escenario()
-    await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
+    svc, db, eventos_outbox, cotizacion_id = build_escenario()
+    await _solicitar(svc, db, cotizacion_id)
 
-    director_id = uuid4()
-    updated = await svc.aprobar_cotizacion_direccion(
-        FakeConn(), cotizacion_id, director_id, "USER", "director", "Adelante"
-    )
+    director_id = db.aprobador_direccion_id
+    updated = await _aprobar(svc, db, cotizacion_id, director_id, "Adelante")
 
     assert updated["estatus"] == "APROBADA"
     assert updated["aprobado_por"] == director_id
     aut = list(db.autorizaciones.values())[0]
     assert aut["estatus"] == "AUTORIZADO_DIRECCION"
     assert aut["aprobador_direccion_id"] == director_id
-    # El auto-avance pasa por aprobar_direccion() y conserva la notificacion a Finanzas
-    assert any(n["evento"] == "PENDIENTE_FINANZAS" for n in notificaciones)
+    assert any(
+        evento["tipo_evento"] == "COTIZACION_APROBACION_APROBADA"
+        for evento in eventos_outbox
+    )
 
 
 @pytest.mark.asyncio
-async def test_aprobar_admin_puede_aprobar():
-    svc, _, _, cotizacion_id = build_escenario()
-    await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
-    updated = await svc.aprobar_cotizacion_direccion(
-        FakeConn(), cotizacion_id, uuid4(), "ADMIN", None
-    )
+async def test_aprobar_admin_no_puede_aprobar_si_no_es_owner():
+    svc, db, _, cotizacion_id = build_escenario()
+    await _solicitar(svc, db, cotizacion_id)
+
+    with pytest.raises(ValueError, match="aprobador de Direcci"):
+        await _aprobar(svc, db, cotizacion_id, uuid4(), user_role="ADMIN")
+
+
+@pytest.mark.asyncio
+async def test_aprobar_suplente_activo_del_director_puede_aprobar():
+    svc, db, _, cotizacion_id = build_escenario()
+    await _solicitar(svc, db, cotizacion_id)
+    suplente_id = uuid4()
+    db.titulares_por_suplente[suplente_id] = [db.aprobador_direccion_id]
+
+    updated = await _aprobar(svc, db, cotizacion_id, suplente_id)
+
     assert updated["estatus"] == "APROBADA"
+    assert updated["aprobado_por"] == suplente_id
 
 
 @pytest.mark.asyncio
 async def test_aprobar_falla_si_no_es_director():
-    svc, _, _, cotizacion_id = build_escenario()
-    await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
-    with pytest.raises(ValueError, match="Director"):
-        await svc.aprobar_cotizacion_direccion(
-            FakeConn(), cotizacion_id, uuid4(), "USER", "gerente"
-        )
+    svc, db, _, cotizacion_id = build_escenario()
+    await _solicitar(svc, db, cotizacion_id)
+    with pytest.raises(ValueError, match="Direcci"):
+        await _aprobar(svc, db, cotizacion_id, uuid4())
 
 
 @pytest.mark.asyncio
 async def test_aprobar_falla_sin_aprobacion_pendiente():
-    svc, _, _, cotizacion_id = build_escenario()
+    svc, db, _, cotizacion_id = build_escenario()
     with pytest.raises(ValueError, match="pendiente"):
         await svc.aprobar_cotizacion_direccion(
-            FakeConn(), cotizacion_id, uuid4(), "ADMIN", None
+            FakeConn(), cotizacion_id, db.aprobador_direccion_id, "USER", None
+        )
+
+
+@pytest.mark.asyncio
+async def test_aprobar_falla_si_falta_lock_de_aprobacion():
+    svc, db, _, cotizacion_id = build_escenario()
+    await _solicitar(svc, db, cotizacion_id)
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+
+    with pytest.raises(ValueError, match="recarga"):
+        await svc.aprobar_cotizacion_direccion(
+            FakeConn(),
+            cotizacion_id,
+            db.aprobador_direccion_id,
+            "USER",
+            None,
+            aprobacion_lock_version_esperado=None,
+            autorizacion_lock_version_esperado=autorizacion["lock_version"],
         )
 
 
 @pytest.mark.asyncio
 async def test_aprobar_falla_si_fase_d_no_esta_en_obra():
     """Guard duro: si la Fase D cambio por la superficie standalone, no se puede aprobar."""
-    svc, db, notificaciones, cotizacion_id = build_escenario()
-    await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
+    svc, db, eventos_outbox, cotizacion_id = build_escenario()
+    await _solicitar(svc, db, cotizacion_id)
     # La Fase D fue rechazada despues de solicitar la aprobacion documental
     aut = list(db.autorizaciones.values())[0]
     aut["estatus"] = "RECHAZADO"
 
     with pytest.raises(ValueError, match="Obra"):
-        await svc.aprobar_cotizacion_direccion(
-            FakeConn(), cotizacion_id, uuid4(), "ADMIN", None
-        )
+        await _aprobar(svc, db, cotizacion_id)
     aprobacion = list(db.aprobaciones.values())[0]
     assert aprobacion["estatus"] == "PENDIENTE_DIRECCION"
     assert aut["estatus"] == "RECHAZADO"
-    assert notificaciones == []
+    assert [e["tipo_evento"] for e in eventos_outbox] == [
+        "COTIZACION_APROBACION_SOLICITADA"
+    ]
 
 
 # ─── RECHAZAR (Direccion) ────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_rechazar_cancela_fase_d_en_cascada():
-    svc, db, notificaciones, cotizacion_id = build_escenario()
-    await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
+    svc, db, eventos_outbox, cotizacion_id = build_escenario()
+    await _solicitar(svc, db, cotizacion_id)
 
-    director_id = uuid4()
-    updated = await svc.rechazar_cotizacion_direccion(
-        FakeConn(), cotizacion_id, director_id, "Precio fuera de mercado", "USER", "director"
+    director_id = db.aprobador_direccion_id
+    updated = await _rechazar(
+        svc, db, cotizacion_id, "Precio fuera de mercado", director_id
     )
 
     assert updated["estatus"] == "RECHAZADA"
@@ -378,30 +575,60 @@ async def test_rechazar_cancela_fase_d_en_cascada():
     assert db.cotizaciones[cotizacion_id]["estatus"] == "RECIBIDA"
     assert db.items_estatus_updates
     assert db.items_estatus_updates[-1][1] == "SIN_COTIZAR"
-    # La cascada notifica al creador de la autorizacion (Compras), como el rechazo normal
     assert any(
-        n["evento"] == "RECHAZADO" and n["to_user_id"] == aut["creado_por"]
-        for n in notificaciones
+        evento["tipo_evento"] == "COTIZACION_APROBACION_RECHAZADA"
+        for evento in eventos_outbox
     )
 
 
 @pytest.mark.asyncio
 async def test_rechazar_falla_sin_motivo():
-    svc, _, _, cotizacion_id = build_escenario()
-    await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
+    svc, db, _, cotizacion_id = build_escenario()
+    await _solicitar(svc, db, cotizacion_id)
     with pytest.raises(ValueError, match="motivo"):
-        await svc.rechazar_cotizacion_direccion(
-            FakeConn(), cotizacion_id, uuid4(), "  ", "USER", "director"
-        )
+        await _rechazar(svc, db, cotizacion_id, "  ")
 
 
 @pytest.mark.asyncio
 async def test_rechazar_falla_si_no_es_director():
-    svc, _, _, cotizacion_id = build_escenario()
-    await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
-    with pytest.raises(ValueError, match="Director"):
+    svc, db, _, cotizacion_id = build_escenario()
+    await _solicitar(svc, db, cotizacion_id)
+    with pytest.raises(ValueError, match="Direcci"):
+        await _rechazar(svc, db, cotizacion_id, "No procede", uuid4())
+
+
+@pytest.mark.asyncio
+async def test_rechazar_admin_no_puede_rechazar_si_no_es_owner():
+    svc, db, _, cotizacion_id = build_escenario()
+    await _solicitar(svc, db, cotizacion_id)
+
+    with pytest.raises(ValueError, match="aprobador de Direcci"):
+        await _rechazar(
+            svc,
+            db,
+            cotizacion_id,
+            "No procede",
+            uuid4(),
+            user_role="ADMIN",
+        )
+
+
+@pytest.mark.asyncio
+async def test_rechazar_falla_si_falta_lock_de_autorizacion():
+    svc, db, _, cotizacion_id = build_escenario()
+    await _solicitar(svc, db, cotizacion_id)
+    aprobacion = await db.get_cotizacion_aprobacion_activa(None, cotizacion_id)
+
+    with pytest.raises(ValueError, match="recarga"):
         await svc.rechazar_cotizacion_direccion(
-            FakeConn(), cotizacion_id, uuid4(), "No procede", "USER", None
+            FakeConn(),
+            cotizacion_id,
+            db.aprobador_direccion_id,
+            "No procede",
+            "USER",
+            None,
+            aprobacion_lock_version_esperado=aprobacion["lock_version"],
+            autorizacion_lock_version_esperado=None,
         )
 
 
@@ -409,14 +636,12 @@ async def test_rechazar_falla_si_no_es_director():
 async def test_rechazar_falla_si_fase_d_ya_avanzo():
     """Guard duro simetrico: si la Fase D ya avanzo, el rechazo documental se bloquea."""
     svc, db, _, cotizacion_id = build_escenario()
-    await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
+    await _solicitar(svc, db, cotizacion_id)
     aut = list(db.autorizaciones.values())[0]
     aut["estatus"] = "AUTORIZADO_FINANZAS"
 
     with pytest.raises(ValueError, match="Autorizaciones"):
-        await svc.rechazar_cotizacion_direccion(
-            FakeConn(), cotizacion_id, uuid4(), "No procede", "ADMIN", None
-        )
+        await _rechazar(svc, db, cotizacion_id, "No procede")
     aprobacion = list(db.aprobaciones.values())[0]
     assert aprobacion["estatus"] == "PENDIENTE_DIRECCION"
     assert aut["estatus"] == "AUTORIZADO_FINANZAS"
@@ -430,10 +655,8 @@ async def test_rechazar_falla_si_fase_d_ya_avanzo():
 async def test_reseleccion_reabre_autorizacion_rechazada():
     """Tras el rechazo de Direccion, re-seleccionar la misma cotizacion reabre la Fase D a PENDIENTE."""
     svc, db, _, cotizacion_id = build_escenario()
-    await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
-    await svc.rechazar_cotizacion_direccion(
-        FakeConn(), cotizacion_id, uuid4(), "Faltaba contexto", "ADMIN", None
-    )
+    await _solicitar(svc, db, cotizacion_id)
+    await _rechazar(svc, db, cotizacion_id, "Faltaba contexto")
     aut = list(db.autorizaciones.values())[0]
     assert aut["estatus"] == "RECHAZADO"
     assert db.cotizaciones[cotizacion_id]["estatus"] == "RECIBIDA"
@@ -441,7 +664,10 @@ async def test_reseleccion_reabre_autorizacion_rechazada():
     # Compras re-selecciona la misma cotizacion (sin items para aislar la Fase D)
     db.items_cotizacion = []
     nuevo_user = uuid4()
-    await svc.seleccionar_cotizacion(FakeConn(), cotizacion_id, nuevo_user)
+    await svc.seleccionar_cotizacion(
+        FakeConn(), cotizacion_id, nuevo_user,
+        lock_version_esperado=db.cotizaciones[cotizacion_id]["lock_version"],
+    )
 
     aut = list(db.autorizaciones.values())[0]
     assert aut["estatus"] == "PENDIENTE"
@@ -454,17 +680,15 @@ async def test_reseleccion_reabre_autorizacion_rechazada():
 @pytest.mark.asyncio
 async def test_rechazada_permite_nueva_solicitud():
     svc, db, _, cotizacion_id = build_escenario()
-    await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
-    await svc.rechazar_cotizacion_direccion(
-        FakeConn(), cotizacion_id, uuid4(), "Cambiar proveedor", "ADMIN", None
-    )
+    await _solicitar(svc, db, cotizacion_id)
+    await _rechazar(svc, db, cotizacion_id, "Cambiar proveedor")
     # Tras el rechazo: Compras re-selecciona (la reapertura deja la Fase D en
     # PENDIENTE) y Obra vuelve a aprobar — simulado con los dos updates directos.
     db.cotizaciones[cotizacion_id]["estatus"] = "SELECCIONADA"
     aut = list(db.autorizaciones.values())[0]
     aut["estatus"] = "AUTORIZADO_OBRA"
 
-    aprobacion = await svc.solicitar_aprobacion_cotizacion(FakeConn(), cotizacion_id, uuid4())
+    aprobacion = await _solicitar(svc, db, cotizacion_id)
     assert aprobacion["estatus"] == "PENDIENTE_DIRECCION"
     activas = [
         a for a in db.aprobaciones.values()

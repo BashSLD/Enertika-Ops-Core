@@ -61,6 +61,11 @@
             hx-on::after-request="if(event.detail.successful) document.getElementById('modal-editar-item').remove()"
             class="flex flex-col flex-1 min-h-0">
 
+            <input type="hidden" name="lock_version" value="{{ bom.lock_version }}">
+            {% if item %}
+            <input type="hidden" name="ejecucion_lock_version" value="{{ item.ejecucion_lock_version|default(0) }}">
+            {% endif %}
+
             <div class="p-6 flex-1 min-h-0 overflow-y-auto">
                 {% set bloqueado = item.bloqueado or False %}
                 {% if bloqueado %}
@@ -72,13 +77,13 @@
                 </div>
                 {% endif %}
                 {% set es_catalogo = item.origen_precio == 'CATALOGO' %}
-                {% set base_bloqueada = bloqueado or bom.estatus in ['CANCELADO', 'APROBADO_FINAL'] %}
-                {% set ejecucion_bloqueada = bloqueado or bom.estatus == 'CANCELADO' %}
-                {% set base_construccion_bloqueada = bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL'] %}
-                {% set disabled_ing = area_editor != 'ingenieria' or base_bloqueada %}
+                {% set base_bloqueada = bloqueado or not capacidades.editar_base|default(false) %}
+                {% set ejecucion_bloqueada = bloqueado or not capacidades.editar_ejecucion|default(false) %}
+                {% set base_construccion_bloqueada = base_bloqueada %}
+                {% set disabled_ing = base_bloqueada %}
                 {% set disabled_presupuesto = disabled_ing %}
-                {% set disabled_construccion = area_editor != 'construccion' or ejecucion_bloqueada %}
-                {% set disabled_fecha_requerida = area_editor != 'construccion' or base_bloqueada or base_construccion_bloqueada %}
+                {% set disabled_construccion = ejecucion_bloqueada %}
+                {% set disabled_fecha_requerida = base_bloqueada or base_construccion_bloqueada %}
                 {% set disabled_compras = area_editor != 'compras' or ejecucion_bloqueada %}
                 {% set grupos_operativos_editables = bom.estatus == 'APROBADO_FINAL' and area_editor == 'construccion' and not bloqueado %}
                 {% set disabled_grupos = area_editor not in ['ingenieria', 'construccion'] or (base_bloqueada and not grupos_operativos_editables) or (area_editor == 'construccion' and base_construccion_bloqueada) %}
@@ -300,15 +305,42 @@
                         <div class="text-xs font-bold text-gray-400 uppercase mb-2 border-b pb-1">
                             {{ 'Grupos operativos' if grupos_operativos_editables else 'Grupos BOM' }}
                         </div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Clasificacion tecnica del item</label>
-                        <select name="grupo_ids" required {% if disabled_grupos %}disabled{% endif %}
-                            class="w-full rounded-lg border-gray-300 text-sm">
-                            <option value="" disabled {% if not grupos_actuales %}selected{% endif %}>Selecciona grupo</option>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Clasificación técnica y distribución</label>
+                        <div
+                            x-data='{
+                                seleccionados: {{ item.grupo_ids_actuales | tojson }},
+                                porcentajes: {{ item.grupo_porcentajes_actuales | tojson }}
+                            }'
+                            class="space-y-2 rounded-lg border border-gray-200 p-3">
                             {% for grupo in catalogos.grupos_bom %}
-                            <option value="{{ grupo.id }}" {% if grupo.codigo in (grupos_actuales or []) %}selected{% endif %}>{{ grupo.codigo }} — {{ grupo.nombre }}</option>
+                            <div class="grid grid-cols-[1fr_7rem] items-center gap-2">
+                                <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                                    <input type="checkbox" name="grupo_ids" value="{{ grupo.id }}"
+                                        x-model.number="seleccionados"
+                                        {% if disabled_grupos %}disabled{% endif %}
+                                        class="rounded border-gray-300 text-blue-600">
+                                    <span><strong>{{ grupo.codigo }}</strong> — {{ grupo.nombre }}</span>
+                                </label>
+                                <div x-show="seleccionados.length > 1 && seleccionados.includes({{ grupo.id }})" x-cloak>
+                                    <label class="sr-only" for="grupo-porcentaje-{{ grupo.id }}">Porcentaje de {{ grupo.codigo }}</label>
+                                    <div class="flex items-center gap-1">
+                                        <input id="grupo-porcentaje-{{ grupo.id }}"
+                                            type="number" min="0.0001" max="100" step="0.0001"
+                                            name="grupo_porcentaje_{{ grupo.id }}"
+                                            x-model="porcentajes['{{ grupo.id }}']"
+                                            :required="seleccionados.length > 1 && seleccionados.includes({{ grupo.id }})"
+                                            :disabled="!seleccionados.includes({{ grupo.id }})"
+                                            {% if disabled_grupos %}disabled{% endif %}
+                                            class="w-full rounded-md border-gray-300 text-right text-sm">
+                                        <span class="text-xs text-gray-500">%</span>
+                                    </div>
+                                </div>
+                            </div>
                             {% endfor %}
-                        </select>
-                        <p class="text-xs text-gray-400 mt-1">Corrige el grupo del item si se asigno por error. Un item pertenece a un solo grupo.</p>
+                            <p class="text-xs text-gray-500">
+                                Selecciona al menos un grupo. Si eliges varios, sus porcentajes deben sumar 100.
+                            </p>
+                        </div>
                     </div>
                 </div>
             </div>

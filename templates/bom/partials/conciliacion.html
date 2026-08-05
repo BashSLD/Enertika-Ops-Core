@@ -3,6 +3,10 @@
 
 <div id="conciliacion-{{ autorizacion_id }}">
     {% set sin_asignar = conceptos | selectattr('id_bom_item', 'none') | list | length %}
+    {% set grupos_pendientes = conceptos
+        | rejectattr('id_bom_item', 'none')
+        | rejectattr('asignacion_grupo_completa')
+        | list | length %}
 
     {% if not conceptos %}
     <div class="text-center py-10 px-4">
@@ -24,6 +28,11 @@
         {% else %}
         <span class="inline-flex items-center gap-1 text-emerald-600 font-medium">
             <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>Todos asignados
+        </span>
+        {% endif %}
+        {% if grupos_pendientes %}
+        <span class="inline-flex items-center gap-1 font-medium text-amber-600">
+            <span class="inline-block h-2 w-2 rounded-full bg-amber-500"></span>{{ grupos_pendientes }} con grupo pendiente
         </span>
         {% endif %}
     </div>
@@ -67,7 +76,11 @@
                         <form hx-post="/bom/autorizaciones/{{ autorizacion_id }}/conciliacion/{{ c.historial_id }}/asignar"
                               hx-target="#conciliacion-{{ autorizacion_id }}"
                               hx-swap="outerHTML"
-                              class="flex items-center gap-2">
+                              hx-disabled-elt="find button[type='submit']"
+                              hx-sync="this:replace"
+                              class="flex flex-wrap items-center gap-2">
+                            <input type="hidden" name="id_bom_item_anterior" value="{{ c.id_bom_item or '' }}">
+                            <input type="hidden" name="concepto_lock_version" value="{{ c.concepto_lock_version }}">
                             <select name="id_bom_item"
                                     class="flex-1 min-w-0 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-[#00BABB] focus:ring-1 focus:ring-[#00BABB]">
                                 <option value="">— Sin asignar —</option>
@@ -77,8 +90,21 @@
                                 </option>
                                 {% endfor %}
                             </select>
+                            <select name="id_grupo"
+                                    class="min-w-48 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-[#00BABB] focus:ring-1 focus:ring-[#00BABB]">
+                                <option value="">Grupo automático si es único</option>
+                                {% for it in items if it.grupos_conciliacion | length > 1 %}
+                                <optgroup label="{{ it.descripcion }}">
+                                    {% for grupo in it.grupos_conciliacion %}
+                                    <option value="{{ grupo.id }}" {{ 'selected' if grupo.id == c.grupo_asignado_id else '' }}>
+                                        {{ grupo.label }}
+                                    </option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% endfor %}
+                            </select>
                             <button type="submit"
-                                    class="shrink-0 rounded-md bg-[#00BABB] px-3 py-1 text-sm font-medium text-white hover:bg-[#009a9b]">
+                                    class="shrink-0 rounded-md bg-[#00BABB] px-3 py-1 text-sm font-medium text-white hover:bg-[#009a9b] disabled:cursor-wait disabled:opacity-60">
                                 Confirmar
                             </button>
                         </form>
@@ -91,7 +117,8 @@
 
     <p class="mt-2 text-[11px] text-gray-400">
         Confirmar fija el match como verificado por una persona (alta confianza). Elige “Sin asignar”
-        para quitar la liga. El facturado del Resumen de compra solo cuenta conceptos ligados a un ítem.
+        para quitar la liga. Si un ítem tiene varios grupos, selecciona explícitamente uno; el consolidado
+        no reparte el importe de forma automática. El facturado solo cuenta conceptos ligados a un ítem.
     </p>
     {% endif %}
 </div>

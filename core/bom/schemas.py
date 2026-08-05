@@ -23,6 +23,18 @@ class EstatusBOM(str, Enum):
     CANCELADO = "CANCELADO"
 
 
+class TipoAlcanceBOM(str, Enum):
+    COMPLETO = "COMPLETO"
+    PARCIAL = "PARCIAL"
+    LEGACY = "LEGACY"
+
+
+class EstadoPaqueteBOM(str, Enum):
+    ACTIVO = "ACTIVO"
+    ARCHIVADO = "ARCHIVADO"
+    CANCELADO = "CANCELADO"
+
+
 class AccionHistorial(str, Enum):
     CREADO = "CREADO"
     EDITADO = "EDITADO"
@@ -66,12 +78,43 @@ class BomCreate(BaseModel):
     notas: Optional[str] = None
 
 
+class BomPaqueteCreate(BaseModel):
+    tipo_alcance: TipoAlcanceBOM
+    nombre: str = Field(..., min_length=1, max_length=160)
+    descripcion_alcance: Optional[str] = None
+
+
+class BomPaqueteRead(BaseModel):
+    id_paquete: UUID
+    id_proyecto: UUID
+    codigo: str
+    nombre: str
+    tipo_alcance: TipoAlcanceBOM
+    descripcion_alcance: Optional[str] = None
+    estado_paquete: EstadoPaqueteBOM
+    lock_version: int = 0
+    creado_por: UUID
+    ingeniero_responsable_id: UUID
+    responsable_ing_id: Optional[UUID] = None
+    coordinador_obra_id: Optional[UUID] = None
+    jefe_construccion_id: Optional[UUID] = None
+    cabeza_trabajo_id: Optional[UUID] = None
+    cabeza_oficial_id: Optional[UUID] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 class BomRead(BaseModel):
     id_bom: UUID
     id_proyecto: UUID
+    id_paquete: Optional[UUID] = None
     version: int
     estatus: EstatusBOM
     elaborado_por: UUID
+    ingeniero_responsable_id: Optional[UUID] = None
+    lock_version: int = 0
     elaborado_por_nombre: Optional[str] = None
     responsable_ing: Optional[UUID] = None
     responsable_ing_nombre: Optional[str] = None
@@ -90,6 +133,11 @@ class BomRead(BaseModel):
     notas: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    modulos_fv_snapshot: Optional[int] = None
+    potencia_pico_kwp_snapshot: Optional[Decimal] = None
+    tipo_cambio_aprobacion: Optional[Decimal] = None
+    fecha_tipo_cambio_aprobacion: Optional[date] = None
+    total_aprobado_mxn: Optional[Decimal] = None
     # Campos calculados
     proyecto_nombre: Optional[str] = None
     proyecto_id_estandar: Optional[str] = None

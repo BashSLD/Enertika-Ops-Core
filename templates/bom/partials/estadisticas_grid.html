@@ -29,8 +29,11 @@
     </div>
     <div class="bg-white rounded-lg border p-3 text-center border-emerald-200 bg-emerald-50">
         <div class="text-lg font-bold text-emerald-700">
-            ${{ "{:,.2f}".format(estadisticas.costo_total_estimado|float) if estadisticas.costo_total_estimado else
-            '0.00' }}
+            {% if estadisticas.costo_total_estimado is not none %}
+            ${{ "{:,.2f}".format(estadisticas.costo_total_estimado|float) }} MXN
+            {% else %}
+            <span class="text-sm text-amber-700">Importe pendiente</span>
+            {% endif %}
         </div>
         <div class="text-xs text-emerald-600">
             Costo Estimado

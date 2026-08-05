@@ -35,9 +35,19 @@
                 <span class="font-medium">{{ autorizacion.proyecto_id_estandar or '—' }}</span>
             </div>
             <div class="flex justify-between mt-1">
+                <span class="text-gray-500">Paquete BOM</span>
+                <span class="font-medium">{{ autorizacion.paquete_codigo }} v{{ autorizacion.bom_version }}</span>
+            </div>
+            <div class="flex justify-between mt-1">
                 <span class="text-gray-500">Monto autorizado</span>
                 <span class="font-semibold text-gray-900">
                     {{ autorizacion.moneda }} ${{ "{:,.2f}".format(autorizacion.monto_total) }}
+                </span>
+            </div>
+            <div class="flex justify-between mt-1">
+                <span class="text-gray-500">Saldo pendiente</span>
+                <span class="font-semibold text-gray-900">
+                    {{ autorizacion.moneda }} ${{ "{:,.2f}".format(autorizacion.saldo_pendiente) }}
                 </span>
             </div>
         </div>
@@ -47,10 +57,14 @@
             hx-post="/finanzas/autorizaciones/{{ autorizacion.id }}/pago"
             hx-target="#finanzas-main-content"
             hx-swap="outerHTML"
+            hx-disabled-elt="find button[type='submit']"
+            hx-sync="this:drop"
             @htmx:after-request="if(event.detail.successful) { open = false; $el.closest('[x-data]').remove(); }"
             x-data="{ moneda: '{{ autorizacion.moneda }}' }"
             @keydown.enter.prevent
             class="p-5 space-y-4">
+            <input type="hidden" name="lock_version" value="{{ autorizacion.lock_version }}">
+            <input type="hidden" name="clave_idempotencia" value="{{ clave_idempotencia_pago }}">
 
             <div class="grid grid-cols-2 gap-4">
                 <div class="col-span-2" x-data="{ v: '' }">
@@ -65,7 +79,8 @@
                 <div>
                     <label class="block text-xs font-medium text-gray-600 mb-1">Monto pagado *</label>
                     <input type="number" name="monto_pagado" step="0.01" min="0.01" required
-                        value="{{ autorizacion.monto_total }}"
+                        max="{{ autorizacion.saldo_pendiente }}"
+                        value="{{ autorizacion.saldo_pendiente }}"
                         class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
                 </div>
 
@@ -99,7 +114,7 @@
 
             <div class="flex justify-end gap-3 pt-2">
                 <button type="submit"
-                    class="px-5 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors duration-150">
+                    class="px-5 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60">
                     Registrar Pago
                 </button>
             </div>

@@ -1,0 +1,219 @@
+<div class="w-full px-4 py-6" hx-history="false">
+    <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+            <a href="/bom/{{ id_proyecto }}/ui" hx-get="/bom/{{ id_proyecto }}/ui"
+                hx-target="#main-content" hx-push-url="true"
+                class="text-sm font-medium text-blue-700 hover:underline">Volver al conjunto BOM</a>
+            <h1 class="mt-2 text-2xl font-bold text-gray-800">Consolidado BOM</h1>
+            <p class="mt-1 text-sm text-gray-500">
+                <span class="font-mono font-semibold">{{ proyecto.proyecto_id_estandar or 'Sin ID' }}</span>
+                - {{ proyecto.nombre_proyecto or proyecto.nombre_corto or '' }}
+            </p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <a href="/bom/{{ id_proyecto }}/consolidado/ui?modo=CURSO"
+                hx-get="/bom/{{ id_proyecto }}/consolidado/ui?modo=CURSO"
+                hx-target="#main-content" hx-push-url="true"
+                class="rounded-lg border px-3 py-2 text-sm font-medium {{ 'border-blue-600 bg-blue-50 text-blue-700' if consolidado.modo == 'CURSO' else 'border-gray-300 bg-white text-gray-600' }}">
+                En curso
+            </a>
+            <a href="/bom/{{ id_proyecto }}/consolidado/ui?modo=OFICIAL"
+                hx-get="/bom/{{ id_proyecto }}/consolidado/ui?modo=OFICIAL"
+                hx-target="#main-content" hx-push-url="true"
+                class="rounded-lg border px-3 py-2 text-sm font-medium {{ 'border-blue-600 bg-blue-50 text-blue-700' if consolidado.modo == 'OFICIAL' else 'border-gray-300 bg-white text-gray-600' }}">
+                Oficial
+            </a>
+            <a href="/bom/{{ id_proyecto }}/consolidado/export-excel?modo={{ consolidado.modo }}"
+                class="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800">
+                Exportar Excel
+            </a>
+        </div>
+    </div>
+
+    {% if consolidado.modo == 'CURSO' and not consolidado.captura_cerrada %}
+    <div class="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        La captura de paquetes sigue abierta. Este consolidado puede no representar todo el alcance del proyecto.
+    </div>
+    {% endif %}
+    {% if consolidado.modo == 'OFICIAL' and consolidado.pendientes_oficiales %}
+    <div class="mb-5 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+        {{ consolidado.pendientes_oficiales }} paquete(s) activo(s) todavía no tienen una versión oficial y no se incluyen en esta vista.
+    </div>
+    {% endif %}
+    {% if consolidado.conversion_pendiente %}
+    <div class="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        Hay presupuesto en USD pero no existe un tipo de cambio vigente. El total MXN y las métricas normalizadas quedan pendientes.
+    </div>
+    {% endif %}
+
+    <div class="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {% set tarjetas = [
+            ('Presupuesto', consolidado.totales.presupuesto_total_mxn),
+            ('Cotizado', consolidado.totales.cotizado_total_mxn),
+            ('Autorizado', consolidado.totales.autorizado_total_mxn),
+            ('Facturado', consolidado.totales.facturado_total_mxn),
+            ('Pagado', consolidado.totales.pagado_total_mxn)
+        ] %}
+        {% for etiqueta, valor in tarjetas %}
+        <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">{{ etiqueta }}</p>
+            <p class="mt-2 font-mono text-xl font-bold text-gray-800">
+                {{ '$' ~ '{:,.2f}'.format(valor|float) ~ ' MXN' if valor is not none else 'Pendiente' }}
+            </p>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="mb-6 grid gap-4 lg:grid-cols-3">
+        <div class="rounded-xl border border-gray-200 bg-white p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Diferencia presupuesto - autorizado</p>
+            <p class="mt-2 font-mono text-lg font-bold text-gray-800">{{ '$' ~ '{:,.2f}'.format(consolidado.totales.diferencia_mxn|float) ~ ' MXN' if consolidado.totales.diferencia_mxn is not none else 'Pendiente' }}</p>
+            <p class="mt-1 text-xs text-gray-500">
+                {{ '{:,.1f}'.format(consolidado.totales.porcentaje_autorizado|float) ~ '% autorizado' if consolidado.totales.porcentaje_autorizado is not none else 'Sin presupuesto comparable' }}
+            </p>
+        </div>
+        <div class="rounded-xl border border-gray-200 bg-white p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Costo normalizado</p>
+            <p class="mt-2 text-sm text-gray-700">
+                Por módulo:
+                <span class="font-mono font-semibold">{{ '$' ~ '{:,.2f}'.format(consolidado.totales.mxn_por_modulo|float) if consolidado.totales.mxn_por_modulo is not none else 'Pendiente' }}</span>
+            </p>
+            <p class="mt-1 text-sm text-gray-700">
+                Por kWp:
+                <span class="font-mono font-semibold">{{ '$' ~ '{:,.2f}'.format(consolidado.totales.mxn_por_kwp|float) if consolidado.totales.mxn_por_kwp is not none else 'Pendiente' }}</span>
+            </p>
+        </div>
+        <div class="rounded-xl border border-gray-200 bg-white p-4">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Divisor FV</p>
+            {% if consolidado.divisor_fv.modulos_fv %}
+            <p class="mt-2 text-sm text-gray-700">{{ consolidado.divisor_fv.modulos_fv }} módulos</p>
+            <p class="text-sm text-gray-700">{{ '{:,.3f}'.format(consolidado.divisor_fv.potencia_pico_kwp|float) }} kWp</p>
+            {% if consolidado.divisor_fv.origen %}
+            <p class="mt-1 text-xs text-gray-500">
+                {{ consolidado.divisor_fv.origen.paquete_codigo }} v{{ consolidado.divisor_fv.origen.version }}
+            </p>
+            {% elif consolidado.tipo_cambio_curso %}
+            <p class="mt-1 text-xs text-gray-500">Configuración vigente del proyecto</p>
+            {% endif %}
+            {% else %}
+            <p class="mt-2 text-sm text-amber-700">No hay paneles configurados; las métricas normalizadas quedan pendientes.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="mb-6 overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div class="border-b border-gray-200 px-4 py-3">
+            <h2 class="font-semibold text-gray-800">Resumen por paquete</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 text-sm">
+                <thead class="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+                    <tr>
+                        <th class="px-4 py-3">Paquete</th>
+                        <th class="px-4 py-3">Versión</th>
+                        <th class="px-4 py-3 text-right">Presupuesto MXN</th>
+                        <th class="px-4 py-3 text-right">Presupuesto USD</th>
+                        <th class="px-4 py-3 text-right">Cotizado MXN</th>
+                        <th class="px-4 py-3 text-right">Cotizado USD</th>
+                        <th class="px-4 py-3 text-right">Autorizado MXN</th>
+                        <th class="px-4 py-3 text-right">Facturado MXN</th>
+                        <th class="px-4 py-3 text-right">Pagado MXN</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% for paquete in consolidado.paquetes %}
+                    <tr>
+                        <td class="px-4 py-3">
+                            <a href="/bom/paquetes/{{ paquete.id_paquete }}/ui"
+                                class="font-semibold text-blue-700 hover:underline">{{ paquete.codigo }} - {{ paquete.nombre }}</a>
+                            <p class="text-xs text-gray-500">{{ paquete.estatus }}</p>
+                            {% if consolidado.modo == 'OFICIAL' and paquete.fecha_aprobacion_final %}
+                            <p class="text-xs text-gray-400">Snapshot: {{ paquete.fecha_aprobacion_final | time_mx('%d/%m/%Y') }}</p>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3">v{{ paquete.version }}</td>
+                        <td class="px-4 py-3 text-right font-mono">${{ '{:,.2f}'.format(paquete.presupuesto_mxn|float) }}</td>
+                        <td class="px-4 py-3 text-right font-mono">${{ '{:,.2f}'.format(paquete.presupuesto_usd|float) }}</td>
+                        <td class="px-4 py-3 text-right font-mono">${{ '{:,.2f}'.format(paquete.cotizado_mxn|float) }}</td>
+                        <td class="px-4 py-3 text-right font-mono">${{ '{:,.2f}'.format(paquete.cotizado_usd|float) }}</td>
+                        <td class="px-4 py-3 text-right font-mono">${{ '{:,.2f}'.format(paquete.autorizado_total_mxn|float) }}</td>
+                        <td class="px-4 py-3 text-right font-mono">${{ '{:,.2f}'.format(paquete.facturado_total_mxn|float) }}</td>
+                        <td class="px-4 py-3 text-right font-mono">${{ '{:,.2f}'.format(paquete.pagado_total_mxn|float) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="9" class="px-4 py-10 text-center text-gray-500">No hay paquetes elegibles para esta vista.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="mb-6 grid gap-4 lg:grid-cols-2">
+        <div class="rounded-xl border border-gray-200 bg-white p-4">
+            <h2 class="font-semibold text-gray-800">Desglose por grupo</h2>
+            <div class="mt-3 space-y-2">
+                {% for grupo in consolidado.desglose_grupos %}
+                <details class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                    <summary class="cursor-pointer text-sm font-medium text-gray-700">
+                        {{ grupo.codigo }} - presupuesto ${{ '{:,.2f}'.format(grupo.presupuesto_mxn|float) }} MXN / ${{ '{:,.2f}'.format(grupo.presupuesto_usd|float) }} USD - facturado ${{ '{:,.2f}'.format(grupo.facturado_mxn|float) }} MXN
+                    </summary>
+                    <p class="mt-2 text-xs text-gray-500">Procedencia: {{ grupo.paquetes|join(', ') }}. {{ grupo.lineas }} línea(s).</p>
+                </details>
+                {% else %}
+                <p class="text-sm text-gray-500">No hay líneas para desglosar.</p>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="rounded-xl border border-gray-200 bg-white p-4">
+            <h2 class="font-semibold text-gray-800">Posibles solapamientos</h2>
+            <p class="mt-1 text-xs text-gray-500">Son advertencias por descripción normalizada; no se fusionan ni eliminan líneas.</p>
+            <div class="mt-3 max-h-64 space-y-2 overflow-y-auto">
+                {% for linea in consolidado.solapamientos %}
+                <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    <p class="font-medium">{{ linea.descripcion }}</p>
+                    <p class="text-xs">{{ linea.paquetes_solapados|join(', ') }}</p>
+                </div>
+                {% else %}
+                <p class="text-sm text-gray-500">No se detectaron descripciones repetidas entre paquetes.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <details class="rounded-xl border border-gray-200 bg-white">
+        <summary class="cursor-pointer px-4 py-3 font-semibold text-gray-800">Ver líneas y procedencia</summary>
+        <div class="overflow-x-auto border-t border-gray-200">
+            <table class="min-w-full divide-y divide-gray-200 text-sm">
+                <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
+                    <tr>
+                        <th class="px-4 py-3">Paquete</th>
+                        <th class="px-4 py-3">Descripción</th>
+                        <th class="px-4 py-3">Grupo</th>
+                        <th class="px-4 py-3 text-right">Cantidad</th>
+                        <th class="px-4 py-3 text-right">Estimado</th>
+                        <th class="px-4 py-3 text-right">Facturado</th>
+                        <th class="px-4 py-3">Estado</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% for linea in consolidado.lineas %}
+                    <tr class="{{ 'bg-amber-50' if linea.posible_solapamiento else '' }}">
+                        <td class="px-4 py-3">{{ linea.paquete_codigo }} v{{ linea.version }}</td>
+                        <td class="px-4 py-3">
+                            {{ linea.descripcion }}
+                            <p class="font-mono text-xs text-gray-400">{{ linea.id_linea_bom }}</p>
+                        </td>
+                        <td class="px-4 py-3">{{ linea.grupos|join(', ') or 'Sin grupo' }}</td>
+                        <td class="px-4 py-3 text-right">{{ linea.cantidad }} {{ linea.unidad_medida or '' }}</td>
+                        <td class="px-4 py-3 text-right font-mono">${{ '{:,.2f}'.format(linea.costo_estimado|float) }} {{ linea.moneda }}</td>
+                        <td class="px-4 py-3 text-right font-mono">
+                            {{ '$' ~ '{:,.2f}'.format(linea.costo_facturado|float) ~ ' MXN' if linea.costo_facturado is not none else 'Pendiente' }}
+                        </td>
+                        <td class="px-4 py-3">{{ linea.estado_ejecucion }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </details>
+</div>

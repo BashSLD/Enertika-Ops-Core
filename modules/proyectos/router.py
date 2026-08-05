@@ -2,11 +2,10 @@
 Router del Modulo Proyectos
 Vista global de todos los proyectos con filtros por area y estatus.
 """
-from fastapi import APIRouter, Request, Depends, Query, HTTPException, Form
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Request, Depends, Query, HTTPException
 from fastapi.templating import Jinja2Templates
 from uuid import UUID
-from typing import Optional, List
+from typing import Optional
 from core.config import settings
 import asyncpg
 import logging
@@ -187,9 +186,10 @@ async def save_equipo(
 
         responsables_explicitos = {}
         for area in ("INGENIERIA", "CONSTRUCCION"):
-            val = form.get(f"responsable_{area.lower()}")
-            if val:
-                responsables_explicitos[area] = UUID(val)
+            campo = f"responsable_{area.lower()}"
+            if campo in form:
+                val = form.get(campo)
+                responsables_explicitos[area] = UUID(val) if val else None
 
         await service.save_equipo_proyecto(
             conn, id_proyecto, asignaciones, user_db_id, permisos,

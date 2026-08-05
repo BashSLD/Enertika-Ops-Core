@@ -805,7 +805,9 @@ class ComprasDBService:
         tipo_cambio_xml: Optional[Decimal] = None,
         bom_item_map: dict = None,
         match_meta_map: dict = None,
-        suggestion_map: dict = None
+        suggestion_map: dict = None,
+        tipo_factura: str = "NORMAL",
+        moneda: str = "MXN",
     ):
         """Guarda los conceptos/items del XML en tb_materiales_historial.
 
@@ -840,6 +842,7 @@ class ComprasDBService:
             suggestion = suggestion_map.get(idx) or {}
             rows.append((
                 uuid_factura, id_comprobante, id_proveedor,
+                idx + 1,
                 c['descripcion'], c['cantidad'], c['valor_unitario'],
                 c['importe'], c.get('unidad'), clave_sat,
                 c.get('clave_unidad'), id_categoria, 'XML', fecha_factura,
@@ -852,16 +855,31 @@ class ComprasDBService:
             await conn.executemany("""
                 INSERT INTO tb_materiales_historial (
                     uuid_factura, id_comprobante, id_proveedor,
+                    numero_linea_cfdi,
                     descripcion_proveedor, cantidad, precio_unitario,
                     importe, unidad, clave_prod_serv, clave_unidad,
                     id_categoria, origen, fecha_factura,
                     tipo_cambio_xml, created_by_id, id_bom_item,
                     match_confianza, match_origen,
                     id_bom_item_sugerido, sugerencia_confianza, sugerencia_origen
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
-                ON CONFLICT (uuid_factura, descripcion_proveedor, cantidad, precio_unitario)
-                DO NOTHING
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+                ON CONFLICT (uuid_factura, numero_linea_cfdi) DO UPDATE
+                SET id_comprobante = EXCLUDED.id_comprobante,
+                    id_proveedor = EXCLUDED.id_proveedor,
+                    fecha_factura = EXCLUDED.fecha_factura,
+                    tipo_cambio_xml = EXCLUDED.tipo_cambio_xml,
+                    descripcion_proveedor = EXCLUDED.descripcion_proveedor,
+                    cantidad = EXCLUDED.cantidad,
+                    precio_unitario = EXCLUDED.precio_unitario,
+                    importe = EXCLUDED.importe,
+                    unidad = EXCLUDED.unidad,
+                    clave_prod_serv = EXCLUDED.clave_prod_serv,
+                    clave_unidad = EXCLUDED.clave_unidad,
+                    id_categoria = EXCLUDED.id_categoria
             """, rows)
+            await self.sincronizar_asignaciones_bom_factura(
+                conn, uuid_factura, tipo_factura, moneda
+            )
 
         try:
             await conn.execute("""
@@ -883,6 +901,170 @@ class ComprasDBService:
                 "Auto-categorizado %d/%d conceptos por clave SAT (UUID=%s)",
                 auto_cat_count, len(conceptos), uuid_factura[:8]
             )
+
+    async def sincronizar_asignaciones_bom_factura(
+        self, conn, uuid_factura: str, tipo_factura: str, moneda: str,
+    ) -> None:
+        """Materializa hechos CFDI solo para matches confirmados de una factura."""
+        tipo_cfdi = "NOTA_CREDITO" if tipo_factura == "NOTA_CREDITO" else "NORMAL"
+        moneda_normalizada = (moneda or "").upper()
+        if moneda_normalizada not in {"MXN", "USD"}:
+            raise ValueError("La moneda del CFDI debe ser MXN o USD para conciliar el BOM.")
+
+        await conn.execute("""
+            DELETE FROM tb_bom_hecho_grupo_asignaciones grupo
+            USING tb_bom_concepto_asignaciones asignacion,
+                  tb_materiales_historial material
+            WHERE grupo.id_asignacion_concepto = asignacion.id_asignacion
+              AND asignacion.id_material = material.id
+              AND material.uuid_factura = $1
+              AND material.id_bom_item IS DISTINCT FROM asignacion.id_bom_item
+        """, uuid_factura)
+        await conn.execute("""
+            DELETE FROM tb_bom_concepto_asignaciones asignacion
+            USING tb_materiales_historial material
+            WHERE asignacion.id_material = material.id
+              AND material.uuid_factura = $1
+              AND material.id_bom_item IS DISTINCT FROM asignacion.id_bom_item
+        """, uuid_factura)
+        await conn.execute("""
+            INSERT INTO tb_bom_concepto_asignaciones (
+                id_material, id_concepto_cfdi, id_paquete, id_bom, id_linea_bom,
+                id_bom_item, importe_asignado, moneda, tipo_cfdi
+            )
+            SELECT material.id, material.id_concepto_cfdi, item.id_paquete,
+                   item.id_bom, item.id_linea_bom, item.id_item,
+                   CASE WHEN $2 = 'NOTA_CREDITO'
+                        THEN -ABS(material.importe) ELSE ABS(material.importe) END,
+                   $3, $2
+            FROM tb_materiales_historial material
+            JOIN tb_bom_items item ON item.id_item = material.id_bom_item
+            WHERE material.uuid_factura = $1
+              AND material.id_bom_item IS NOT NULL
+            ON CONFLICT (id_material, id_bom_item) DO UPDATE
+            SET importe_asignado = EXCLUDED.importe_asignado,
+                moneda = EXCLUDED.moneda,
+                tipo_cfdi = EXCLUDED.tipo_cfdi,
+                updated_at = NOW(),
+                lock_version = tb_bom_concepto_asignaciones.lock_version + 1
+        """, uuid_factura, tipo_cfdi, moneda_normalizada)
+        await conn.execute("""
+            DELETE FROM tb_bom_hecho_grupo_asignaciones grupo
+            USING tb_bom_concepto_asignaciones asignacion,
+                  tb_materiales_historial material
+            WHERE grupo.id_asignacion_concepto = asignacion.id_asignacion
+              AND asignacion.id_material = material.id
+              AND material.uuid_factura = $1
+        """, uuid_factura)
+        await conn.execute("""
+            UPDATE tb_bom_concepto_asignaciones asignacion
+            SET asignacion_grupo_completa = FALSE,
+                updated_at = NOW()
+            FROM tb_materiales_historial material
+            WHERE material.id = asignacion.id_material
+              AND material.uuid_factura = $1
+        """, uuid_factura)
+        await conn.execute("""
+            INSERT INTO tb_bom_hecho_grupo_asignaciones (
+                id_asignacion_concepto, id_grupo, grupo_codigo_snapshot,
+                grupo_nombre_snapshot, importe_asignado, moneda
+            )
+            SELECT asignacion.id_asignacion,
+                   distribucion.id_grupo,
+                   distribucion.grupo_codigo_snapshot,
+                   distribucion.grupo_nombre_snapshot,
+                   asignacion.importe_asignado * distribucion.porcentaje,
+                   asignacion.moneda
+            FROM tb_bom_concepto_asignaciones asignacion
+            JOIN tb_materiales_historial material
+              ON material.id = asignacion.id_material
+            JOIN tb_bom_item_grupo_asignaciones distribucion
+              ON distribucion.id_bom_item = asignacion.id_bom_item
+            WHERE material.uuid_factura = $1
+              AND ABS((
+                  SELECT SUM(otra.porcentaje)
+                  FROM tb_bom_item_grupo_asignaciones otra
+                  WHERE otra.id_bom_item = asignacion.id_bom_item
+              ) - 1) <= 0.000001
+            ON CONFLICT (id_asignacion_concepto, id_grupo) DO UPDATE
+            SET importe_asignado = EXCLUDED.importe_asignado,
+                moneda = EXCLUDED.moneda
+        """, uuid_factura)
+        await conn.execute("""
+            WITH grupo_unico AS (
+                SELECT asignacion.id_asignacion, grupo.id, grupo.codigo, grupo.nombre,
+                       asignacion.importe_asignado, asignacion.moneda
+                FROM tb_bom_concepto_asignaciones asignacion
+                JOIN tb_materiales_historial material
+                  ON material.id = asignacion.id_material
+                JOIN LATERAL (
+                    SELECT catalogo.id, catalogo.codigo, catalogo.nombre
+                    FROM (
+                        SELECT relacion.id_grupo
+                        FROM tb_bom_item_grupos_operativos relacion
+                        WHERE relacion.id_item = asignacion.id_bom_item
+                        UNION ALL
+                        SELECT relacion.id_grupo
+                        FROM tb_bom_item_grupos relacion
+                        WHERE relacion.id_item = asignacion.id_bom_item
+                          AND NOT EXISTS (
+                              SELECT 1 FROM tb_bom_item_grupos_operativos operativa
+                              WHERE operativa.id_item = asignacion.id_bom_item
+                          )
+                    ) relacion
+                    JOIN tb_cat_grupos_bom catalogo ON catalogo.id = relacion.id_grupo
+                    WHERE catalogo.activo = TRUE
+                    ORDER BY catalogo.orden, catalogo.id
+                ) grupo ON TRUE
+                WHERE material.uuid_factura = $1
+                  AND 1 = (
+                      SELECT COUNT(*)
+                      FROM (
+                          SELECT relacion.id_grupo
+                          FROM tb_bom_item_grupos_operativos relacion
+                          WHERE relacion.id_item = asignacion.id_bom_item
+                          UNION ALL
+                          SELECT relacion.id_grupo
+                          FROM tb_bom_item_grupos relacion
+                          WHERE relacion.id_item = asignacion.id_bom_item
+                            AND NOT EXISTS (
+                                SELECT 1 FROM tb_bom_item_grupos_operativos operativa
+                                WHERE operativa.id_item = asignacion.id_bom_item
+                            )
+                      ) grupos
+                  )
+            ), insertados AS (
+                INSERT INTO tb_bom_hecho_grupo_asignaciones (
+                    id_asignacion_concepto, id_grupo, grupo_codigo_snapshot,
+                    grupo_nombre_snapshot, importe_asignado, moneda
+                )
+                SELECT id_asignacion, id, codigo, nombre, importe_asignado, moneda
+                FROM grupo_unico
+                ON CONFLICT (id_asignacion_concepto, id_grupo) DO UPDATE
+                SET importe_asignado = EXCLUDED.importe_asignado,
+                    moneda = EXCLUDED.moneda
+                RETURNING id_asignacion_concepto
+            )
+            UPDATE tb_bom_concepto_asignaciones asignacion
+            SET asignacion_grupo_completa = TRUE,
+                updated_at = NOW()
+            WHERE asignacion.id_asignacion IN (
+                SELECT id_asignacion_concepto FROM insertados
+            )
+        """, uuid_factura)
+        await conn.execute("""
+            UPDATE tb_bom_concepto_asignaciones asignacion
+            SET asignacion_grupo_completa = TRUE,
+                updated_at = NOW()
+            FROM tb_materiales_historial material
+            WHERE material.id = asignacion.id_material
+              AND material.uuid_factura = $1
+              AND ABS((
+                  SELECT SUM(grupo.importe_asignado)
+                  FROM tb_bom_hecho_grupo_asignaciones grupo
+                  WHERE grupo.id_asignacion_concepto = asignacion.id_asignacion
+              ) - asignacion.importe_asignado) <= 0.000001
+        """, uuid_factura)
 
     async def guardar_cfdi_relacionados(
         self, conn, uuid_factura: str, relacionados: List[dict]
@@ -1494,28 +1676,48 @@ class ComprasDBService:
     # ─── PROYECTOS CON BOM (Gap 6) ──────────────────────────
 
     async def get_proyectos_con_bom(self, conn) -> list:
-        """Proyectos con BOM en estatus visible para Compras."""
+        """Una fila por paquete cuya cabeza de trabajo es visible para Compras."""
         rows = await conn.fetch("""
-            SELECT DISTINCT ON (p.id_proyecto)
+            SELECT
                 p.id_proyecto,
                 p.proyecto_id_estandar,
                 o.nombre_proyecto,
+                paquete.id_paquete,
+                paquete.codigo AS paquete_codigo,
+                paquete.nombre AS paquete_nombre,
+                paquete.tipo_alcance,
                 b.id_bom,
                 b.estatus AS bom_estatus,
                 b.version AS bom_version,
                 COALESCE(items.total, 0) AS total_items,
-                COALESCE(items.costo_estimado, 0) AS costo_estimado
-            FROM tb_bom b
+                items.costo_estimado_mxn,
+                items.costo_estimado_usd
+            FROM tb_bom_paquetes paquete
+            JOIN tb_bom b ON b.id_bom = paquete.cabeza_trabajo_id
             JOIN tb_proyectos_gate p ON p.id_proyecto = b.id_proyecto
             LEFT JOIN tb_oportunidades o ON o.id_oportunidad = p.id_oportunidad
             LEFT JOIN LATERAL (
-                SELECT COUNT(*) AS total,
-                       COALESCE(SUM(cantidad * COALESCE(precio_unitario, 0)) FILTER (WHERE activo), 0) AS costo_estimado
+                SELECT COUNT(*) FILTER (WHERE activo) AS total,
+                       CASE WHEN COUNT(*) FILTER (WHERE activo AND (
+                           cantidad IS NULL OR precio_unitario IS NULL
+                           OR moneda IS NULL OR moneda NOT IN ('MXN', 'USD')
+                       )) > 0 THEN NULL ELSE COALESCE(
+                           SUM(cantidad * precio_unitario)
+                               FILTER (WHERE activo AND moneda = 'MXN'), 0
+                       ) END AS costo_estimado_mxn,
+                       CASE WHEN COUNT(*) FILTER (WHERE activo AND (
+                           cantidad IS NULL OR precio_unitario IS NULL
+                           OR moneda IS NULL OR moneda NOT IN ('MXN', 'USD')
+                       )) > 0 THEN NULL ELSE COALESCE(
+                           SUM(cantidad * precio_unitario)
+                               FILTER (WHERE activo AND moneda = 'USD'), 0
+                       ) END AS costo_estimado_usd
                 FROM tb_bom_items
                 WHERE id_bom = b.id_bom
             ) items ON TRUE
-            WHERE b.estatus IN ('APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL')
-            ORDER BY p.id_proyecto, b.version DESC
+            WHERE paquete.estado_paquete = 'ACTIVO'
+              AND b.estatus IN ('APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL')
+            ORDER BY p.proyecto_id_estandar, paquete.codigo, paquete.id_paquete
         """)
         return [dict(r) for r in rows]
 

@@ -96,11 +96,26 @@
                 <span class="font-mono font-bold">{{ proyecto.proyecto_id_estandar or 'Sin ID' }}</span>
                 - {{ proyecto.nombre_proyecto or '' }}
             </p>
+            {% if paquete %}
+            <p class="mt-1 text-sm text-gray-700">
+                <a href="/bom/{{ id_proyecto }}/ui" hx-get="/bom/{{ id_proyecto }}/ui"
+                    hx-target="#main-content" hx-push-url="true"
+                    class="text-blue-600 hover:underline">Conjunto BOM</a>
+                <span class="mx-1 text-gray-300">/</span>
+                <span class="font-semibold">{{ paquete.codigo }} - {{ paquete.nombre }}</span>
+                <span class="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                    {{ paquete.tipo_alcance }}
+                </span>
+            </p>
+            {% if paquete.descripcion_alcance %}
+            <p class="mt-1 max-w-3xl text-xs text-gray-500">{{ paquete.descripcion_alcance }}</p>
+            {% endif %}
+            {% endif %}
         </div>
         <div class="flex items-center gap-2">
             {% if bom %}
             {# Export Excel #}
-            <a href="/bom/{{ id_proyecto }}/export-excel"
+            <a href="/bom/versiones/{{ bom.id_bom }}/export-excel"
                 class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition">
                 <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -108,6 +123,14 @@
                 </svg>
                 Excel
             </a>
+            {% if puede_administrar_paquete and paquete %}
+            <button type="button"
+                hx-get="/bom/paquetes/{{ paquete.id_paquete }}/administrar-modal"
+                hx-target="#bom-modal-container" hx-swap="innerHTML"
+                class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition">
+                Administrar paquete
+            </button>
+            {% endif %}
             {# Suplencia #}
             {% if es_rol_bom %}
             <button hx-get="/bom/suplencia/modal" hx-target="#bom-modal-container" hx-swap="innerHTML"
@@ -181,10 +204,10 @@
     {% endif %}
 
     {# Boton agregar item — permitido en todos los estados menos CANCELADO y APROBADO_FINAL #}
-    {% set puede_agregar_item = (area_editor == 'construccion' and bom.estatus in ['EN_REVISION_OBRA', 'EN_REVISION_CONST']) or (area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria) %}
-    {% set puede_cotizar_seleccionados = es_compras_editor and bom.estatus == 'APROBADO_CONST' %}
-    {% set puede_agregar_fuera_scope = (area_editor == 'construccion' or es_compras_editor) and bom.estatus == 'APROBADO_FINAL' %}
-    {% set puede_refrescar_costos = area_editor == 'ingenieria' and bom.estatus == 'BORRADOR' and estadisticas.items_sin_costo %}
+    {% set puede_agregar_item = capacidades.agregar_items|default(false) %}
+    {% set puede_cotizar_seleccionados = not solo_lectura|default(false) and es_compras_editor and bom.estatus == 'APROBADO_CONST' %}
+    {% set puede_agregar_fuera_scope = not solo_lectura|default(false) and (area_editor == 'construccion' or es_compras_editor) and bom.estatus == 'APROBADO_FINAL' %}
+    {% set puede_refrescar_costos = capacidades.refrescar_costos|default(false) and estadisticas.items_sin_costo %}
     {% if bom and ((bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and (puede_agregar_item or puede_cotizar_seleccionados)) or puede_agregar_fuera_scope or puede_refrescar_costos) %}
     <div class="mb-4 flex gap-2">
         {% if puede_agregar_item and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] %}
@@ -200,6 +223,8 @@
         {% if puede_refrescar_costos %}
         <button type="button"
             hx-post="/bom/{{ bom.id_bom }}/refrescar-costos"
+            hx-vals='{"lock_version": "{{ bom.lock_version }}"}'
+            data-bom-lock-vals
             hx-target="#tabla-bom-items" hx-swap="innerHTML"
             hx-confirm="¿Actualizar el presupuesto de los items sin costo con el precio actual del catalogo interno?"
             class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 transition shadow-sm"
@@ -292,6 +317,31 @@
     {% endif %}
 
     {# Tabla de items + edicion masiva (scope Alpine compartido) #}
+    <input type="hidden" id="bom-lock-version-state" value="{{ bom.lock_version }}">
+    <script>
+    (() => {
+        const syncBomLockVersion = () => {
+            const state = document.getElementById('bom-lock-version-state');
+            if (!state) return;
+            const version = state.value;
+            document.querySelectorAll('[data-bom-lock-version]').forEach((input) => {
+                input.value = version;
+            });
+            document.querySelectorAll('[data-bom-lock-vals]').forEach((element) => {
+                element.setAttribute('hx-vals', JSON.stringify({lock_version: version}));
+            });
+            document.querySelectorAll('[data-bom-lock-version-container]').forEach((element) => {
+                element.dataset.bomLockVersion = version;
+            });
+        };
+        if (!window.__bomLockVersionSyncInstalled) {
+            document.body.addEventListener('htmx:afterSwap', syncBomLockVersion);
+            document.body.addEventListener('htmx:oobAfterSwap', syncBomLockVersion);
+            window.__bomLockVersionSyncInstalled = true;
+        }
+        syncBomLockVersion();
+    })();
+    </script>
     <div x-data="{
             itemSeleccionados: [],
             campo: '',
@@ -306,7 +356,7 @@
          @htmx:after-swap="if ($event.detail.target && $event.detail.target.id === 'tabla-bom-items') reset()">
 
         {% set es_aprobado_final = bom and bom.estatus == 'APROBADO_FINAL' %}
-        {% set puede_bulk = bom and bom.estatus != 'CANCELADO' and (((area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria) and not es_aprobado_final) or area_editor in ['construccion', 'compras']) %}
+        {% set puede_bulk = bom and bom.estatus != 'CANCELADO' and (capacidades.editar_base|default(false) or capacidades.editar_ejecucion|default(false)) %}
         {% if puede_bulk %}
         {# vctl(c): muestra/habilita el control de valor solo cuando es el campo activo #}
         {% macro vctl(c) -%}
@@ -315,6 +365,7 @@
         {# Barra de edicion masiva — aparece al seleccionar items #}
         <div id="bom-bulk-bar" x-show="itemSeleccionados.length > 0" x-cloak
              class="mb-3 flex flex-wrap items-end gap-3 bg-blue-50 border border-blue-200 rounded-xl p-3">
+            <input type="hidden" name="lock_version" value="{{ bom.lock_version }}" data-bom-lock-version>
             <div class="text-sm font-medium text-blue-800">
                 <span x-text="itemSeleccionados.length"></span> seleccionados
             </div>
@@ -323,7 +374,7 @@
                 <label class="block text-xs font-medium text-gray-500 mb-1">Campo a editar</label>
                 <select name="campo" x-model="campo" class="rounded-lg border-gray-300 text-sm">
                     <option value="">-- Selecciona --</option>
-                    {% if area_editor == 'ingenieria' %}
+                    {% if capacidades.editar_base|default(false) %}
                     <option value="id_categoria">Categoria</option>
                     <option value="unidad_medida">Unidad de medida</option>
                     <option value="precio_unitario">Presupuesto unitario</option>
@@ -331,7 +382,8 @@
                     <option value="origen_precio">Origen de precio</option>
                     <option value="tipo_partida">Tipo de partida</option>
                     <option value="grupos">Grupos BOM</option>
-                    {% elif area_editor == 'construccion' %}
+                    {% endif %}
+                    {% if area_editor == 'construccion' and capacidades.editar_ejecucion|default(false) %}
                     {% if bom.estatus in ['EN_REVISION_OBRA', 'EN_REVISION_CONST'] %}
                     <option value="fecha_requerida">Fecha requerida</option>
                     {% endif %}
@@ -342,7 +394,8 @@
                     {% if bom.estatus in ['EN_REVISION_OBRA', 'EN_REVISION_CONST'] %}
                     <option value="grupos">Grupos BOM</option>
                     {% endif %}
-                    {% elif area_editor == 'compras' %}
+                    {% endif %}
+                    {% if area_editor == 'compras' and capacidades.editar_ejecucion|default(false) %}
                     <option value="precio_real">Costo real</option>
                     <option value="moneda_real">Moneda real</option>
                     <option value="id_proveedor">Proveedor</option>
@@ -358,7 +411,7 @@
             <div class="flex-1 min-w-[200px]">
                 <label class="block text-xs font-medium text-gray-500 mb-1">Nuevo valor</label>
 
-                {% if area_editor == 'ingenieria' %}
+                {% if capacidades.editar_base|default(false) %}
                 <select name="valor" {{ vctl('id_categoria') }}
                         class="w-full rounded-lg border-gray-300 text-sm">
                     <option value="">-- Sin categoria --</option>
@@ -442,16 +495,16 @@
                        placeholder="Comentario para los items" class="w-full rounded-lg border-gray-300 text-sm">
                 {% endif %}
 
-                {% if area_editor in ['ingenieria', 'construccion'] %}
-                <div x-show="campo === 'grupos'" class="flex flex-wrap gap-1.5">
+                {% if capacidades.editar_base|default(false) %}
+                <div x-show="campo === 'grupos'">
+                    <select name="grupo_ids" :disabled="campo !== 'grupos'"
+                            class="w-full rounded-lg border-gray-300 text-sm">
+                        <option value="">-- Selecciona grupo --</option>
                     {% for grupo in catalogos.grupos_bom %}
-                    <label class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-300 bg-white text-xs cursor-pointer hover:bg-gray-50">
-                        <input type="checkbox" name="grupo_ids" value="{{ grupo.id }}" :disabled="campo !== 'grupos'"
-                               class="rounded border-gray-300 text-blue-600">
-                        <span class="font-bold">{{ grupo.codigo }}</span>
-                    </label>
+                        <option value="{{ grupo.id }}">{{ grupo.codigo }} — {{ grupo.nombre }}</option>
                     {% endfor %}
-                    <span class="w-full text-[11px] text-gray-500">Reemplaza los grupos de los items seleccionados.</span>
+                    </select>
+                    <span class="text-[11px] text-gray-500">Asigna un grupo. Las distribuciones multigrupo se capturan por item.</span>
                 </div>
                 {% endif %}
             </div>
@@ -604,6 +657,12 @@
                     <div class="text-xs text-gray-500">
                         {{ v.elaborado_por_nombre or '' }}
                         {% if v.created_at %} - {{ v.created_at.strftime('%d/%m/%Y') }}{% endif %}
+                        {% if v.id_bom != bom.id_bom %}
+                        <a href="/bom/versiones/{{ v.id_bom }}/ui"
+                            hx-get="/bom/versiones/{{ v.id_bom }}/ui"
+                            hx-target="#main-content" hx-push-url="true"
+                            class="ml-3 font-medium text-blue-600 hover:underline">Abrir</a>
+                        {% endif %}
                     </div>
                 </div>
                 {% endfor %}
@@ -880,7 +939,7 @@
                 </div>
 
                 <form x-ref="formAgregarItem"
-                    hx-post="/bom/{{ id_proyecto }}/items" hx-target="#tabla-bom-items" hx-swap="innerHTML"
+                    hx-post="/bom/{{ bom.id_bom }}/items" hx-target="#tabla-bom-items" hx-swap="innerHTML"
                     hx-indicator="#modal-agregar-item-overlay"
                     hx-disabled-elt="#bom-agregar-item-submit"
                     hx-on::after-request="if(event.detail.successful && event.detail.elt === this) { cerrar(); }"
@@ -892,6 +951,7 @@
                     <input type="hidden" name="moneda" :value="moneda">
                     <input type="hidden" name="id_material_ref" :value="materialRef">
                     <input type="hidden" name="id_material_interno" :value="materialInterno">
+                    <input type="hidden" name="lock_version" value="{{ bom.lock_version }}" data-bom-lock-version>
 
                     <div class="space-y-3">
                         <input type="hidden" :name="modo === 'catalogo' ? 'descripcion' : ''" :value="descripcion">
@@ -1132,6 +1192,8 @@
         }
         const formData = new FormData();
         cbs.forEach(cb => formData.append('item_ids', cb.value));
+        const lockState = document.getElementById('bom-lock-version-state');
+        formData.append('lock_version', lockState ? lockState.value : '{{ bom.lock_version }}');
 
         fetch('/bom/{{ bom.id_bom }}/rfq-rapido', {
             method: 'POST',

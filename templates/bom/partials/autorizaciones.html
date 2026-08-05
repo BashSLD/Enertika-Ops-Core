@@ -65,10 +65,11 @@
                 <div class="flex flex-col gap-2 shrink-0">
 
                     {# Paso 1: Obra #}
-                    {% if aut.estatus == 'PENDIENTE' and (es_coordinador_obra or es_admin) %}
+                    {% if aut.estatus == 'PENDIENTE' and es_coordinador_obra %}
                     <form hx-post="/bom/autorizaciones/{{ aut.id }}/aprobar-obra"
                           hx-target="#tab-autorizaciones" hx-swap="innerHTML">
                         <input type="hidden" name="nota" value="">
+                        <input type="hidden" name="lock_version" value="{{ aut.lock_version }}">
                         <button type="submit"
                             class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition">
                             Aprobar (Obra)
@@ -81,7 +82,7 @@
                             if (motivo && motivo.trim()) {
                                 htmx.ajax('POST', '/bom/autorizaciones/{{ aut.id }}/rechazar',
                                     { target: '#tab-autorizaciones', swap: 'innerHTML',
-                                      values: { motivo: motivo.trim() } });
+                                      values: { motivo: motivo.trim(), lock_version: '{{ aut.lock_version }}' } });
                             }
                         "
                         class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-500 hover:bg-red-600 transition">
@@ -90,10 +91,11 @@
                     {% endif %}
 
                     {# Paso 2: Dirección #}
-                    {% if aut.estatus == 'AUTORIZADO_OBRA' and (es_director or es_admin) %}
+                    {% if aut.estatus == 'AUTORIZADO_OBRA' and es_director %}
                     <form hx-post="/bom/autorizaciones/{{ aut.id }}/aprobar-direccion"
                           hx-target="#tab-autorizaciones" hx-swap="innerHTML">
                         <input type="hidden" name="nota" value="">
+                        <input type="hidden" name="lock_version" value="{{ aut.lock_version }}">
                         <button type="submit"
                             class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-violet-600 hover:bg-violet-700 transition">
                             Aprobar (Dirección)
@@ -106,7 +108,7 @@
                             if (motivo && motivo.trim()) {
                                 htmx.ajax('POST', '/bom/autorizaciones/{{ aut.id }}/rechazar',
                                     { target: '#tab-autorizaciones', swap: 'innerHTML',
-                                      values: { motivo: motivo.trim() } });
+                                      values: { motivo: motivo.trim(), lock_version: '{{ aut.lock_version }}' } });
                             }
                         "
                         class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-500 hover:bg-red-600 transition">
@@ -114,11 +116,12 @@
                     </button>
                     {% endif %}
 
-                    {# Paso 3: Finanzas — ADMIN o usuario con rol finanzas editor+ #}
-                    {% if aut.estatus == 'AUTORIZADO_DIRECCION' and (es_admin or es_finanzas) %}
+                    {# Paso 3: Finanzas — usuario con rol finanzas editor+ #}
+                    {% if aut.estatus == 'AUTORIZADO_DIRECCION' and es_finanzas %}
                     <form hx-post="/bom/autorizaciones/{{ aut.id }}/aprobar-finanzas"
                           hx-target="#tab-autorizaciones" hx-swap="innerHTML">
                         <input type="hidden" name="nota" value="">
+                        <input type="hidden" name="lock_version" value="{{ aut.lock_version }}">
                         <button type="submit"
                             class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition">
                             Aprobar (Finanzas)
@@ -131,7 +134,7 @@
                             if (motivo && motivo.trim()) {
                                 htmx.ajax('POST', '/bom/autorizaciones/{{ aut.id }}/rechazar',
                                     { target: '#tab-autorizaciones', swap: 'innerHTML',
-                                      values: { motivo: motivo.trim() } });
+                                      values: { motivo: motivo.trim(), lock_version: '{{ aut.lock_version }}' } });
                             }
                         "
                         class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-500 hover:bg-red-600 transition">
