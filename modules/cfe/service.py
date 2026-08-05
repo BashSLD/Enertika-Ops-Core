@@ -69,6 +69,14 @@ def _es_dominio_cfe(domain: object) -> bool:
     return normalized == "cfe.mx" or normalized.endswith(".cfe.mx")
 
 
+# Cookie real de autenticacion MiEspacio (httpOnly+secure, expiracion corta).
+# Las demas cookies del dominio .cfe.mx son analytics/Incapsula de larga duracion
+# o cookies de sesion de navegador sin expiracion persistente (expires=-1) y no
+# sirven para calcular cuando expira la sesion real.
+_CFE_AUTH_COOKIE_NAME = "RecibosLogin"
+_RE_ERROR_SESION_EXPIRADA = re.compile(r"sesi[oó]n cfe miespacio expir[oó]", re.I)
+
+
 _MESES_ZIP_SIMULACION = {
     1: "ENE",
     2: "FEB",
@@ -161,7 +169,7 @@ class CfeService:
                         cookie
                         for cookie in data.get("cookies", [])
                         if isinstance(cookie, dict)
-                        and _es_dominio_cfe(cookie.get("domain"))
+                        and cookie.get("name") == _CFE_AUTH_COOKIE_NAME
                     ]
                     if not cfe_cookies:
                         sesion_estado = "invalida"
@@ -1259,6 +1267,7 @@ class CfeService:
                     or final_xml.get("tipo_recibo")
                 )
                 errores = [msg for msg in (result.xml_error, result.pdf_error, xml_upload_err, pdf_upload_err) if msg]
+                errores.sort(key=lambda m: not _RE_ERROR_SESION_EXPIRADA.search(m))
                 decision = "no_aplica" if ya_xml and ya_pdf else "pendiente"
                 await self.db.upsert_busqueda_item(
                     conn,
