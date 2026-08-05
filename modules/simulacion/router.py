@@ -379,7 +379,7 @@ async def exportar_simulaciones_excel(
     ws.freeze_panes = "A3"
 
     titulo = f"SIMULACIONES | {fi.strftime('%d/%m/%Y')} – {ff.strftime('%d/%m/%Y')} | Hora México"
-    ws.merge_cells("A1:K1")
+    ws.merge_cells("A1:L1")
     t = ws["A1"]
     t.value = titulo
     t.fill = fill(AZUL)
@@ -389,11 +389,11 @@ async def exportar_simulaciones_excel(
     ws.row_dimensions[2].height = 30
 
     headers = [
-        "OP ID", "Responsable", "Cliente", "Título del Proyecto",
+        "OP ID", "Responsable", "Comercial", "Cliente", "Título del Proyecto",
         "Fecha Solicitud", "Deadline Calculado", "Deadline Negociado",
         "Fecha Entrega", "Estatus", "KPI Interno", "KPI Compromiso",
     ]
-    widths = [20, 26, 28, 52, 17, 20, 20, 17, 14, 18, 18]
+    widths = [20, 26, 26, 28, 52, 17, 20, 20, 17, 14, 18, 18]
     for col, (h, w) in enumerate(zip(headers, widths), 1):
         c = ws.cell(row=2, column=col, value=h)
         c.fill = fill(AZUL)
@@ -414,22 +414,23 @@ async def exportar_simulaciones_excel(
 
         put(ws, i, 1,  r["op_id_estandar"],          bg, center=True)
         put(ws, i, 2,  r["responsable"] or "Sin asignar", bg)
-        put(ws, i, 3,  r["cliente_nombre"],            bg)
-        put(ws, i, 4,  r["titulo_proyecto"],           bg)
-        put(ws, i, 5,  fmt_dt(r["fecha_solicitud"]),   bg, center=True)
-        put(ws, i, 6,  fmt_dt(r["deadline_calculado"]), bg, center=True)
-        put(ws, i, 7,  fmt_dt(r["deadline_negociado"]) if tiene_dn else "—",
+        put(ws, i, 3,  r["comercial"] or "Sin asignar", bg)
+        put(ws, i, 4,  r["cliente_nombre"],            bg)
+        put(ws, i, 5,  r["titulo_proyecto"],           bg)
+        put(ws, i, 6,  fmt_dt(r["fecha_solicitud"]),   bg, center=True)
+        put(ws, i, 7,  fmt_dt(r["deadline_calculado"]), bg, center=True)
+        put(ws, i, 8,  fmt_dt(r["deadline_negociado"]) if tiene_dn else "—",
             bg, bold=tiene_dn, center=True, txt_color="7B3F00" if tiene_dn else "000000")
-        put(ws, i, 8,  fmt_dt(r["fecha_entrega"]),     bg, center=True)
+        put(ws, i, 9,  fmt_dt(r["fecha_entrega"]),     bg, center=True)
         est_bg = {"Entregado": VERDE, "En Proceso": NARAN, "En Revisión": AZUL_C,
                   "Pendiente": GRIS}.get(r["estatus"], bg)
-        put(ws, i, 9,  r["estatus"] or "—",           est_bg, center=True)
+        put(ws, i, 10, r["estatus"] or "—",           est_bg, center=True)
         ki_bg = VERDE if "a tiempo" in ki else (ROJO if "tarde" in ki else bg)
-        put(ws, i, 10, ki or "—",                     ki_bg, center=True)
+        put(ws, i, 11, ki or "—",                     ki_bg, center=True)
         kc_bg = VERDE if "a tiempo" in kc else (ROJO if "tarde" in kc else bg)
-        put(ws, i, 11, kc or "—",                     kc_bg, center=True)
+        put(ws, i, 12, kc or "—",                     kc_bg, center=True)
 
-    ws.auto_filter.ref = f"A2:K{max(2, 2 + len(rows))}"
+    ws.auto_filter.ref = f"A2:L{max(2, 2 + len(rows))}"
 
     buf = io.BytesIO()
     wb.save(buf)

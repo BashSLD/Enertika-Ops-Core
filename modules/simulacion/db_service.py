@@ -1046,6 +1046,7 @@ class SimulacionDBService:
             SELECT
                 o.op_id_estandar,
                 u.nombre                                                        AS responsable,
+                u_com.nombre                                                    AS comercial,
                 o.cliente_nombre,
                 o.titulo_proyecto,
                 o.fecha_solicitud   AT TIME ZONE 'America/Mexico_City'          AS fecha_solicitud,
@@ -1058,6 +1059,7 @@ class SimulacionDBService:
             FROM tb_oportunidades o
             LEFT JOIN tb_cat_estatus_oportunidades e ON e.id = o.id_estatus_global
             LEFT JOIN tb_usuarios u ON u.id_usuario = o.responsable_simulacion_id
+            LEFT JOIN tb_usuarios u_com ON u_com.id_usuario = COALESCE(o.responsable_comercial_id, o.creado_por_id)
             WHERE (o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::date >= $1
               AND (o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::date <= $2
               AND ($3::uuid IS NULL OR o.responsable_simulacion_id = $3)
