@@ -1052,6 +1052,7 @@ class SimulacionDBService:
                 u_com.nombre                                                    AS comercial,
                 o.cliente_nombre,
                 t.nombre                                                        AS tecnologia,
+                ts.nombre                                                       AS tipo_solicitud,
                 o.titulo_proyecto,
                 o.fecha_solicitud   AT TIME ZONE 'America/Mexico_City'          AS fecha_solicitud,
                 o.deadline_calculado AT TIME ZONE 'America/Mexico_City'         AS deadline_calculado,
@@ -1065,6 +1066,7 @@ class SimulacionDBService:
             LEFT JOIN tb_usuarios u ON u.id_usuario = o.responsable_simulacion_id
             LEFT JOIN tb_usuarios u_com ON u_com.id_usuario = COALESCE(o.responsable_comercial_id, o.creado_por_id)
             LEFT JOIN tb_cat_tecnologias t ON t.id = o.id_tecnologia
+            LEFT JOIN tb_cat_tipos_solicitud ts ON ts.id = o.id_tipo_solicitud
             LEFT JOIN LATERAL (
                 SELECT l.id_levantamiento, l.jefe_area_id, l.tecnico_asignado_id,
                        COUNT(*) OVER () AS n_sitios

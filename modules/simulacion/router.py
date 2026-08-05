@@ -379,7 +379,7 @@ async def exportar_simulaciones_excel(
     ws.freeze_panes = "A3"
 
     titulo = f"SIMULACIONES | {fi.strftime('%d/%m/%Y')} – {ff.strftime('%d/%m/%Y')} | Hora México"
-    ws.merge_cells("A1:M1")
+    ws.merge_cells("A1:N1")
     t = ws["A1"]
     t.value = titulo
     t.fill = fill(AZUL)
@@ -389,11 +389,11 @@ async def exportar_simulaciones_excel(
     ws.row_dimensions[2].height = 30
 
     headers = [
-        "OP ID", "Responsable", "Comercial", "Cliente", "Tipo de Solicitud", "Título del Proyecto",
+        "OP ID", "Responsable", "Comercial", "Cliente", "Tecnología", "Tipo de Solicitud", "Título del Proyecto",
         "Fecha Solicitud", "Deadline Calculado", "Deadline Negociado",
         "Fecha Entrega", "Estatus", "KPI Interno", "KPI Compromiso",
     ]
-    widths = [20, 26, 26, 28, 16, 52, 17, 20, 20, 17, 14, 18, 18]
+    widths = [20, 26, 26, 28, 16, 16, 52, 17, 20, 20, 17, 14, 18, 18]
     for col, (h, w) in enumerate(zip(headers, widths), 1):
         c = ws.cell(row=2, column=col, value=h)
         c.fill = fill(AZUL)
@@ -418,6 +418,7 @@ async def exportar_simulaciones_excel(
         put(ws, i, next(col), r["comercial"] or "Sin asignar", bg)
         put(ws, i, next(col), r["cliente_nombre"],            bg)
         put(ws, i, next(col), r["tecnologia"] or "—",          bg, center=True)
+        put(ws, i, next(col), r["tipo_solicitud"] or "—",      bg, center=True)
         put(ws, i, next(col), r["titulo_proyecto"],           bg)
         put(ws, i, next(col), fmt_dt(r["fecha_solicitud"]),   bg, center=True)
         put(ws, i, next(col), fmt_dt(r["deadline_calculado"]), bg, center=True)
@@ -432,7 +433,7 @@ async def exportar_simulaciones_excel(
         kc_bg = VERDE if "a tiempo" in kc else (ROJO if "tarde" in kc else bg)
         put(ws, i, next(col), kc or "—",                     kc_bg, center=True)
 
-    ws.auto_filter.ref = f"A2:M{max(2, 2 + len(rows))}"
+    ws.auto_filter.ref = f"A2:N{max(2, 2 + len(rows))}"
 
     buf = io.BytesIO()
     wb.save(buf)
