@@ -18,7 +18,7 @@ from dataclasses import asdict
 
 from core.database import DB_REPORT_ERRORS, get_db_connection
 from core.security import get_current_user_context
-from core.permissions import require_module_access
+from core.permissions import require_module_access, require_manager_access
 from core.timezone import today_mx
 
 from .report_service import (
@@ -177,7 +177,7 @@ async def get_analisis_detallado(
     context = Depends(get_current_user_context),
     conn = Depends(get_db_connection),
     service: ReportesSimulacionService = Depends(get_reportes_service),
-    _ = require_module_access("simulacion")
+    _ = require_manager_access("simulacion", "viewer")
 ):
     """Vista de Análisis Detallado con KPIs Duales."""
     

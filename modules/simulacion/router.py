@@ -331,7 +331,7 @@ async def exportar_simulaciones_excel(
     context = Depends(get_current_user_context),
     db_service: SimulacionDBService = Depends(get_db_service),
     conn = Depends(get_db_connection),
-    _ = require_module_access("simulacion", "editor"),
+    _ = require_manager_access("simulacion", "viewer"),
 ):
     import openpyxl
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
