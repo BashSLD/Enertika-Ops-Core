@@ -1,7 +1,8 @@
+import json
 import re
 from io import BytesIO
 
-from fastapi import Request
+from fastapi import Request, Response
 from fastapi.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
 
@@ -79,6 +80,25 @@ def safe_sheet_title(title: str, used_titles: set[str], fallback: str = "Hoja") 
 def is_htmx(request: Request) -> bool:
     return bool(
         request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request")
+    )
+
+
+def hx_location_response(
+    path: str, target: str = "#main-content", swap: str = "innerHTML", status_code: int = 200
+) -> Response:
+    """Navega via htmx (HX-Location) sin recargar el documento completo.
+
+    A diferencia de HX-Redirect, no reconstruye el documento entero — preserva
+    el x-data raiz de base.html (ej. sidebarOpen) entre navegaciones. Como el
+    hx-target original (ej. #modal-action-container) nunca recibe el swap de
+    esta respuesta, dispara el evento "bom:clear-modal-overlays" (ver
+    base.html) para vaciar los contenedores globales de modal y evitar que
+    quede un overlay huerfano flotando sobre el contenido nuevo.
+    """
+    payload = json.dumps({"path": path, "target": target, "swap": swap})
+    return Response(
+        status_code=status_code,
+        headers={"HX-Location": payload, "HX-Trigger": "clear-modal-overlays"},
     )
 
 

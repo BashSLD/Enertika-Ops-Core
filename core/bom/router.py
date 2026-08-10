@@ -19,7 +19,7 @@ from core.config import settings
 from core.config_service import ConfigService
 from core.timezone import now_mx
 from core.materials.normalizer import normalizar_descripcion
-from modules.shared.utils import is_htmx
+from modules.shared.utils import hx_location_response, is_htmx
 from .compras_service import ESTATUS_COTIZABLE
 from .service import (
     BomService,
@@ -139,15 +139,15 @@ def _toast_response(
 
 
 def _redirigir_a_bom(id_proyecto: UUID) -> Response:
-    """Redirige el navegador al BOM del proyecto (recarga completa via HX-Redirect).
+    """Redirige al BOM del proyecto sin recargar el documento (HX-Location).
 
     Usado cuando el panel FV ya esta configurado (o se acaba de guardar): evita
     llamar a bom_ui() directamente (que se saltaria sus propios Depends()) y evita
-    reconstruir a mano la respuesta para cerrar el modal de origen — el navegador
-    hace una navegacion nueva, entra por el routing normal, y el modal desaparece
-    junto con la pagina anterior.
+    reconstruir a mano la respuesta para cerrar el modal de origen. A diferencia
+    de HX-Redirect, no reconstruye el documento completo (lo que reiniciaba
+    x-data de base.html y colapsaba el sidebar a modo rail en cada entrada a BOM).
     """
-    return Response(status_code=200, headers={"HX-Redirect": f"/bom/{id_proyecto}/ui"})
+    return hx_location_response(f"/bom/{id_proyecto}/ui")
 
 
 def _parse_grupo_ids(form) -> list[int]:

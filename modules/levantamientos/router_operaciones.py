@@ -25,6 +25,7 @@ from core.security import get_current_user_context
 from core.permissions import require_module_access, require_org_management_access, has_org_management_access
 from core.database import get_db_connection
 from core.microsoft import MicrosoftAuth
+from modules.shared.utils import hx_location_response
 
 from .service import get_service, LevantamientoService
 from .db_service import get_db_service, LevantamientosDBService
@@ -1079,12 +1080,7 @@ def register_operaciones_endpoints(router: APIRouter):
         cc_configurados = await db_svc.get_cc_configurados_viaticos(conn)
 
         # Redirigir a la página de detalle via HX-Location
-        hx_location = json.dumps({
-            "path": f"/levantamientos/visitas-campo/{id_visita}/ui",
-            "target": "#main-content",
-            "swap": "innerHTML",
-        })
-        return Response(content="", status_code=204, headers={"HX-Location": hx_location})
+        return hx_location_response(f"/levantamientos/visitas-campo/{id_visita}/ui", status_code=204)
 
     # ----------------------------------------------------------
 
@@ -1186,12 +1182,7 @@ def register_operaciones_endpoints(router: APIRouter):
 
         logger.info(f"[VISITA_CAMPO] Visita {id_visita} eliminada por {context.get('user_name')}")
 
-        hx_location = json.dumps({
-            "path": "/levantamientos/ui",
-            "target": "#main-content",
-            "swap": "innerHTML",
-        })
-        return Response(content="", status_code=204, headers={"HX-Location": hx_location})
+        return hx_location_response("/levantamientos/ui", status_code=204)
 
     # ----------------------------------------------------------
 
@@ -1230,12 +1221,7 @@ def register_operaciones_endpoints(router: APIRouter):
                 "Visita %s eliminada (sin levantamientos) por %s",
                 id_visita, context.get('user_name')
             )
-            hx_location = json.dumps({
-                "path": "/levantamientos/ui",
-                "target": "#main-content",
-                "swap": "innerHTML",
-            })
-            return Response(content="", status_code=204, headers={"HX-Location": hx_location})
+            return hx_location_response("/levantamientos/ui", status_code=204)
 
         levantamientos_visita = await visitas_db_svc.get_levantamientos_en_visita(conn, id_visita)
         viaticos = await visitas_db_svc.get_viaticos_visita(conn, id_visita)

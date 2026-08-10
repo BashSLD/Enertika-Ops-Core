@@ -1402,6 +1402,22 @@
             }
         });
 
+        // === LIMPIEZA DE OVERLAYS DE MODAL AL NAVEGAR VIA HX-LOCATION ===
+        // hx_location_response() (modules/shared/utils.py) navega #main-content
+        // sin pasar por el hx-target original de la petición (ej. el botón "BOM"
+        // de card_proyecto.html apunta a #modal-action-container): htmx nunca
+        // hace swap ahí porque HX-Location lo intercepta. Si ese u otro
+        // contenedor global de modal ya tenía un overlay montado, queda huérfano
+        // flotando sobre el contenido nuevo. El backend dispara este evento vía
+        // HX-Trigger junto con HX-Location para vaciarlos.
+        document.body.addEventListener('clear-modal-overlays', function () {
+            ['modal-proyecto-container', 'modal-action-container', 'modal-secondary-container', 'modal-docs-container']
+                .forEach(function (id) {
+                    var el = document.getElementById(id);
+                    if (el) el.innerHTML = '';
+                });
+        });
+
         // === INTERCEPTOR DE ERRORES HTMX ===
         document.body.addEventListener('htmx:responseError', function (evt) {
             if (evt.detail.xhr.status === 401 && evt.detail.xhr.getResponseHeader('X-Auth-Reason') === 'SESSION_EXPIRED') {
