@@ -377,7 +377,7 @@ class BomService(BomComprasServiceMixin):
                 await self.db.invalidar_aprobaciones_vigentes(conn, id_bom, user_id)
             await self.db.registrar_aprobacion(
                 conn, id_bom, tipo_aprobacion,
-                bom["version"], user_id,
+                bom["version"], user_id, bom["id_paquete"],
                 comentarios=comentarios,
                 destino_rechazo=destino_rechazo,
             )
@@ -3122,7 +3122,7 @@ class BomService(BomComprasServiceMixin):
                 )
             await self.db.registrar_aprobacion(
                 conn, id_bom, TipoAprobacion.CANCELACION,
-                bom["version"], user_id, comentarios=comentarios,
+                bom["version"], user_id, bom["id_paquete"], comentarios=comentarios,
             )
             if paquete.get("cabeza_oficial_id"):
                 cabeza = await self.db.actualizar_cabeza_trabajo(
@@ -3209,7 +3209,7 @@ class BomService(BomComprasServiceMixin):
                 raise ValueError("Otra solicitud de modificacion gano la carrera")
             await self.db.registrar_aprobacion(
                 conn, id_bom, TipoAprobacion.SOLICITUD_MODIFICACION,
-                origen["version"], user_id, comentarios=comentarios,
+                origen["version"], user_id, origen["id_paquete"], comentarios=comentarios,
             )
             await self.db.registrar_historial(
                 conn, nuevo_bom["id_bom"], AccionHistorial.CREADO,
@@ -3452,7 +3452,7 @@ class BomService(BomComprasServiceMixin):
                 )
             await self.db.registrar_aprobacion(
                 conn, id_bom, TipoAprobacion.APROBACION_FINAL,
-                bom["version"], user_id, comentarios=comentarios,
+                bom["version"], user_id, bom["id_paquete"], comentarios=comentarios,
             )
             cabeza = await self.db.actualizar_cabeza_oficial(
                 conn, bom["id_paquete"], id_bom, paquete["lock_version"]

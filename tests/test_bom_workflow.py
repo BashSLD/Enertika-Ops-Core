@@ -107,10 +107,10 @@ class FakeWorkflowDB:
         return {}
 
     async def registrar_aprobacion(
-        self, conn, id_bom, tipo, version_bom, usuario_id, comentarios=None,
+        self, conn, id_bom, tipo, version_bom, usuario_id, id_paquete, comentarios=None,
         destino_rechazo=None
     ):
-        self.aprobaciones.append((tipo, usuario_id, comentarios, destino_rechazo))
+        self.aprobaciones.append((tipo, usuario_id, id_paquete, comentarios, destino_rechazo))
         return {}
 
 
@@ -451,6 +451,7 @@ async def test_rechazar_ing_vuelve_misma_version_a_borrador():
     assert updated["version"] == bom["version"]
     assert all(updated[campo] is None for campo in FLUJO_FECHAS)
     assert db.aprobaciones[0][0] == TipoAprobacion.RECHAZO_ING
+    assert db.aprobaciones[0][2] == bom["id_paquete"]
 
 
 @pytest.mark.asyncio
@@ -472,6 +473,7 @@ async def test_rechazar_obra_vuelve_a_borrador_y_limpia_fechas():
     assert updated["estatus"] == EstatusBOM.BORRADOR.value
     assert all(updated[campo] is None for campo in FLUJO_FECHAS)
     assert db.aprobaciones[0][0] == TipoAprobacion.RECHAZO_OBRA
+    assert db.aprobaciones[0][2] == bom["id_paquete"]
     assert updated["version"] == bom["version"]
 
 
@@ -494,7 +496,8 @@ async def test_rechazar_const_siempre_vuelve_a_borrador():
     assert updated["estatus"] == EstatusBOM.BORRADOR.value
     assert all(updated[campo] is None for campo in FLUJO_FECHAS)
     assert db.aprobaciones[0][0] == TipoAprobacion.RECHAZO_CONST
-    assert db.aprobaciones[0][3] == "ingenieria"
+    assert db.aprobaciones[0][2] == bom["id_paquete"]
+    assert db.aprobaciones[0][4] == "ingenieria"
     assert updated["version"] == bom["version"]
 
 
@@ -517,7 +520,8 @@ async def test_rechazar_const_a_ingenieria_vuelve_a_borrador():
     assert updated["estatus"] == EstatusBOM.BORRADOR.value
     assert all(updated[campo] is None for campo in FLUJO_FECHAS)
     assert db.aprobaciones[0][0] == TipoAprobacion.RECHAZO_CONST
-    assert db.aprobaciones[0][3] == "ingenieria"
+    assert db.aprobaciones[0][2] == bom["id_paquete"]
+    assert db.aprobaciones[0][4] == "ingenieria"
 
 
 @pytest.mark.asyncio
@@ -558,6 +562,7 @@ async def test_rechazar_final_vuelve_a_borrador():
     assert updated["estatus"] == EstatusBOM.BORRADOR.value
     assert all(updated[campo] is None for campo in FLUJO_FECHAS)
     assert db.aprobaciones[0][0] == TipoAprobacion.RECHAZO_FINAL
+    assert db.aprobaciones[0][2] == bom["id_paquete"]
     assert updated["version"] == bom["version"]
 
 

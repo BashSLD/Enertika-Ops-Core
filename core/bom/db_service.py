@@ -2152,16 +2152,16 @@ class BomDBService(BomComprasDBMixin):
 
     async def registrar_aprobacion(
         self, conn, id_bom: UUID, tipo: str, version_bom: int,
-        usuario_id: UUID, comentarios: Optional[str] = None,
+        usuario_id: UUID, id_paquete: UUID, comentarios: Optional[str] = None,
         destino_rechazo: Optional[str] = None,
     ) -> dict:
         """Registra una accion de aprobacion/rechazo."""
         row = await conn.fetchrow("""
             INSERT INTO tb_bom_aprobaciones (
                 id_bom, tipo, version_bom, usuario_id, comentarios,
-                destino_rechazo, ciclo
+                destino_rechazo, id_paquete, ciclo
             )
-            SELECT $1, $2, $3, $4, $5, $6,
+            SELECT $1, $2, $3, $4, $5, $6, $7,
                    1 + COUNT(*) FILTER (
                        WHERE tipo IN (
                            'RECHAZO_ING', 'RECHAZO_OBRA',
@@ -2172,7 +2172,7 @@ class BomDBService(BomComprasDBMixin):
             FROM tb_bom_aprobaciones
             WHERE id_bom = $1
             RETURNING *
-        """, id_bom, tipo, version_bom, usuario_id, comentarios, destino_rechazo)
+        """, id_bom, tipo, version_bom, usuario_id, comentarios, destino_rechazo, id_paquete)
         return dict(row)
 
     async def get_aprobaciones_by_bom(self, conn, id_bom: UUID) -> List[dict]:
