@@ -1,3 +1,4 @@
+{% import 'shared/partials/_paquete_nombre_datalist.html' as paquete_datalist %}
 <div class="modal-overlay-layer fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
     x-data="{ seccion: 'alcance' }" @click.self="$el.remove()">
     <div class="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl">
@@ -40,7 +41,9 @@
                 <div>
                     <label class="mb-1 block text-sm font-medium text-gray-700">Nombre</label>
                     <input name="nombre" required maxlength="160" value="{{ paquete.nombre }}"
+                        list="sugerencias-nombre-paquete-{{ paquete.id_paquete }}"
                         class="w-full rounded-lg border-gray-300 text-sm">
+                    {{ paquete_datalist.nombre_paquete_datalist('sugerencias-nombre-paquete-' ~ paquete.id_paquete) }}
                 </div>
                 <div>
                     <label class="mb-1 block text-sm font-medium text-gray-700">Descripción del alcance</label>
