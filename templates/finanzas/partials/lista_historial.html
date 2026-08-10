@@ -25,7 +25,9 @@
                 <td class="py-2.5 pr-3">
                     <div class="font-medium text-gray-800">{{ p.proyecto_id_estandar or '—' }}</div>
                     <div class="text-xs text-gray-500">{{ p.nombre_proyecto or '' }}</div>
-                    <a href="/bom/paquetes/{{ p.id_paquete }}/ui" class="text-xs font-medium text-blue-700 hover:underline">
+                    <a href="/bom/paquetes/{{ p.id_paquete }}/ui" hx-get="/bom/paquetes/{{ p.id_paquete }}/ui"
+                        hx-target="#main-content" hx-push-url="true"
+                        class="text-xs font-medium text-blue-700 hover:underline">
                         {{ p.paquete_codigo }} - {{ p.paquete_nombre }} · v{{ p.bom_version }}
                     </a>
                 </td>

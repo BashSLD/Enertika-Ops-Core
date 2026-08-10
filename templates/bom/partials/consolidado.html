@@ -124,7 +124,8 @@
                     {% for paquete in consolidado.paquetes %}
                     <tr>
                         <td class="px-4 py-3">
-                            <a href="/bom/paquetes/{{ paquete.id_paquete }}/ui"
+                            <a href="/bom/paquetes/{{ paquete.id_paquete }}/ui" hx-get="/bom/paquetes/{{ paquete.id_paquete }}/ui"
+                                hx-target="#main-content" hx-push-url="true"
                                 class="font-semibold text-blue-700 hover:underline">{{ paquete.codigo }} - {{ paquete.nombre }}</a>
                             <p class="text-xs text-gray-500">{{ paquete.estatus }}</p>
                             {% if consolidado.modo == 'OFICIAL' and paquete.fecha_aprobacion_final %}
