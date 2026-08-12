@@ -359,7 +359,6 @@ async def test_service_propaga_montos_y_divisores_none():
         "no_adquirido",
         "facturado",
         "facturado_sugerido",
-        "facturado_total_potencial",
         "pagado",
         "dif_real",
         "dif_facturado",

@@ -2717,11 +2717,6 @@ class BomService(BomComprasServiceMixin):
                 return None
             return minuendo - sustraendo
 
-        def _sumar_dos(izquierdo, derecho):
-            if izquierdo is None or derecho is None:
-                return None
-            return izquierdo + derecho
-
         por_grupo: dict[str, dict] = {}
         for f in filas:
             grupo_codigo = f["grupo_codigo"] or "SIN_CLASIFICAR"
@@ -2744,9 +2739,6 @@ class BomService(BomComprasServiceMixin):
                 "no_adquirido": _decimal(f.get("no_adquirido_mxn")),
                 "facturado": facturado,
                 "facturado_sugerido": facturado_sugerido,
-                "facturado_total_potencial": _sumar_dos(
-                    facturado, facturado_sugerido
-                ),
                 "pagado": _decimal(f["pagado_mxn"]),
                 "valores_pendientes": int(f.get("valores_pendientes") or 0),
                 "grupos_pendientes": int(f.get("grupos_pendientes") or 0),
@@ -2782,7 +2774,6 @@ class BomService(BomComprasServiceMixin):
                 "no_adquirido": s_no_adquirido,
                 "facturado": s_fact,
                 "facturado_sugerido": s_sug,
-                "facturado_total_potencial": _sumar_dos(s_fact, s_sug),
                 "pagado": s_pag,
                 "dif_real": _restar(s_presup, s_real),
                 "dif_facturado": _restar(s_presup, s_fact),
@@ -2813,7 +2804,6 @@ class BomService(BomComprasServiceMixin):
             "no_adquirido": tot_no_adquirido,
             "facturado": tot_fact,
             "facturado_sugerido": tot_sugerido,
-            "facturado_total_potencial": _sumar_dos(tot_fact, tot_sugerido),
             "pagado": tot_pag,
             "dif_real": _restar(tot_presup, tot_real),
             "dif_facturado": _restar(tot_presup, tot_fact),

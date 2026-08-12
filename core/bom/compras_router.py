@@ -581,7 +581,10 @@ async def get_resumen_compra_tab(
     bom = await service.get_bom_by_id(conn, id_bom)
     if not bom:
         raise HTTPException(status_code=404, detail="BOM no encontrado")
-    resumen = await service.get_resumen_compra(conn, id_bom)
+    if EstatusBOM(bom["estatus"]) not in ESTATUS_COTIZABLE:
+        resumen = {"sin_datos": True}
+    else:
+        resumen = await service.get_resumen_compra(conn, id_bom)
     return templates.TemplateResponse(
         request, "bom/partials/resumen_compra.html",
         {"bom": bom, "resumen": resumen},

@@ -1,5 +1,6 @@
 {# Resumen de compra: Presupuesto vs Facturado vs Pagado por grupo BOM -> categoria. #}
 {% macro money(v) %}{% if v is none %}-{% else %}${{ "{:,.2f}".format(v | float) }}{% endif %}{% endmacro %}
+{% macro dif_cell(v, py='py-2', shade='600', bold=false) %}<td class="px-3 {{ py }} text-right {% if bold %}font-medium {% endif %}{{ 'text-emerald-' ~ shade if v is not none and v >= 0 else ('text-red-' ~ shade if v is not none else 'text-gray-400') }}">{{ money(v) }}</td>{% endmacro %}
 
 {% if resumen.sin_datos %}
 <div class="text-center py-10 px-4">
@@ -87,7 +88,6 @@
             <tr class="bg-gray-50 text-gray-500 text-[11px] uppercase tracking-wide">
                 <th class="text-left font-medium px-3 py-2">Grupo / Categoria</th>
                 <th class="text-right font-medium px-3 py-2" title="Costo estimado con base a los precios registrados en base de datos de cada item">Costo Estimado</th>
-                <th class="text-right font-medium px-3 py-2">Costo real</th>
                 <th class="text-right font-medium px-3 py-2">Base real</th>
                 <th class="text-right font-medium px-3 py-2">Reemplazos</th>
                 <th class="text-right font-medium px-3 py-2">Fuera alcance</th>
@@ -97,6 +97,7 @@
                 <th class="text-right font-medium px-3 py-2">Pagado</th>
                 <th class="text-right font-medium px-3 py-2">Dif. real</th>
                 <th class="text-right font-medium px-3 py-2">Dif. Fact.</th>
+                <th class="text-right font-medium px-3 py-2">Dif. Pagado</th>
                 <th class="px-3 py-2 w-40">Comparativo</th>
             </tr>
         </thead>
@@ -115,7 +116,6 @@
                     </span>
                 </td>
                 <td class="px-3 py-2 text-right font-semibold text-gray-800">{{ money(s.presupuesto) }}</td>
-                <td class="px-3 py-2 text-right text-gray-700">{{ money(s.real) }}</td>
                 <td class="px-3 py-2 text-right text-gray-700">{{ money(s.real_base) }}</td>
                 <td class="px-3 py-2 text-right text-emerald-700">{{ money(s.reemplazos) }}</td>
                 <td class="px-3 py-2 text-right text-cyan-700">{{ money(s.fuera_scope) }}</td>
@@ -123,8 +123,9 @@
                 <td class="px-3 py-2 text-right text-gray-700">{{ money(s.facturado) }}</td>
                 <td class="px-3 py-2 text-right text-amber-700">{{ money(s.facturado_sugerido) }}</td>
                 <td class="px-3 py-2 text-right text-gray-700">{{ money(s.pagado) }}</td>
-                <td class="px-3 py-2 text-right font-medium {{ 'text-emerald-600' if s.dif_real is not none and s.dif_real >= 0 else ('text-red-600' if s.dif_real is not none else 'text-gray-400') }}">{{ money(s.dif_real) }}</td>
-                <td class="px-3 py-2 text-right font-medium {{ 'text-emerald-600' if s.dif_facturado is not none and s.dif_facturado >= 0 else ('text-red-600' if s.dif_facturado is not none else 'text-gray-400') }}">{{ money(s.dif_facturado) }}</td>
+                {{ dif_cell(s.dif_real, bold=true) }}
+                {{ dif_cell(s.dif_facturado, bold=true) }}
+                {{ dif_cell(s.dif_pagado, bold=true) }}
                 <td class="px-3 py-2">
                     <div class="space-y-0.5">
                         {% if s.presupuesto is not none %}
@@ -149,7 +150,6 @@
             <tr x-show="abiertas['{{ s.codigo }}']" x-cloak class="text-gray-600">
                 <td class="px-3 py-1.5 pl-9">{{ c.categoria_nombre }}</td>
                 <td class="px-3 py-1.5 text-right">{{ money(c.presupuesto) }}</td>
-                <td class="px-3 py-1.5 text-right">{{ money(c.real) }}</td>
                 <td class="px-3 py-1.5 text-right">{{ money(c.real_base) }}</td>
                 <td class="px-3 py-1.5 text-right text-emerald-700">{{ money(c.reemplazos) }}</td>
                 <td class="px-3 py-1.5 text-right text-cyan-700">{{ money(c.fuera_scope) }}</td>
@@ -157,8 +157,9 @@
                 <td class="px-3 py-1.5 text-right">{{ money(c.facturado) }}</td>
                 <td class="px-3 py-1.5 text-right text-amber-700">{{ money(c.facturado_sugerido) }}</td>
                 <td class="px-3 py-1.5 text-right">{{ money(c.pagado) }}</td>
-                <td class="px-3 py-1.5 text-right {{ 'text-emerald-600' if c.dif_real is not none and c.dif_real >= 0 else ('text-red-600' if c.dif_real is not none else 'text-gray-400') }}">{{ money(c.dif_real) }}</td>
-                <td class="px-3 py-1.5 text-right {{ 'text-emerald-600' if c.dif_facturado is not none and c.dif_facturado >= 0 else ('text-red-600' if c.dif_facturado is not none else 'text-gray-400') }}">{{ money(c.dif_facturado) }}</td>
+                {{ dif_cell(c.dif_real, py='py-1.5') }}
+                {{ dif_cell(c.dif_facturado, py='py-1.5') }}
+                {{ dif_cell(c.dif_pagado, py='py-1.5') }}
                 <td class="px-3 py-1.5"></td>
             </tr>
             {% endfor %}
@@ -168,7 +169,6 @@
             <tr class="bg-gray-100 font-bold text-gray-800 border-t-2 border-gray-200">
                 <td class="px-3 py-2">Total</td>
                 <td class="px-3 py-2 text-right">{{ money(t.presupuesto) }}</td>
-                <td class="px-3 py-2 text-right">{{ money(t.real) }}</td>
                 <td class="px-3 py-2 text-right">{{ money(t.real_base) }}</td>
                 <td class="px-3 py-2 text-right text-emerald-700">{{ money(t.reemplazos) }}</td>
                 <td class="px-3 py-2 text-right text-cyan-700">{{ money(t.fuera_scope) }}</td>
@@ -176,8 +176,9 @@
                 <td class="px-3 py-2 text-right">{{ money(t.facturado) }}</td>
                 <td class="px-3 py-2 text-right text-amber-700">{{ money(t.facturado_sugerido) }}</td>
                 <td class="px-3 py-2 text-right">{{ money(t.pagado) }}</td>
-                <td class="px-3 py-2 text-right {{ 'text-emerald-700' if t.dif_real is not none and t.dif_real >= 0 else ('text-red-700' if t.dif_real is not none else 'text-gray-400') }}">{{ money(t.dif_real) }}</td>
-                <td class="px-3 py-2 text-right {{ 'text-emerald-700' if t.dif_facturado is not none and t.dif_facturado >= 0 else ('text-red-700' if t.dif_facturado is not none else 'text-gray-400') }}">{{ money(t.dif_facturado) }}</td>
+                {{ dif_cell(t.dif_real, shade='700') }}
+                {{ dif_cell(t.dif_facturado, shade='700') }}
+                {{ dif_cell(t.dif_pagado, shade='700') }}
                 <td class="px-3 py-2"></td>
             </tr>
         </tfoot>
