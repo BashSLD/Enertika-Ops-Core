@@ -97,7 +97,8 @@
         <div class="flex items-start gap-1">
             {% if puede_editar_item %}
             <button type="button" hx-get="/bom/items/{{ item.id_item }}/modal" hx-target="#bom-modal-container" hx-swap="innerHTML"
-                class="truncate text-left flex-1 min-w-0 hover:text-blue-600 hover:underline transition-colors"
+                hx-disabled-elt="this" hx-sync="this:drop" hx-indicator="#global-loading-overlay"
+                class="truncate text-left flex-1 min-w-0 hover:text-blue-600 hover:underline transition-colors disabled:opacity-50 disabled:cursor-wait"
                 title="{{ item.descripcion }}">{{ item.descripcion }}</button>
             {% else %}
             <div class="truncate flex-1 min-w-0" title="{{ item.descripcion }}">{{ item.descripcion }}</div>
@@ -122,7 +123,8 @@
                     {% if puede_adenda_item %}
                     <button hx-get="/bom/items/{{ item.id_item }}/adenda-modal?accion=reemplazo"
                         hx-target="#bom-modal-container" hx-swap="innerHTML" @click="openMenu = false"
-                        class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors font-medium">
+                        hx-disabled-elt="this" hx-sync="this:drop" hx-indicator="#global-loading-overlay"
+                        class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-wait">
                         <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M7 7h10M7 7l3-3M7 7l3 3m7 7H7m10 0l-3-3m3 3l-3 3" />
@@ -131,7 +133,8 @@
                     </button>
                     <button hx-get="/bom/items/{{ item.id_item }}/adenda-modal?accion=cerrar"
                         hx-target="#bom-modal-container" hx-swap="innerHTML" @click="openMenu = false"
-                        class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-amber-50 hover:text-amber-700 transition-colors font-medium">
+                        hx-disabled-elt="this" hx-sync="this:drop" hx-indicator="#global-loading-overlay"
+                        class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-amber-50 hover:text-amber-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-wait">
                         <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M6 18L18 6M6 6l12 12" />
