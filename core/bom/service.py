@@ -3,6 +3,7 @@ Service Layer para BOM (Lista de Materiales).
 Logica de negocio, workflow de aprobaciones, versionado y exportacion Excel.
 """
 
+import asyncio
 import logging
 import json
 import time
@@ -148,6 +149,10 @@ class BomService(BomComprasServiceMixin):
     # como `item.id_categoria == cat.id` en los templates.
     _cache_catalogos: Optional[tuple] = None
     _CATALOGOS_TTL_SECONDS = 60.0
+    # Solo serializa el refresco (evita rehacer las 8 queries en cada request
+    # concurrente cuando el TTL expira); no protege la asignacion en si, que
+    # ya es atomica.
+    _cache_catalogos_refresh_lock = asyncio.Lock()
 
     @staticmethod
     @asynccontextmanager
@@ -311,8 +316,14 @@ class BomService(BomComprasServiceMixin):
         user_role: Optional[str] = None,
         rol_org: Optional[str] = None,
         module_roles: Optional[dict] = None,
-    ) -> dict:
-        """Valida cabeza, turno y revision antes de una mutacion de base."""
+    ) -> tuple[dict, dict]:
+        """Valida cabeza, turno y revision antes de una mutacion de base.
+
+        Retorna (bom, capacidades): el caller puede reusar `capacidades` para la
+        respuesta post-commit en vez de recalcularla — ningun campo del que
+        depende get_capacidades_bom (estatus/actores/cabeza de paquete) cambia
+        por las mutaciones que pasan por aqui.
+        """
         bom = await self.db.get_bom_for_update(conn, id_bom)
         if not bom:
             raise ValueError("BOM no encontrado")
@@ -336,7 +347,7 @@ class BomService(BomComprasServiceMixin):
             raise ValueError(
                 "El BOM cambio desde que abriste el formulario; recarga el paquete e intenta de nuevo"
             )
-        return {**bom, **reservado}
+        return {**bom, **reservado}, capacidades
 
     async def _validar_actor_asignado(
         self, conn, user_id: UUID, user_role: Optional[str],
@@ -1053,7 +1064,7 @@ class BomService(BomComprasServiceMixin):
         los actores downstream."""
         bom = await self.get_bom(conn, id_bom)
         async with conn.transaction():
-            bom = await self._reservar_mutacion_base(
+            bom, capacidades = await self._reservar_mutacion_base(
                 conn, id_bom, user_id, lock_version_esperado,
                 user_role, rol_org, module_roles,
             )
@@ -1065,7 +1076,7 @@ class BomService(BomComprasServiceMixin):
                     campo_modificado="presupuesto_catalogo",
                     valor_nuevo=f"{len(sincronizados)} item(s) sincronizados",
                 )
-        return {"sincronizados": len(sincronizados), "bom": bom}
+        return {"sincronizados": len(sincronizados), "bom": bom, "capacidades": capacidades}
 
     async def _get_aprobador_final_direccion_id(self, conn) -> UUID:
         aprobador_id = await self.db.get_aprobador_final_id(conn)
@@ -1139,7 +1150,7 @@ class BomService(BomComprasServiceMixin):
         )
 
         async with conn.transaction():
-            bom = await self._reservar_mutacion_base(
+            bom, capacidades = await self._reservar_mutacion_base(
                 conn, id_bom, user_id, lock_version_esperado,
                 user_role, rol_org, module_roles,
             )
@@ -1169,7 +1180,7 @@ class BomService(BomComprasServiceMixin):
                 campo_modificado="item",
                 valor_nuevo=descripcion,
             )
-        return item
+        return {"item": item, "capacidades": capacidades}
 
     @staticmethod
     def _validar_motivo_adenda(motivo: Optional[str]) -> str:
@@ -2239,9 +2250,15 @@ class BomService(BomComprasServiceMixin):
         grupo_ids: Optional[List[int]] = None,
         grupo_porcentajes: Optional[dict[int, Decimal]] = None,
         reservar_bom: bool = True,
+        capacidades: Optional[dict] = None,
+        bom: Optional[dict] = None,
         **campos,
     ) -> dict:
-        """Edita base por turno y ejecucion por modulo, sin dividir secciones por actor."""
+        """Edita base por turno y ejecucion por modulo, sin dividir secciones por actor.
+
+        `capacidades`/`bom`, si se pasan (ej. desde editar_items_bulk), evitan
+        recalcularlos/releerlos aqui adentro — el caller ya los obtuvo una vez
+        para todo el lote y, con reservar_bom=False, ninguno cambia por item."""
         item = await self.db.get_item_by_id(conn, id_item)
         if not item:
             raise ValueError("Item no encontrado")
@@ -2328,12 +2345,10 @@ class BomService(BomComprasServiceMixin):
             raise ValueError("No hay campos validos para actualizar")
 
         async with conn.transaction():
-            bom = await self.db.get_bom_by_id(conn, item["id_bom"])
+            if bom is None:
+                bom = await self.db.get_bom_by_id(conn, item["id_bom"])
             if not bom:
                 raise ValueError("BOM no encontrado")
-            capacidades = await self.get_capacidades_bom(
-                conn, bom, user_id, user_role, rol_org, module_roles
-            )
             grupos_base = (
                 grupo_ids is not None
                 and EstatusBOM(bom["estatus"]) != EstatusBOM.APROBADO_FINAL
@@ -2345,14 +2360,22 @@ class BomService(BomComprasServiceMixin):
                 raise ValueError(
                     "Falta la revisión de ejecución; recarga el paquete e intenta de nuevo"
                 )
-            if (campos_base or grupos_base) and reservar_bom:
-                bom = await self._reservar_mutacion_base(
+            reservara_base = (campos_base or grupos_base) and reservar_bom
+            if reservara_base:
+                # capacidades se calcula aqui adentro, contra la fila recien
+                # bloqueada (FOR UPDATE) — no hace falta calcularla antes.
+                bom, capacidades = await self._reservar_mutacion_base(
                     conn, item["id_bom"], user_id, lock_version_esperado,
                     user_role, rol_org, module_roles,
                 )
-            elif (campos_base or grupos_base) and not capacidades["editar_base"]:
-                turno = capacidades.get("actor_turno") or "el actor asignado"
-                raise ValueError(f"Solo {turno} puede modificar el BOM en esta etapa")
+            else:
+                if capacidades is None:
+                    capacidades = await self.get_capacidades_bom(
+                        conn, bom, user_id, user_role, rol_org, module_roles
+                    )
+                if (campos_base or grupos_base) and not capacidades["editar_base"]:
+                    turno = capacidades.get("actor_turno") or "el actor asignado"
+                    raise ValueError(f"Solo {turno} puede modificar el BOM en esta etapa")
             if campos_ejecucion and not capacidades["editar_ejecucion"]:
                 raise ValueError("Solo Construccion o Compras pueden actualizar la ejecucion")
             if grupo_ids is not None and not grupos_base and not capacidades["editar_ejecucion"]:
@@ -2428,7 +2451,8 @@ class BomService(BomComprasServiceMixin):
                         valor_anterior=str(anterior) if anterior is not None else None,
                         valor_nuevo=str(nuevo) if nuevo is not None else None,
                     )
-        return await self.db.get_item_by_id(conn, id_item)
+        item_actualizado = await self.db.get_item_by_id(conn, id_item)
+        return {"item": item_actualizado, "capacidades": capacidades}
 
     async def _validar_item_bulk(
         self, item: Optional[dict], id_bom: UUID, area_editor: str,
@@ -2493,9 +2517,13 @@ class BomService(BomComprasServiceMixin):
                     raise ValueError(
                         "Falta la revision del BOM; recarga el paquete e intenta de nuevo"
                     )
-                await self._reservar_mutacion_base(
+                bom, capacidades = await self._reservar_mutacion_base(
                     conn, id_bom, user_id, lock_version_esperado,
                     user_role, rol_org, module_roles,
+                )
+            else:
+                capacidades = await self.get_capacidades_bom(
+                    conn, bom, user_id, user_role, rol_org, module_roles
                 )
 
             items_context = await self.db.lock_items_context_by_ids(conn, item_ids)
@@ -2504,6 +2532,10 @@ class BomService(BomComprasServiceMixin):
                 item = items_por_id.get(str(id_item))
                 await self._validar_item_bulk(item, id_bom, area_editor)
 
+            # bom/capacidades ya calculados arriba (una sola vez para todo el lote,
+            # dentro de la misma transaccion): se pasan a cada editar_item para que
+            # no los recalcule/relea por item (antes eran N repeticiones, una por
+            # item) — con reservar_bom=False ninguno de los dos cambia entre items.
             for id_item in item_ids:
                 item = items_por_id[str(id_item)]
                 await self.editar_item(
@@ -2517,9 +2549,11 @@ class BomService(BomComprasServiceMixin):
                         {grupo_ids[0]: Decimal("1")} if es_grupos else None
                     ),
                     reservar_bom=False,
+                    capacidades=capacidades,
+                    bom=bom,
                     **({} if es_grupos else {campo: valor}),
                 )
-        return {"actualizados": len(item_ids), "omitidos": []}
+        return {"actualizados": len(item_ids), "omitidos": [], "capacidades": capacidades}
 
     async def eliminar_item(
         self, conn, id_item: UUID, user_id: UUID,
@@ -2537,7 +2571,7 @@ class BomService(BomComprasServiceMixin):
         if item.get("bloqueado"):
             raise ValueError("Este item pertenece a una linea historica bloqueada")
         async with conn.transaction():
-            bom = await self._reservar_mutacion_base(
+            bom, capacidades = await self._reservar_mutacion_base(
                 conn, item["id_bom"], user_id, lock_version_esperado,
                 user_role, rol_org, module_roles,
             )
@@ -2549,7 +2583,7 @@ class BomService(BomComprasServiceMixin):
                 campo_modificado="item",
                 valor_anterior=item.get("descripcion"),
             )
-        return deleted
+        return {"deleted": deleted, "capacidades": capacidades}
 
     async def get_items(self, conn, id_bom: UUID) -> list:
         """Lista items activos del BOM, enriched with grupos and costo_mxn.
@@ -3309,10 +3343,10 @@ class BomService(BomComprasServiceMixin):
         user_role: Optional[str] = None,
         rol_org: Optional[str] = None,
         module_roles: Optional[dict] = None,
-    ) -> None:
+    ) -> dict:
         if not grupo_ids:
             raise ValueError("Selecciona al menos un grupo BOM")
-        await self.editar_item(
+        resultado = await self.editar_item(
             conn, id_item, user_id, area_editor,
             lock_version_esperado=lock_version_esperado,
             user_role=user_role,
@@ -3321,6 +3355,7 @@ class BomService(BomComprasServiceMixin):
             grupo_ids=grupo_ids,
             grupo_porcentajes=grupo_porcentajes,
         )
+        return {"capacidades": resultado["capacidades"]}
 
     async def get_suplencia_activa(self, conn, user_id: UUID) -> Optional[dict]:
         """Suplencia activa vigente del usuario (como titular)."""
@@ -3743,36 +3778,48 @@ class BomService(BomComprasServiceMixin):
 
     # ─── CATALOGOS ──────────────────────────────────────────
 
+    def _catalogos_cache_vigente(self) -> Optional[dict]:
+        cached = BomService._cache_catalogos
+        if cached is None:
+            return None
+        ts, data = cached
+        return data if time.time() - ts < BomService._CATALOGOS_TTL_SECONDS else None
+
     async def get_catalogos(self, conn) -> dict:
         """Obtiene todos los catalogos necesarios para formularios. Cacheado en memoria (TTL corto)."""
-        cached = BomService._cache_catalogos
-        if cached is not None:
-            ts, data = cached
-            if time.time() - ts < BomService._CATALOGOS_TTL_SECONDS:
+        data = self._catalogos_cache_vigente()
+        if data is not None:
+            return data
+
+        async with BomService._cache_catalogos_refresh_lock:
+            # Reintenta tras esperar el lock: otro request concurrente pudo
+            # haber refrescado el cache mientras esperabamos.
+            data = self._catalogos_cache_vigente()
+            if data is not None:
                 return data
 
-        tipos_entrega = await self.db.get_tipos_entrega(conn)
-        categorias = await self.db.get_categorias_compra(conn)
-        proveedores = await self.db.get_proveedores(conn)
-        usuarios_ing_jefes = await self.db.get_usuarios_por_area(conn, 'ingenieria', solo_jefes=True)
-        usuarios_ing = await self.db.get_usuarios_por_area(conn, 'ingenieria', solo_jefes=False)
+            tipos_entrega = await self.db.get_tipos_entrega(conn)
+            categorias = await self.db.get_categorias_compra(conn)
+            proveedores = await self.db.get_proveedores(conn)
+            usuarios_ing_jefes = await self.db.get_usuarios_por_area(conn, 'ingenieria', solo_jefes=True)
+            usuarios_ing = await self.db.get_usuarios_por_area(conn, 'ingenieria', solo_jefes=False)
 
-        usuarios_const_jefes = await self.db.get_usuarios_por_area(conn, 'construccion', solo_jefes=True)
-        usuarios_const = await self.db.get_usuarios_por_area(conn, 'construccion', solo_jefes=False)
-        grupos_bom = await self.db.get_grupos_bom(conn)
+            usuarios_const_jefes = await self.db.get_usuarios_por_area(conn, 'construccion', solo_jefes=True)
+            usuarios_const = await self.db.get_usuarios_por_area(conn, 'construccion', solo_jefes=False)
+            grupos_bom = await self.db.get_grupos_bom(conn)
 
-        data = {
-            'tipos_entrega': tipos_entrega,
-            'categorias': categorias,
-            'proveedores': proveedores,
-            'usuarios_ing': usuarios_ing,           # Lista completa (por si se requiere)
-            'usuarios_ing_jefes': usuarios_ing_jefes, # Solo jefes (para Responsable de Ing)
-            'usuarios_const': usuarios_const,       # Lista completa (para Coordinador de Obra)
-            'usuarios_const_jefes': usuarios_const_jefes, # Solo jefes (para Jefe de Construccion)
-            'grupos_bom': grupos_bom,
-        }
-        BomService._cache_catalogos = (time.time(), data)
-        return data
+            data = {
+                'tipos_entrega': tipos_entrega,
+                'categorias': categorias,
+                'proveedores': proveedores,
+                'usuarios_ing': usuarios_ing,           # Lista completa (por si se requiere)
+                'usuarios_ing_jefes': usuarios_ing_jefes, # Solo jefes (para Responsable de Ing)
+                'usuarios_const': usuarios_const,       # Lista completa (para Coordinador de Obra)
+                'usuarios_const_jefes': usuarios_const_jefes, # Solo jefes (para Jefe de Construccion)
+                'grupos_bom': grupos_bom,
+            }
+            BomService._cache_catalogos = (time.time(), data)
+            return data
 
     # ─── PANELES FV DEL PROYECTO ────────────────────────────
 
@@ -4268,7 +4315,7 @@ class BomService(BomComprasServiceMixin):
         if item.get("activo", True):
             raise ValueError("El item ya esta activo")
         async with conn.transaction():
-            bom = await self._reservar_mutacion_base(
+            bom, capacidades = await self._reservar_mutacion_base(
                 conn, item["id_bom"], user_id, lock_version_esperado,
                 user_role, rol_org, module_roles,
             )
@@ -4280,7 +4327,7 @@ class BomService(BomComprasServiceMixin):
                 campo_modificado="item",
                 valor_nuevo=item.get("descripcion"),
             )
-        return restaurado
+        return {"restaurado": restaurado, "capacidades": capacidades}
 
     async def buscar_materiales_para_bom(self, conn, query: str, **kwargs) -> dict:
         return await self.db.buscar_materiales_para_bom(conn, query, **kwargs)

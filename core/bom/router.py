@@ -1022,7 +1022,7 @@ async def agregar_item(
                 "Cambio bloqueado",
             )
 
-        item = await service.agregar_item(
+        resultado = await service.agregar_item(
             conn, id_bom, user_id,
             **item_data,
             area_editor=area_editor,
@@ -1033,6 +1033,10 @@ async def agregar_item(
             rol_org=context.get("rol_organizacional"),
             module_roles=context.get("module_roles"),
         )
+        item = resultado["item"]
+        # Capacidades ya calculadas dentro de la transaccion (mismo estatus/actores;
+        # agregar un item no los modifica) — evita recalcularlas con 2 queries mas.
+        capacidades = resultado["capacidades"]
 
         # Retornar tabla actualizada
         items = await service.get_items(conn, bom['id_bom'])
@@ -1057,7 +1061,7 @@ async def agregar_item(
             items=items, estadisticas=estadisticas,
             bulk_toast=bulk_toast,
             actualizar_lock_oob=True,
-            capacidades=await _capacidades_actuales(conn, service, context, bom),
+            capacidades=capacidades,
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
             ),
@@ -1160,8 +1164,9 @@ async def editar_item(
                 )
                 propuesta_creada = True
                 grupo_ids = None
+        resultado = None
         if campos or grupo_ids is not None:
-            await service.editar_item(
+            resultado = await service.editar_item(
                 conn, id_item, user_id, area_editor,
                 lock_version_esperado=_parse_lock_version(form),
                 ejecucion_lock_version_esperado=(
@@ -1189,13 +1194,19 @@ async def editar_item(
         item = await service.get_item(conn, id_item)
         item['grupos'], item['grupos_operativos'] = await service.get_item_grupos(conn, id_item)
         bom = await service.get_bom(conn, item['id_bom'])
+        # Si hubo mutacion, capacidades ya se calculo dentro de esa transaccion
+        # (mismo estatus/actores); si no hubo (solo propuesta), se calcula ahora.
+        capacidades = (
+            resultado["capacidades"] if resultado is not None
+            else await _capacidades_actuales(conn, service, context, bom)
+        )
 
         ctx = _build_bom_context(
             request, context, bom,
             item=item,
             warning_message=service.mensaje_item_sin_costo() if service.item_sin_costo(item) else None,
             actualizar_lock_oob=True,
-            capacidades=await _capacidades_actuales(conn, service, context, bom),
+            capacidades=capacidades,
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
             ),
@@ -1298,6 +1309,10 @@ async def bulk_editar_items(
                 module_roles=context.get("module_roles"),
             )
 
+        # Si la edicion toco un campo base, editar_items_bulk incrementa
+        # lock_version en BD — hay que refrescar bom o el OOB manda el valor
+        # viejo y el siguiente request del usuario falla con "El BOM cambio".
+        bom = await service.get_bom(conn, id_bom)
         items = await service.get_items(conn, id_bom)
 
         n = resultado["actualizados"]
@@ -1321,7 +1336,7 @@ async def bulk_editar_items(
             items=items,
             bulk_toast=toast,
             actualizar_lock_oob=True,
-            capacidades=await _capacidades_actuales(conn, service, context, bom),
+            capacidades=resultado["capacidades"],
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
             ),
@@ -1368,7 +1383,7 @@ async def eliminar_item(
                 "success",
                 "Propuesta registrada",
             )
-        await service.eliminar_item(
+        resultado = await service.eliminar_item(
             conn, id_item, user_id, area_editor=area_editor,
             lock_version_esperado=_parse_lock_version(form),
             user_role=context.get("role"),
@@ -1385,7 +1400,7 @@ async def eliminar_item(
             request, context, bom,
             items=items, estadisticas=estadisticas,
             actualizar_lock_oob=True,
-            capacidades=await _capacidades_actuales(conn, service, context, bom),
+            capacidades=resultado["capacidades"],
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
             ),
@@ -1413,7 +1428,7 @@ async def restaurar_item(
     try:
         item = await service.get_item(conn, id_item)
         form = await request.form()
-        await service.restaurar_item(
+        resultado = await service.restaurar_item(
             conn, id_item, user_id,
             lock_version_esperado=_parse_lock_version(form),
             user_role=context.get("role"),
@@ -1429,7 +1444,7 @@ async def restaurar_item(
             request, context, bom,
             items=items, estadisticas=estadisticas,
             actualizar_lock_oob=True,
-            capacidades=await _capacidades_actuales(conn, service, context, bom),
+            capacidades=resultado["capacidades"],
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
             ),
@@ -1490,7 +1505,7 @@ async def refrescar_costos_catalogo(
             estadisticas=await service.get_estadisticas(conn, id_bom),
             oob_estadisticas=True,
             actualizar_lock_oob=True,
-            capacidades=await _capacidades_actuales(conn, service, context, bom),
+            capacidades=resultado["capacidades"],
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
                 conn, bom['id_proyecto'], user_id
             ),
@@ -2545,7 +2560,7 @@ async def set_item_grupos(
                 "success",
                 "Propuesta registrada",
             )
-        await service.set_item_grupos(
+        resultado = await service.set_item_grupos(
             conn, id_item, user_id, grupo_ids, area_editor,
             lock_version_esperado=_parse_lock_version(form),
             user_role=context.get("role"),
@@ -2558,7 +2573,7 @@ async def set_item_grupos(
         ctx = _build_bom_context(
             request, context, bom, item=item,
             actualizar_lock_oob=True,
-            capacidades=await _capacidades_actuales(conn, service, context, bom),
+            capacidades=resultado["capacidades"],
         )
         return templates.TemplateResponse(request, "bom/partials/row_item.html", ctx)
 

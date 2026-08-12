@@ -64,10 +64,13 @@ class FakeMutationService:
             )
         self.lock_version += 1
         return {
-            "id_item": uuid4(),
-            "id_bom": id_bom,
-            "descripcion": campos["descripcion"],
-            "precio_unitario": campos.get("precio_unitario"),
+            "item": {
+                "id_item": uuid4(),
+                "id_bom": id_bom,
+                "descripcion": campos["descripcion"],
+                "precio_unitario": campos.get("precio_unitario"),
+            },
+            "capacidades": {"editar_base": True, "editar_ejecucion": False},
         }
 
     async def get_items(self, conn, id_bom):

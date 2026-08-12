@@ -369,8 +369,8 @@ async def test_editar_item_compras_aprobado_final_actualiza_ejecucion_no_base():
         module_roles={"compras": "editor"},
     )
 
-    assert updated["precio_unitario"] == 100
-    assert updated["precio_real"] == "125.50"
+    assert updated["item"]["precio_unitario"] == 100
+    assert updated["item"]["precio_real"] == "125.50"
     assert svc.db.base_updates == []
     assert svc.db.execution_updates == [
         (
@@ -427,7 +427,7 @@ async def test_editar_item_construccion_aprobado_final_actualiza_recepcion_no_ba
         module_roles={"construccion": "editor"},
     )
 
-    assert updated["cantidad_recibida"] == "4"
+    assert updated["item"]["cantidad_recibida"] == "4"
     assert svc.db.base_updates == []
     assert svc.db.execution_updates == [
         (
