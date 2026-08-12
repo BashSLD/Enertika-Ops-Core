@@ -58,8 +58,8 @@
         </div>
         <div class="rounded-lg border border-gray-200 bg-white p-3">
           <p class="font-semibold text-gray-800">Tolerancia para horas extra</p>
-          <p class="mt-1">Minutos que se permiten antes de empezar a contar tiempo extra.</p>
-          <p class="mt-1 text-gray-400">Ejemplo: trabajo 30 min extra y tolerancia 15 = 15 min extra.</p>
+          <p class="mt-1">Margen de gracia por entrada/salida: si el exceso de ese lado no pasa la tolerancia, no cuenta como extra; si la pasa, cuenta completo.</p>
+          <p class="mt-1 text-gray-400">Ejemplo: tolerancia 15 -> 15 min de más no cuentan, 16 min de más cuentan los 16 completos.</p>
         </div>
         <div class="rounded-lg border border-gray-200 bg-white p-3">
           <p class="font-semibold text-gray-800">Descuento de comida</p>
@@ -119,7 +119,7 @@
             <div>
               <label class="block text-xs font-medium text-gray-600 mb-1">
                 Tolerancia extra
-                <span tabindex="0" title="Minutos adicionales que no se cuentan como horas extra." class="ml-1 text-[#00BABB] cursor-help">?</span>
+                <span tabindex="0" title="Margen antes de contar tiempo extra: si el exceso no supera este valor no cuenta, si lo supera cuenta completo." class="ml-1 text-[#00BABB] cursor-help">?</span>
               </label>
               <input type="number" name="tolerancia_extra_min" min="0" max="1440" value="0" required
                      class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">

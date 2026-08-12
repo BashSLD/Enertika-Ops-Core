@@ -242,6 +242,12 @@ def _minutos_programados(schedule: ScheduleConfig | None, es_feriado: bool) -> i
     return max(0, schedule.minutos_programados)
 
 
+def _exceso_gate(delta: timedelta, tolerancia_min: int) -> int:
+    """Minutos de exceso de un extremo del turno: 0 si no supera la tolerancia, completo si la supera."""
+    bruto = max(0, int(delta.total_seconds() // 60))
+    return bruto if bruto > tolerancia_min else 0
+
+
 def _calcular_extra(
     *,
     primera_entrada: datetime | None,
@@ -270,9 +276,9 @@ def _calcular_extra(
         return 0
     else:
         entrada_prog, salida_prog = _programmed_bounds(fecha_laboral, schedule)
-        tolerancia = timedelta(minutes=schedule.tolerancia_extra_min)
-        exceso_entrada = max(0, int(((entrada_prog - tolerancia) - primera_entrada).total_seconds() // 60))
-        exceso_salida = max(0, int((ultima_salida - (salida_prog + tolerancia)).total_seconds() // 60))
+        tolerancia_min = schedule.tolerancia_extra_min
+        exceso_entrada = _exceso_gate(entrada_prog - primera_entrada, tolerancia_min)
+        exceso_salida = _exceso_gate(ultima_salida - salida_prog, tolerancia_min)
         total = exceso_entrada + exceso_salida
 
     return total if total >= min_minutos_he else 0

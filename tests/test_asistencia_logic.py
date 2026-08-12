@@ -82,20 +82,20 @@ def test_overtime_is_calculated_locally_from_schedule():
 
     assert resumen["minutos_trabajados"] == 660
     assert resumen["minutos_programados"] == 480
-    # Solo el extremo de salida excede la tolerancia: 19:00 - (17:00+15min) = 105
-    assert resumen["minutos_extra"] == 105
+    # Bruto de salida (19:00 - 17:00 = 120) supera la tolerancia (15) -> cuenta completo
+    assert resumen["minutos_extra"] == 120
 
 
 @pytest.mark.parametrize(
     "hora_entrada_real,hora_salida_real,extra_esperado",
     [
-        ((6, 30), (17, 30), 0),
-        ((6, 30), (17, 40), 10),
-        ((6, 29), (17, 0), 1),
-        ((7, 0), (17, 31), 1),
+        ((6, 30), (17, 30), 0),    # ambos extremos == tolerancia (30 min) -> no cuenta
+        ((6, 30), (17, 40), 40),   # bruto_salida=40 > 30 -> cuenta completo (antes: 10)
+        ((6, 29), (17, 0), 31),    # bruto_entrada=31 > 30 -> cuenta completo (antes: 1)
+        ((7, 0), (17, 31), 31),    # bruto_salida=31 > 30 -> cuenta completo (antes: 1)
     ],
 )
-def test_overtime_symmetric_tolerance_per_extremo(hora_entrada_real, hora_salida_real, extra_esperado):
+def test_overtime_gate_tolerance_per_extremo(hora_entrada_real, hora_salida_real, extra_esperado):
     schedule = ScheduleConfig(
         hora_entrada=time(7, 0),
         hora_salida=time(17, 0),
@@ -116,6 +116,32 @@ def test_overtime_symmetric_tolerance_per_extremo(hora_entrada_real, hora_salida
     )
 
     assert resumen["minutos_extra"] == extra_esperado
+
+
+def test_overtime_ambos_extremos_superan_tolerancia_converge_a_exceso_real():
+    schedule = ScheduleConfig(
+        hora_entrada=time(7, 0),
+        hora_salida=time(17, 0),
+        minutos_programados=600,
+        tolerancia_extra_min=30,
+    )
+    checks = [
+        AttendanceCheck(datetime(2026, 8, 4, 5, 23, 23, tzinfo=MX_TZ), "0"),
+        AttendanceCheck(datetime(2026, 8, 4, 18, 24, 13, tzinfo=MX_TZ), "1"),
+    ]
+
+    resumen = calcular_resumen_dia(
+        checks=checks,
+        schedule=schedule,
+        tiene_vacaciones=False,
+        es_feriado=False,
+        fecha_laboral=date(2026, 8, 4),
+    )
+
+    assert resumen["minutos_trabajados"] == 780
+    assert resumen["minutos_programados"] == 600
+    # Cuando ambos extremos superan la tolerancia, el extra converge al exceso real trabajado
+    assert resumen["minutos_extra"] == 180
 
 
 def test_overtime_en_feriado_descuenta_comida_igual_que_minutos_trabajados():
