@@ -1810,7 +1810,8 @@ async def get_he_reporte_usuarios(conn, usuario_ids: list[UUID]) -> list[dict]:
             u.id_usuario,
             u.nombre,
             u.email,
-            jefes.jefes_nombres
+            jefes.jefes_nombres,
+            aphe.nombre AS aprobador_he_nombre
         FROM tb_usuarios u
         LEFT JOIN LATERAL (
             SELECT string_agg(j.nombre, ', ' ORDER BY j.nombre) AS jefes_nombres
@@ -1818,6 +1819,8 @@ async def get_he_reporte_usuarios(conn, usuario_ids: list[UUID]) -> list[dict]:
             JOIN tb_usuarios j ON j.id_usuario = ej.jefe_id
             WHERE ej.empleado_id = u.id_usuario
         ) jefes ON true
+        LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = u.id_usuario
+        LEFT JOIN tb_usuarios aphe ON aphe.id_usuario = ed.id_aprobador_horas_extra
         WHERE u.id_usuario = ANY($1::uuid[])
         ORDER BY u.nombre
         """,

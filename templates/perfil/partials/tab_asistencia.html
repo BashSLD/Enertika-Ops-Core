@@ -7,7 +7,7 @@
   </section>
 </div>
 
-{% if bolsa and (bolsa.saldo.minutos_acumulados or bolsa.solicitudes) %}
+{% if bolsa and (bolsa.saldo.minutos_acumulados or bolsa.solicitudes or tiene_equipo_he) %}
   {% include "perfil/partials/he_bolsa_widget.html" %}
 {% endif %}
 

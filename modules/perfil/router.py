@@ -26,6 +26,7 @@ from modules.asistencia.service import (
     anexar_modalidad_metadata_asistencia,
     crear_solicitud_manual_svc,
     get_dias_retroactivo_manual,
+    get_equipo_ids_para_autorizacion_he,
     get_equipo_visible_he,
     get_he_bolsa_ctx,
     marcar_puede_autorizar_he,
@@ -439,6 +440,8 @@ async def _build_asistencia_tab_context(
     )
     heatmap_raw = await perfil_db.get_mi_asistencia_heatmap(conn, usuario_id, desde_heatmap, hoy)
     bolsa = await get_he_bolsa_ctx(conn, usuario_id)
+    equipo_autorizable_he = await get_equipo_ids_para_autorizacion_he(conn, usuario_id, context)
+    tiene_equipo_he = bool(equipo_autorizable_he)
 
     if equipo_fuera_fecha_inicio is None or equipo_fuera_fecha_fin is None:
         equipo_fuera_fecha_inicio, equipo_fuera_fecha_fin = _semana_actual(hoy)
@@ -446,6 +449,7 @@ async def _build_asistencia_tab_context(
     return {
         "asistencia": rows,
         "bolsa": bolsa,
+        "tiene_equipo_he": tiene_equipo_he,
         "tiene_mas": tiene_mas,
         "offset": 0,
         "context": context,

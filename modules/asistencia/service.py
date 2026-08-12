@@ -1261,6 +1261,13 @@ def _format_he_item(row: dict) -> dict:
     return item
 
 
+def _format_aprobador_he_label(usuario: dict) -> str:
+    aprobador_he_nombre = usuario.get("aprobador_he_nombre")
+    if aprobador_he_nombre:
+        return f"Aprobador de horas extra (exclusivo): {aprobador_he_nombre}"
+    return "Aprobador de horas extra: regla normal (jefe(s) jerarquico(s) de arriba)"
+
+
 async def get_he_nivel_ctx(conn, usuario_id: UUID) -> dict | None:
     nivel = await db.get_he_nivel_usuario(conn, usuario_id, today_mx().year)
     return dict(nivel) if nivel else None
@@ -1339,10 +1346,15 @@ def _build_he_bolsa_workbook(usuarios: list[dict], saldos: dict, movimientos: li
             "minutos_tomados": 0,
             "minutos_disponibles": 0,
         })
-        ws.append([usuario.get("nombre") or "", usuario.get("email") or "", usuario.get("jefes_nombres") or ""])
+        ws.append([
+            f"Empleado: {usuario.get('nombre') or ''}",
+            f"Email: {usuario.get('email') or ''}",
+            f"Jefe(s) jerarquico(s): {usuario.get('jefes_nombres') or '(sin asignar)'}",
+        ])
         for cell in ws[ws.max_row]:
             cell.font = Font(bold=True, color="FFFFFF")
             cell.fill = title_fill
+        ws.append([_format_aprobador_he_label(usuario)])
         ws.append([
             "Horas acumuladas",
             "Horas tomadas",
