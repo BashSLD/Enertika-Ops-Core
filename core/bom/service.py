@@ -5,6 +5,7 @@ Logica de negocio, workflow de aprobaciones, versionado y exportacion Excel.
 
 import logging
 import json
+import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from decimal import Decimal, InvalidOperation
@@ -138,6 +139,15 @@ class BomService(BomComprasServiceMixin):
 
     def __init__(self):
         self.db = BomDBService()
+
+    # Cache en memoria (por worker) de get_catalogos: son catalogos que casi
+    # no cambian (proveedores, tipos de entrega, usuarios por area, grupos
+    # BOM) y se recargaban desde cero en cada apertura de modal de item (8
+    # queries). No usa ConfigService/Redis porque los ids son UUID: el
+    # roundtrip JSON de Redis los convertiria a str y rompería comparaciones
+    # como `item.id_categoria == cat.id` en los templates.
+    _cache_catalogos: Optional[tuple] = None
+    _CATALOGOS_TTL_SECONDS = 60.0
 
     @staticmethod
     @asynccontextmanager
@@ -3734,7 +3744,13 @@ class BomService(BomComprasServiceMixin):
     # ─── CATALOGOS ──────────────────────────────────────────
 
     async def get_catalogos(self, conn) -> dict:
-        """Obtiene todos los catalogos necesarios para formularios."""
+        """Obtiene todos los catalogos necesarios para formularios. Cacheado en memoria (TTL corto)."""
+        cached = BomService._cache_catalogos
+        if cached is not None:
+            ts, data = cached
+            if time.time() - ts < BomService._CATALOGOS_TTL_SECONDS:
+                return data
+
         tipos_entrega = await self.db.get_tipos_entrega(conn)
         categorias = await self.db.get_categorias_compra(conn)
         proveedores = await self.db.get_proveedores(conn)
@@ -3745,7 +3761,7 @@ class BomService(BomComprasServiceMixin):
         usuarios_const = await self.db.get_usuarios_por_area(conn, 'construccion', solo_jefes=False)
         grupos_bom = await self.db.get_grupos_bom(conn)
 
-        return {
+        data = {
             'tipos_entrega': tipos_entrega,
             'categorias': categorias,
             'proveedores': proveedores,
@@ -3755,6 +3771,8 @@ class BomService(BomComprasServiceMixin):
             'usuarios_const_jefes': usuarios_const_jefes, # Solo jefes (para Jefe de Construccion)
             'grupos_bom': grupos_bom,
         }
+        BomService._cache_catalogos = (time.time(), data)
+        return data
 
     # ─── PANELES FV DEL PROYECTO ────────────────────────────
 
