@@ -2412,7 +2412,7 @@ class BomDBService(BomComprasDBMixin):
             [r for r in rows_list if r['fuente'] == 'INTERNO'],
             key=lambda x: -(float(x['similitud'] or 0)),
         )
-        result = xml_items + int_items
+        result = int_items + xml_items
         return {
             "items": result[offset:offset + limite],
             "total": len(result),
@@ -2484,7 +2484,7 @@ class BomDBService(BomComprasDBMixin):
             [r for r in rows_list if r['fuente'] == 'INTERNO'],
             key=lambda x: (x.get('descripcion') or '').lower(),
         )
-        result = xml_items + int_items
+        result = int_items + xml_items
         return {
             "items": result[offset:offset + limite],
             "total": len(result),
