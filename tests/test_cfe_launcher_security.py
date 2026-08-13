@@ -256,19 +256,22 @@ def test_launcher_tries_every_installed_edge_path(tmp_path, monkeypatch):
     assert launcher_module.lanzar_edge(Playwright()) == "browser-abierto"
 
 
-def test_only_global_admin_can_receive_launcher_tickets():
+def test_global_admin_or_module_editor_plus_can_receive_launcher_tickets():
     assert _puede_emitir_ticket_lanzador({"role": "ADMIN", "module_roles": {}})
-    assert not _puede_emitir_ticket_lanzador(
+    assert _puede_emitir_ticket_lanzador(
         {"role": "USER", "module_roles": {"oym": "admin"}}
     )
-    assert not _puede_emitir_ticket_lanzador(
+    assert _puede_emitir_ticket_lanzador(
         {"role": "MANAGER", "module_roles": {"simulacion": "editor"}}
+    )
+    assert _puede_emitir_ticket_lanzador(
+        {"role": "USER", "module_roles": {"oym": "editor"}}
     )
     assert not _puede_emitir_ticket_lanzador(
         {"role": "USER", "module_roles": {"oym": "viewer"}}
     )
     assert not _puede_emitir_ticket_lanzador(
-        {"role": "USER", "module_roles": {"oym": "editor"}}
+        {"role": "USER", "module_roles": {}}
     )
 
 

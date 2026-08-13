@@ -34,8 +34,8 @@
 
             <p class="text-sm text-gray-600">
                 La descarga de PDF desde MiEspacio requiere una sesión válida. Cuando expira, hay que
-                resolver el CAPTCHA una vez. El administrador del sistema puede hacerlo desde una PC
-                con el <strong>lanzador local</strong>.
+                resolver el CAPTCHA una vez. Un editor o administrador del módulo puede hacerlo desde
+                una PC con el <strong>lanzador local</strong>.
             </p>
 
             {% if not estado_sesion.renovacion_habilitada %}
@@ -50,8 +50,9 @@
             </div>
             {% elif not renovacion_autorizada %}
             <div class="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
-                <strong>Renovación restringida.</strong> El administrador del sistema debe ejecutar el
-                lanzador porque utiliza las credenciales compartidas de MiEspacio.
+                <strong>Renovación restringida.</strong> Necesitas rol de editor o administrador en el
+                módulo (OyM o Simulación) para ejecutar el lanzador, porque utiliza las credenciales
+                compartidas de MiEspacio.
             </div>
             {% endif %}
 
