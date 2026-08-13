@@ -13,10 +13,12 @@ from decimal import Decimal, InvalidOperation
 from typing import Optional, List
 import logging
 import io
+import re
 
+from core.materials.normalizer import RE_MULTI_SPACE
 from .schemas import (
     CfdiData, CfdiConcepto, CfdiRelacionado,
-    TipoFactura, XmlUploadError,
+    TipoFactura,
 )
 
 logger = logging.getLogger("ComprasXMLExtractor")
@@ -42,6 +44,11 @@ TIPOS_RELACION_SAT = {
 
 # Tamano maximo de XML (10 MB)
 MAX_XML_SIZE_BYTES = 10 * 1024 * 1024
+
+# Guion-vineta pegado al inicio del texto (sin espacio), artefacto de formato
+# de algunos proveedores: "-CABLE MULTICONDUCTOR..." -> "CABLE MULTICONDUCTOR..."
+# No afecta guiones legitimos a media palabra (Wi-Fi) ni numeros de parte (THHN-2).
+_RE_BULLET_DASH = re.compile(r'^-(?=\S)')
 
 
 def _find_node(root: ET.Element, tag_name: str) -> Optional[ET.Element]:
@@ -157,11 +164,23 @@ def _detect_tipo_factura(
     return TipoFactura.NORMAL
 
 
+def _sanitize_descripcion(texto: str) -> str:
+    """Limpieza minima de formato del texto crudo del proveedor.
+
+    Solo quita ruido de formato (espacios, guion-vineta inicial) — nunca
+    normaliza contenido (mayusculas, acentos, etc.), eso es responsabilidad
+    de core/materials/normalizer.py para el campo de busqueda difusa.
+    """
+    t = _RE_BULLET_DASH.sub("", texto.strip())
+    t = RE_MULTI_SPACE.sub(" ", t)
+    return t.strip()
+
+
 def _extract_conceptos(root: ET.Element) -> List[CfdiConcepto]:
     """Extrae la lista de conceptos/items del CFDI."""
     conceptos = []
     for node in _find_all_nodes(root, "Concepto"):
-        descripcion = _get_attr(node, "Descripcion")
+        descripcion = _sanitize_descripcion(_get_attr(node, "Descripcion") or "")
         if not descripcion:
             continue
 

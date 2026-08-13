@@ -22,7 +22,11 @@ _RE_DASH_NON_NUMERIC = re.compile(r'(?<!\d)-(?!\d)')
 _RE_ISOLATED_DOT = re.compile(r'(?<= )\.(?= )')
 
 _RE_WHITESPACE = re.compile(r'[\r\n\t]+')
-_RE_MULTI_SPACE = re.compile(r' {2,}')
+
+# Espacios multiples -> uno solo. Publica: tambien la usa
+# modules/compras/xml_extractor.py para higiene de formato en descripcion_proveedor
+# (limpieza de escritura, no de matching -- no confundir con normalizar_descripcion).
+RE_MULTI_SPACE = re.compile(r' {2,}')
 
 
 def normalizar_descripcion(texto: str) -> str:
@@ -77,7 +81,7 @@ def normalizar_descripcion(texto: str) -> str:
     t = _RE_ISOLATED_DOT.sub(" ", t)
 
     # 14. Colapsar espacios múltiples
-    t = _RE_MULTI_SPACE.sub(" ", t).strip()
+    t = RE_MULTI_SPACE.sub(" ", t).strip()
 
     return t
 
