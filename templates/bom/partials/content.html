@@ -905,7 +905,7 @@
         @htmx:after-request.window="if ($event.detail.target && $event.detail.target.id === 'resultados-materiales') { mostrarResultados = true; limpiarIndicadorBusqueda(); }"
         @htmx:response-error.window="if ($event.detail.target && $event.detail.target.id === 'resultados-materiales') { limpiarResultadosBusqueda(); }">
         <div class="flex min-h-screen items-center justify-center px-4">
-            <div class="fixed inset-0 bg-black bg-opacity-30" @click="cerrar()"></div>
+            <div class="modal-overlay-layer fixed inset-0 bg-black bg-opacity-30"></div>
             <div class="relative bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 z-10">
                 {{ spinner_overlay('modal-agregar-item-overlay') }}
                 <div class="mb-4 flex items-center justify-between gap-3">
@@ -951,7 +951,7 @@
                     hx-post="/bom/{{ bom.id_bom }}/items" hx-target="#tabla-bom-items" hx-swap="innerHTML"
                     hx-indicator="#modal-agregar-item-overlay"
                     hx-disabled-elt="#bom-agregar-item-submit"
-                    hx-on::after-request="if(event.detail.successful && event.detail.elt === this) { abrir(); }"
+                    @htmx:after-request="if ($event.detail.successful && $event.detail.elt === $el) { abrir(); }"
                     @submit.capture="validarSubmit($event)"
                     autocomplete="off">
 
@@ -1169,7 +1169,7 @@
                             id="bom-agregar-item-submit"
                             :disabled="modo === 'catalogo' && !materialRef && !materialInterno"
                             class="px-4 py-2 text-sm rounded-lg text-white bg-green-600 hover:bg-green-700 transition font-medium disabled:opacity-60 disabled:cursor-not-allowed">
-                            <span x-text="modo === 'catalogo' && !materialRef && !materialInterno ? 'Selecciona material' : 'Agregar'">Agregar</span>
+                            <span>Agregar material</span>
                         </button>
                     </div>
                 </form>

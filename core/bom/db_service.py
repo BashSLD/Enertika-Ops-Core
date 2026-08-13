@@ -2335,6 +2335,20 @@ class BomDBService(BomComprasDBMixin):
         """, module_slug)
         return [dict(r) for r in rows]
 
+    @staticmethod
+    def _empaquetar_paginado(rows, limite: int, offset: int) -> dict:
+        """Extrae 'total_count' (window function) de la primera fila y arma la respuesta paginada."""
+        rows_list = [dict(r) for r in rows]
+        total = rows_list[0]["total_count"] if rows_list else 0
+        for r in rows_list:
+            del r["total_count"]
+        return {
+            "items": rows_list,
+            "total": total,
+            "limit": limite,
+            "offset": offset,
+        }
+
     async def buscar_materiales_para_bom(
         self, conn, query: str, query_norm: str = "",
         umbral: float = 0.15, limite: int = 20, offset: int = 0
@@ -2366,59 +2380,81 @@ class BomDBService(BomComprasDBMixin):
                 ORDER BY m.descripcion_proveedor,
                          (vlink.id_material_interno IS NOT NULL) DESC,
                          m.fecha_factura DESC
+            ),
+            combinado AS (
+                SELECT
+                    xd.id, xd.descripcion, xd.unidad, xd.precio_unitario,
+                    xd.proveedor_nombre, xd.categoria_nombre, xd.clave_prod_serv,
+                    xd.fecha_factura, xd.fuente, xd.similitud,
+                    ci.descripcion_canonica                                AS descripcion_interna,
+                    xd.id_material_interno::text                           AS id_material_interno,
+                    1                                                      AS prioridad
+                FROM xml_dedup xd
+                LEFT JOIN tb_cat_materiales ci ON ci.id = xd.id_material_interno
+                UNION ALL
+                SELECT
+                    c.id::text,
+                    c.descripcion_canonica,
+                    u.codigo,
+                    c.precio_referencia,
+                    NULL,
+                    cat.nombre,
+                    c.clave_prod_serv,
+                    NULL::date,
+                    'INTERNO'::text,
+                    GREATEST(
+                        similarity(c.descripcion_norm, $3),
+                        word_similarity($3, c.descripcion_norm)
+                    ),
+                    NULL::text,
+                    NULL::text,
+                    0                                                      AS prioridad
+                FROM tb_cat_materiales c
+                LEFT JOIN tb_cat_unidades_medida u   ON u.id  = c.id_unidad_medida
+                LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
+                WHERE c.activo = TRUE
+                  AND (c.descripcion_norm ILIKE '%' || $3 || '%'
+                       OR word_similarity($3, c.descripcion_norm) >= $2)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM tb_materiales_interno_xml v
+                      WHERE v.id_material_interno = c.id
+                  )
             )
-            SELECT
-                xd.id, xd.descripcion, xd.unidad, xd.precio_unitario,
-                xd.proveedor_nombre, xd.categoria_nombre, xd.clave_prod_serv,
-                xd.fecha_factura, xd.fuente, xd.similitud,
-                ci.descripcion_canonica                                AS descripcion_interna,
-                xd.id_material_interno::text                           AS id_material_interno
-            FROM xml_dedup xd
-            LEFT JOIN tb_cat_materiales ci ON ci.id = xd.id_material_interno
-            UNION ALL
-            SELECT
-                c.id::text,
-                c.descripcion_canonica,
-                u.codigo,
-                c.precio_referencia,
-                NULL,
-                cat.nombre,
-                c.clave_prod_serv,
-                NULL::date,
-                'INTERNO'::text,
-                GREATEST(
-                    similarity(c.descripcion_norm, $3),
-                    word_similarity($3, c.descripcion_norm)
+            SELECT id, descripcion, unidad, precio_unitario, proveedor_nombre, categoria_nombre,
+                   clave_prod_serv, fecha_factura, fuente, similitud, descripcion_interna,
+                   id_material_interno, COUNT(*) OVER() AS total_count
+            FROM combinado
+            ORDER BY prioridad ASC, similitud DESC NULLS LAST
+            LIMIT $4 OFFSET $5
+        """, query, umbral, query_norm or query, limite, offset)
+        if not rows and offset > 0:
+            # COUNT(*) OVER() viaja en las filas devueltas; si el offset deja la pagina vacia
+            # no hay fila de la cual leer el total real, por eso se recalcula aparte.
+            total = await conn.fetchval("""
+                WITH xml_dedup AS (
+                    SELECT DISTINCT ON (m.descripcion_proveedor) m.id
+                    FROM tb_materiales_historial m
+                    WHERE m.descripcion_proveedor ILIKE '%' || $1 || '%'
+                       OR word_similarity($1, m.descripcion_proveedor) >= $2
+                    ORDER BY m.descripcion_proveedor
                 ),
-                NULL::text,
-                NULL::text
-            FROM tb_cat_materiales c
-            LEFT JOIN tb_cat_unidades_medida u   ON u.id  = c.id_unidad_medida
-            LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
-            WHERE c.activo = TRUE
-              AND (c.descripcion_norm ILIKE '%' || $3 || '%'
-                   OR word_similarity($3, c.descripcion_norm) >= $2)
-              AND NOT EXISTS (
-                  SELECT 1 FROM tb_materiales_interno_xml v
-                  WHERE v.id_material_interno = c.id
-              )
-        """, query, umbral, query_norm or query)
-        rows_list = [dict(r) for r in rows]
-        xml_items = sorted(
-            [r for r in rows_list if r['fuente'] == 'XML'],
-            key=lambda x: -(float(x['similitud'] or 0)),
-        )
-        int_items = sorted(
-            [r for r in rows_list if r['fuente'] == 'INTERNO'],
-            key=lambda x: -(float(x['similitud'] or 0)),
-        )
-        result = int_items + xml_items
-        return {
-            "items": result[offset:offset + limite],
-            "total": len(result),
-            "limit": limite,
-            "offset": offset,
-        }
+                combinado AS (
+                    SELECT id FROM xml_dedup
+                    UNION ALL
+                    SELECT c.id
+                    FROM tb_cat_materiales c
+                    WHERE c.activo = TRUE
+                      AND (c.descripcion_norm ILIKE '%' || $3 || '%'
+                           OR word_similarity($3, c.descripcion_norm) >= $2)
+                      AND NOT EXISTS (
+                          SELECT 1 FROM tb_materiales_interno_xml v
+                          WHERE v.id_material_interno = c.id
+                      )
+                )
+                SELECT COUNT(*) FROM combinado
+            """, query, umbral, query_norm or query)
+            return {"items": [], "total": total, "limit": limite, "offset": offset}
+        return self._empaquetar_paginado(rows, limite, offset)
 
     async def get_materiales_recientes(self, conn, limite: int = 10, offset: int = 0) -> dict:
         """Lista materiales recientes (XML) y todos los internos activos para el dropdown inicial."""
@@ -2442,55 +2478,74 @@ class BomDBService(BomComprasDBMixin):
                 ORDER BY m.descripcion_proveedor,
                          (vlink.id_material_interno IS NOT NULL) DESC,
                          m.fecha_factura DESC
+            ),
+            combinado AS (
+                SELECT
+                    xd.id, xd.descripcion, xd.unidad, xd.precio_unitario,
+                    xd.proveedor_nombre, xd.categoria_nombre, xd.clave_prod_serv,
+                    xd.fecha_factura, xd.fuente, xd.similitud,
+                    ci.descripcion_canonica                 AS descripcion_interna,
+                    xd.id_material_interno::text            AS id_material_interno,
+                    1                                        AS prioridad,
+                    NULL::text                              AS orden_alfa
+                FROM xml_dedup xd
+                LEFT JOIN tb_cat_materiales ci ON ci.id = xd.id_material_interno
+                UNION ALL
+                SELECT
+                    c.id::text,
+                    c.descripcion_canonica,
+                    u.codigo,
+                    c.precio_referencia,
+                    NULL,
+                    cat.nombre,
+                    c.clave_prod_serv,
+                    (c.created_at AT TIME ZONE 'America/Mexico_City')::date,
+                    'INTERNO'::text,
+                    1.0::real,
+                    NULL::text,
+                    NULL::text,
+                    0                                        AS prioridad,
+                    LOWER(c.descripcion_canonica)           AS orden_alfa
+                FROM tb_cat_materiales c
+                LEFT JOIN tb_cat_unidades_medida u   ON u.id  = c.id_unidad_medida
+                LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
+                WHERE c.activo = TRUE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM tb_materiales_interno_xml v
+                      WHERE v.id_material_interno = c.id
+                  )
             )
-            SELECT
-                xd.id, xd.descripcion, xd.unidad, xd.precio_unitario,
-                xd.proveedor_nombre, xd.categoria_nombre, xd.clave_prod_serv,
-                xd.fecha_factura, xd.fuente, xd.similitud,
-                ci.descripcion_canonica                 AS descripcion_interna,
-                xd.id_material_interno::text            AS id_material_interno
-            FROM xml_dedup xd
-            LEFT JOIN tb_cat_materiales ci ON ci.id = xd.id_material_interno
-            UNION ALL
-            SELECT
-                c.id::text,
-                c.descripcion_canonica,
-                u.codigo,
-                c.precio_referencia,
-                NULL,
-                cat.nombre,
-                c.clave_prod_serv,
-                (c.created_at AT TIME ZONE 'America/Mexico_City')::date,
-                'INTERNO'::text,
-                1.0::real,
-                NULL::text,
-                NULL::text
-            FROM tb_cat_materiales c
-            LEFT JOIN tb_cat_unidades_medida u   ON u.id  = c.id_unidad_medida
-            LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
-            WHERE c.activo = TRUE
-              AND NOT EXISTS (
-                  SELECT 1 FROM tb_materiales_interno_xml v
-                  WHERE v.id_material_interno = c.id
-              )
-        """)
-        rows_list = [dict(r) for r in rows]
-        xml_items = sorted(
-            [r for r in rows_list if r['fuente'] == 'XML'],
-            key=lambda x: x['fecha_factura'].isoformat() if x.get('fecha_factura') else '',
-            reverse=True,
-        )
-        int_items = sorted(
-            [r for r in rows_list if r['fuente'] == 'INTERNO'],
-            key=lambda x: (x.get('descripcion') or '').lower(),
-        )
-        result = int_items + xml_items
-        return {
-            "items": result[offset:offset + limite],
-            "total": len(result),
-            "limit": limite,
-            "offset": offset,
-        }
+            SELECT id, descripcion, unidad, precio_unitario, proveedor_nombre, categoria_nombre,
+                   clave_prod_serv, fecha_factura, fuente, similitud, descripcion_interna,
+                   id_material_interno, COUNT(*) OVER() AS total_count
+            FROM combinado
+            ORDER BY prioridad ASC, orden_alfa ASC NULLS LAST, fecha_factura DESC NULLS LAST
+            LIMIT $1 OFFSET $2
+        """, limite, offset)
+        if not rows and offset > 0:
+            # COUNT(*) OVER() viaja en las filas devueltas; si el offset deja la pagina vacia
+            # no hay fila de la cual leer el total real, por eso se recalcula aparte.
+            total = await conn.fetchval("""
+                WITH xml_dedup AS (
+                    SELECT DISTINCT ON (m.descripcion_proveedor) m.id
+                    FROM tb_materiales_historial m
+                    ORDER BY m.descripcion_proveedor
+                ),
+                combinado AS (
+                    SELECT id FROM xml_dedup
+                    UNION ALL
+                    SELECT c.id
+                    FROM tb_cat_materiales c
+                    WHERE c.activo = TRUE
+                      AND NOT EXISTS (
+                          SELECT 1 FROM tb_materiales_interno_xml v
+                          WHERE v.id_material_interno = c.id
+                      )
+                )
+                SELECT COUNT(*) FROM combinado
+            """)
+            return {"items": [], "total": total, "limit": limite, "offset": offset}
+        return self._empaquetar_paginado(rows, limite, offset)
 
     async def get_proyecto_info(self, conn, id_proyecto: UUID) -> Optional[dict]:
         """Obtiene info basica del proyecto."""
