@@ -4,16 +4,44 @@ from typing import List, Optional, Dict, Tuple
 import logging
 from fastapi import Request, UploadFile, HTTPException
 from fastapi.templating import Jinja2Templates
+from redis.exceptions import RedisError
 from core.security import get_valid_graph_token
+from core.redis_client import get_redis
 
 logger = logging.getLogger("ComercialModule")
 templates = Jinja2Templates(directory="templates")
 
+_NOTIFICAR_LOCK_PREFIX = "eco:comercial:notificar:lock:"
+_NOTIFICAR_LOCK_TTL_SECONDS = 20
+
 class EmailHandler:
     """Maneja el envío de correos del módulo comercial."""
-    
+
     MAX_TOTAL_FILE_SIZE = 35 * 1024 * 1024  # 35 MB (límite total de adjuntos)
-    
+
+    async def _adquirir_lock_notificacion(self, id_oportunidad: UUID) -> bool:
+        """
+        Evita envíos duplicados si el cliente reintenta (doble clic, recarga,
+        red lenta) mientras un envío anterior para la misma oportunidad sigue
+        en curso o acaba de terminar. Fail-open si Redis no está disponible:
+        no es un boundary de seguridad, y bloquear la notificación por una
+        caída de Redis es peor que arriesgar un duplicado ocasional.
+        """
+        redis = get_redis()
+        if redis is None:
+            return True
+        try:
+            adquirido = await redis.set(
+                f"{_NOTIFICAR_LOCK_PREFIX}{id_oportunidad}",
+                "1",
+                nx=True,
+                ex=_NOTIFICAR_LOCK_TTL_SECONDS,
+            )
+            return bool(adquirido)
+        except RedisError as e:
+            logger.warning(f"Redis no disponible para lock de notificacion {id_oportunidad}: {e}")
+            return True
+
     async def procesar_y_enviar_notificacion(
         self,
         request: Request,
@@ -29,6 +57,17 @@ class EmailHandler:
         """
         Procesa formulario de correo y envía notificación.
         """
+        if not await self._adquirir_lock_notificacion(id_oportunidad):
+            logger.warning(f"Envio duplicado bloqueado para oportunidad {id_oportunidad}")
+            return (False, templates.TemplateResponse(
+                request, "comercial/partials/toasts/toast_error.html",
+                {
+                    "title": "Notificación en proceso",
+                    "message": "Ya se está procesando una notificación para esta oportunidad. Espera unos segundos e intenta de nuevo."
+                },
+                status_code=409
+            ))
+
         access_token = await get_valid_graph_token(request)
         if not access_token:
             from fastapi import Response
