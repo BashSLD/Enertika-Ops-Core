@@ -792,13 +792,6 @@
             cerrar() {
                 const modal = this.$refs.modalAgregarItem || document.getElementById('modal-agregar-item');
                 if (modal) modal.classList.add('hidden');
-                try {
-                    if (this.$refs.inputBusqueda && window.htmx) {
-                        htmx.trigger(this.$refs.inputBusqueda, 'htmx:abort');
-                    }
-                } catch (_) {
-                    // El cierre del modal no debe depender del estado interno de HTMX.
-                }
                 this.reset();
             },
             limpiarIndicadorBusqueda() {
@@ -857,7 +850,19 @@
                 return true;
             },
             reset() {
-                if (this.$refs.formAgregarItem) this.$refs.formAgregarItem.reset();
+                if (this.$refs.formAgregarItem) {
+                    this.$refs.formAgregarItem.reset();
+                    const lockInput = this.$refs.formAgregarItem.querySelector('[data-bom-lock-version]');
+                    const lockState = document.getElementById('bom-lock-version-state');
+                    if (lockInput && lockState) lockInput.value = lockState.value;
+                }
+                try {
+                    if (this.$refs.inputBusqueda && window.htmx) {
+                        htmx.trigger(this.$refs.inputBusqueda, 'htmx:abort');
+                    }
+                } catch (_) {
+                    // El reset del modal no debe depender del estado interno de HTMX.
+                }
                 this.descripcion = '';
                 this.precio = '';
                 this.cantidad = '';
@@ -946,7 +951,7 @@
                     hx-post="/bom/{{ bom.id_bom }}/items" hx-target="#tabla-bom-items" hx-swap="innerHTML"
                     hx-indicator="#modal-agregar-item-overlay"
                     hx-disabled-elt="#bom-agregar-item-submit"
-                    hx-on::after-request="if(event.detail.successful && event.detail.elt === this) { cerrar(); }"
+                    hx-on::after-request="if(event.detail.successful && event.detail.elt === this) { abrir(); }"
                     @submit.capture="validarSubmit($event)"
                     autocomplete="off">
 
