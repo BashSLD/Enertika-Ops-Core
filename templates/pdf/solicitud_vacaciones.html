@@ -198,6 +198,12 @@
   </tr>
   {% endfor %}
 </table>
+{% if otros_periodos %}
+<p style="font-size:9pt; color:#555; margin: -8px 0 14px 0;">
+  <strong>Otros periodos:</strong>
+  {% for p in otros_periodos %}Periodo {{ p.num_periodo }} ({{ p.periodo }}): {{ p.dias_usados }}/{{ p.dias_otorgados }} días usados{% if p.dias_restantes and p.dias_restantes > 0 %} ({{ p.dias_restantes }} disponibles){% endif %}{% if not loop.last %} &middot; {% endif %}{% endfor %}
+</p>
+{% endif %}
 {% endif %}
 
 <div class="firmas-section">

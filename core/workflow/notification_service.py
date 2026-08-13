@@ -1360,19 +1360,22 @@ class NotificationService:
                 logger.info("[NOTIFY] Periodo por expirar sin email de empleado: %s", empleado.get("id_usuario"))
                 return
             cc = await self._get_rh_emails_cc(conn)
+            tiene_prorroga = periodo.get("tiene_prorroga", False)
             html = self._render_template("shared/emails/vacaciones/periodo_expira.html", {
                 "empleado_nombre": empleado["nombre"],
                 "num_periodo": periodo["num_periodo"],
                 "dias_restantes": periodo["dias_restantes"],
                 "dias_para_expiracion": periodo["dias_para_expiracion"],
-                "fecha_expiracion": periodo["fecha_expiracion"].strftime("%d/%m/%Y"),
+                "fecha_expiracion": periodo["fecha_expiracion_efectiva"].strftime("%d/%m/%Y"),
+                "tiene_prorroga": tiene_prorroga,
                 "base_url": settings.APP_BASE_URL,
             })
             sender = await self._get_notification_sender(conn)
+            asunto = "Prorroga de vacaciones por expirar" if tiene_prorroga else "Periodo de vacaciones por expirar"
             await self._send_email(
                 {empleado["email"]},
                 cc,
-                "Periodo de vacaciones por expirar",
+                asunto,
                 html,
                 sender["email"],
             )

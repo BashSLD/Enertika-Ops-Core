@@ -660,7 +660,8 @@ async def generar_pdf_solicitud(conn, solicitud_id: UUID) -> bytes:
             "firma_aprobador_b64": firma_aprobador_b64,
             "firma_solicitante_info": firmas_map.get("solicitante"),
             "firma_aprobador_info": firmas_map.get("aprobador"),
-            "detalle_periodos": detalle_periodos,
+            "detalle_periodos": detalle_periodos["afectados"],
+            "otros_periodos": detalle_periodos["otros"],
         },
     )
 
@@ -671,14 +672,15 @@ def _generar_folio(solicitud: dict) -> str:
     return f"FO-ADM-002-{abrev}{ts.strftime('%d%m%y%H%M')}"
 
 
-async def _get_detalle_periodos_pdf(conn, solicitud: dict) -> list[dict]:
+async def _get_detalle_periodos_pdf(conn, solicitud: dict) -> dict[str, list[dict]]:
     consumos = await db.get_consumos_solicitud(conn, solicitud["id"])
     if not consumos:
-        return []
+        return {"afectados": [], "otros": []}
     balance = await get_balance_usuario(conn, solicitud["usuario_id"])
     periodos = {
         p["num_periodo"]: p for p in (balance.get("periodos") or [])
     }
+    num_periodos_afectados = {c["num_periodo"] for c in consumos}
     detalle = []
     for consumo in consumos:
         periodo = periodos.get(consumo["num_periodo"], {})
@@ -689,7 +691,20 @@ async def _get_detalle_periodos_pdf(conn, solicitud: dict) -> list[dict]:
             "dias_restantes": periodo.get("dias_restantes"),
             "fecha_expiracion": periodo.get("fecha_expiracion"),
         })
-    return detalle
+    otros = [
+        {
+            "num_periodo": p["num_periodo"],
+            "periodo": p["periodo"],
+            "dias_usados": p["dias_usados"],
+            "dias_otorgados": p["dias_otorgados"],
+            "dias_restantes": p["dias_restantes"],
+        }
+        for p in (balance.get("periodos") or [])
+        if not p.get("es_proximo")
+        and not p.get("expirado")
+        and p["num_periodo"] not in num_periodos_afectados
+    ]
+    return {"afectados": detalle, "otros": otros}
 
 
 # ─────────────────────────────────────────────

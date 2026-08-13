@@ -15,14 +15,18 @@
       <td style="padding:40px;">
         <p style="margin:0 0 20px;font-size:16px;">Hola <strong>{{ empleado_nombre }}</strong>,</p>
         <p style="margin:0 0 24px;color:#555;font-size:15px;line-height:1.6;">
+          {% if tiene_prorroga %}
+          La prorroga de tu periodo <strong>{{ num_periodo }}</strong> tiene dias de vacaciones disponibles que vencen pronto.
+          {% else %}
           Tu periodo <strong>{{ num_periodo }}</strong> tiene dias de vacaciones disponibles que vencen pronto.
+          {% endif %}
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9f9f9;border-left:4px solid #f59e0b;border-radius:4px;margin-bottom:28px;">
           <tr><td style="padding:20px;">
             <table width="100%" cellpadding="7" cellspacing="0">
               <tr><td width="160" style="color:#92400e;font-weight:600;font-size:14px;">Dias restantes:</td><td style="font-size:14px;"><strong>{{ dias_restantes }}</strong></td></tr>
               <tr><td style="color:#92400e;font-weight:600;font-size:14px;">Vence en:</td><td style="font-size:14px;">{{ dias_para_expiracion }} dias</td></tr>
-              <tr><td style="color:#92400e;font-weight:600;font-size:14px;">Fecha de expiracion:</td><td style="font-size:14px;">{{ fecha_expiracion }}</td></tr>
+              <tr><td style="color:#92400e;font-weight:600;font-size:14px;">{% if tiene_prorroga %}Vence la prorroga:{% else %}Fecha de expiracion:{% endif %}</td><td style="font-size:14px;">{{ fecha_expiracion }}</td></tr>
             </table>
           </td></tr>
         </table>
