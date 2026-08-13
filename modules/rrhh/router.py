@@ -1528,6 +1528,7 @@ async def asistencia_panel(
 async def solicitudes_lista(
     request: Request,
     estado: Optional[str] = None,
+    usuario_id: Optional[UUID] = None,
     limit: int = 30,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
@@ -1535,12 +1536,15 @@ async def solicitudes_lista(
 ):
     if limit not in {0, 15, 30, 50, 100}:
         limit = 30
-    solicitudes = await vac_db.get_todas_solicitudes(conn, estado=estado, limit=limit)
+    solicitudes = await vac_db.get_todas_solicitudes(conn, estado=estado, usuario_id=usuario_id, limit=limit)
+    usuarios = await vac_db.get_usuarios_activos_simples(conn)
     return templates.TemplateResponse(
         request, "rrhh/partials/solicitudes_lista.html",
         {
             "solicitudes": solicitudes,
             "estado_filtro": estado,
+            "usuario_id_filtro": str(usuario_id) if usuario_id else "",
+            "usuarios_list": [{"id": str(u["id_usuario"]), "nombre": u["nombre"]} for u in usuarios],
             "limit": limit,
             "rrhh_perms": _get_rrhh_permissions(context),
         },

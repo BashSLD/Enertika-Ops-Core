@@ -888,7 +888,9 @@ async def get_historial_aprobaciones(
     return [dict(r) for r in rows]
 
 
-async def get_todas_solicitudes(conn, estado: Optional[str] = None, limit: int = 30) -> list[dict]:
+async def get_todas_solicitudes(
+    conn, estado: Optional[str] = None, usuario_id: Optional[UUID] = None, limit: int = 30
+) -> list[dict]:
     base = """
         SELECT sa.id, sa.usuario_id, sa.tipo_ausencia_id, sa.fecha_inicio, sa.fecha_fin,
                sa.dias_solicitados, sa.fecha_presentarse, sa.estado,
@@ -904,9 +906,15 @@ async def get_todas_solicitudes(conn, estado: Optional[str] = None, limit: int =
         LEFT JOIN tb_usuarios m ON m.id_usuario = sa.migrado_por
     """
     params = []
+    conditions = []
     if estado:
         params.append(estado)
-        base += " WHERE sa.estado = $1"
+        conditions.append(f"sa.estado = ${len(params)}")
+    if usuario_id:
+        params.append(usuario_id)
+        conditions.append(f"sa.usuario_id = ${len(params)}")
+    if conditions:
+        base += " WHERE " + " AND ".join(conditions)
     base += " ORDER BY sa.created_at DESC"
     if limit > 0:
         params.append(limit)
