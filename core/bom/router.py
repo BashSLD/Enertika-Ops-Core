@@ -300,6 +300,9 @@ async def bom_hub_ui(
     )
 
     ctx = {
+        "user_name": context.get("user_name"),
+        "role": role,
+        "module_roles": module_roles,
         "proyecto": proyecto,
         "id_proyecto": id_proyecto,
         "paquetes": paquetes,
@@ -339,6 +342,9 @@ async def bom_consolidado_ui(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     ctx = {
+        "user_name": context.get("user_name"),
+        "role": context.get("role"),
+        "module_roles": context.get("module_roles", {}),
         "proyecto": proyecto,
         "id_proyecto": id_proyecto,
         "consolidado": consolidado,
