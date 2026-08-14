@@ -283,11 +283,15 @@ async def bom_hub_ui(
     paquetes = await service.listar_paquetes(conn, id_proyecto)
     estado = await service.get_estado_conjunto(conn, id_proyecto)
     metricas_fv = await service.get_metricas_paneles(conn, id_proyecto)
+    # todos_paquetes/estado NO se reusan aqui: se leen fuera del snapshot
+    # repeatable_read de get_consolidado_proyecto, y pasarlos rompe la
+    # consistencia que esa transaccion garantiza frente a paquetes/lineas
+    # leidos frescos adentro. proyecto si es seguro (solo chequeo de existencia).
     consolidado_curso = await service.get_consolidado_proyecto(
-        conn, id_proyecto, "CURSO"
+        conn, id_proyecto, "CURSO", proyecto=proyecto
     )
     consolidado_oficial = await service.get_consolidado_proyecto(
-        conn, id_proyecto, "OFICIAL"
+        conn, id_proyecto, "OFICIAL", proyecto=proyecto
     )
     puede_crear = role == "ADMIN" or await service.puede_crear_o_retomar_bom(
         conn, id_proyecto, context.get("user_db_id")

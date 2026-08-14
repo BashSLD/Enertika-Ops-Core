@@ -3840,23 +3840,36 @@ class BomService(BomComprasServiceMixin):
 
     async def get_consolidado_proyecto(
         self, conn, id_proyecto: UUID, modo: str = "CURSO",
+        proyecto: Optional[dict] = None,
     ) -> dict:
-        """Lee cabezas, hechos y divisor dentro de un snapshot consistente."""
+        """Lee cabezas, hechos y divisor dentro de un snapshot consistente.
+
+        `proyecto` es opcional: si el caller ya lo consulto en la misma
+        peticion (ej. bom_hub_ui), se pasa aqui para evitar volver a pedirlo.
+        Es seguro reusarlo porque solo se usa como chequeo de existencia, no
+        alimenta los totales financieros. `todos_paquetes`/`estado`, en
+        cambio, SI deben leerse dentro de esta transaccion repeatable_read:
+        pasarlos desde afuera rompe la consistencia frente a `paquetes`/
+        `lineas`, que si se leen frescos aqui adentro.
+        """
         if conn.__class__.__module__.startswith("asyncpg"):
             async with conn.transaction(isolation="repeatable_read", readonly=True):
                 return await self._get_consolidado_proyecto_snapshot(
-                    conn, id_proyecto, modo
+                    conn, id_proyecto, modo, proyecto
                 )
-        return await self._get_consolidado_proyecto_snapshot(conn, id_proyecto, modo)
+        return await self._get_consolidado_proyecto_snapshot(
+            conn, id_proyecto, modo, proyecto
+        )
 
     async def _get_consolidado_proyecto_snapshot(
         self, conn, id_proyecto: UUID, modo: str = "CURSO",
+        proyecto: Optional[dict] = None,
     ) -> dict:
         """Read model del conjunto sin crear un BOM consolidado persistente."""
         modo_normalizado = (modo or "CURSO").strip().upper()
         if modo_normalizado not in {"CURSO", "OFICIAL"}:
             raise ValueError("La vista consolidada debe ser CURSO u OFICIAL")
-        if not await self.db.get_proyecto_info(conn, id_proyecto):
+        if not (proyecto or await self.db.get_proyecto_info(conn, id_proyecto)):
             raise ValueError("Proyecto no encontrado")
 
         paquetes = await self.db.get_consolidado_paquetes(
