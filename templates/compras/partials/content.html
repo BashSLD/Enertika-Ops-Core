@@ -333,7 +333,8 @@
             values: Object.fromEntries(formData),
             target: '#global-toast-container',
             source: '#global-toast-container',
-            swap: 'afterbegin'
+            swap: 'afterbegin',
+            indicator: '#global-loading-overlay'
         }).then(() => {
             cancelarSeleccion();
             // Reset dropdowns
@@ -352,7 +353,8 @@
         htmx.ajax('GET', `/compras/comprobantes/${id}/modal`, {
             target: '#modal-editar-container',
             source: '#modal-editar-container',
-            swap: 'innerHTML'
+            swap: 'innerHTML',
+            indicator: '#global-loading-overlay'
         });
     }
 

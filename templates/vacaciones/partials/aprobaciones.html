@@ -419,7 +419,8 @@
             htmx.ajax('POST', '/asistencia/api/horas-extra/' + modalId + '/aprobar', {
               source: $el,
               values: { minutos_aprobados: modalMinutosTotal, comentario: modalComentario },
-              swap: 'none'
+              swap: 'none',
+              indicator: '#global-loading-overlay'
             }).then(() => {
               if (!document.getElementById('he-row-' + modalId)) onAprobacionDone();
               else openModal = false;

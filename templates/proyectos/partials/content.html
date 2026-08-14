@@ -176,7 +176,8 @@
         htmx.ajax('GET', '/projects/modal-crear', {
             target: '#modal-proyecto-container',
             source: '#modal-proyecto-container',
-            swap: 'innerHTML'
+            swap: 'innerHTML',
+            indicator: '#global-loading-overlay'
         });
     }
 </script>

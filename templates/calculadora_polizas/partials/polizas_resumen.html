@@ -28,7 +28,8 @@
              if (this.solicitante) p.set('solicitante_id_filter', this.solicitante);
              if (this.limit)       p.set('limit', this.limit);
              htmx.ajax('GET', '/oym/partials/polizas-resumen?' + p.toString(), {
-                 target: '#polizas-resumen-container', source: '#polizas-resumen-container', swap: 'outerHTML'
+                 target: '#polizas-resumen-container', source: '#polizas-resumen-container', swap: 'outerHTML',
+                 indicator: '#global-loading-overlay'
              });
          },
          clearAll() {
