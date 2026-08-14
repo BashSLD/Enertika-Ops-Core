@@ -227,8 +227,14 @@
             data-bom-lock-vals
             hx-target="#tabla-bom-items" hx-swap="innerHTML"
             hx-confirm="¿Actualizar el presupuesto de los items sin costo con el precio actual del catalogo interno?"
+            hx-indicator="#refrescar-costos-spinner"
+            hx-disabled-elt="this"
+            hx-sync="this:drop"
             class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 transition shadow-sm"
             title="Actualiza items sin costo con el precio vigente del catalogo interno">
+            <span id="refrescar-costos-spinner" class="htmx-indicator mr-1.5">
+                {{ spinner_icon('w-4 h-4') }}
+            </span>
             <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
