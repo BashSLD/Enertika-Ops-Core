@@ -1,5 +1,7 @@
 """Registro de controles deterministas del proyecto."""
 
+from pathlib import Path
+
 from devtools.checks.css_rules import check_css_rules
 from devtools.checks.emoji_rules import check_emoji_rules
 from devtools.checks.frontend_rules import check_frontend_rules
@@ -9,12 +11,12 @@ from devtools.checks.sql_rules import check_sql_rules
 from devtools.models import DiffSnapshot, Finding
 
 
-def run_checks(snapshot: DiffSnapshot) -> tuple[Finding, ...]:
+def run_checks(snapshot: DiffSnapshot, root: Path | None = None) -> tuple[Finding, ...]:
     """Ejecuta todos los controles y entrega resultados estables."""
 
     findings = [
         *check_python_rules(snapshot),
-        *check_frontend_rules(snapshot),
+        *check_frontend_rules(snapshot, root),
         *check_project_actions(snapshot),
         *check_emoji_rules(snapshot),
         *check_sql_rules(snapshot),

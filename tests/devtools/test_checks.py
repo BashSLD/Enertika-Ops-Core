@@ -290,3 +290,59 @@ def test_htmx_ajax_with_source_same_line_or_multiline_is_not_flagged():
     findings = run_checks(snapshot)
 
     assert [item for item in findings if item.code == "HTMX003"] == []
+
+
+def test_htmx_ajax_source_beyond_lookahead_window_needs_root_to_not_false_positive(tmp_path):
+    """Sin `root`, el heuristico de ventana fija (6 lineas) no ve un 'source'
+    que aparece mas lejos dentro de la misma llamada -- falso positivo. Con
+    `root`, el escaneo de archivo completo balanceando parentesis lo encuentra
+    sin importar cuantas lineas tenga el objeto de values en medio."""
+    relative_path = "templates/demo/source_lejano.html"
+    lines = (
+        "htmx.ajax('POST', url, {",
+        "    target: '#x',",
+        "    values: {",
+        "        a: 1,",
+        "        b: 2,",
+        "        c: 3,",
+        "        d: 4,",
+        "    },",
+        "    swap: 'innerHTML',",
+        "    source: '#x'",
+        "});",
+    )
+    file_path = tmp_path / relative_path
+    file_path.parent.mkdir(parents=True)
+    file_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    snapshot = _snapshot(_changed_file(relative_path, *lines))
+
+    findings_without_root = run_checks(snapshot)
+    findings_with_root = run_checks(snapshot, tmp_path)
+
+    assert [item for item in findings_without_root if item.code == "HTMX003"] != []
+    assert [item for item in findings_with_root if item.code == "HTMX003"] == []
+
+
+def test_htmx_ajax_source_untouched_by_diff_is_not_false_flagged_with_root(tmp_path):
+    """--unified=0 no trae lineas de contexto: si solo la linea de apertura de
+    htmx.ajax(...) se toco en el diff pero 'source' ya existia en una linea
+    sin tocar, el heuristico basado solo en added_lines no puede verla. Con
+    `root` disponible, el escaneo lee el archivo real y no genera falso
+    positivo."""
+    relative_path = "templates/demo/source_sin_tocar.html"
+    file_path = tmp_path / relative_path
+    file_path.parent.mkdir(parents=True)
+    file_path.write_text(
+        "htmx.ajax('POST', url, {\n"
+        "    source: '#x',\n"
+        "    swap: 'innerHTML'\n"
+        "});\n",
+        encoding="utf-8",
+    )
+    snapshot = _snapshot(
+        _changed_file(relative_path, "htmx.ajax('POST', url, {")
+    )
+
+    findings_with_root = run_checks(snapshot, tmp_path)
+
+    assert [item for item in findings_with_root if item.code == "HTMX003"] == []

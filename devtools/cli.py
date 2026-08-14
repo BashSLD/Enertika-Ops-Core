@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     except GitError as exc:
         return _render_fatal(str(exc), args.format)
 
-    findings = run_checks(snapshot)
+    findings = run_checks(snapshot, root)
     command_results: tuple[CommandResult, ...] = ()
     if args.command == "quality":
         command_results = run_quality_commands(

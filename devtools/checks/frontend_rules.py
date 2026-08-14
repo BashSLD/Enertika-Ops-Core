@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from devtools.models import AddedLine, ChangedFile, DiffSnapshot, Finding, Severity
 
@@ -21,7 +22,9 @@ _HTMX_AJAX_SOURCE_RE = re.compile(r"\bsource\s*[:,]")
 _HTMX_AJAX_LOOKAHEAD_LINES = 6
 
 
-def check_frontend_rules(snapshot: DiffSnapshot) -> list[Finding]:
+def check_frontend_rules(
+    snapshot: DiffSnapshot, root: Path | None = None
+) -> list[Finding]:
     findings: list[Finding] = []
     for changed_file in snapshot.files:
         if changed_file.suffix not in {".html", ".js"}:
@@ -91,7 +94,7 @@ def check_frontend_rules(snapshot: DiffSnapshot) -> list[Finding]:
                         line=line.number,
                     )
                 )
-        for hit in _find_htmx_ajax_missing_source(changed_file):
+        for hit in _find_htmx_ajax_missing_source(changed_file, root):
             findings.append(
                 Finding(
                     code="HTMX003",
@@ -128,16 +131,34 @@ def _is_overlay_missing_stacking_layer(text: str) -> bool:
     )
 
 
-def _find_htmx_ajax_missing_source(changed_file: ChangedFile) -> list[AddedLine]:
-    """Heuristico multilinea: busca 'source' en la misma linea de htmx.ajax(...)
-    o en las siguientes lineas agregadas del mismo archivo, dentro de una
-    ventana razonable. Si no aparece, htmx usara document.body como emisor
-    (ver HTMX003 mas abajo)."""
+def _find_htmx_ajax_missing_source(
+    changed_file: ChangedFile, root: Path | None
+) -> list[AddedLine]:
+    """Busca 'source' dentro de cada llamada htmx.ajax(...) tocada por el diff.
+
+    Con `root` disponible, lee el archivo actual completo y balancea parentesis
+    a partir de cada 'htmx.ajax(' para acotar la llamada exacta, sin limite
+    artificial de lineas ni depender de que 'source' este entre las lineas
+    agregadas del diff (con --unified=0 el diff no trae contexto, asi que una
+    llamada modificada a medias podria tener su 'source' en una linea no
+    tocada y quedar invisible para un heuristico basado solo en added_lines).
+    Si el archivo no se puede leer (tests con ChangedFile sinteticos, root=None),
+    cae al heuristico de ventana fija sobre added_lines."""
     hits: list[AddedLine] = []
     lines = changed_file.added_lines
+    file_lines = _read_file_lines(root, changed_file.path) if root is not None else None
+
     for index, line in enumerate(lines):
         if not _HTMX_AJAX_RE.search(line.text):
             continue
+
+        if file_lines is not None and 1 <= line.number <= len(file_lines):
+            call_text = _extract_balanced_call(file_lines, line.number - 1)
+            if call_text is not None:
+                if not _HTMX_AJAX_SOURCE_RE.search(call_text):
+                    hits.append(line)
+                continue
+
         window = [line] + [
             candidate
             for candidate in lines[index + 1 : index + 1 + _HTMX_AJAX_LOOKAHEAD_LINES]
@@ -146,3 +167,32 @@ def _find_htmx_ajax_missing_source(changed_file: ChangedFile) -> list[AddedLine]
         if not any(_HTMX_AJAX_SOURCE_RE.search(candidate.text) for candidate in window):
             hits.append(line)
     return hits
+
+
+def _read_file_lines(root: Path, relative_path: str) -> list[str] | None:
+    try:
+        return (root / relative_path).read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()
+    except OSError:
+        return None
+
+
+_HTMX_AJAX_CALL_MAX_LINES = 200
+
+
+def _extract_balanced_call(file_lines: list[str], start_index: int) -> str | None:
+    """Texto de la llamada htmx.ajax(...) que empieza en file_lines[start_index],
+    balanceando parentesis hasta encontrar el cierre correspondiente."""
+    open_pos = file_lines[start_index].find("htmx.ajax(")
+    if open_pos == -1:
+        return None
+    depth = 0
+    collected: list[str] = []
+    for offset, raw in enumerate(file_lines[start_index:start_index + _HTMX_AJAX_CALL_MAX_LINES]):
+        text = raw[open_pos:] if offset == 0 else raw
+        depth += text.count("(") - text.count(")")
+        collected.append(text)
+        if depth <= 0:
+            return "\n".join(collected)
+    return "\n".join(collected)
