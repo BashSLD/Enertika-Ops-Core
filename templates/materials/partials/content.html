@@ -40,35 +40,27 @@
                     </svg>
                     Exportar Excel
                 </a>
-                <a href="/materials/internos/ui" hx-get="/materials/internos/ui" hx-target="#main-content" hx-push-url="true"
-                    class="ripple-effect bg-[#123456] hover:bg-[#0d2640] text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-                    </svg>
-                    Catálogo Interno
-                </a>
             </div>
         </div>
     </div>
 
     <!-- Estadisticas -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-        <div class="bg-white rounded-lg shadow p-4 text-center">
-            <p class="text-3xl font-bold text-[#123456]">{{ estadisticas.total }}</p>
-            <p class="text-xs text-gray-500 mt-1">Total Registros</p>
+        <div class="bg-white rounded-lg shadow px-4 py-2 text-center">
+            <p class="text-2xl font-bold text-[#123456]">{{ estadisticas.total }}</p>
+            <p class="text-xs text-gray-500">Total Registros</p>
         </div>
-        <div class="bg-white rounded-lg shadow p-4 text-center">
-            <p class="text-3xl font-bold text-[#00BABB]">{{ estadisticas.proveedores_distintos }}</p>
-            <p class="text-xs text-gray-500 mt-1">Proveedores</p>
+        <div class="bg-white rounded-lg shadow px-4 py-2 text-center">
+            <p class="text-2xl font-bold text-[#00BABB]">{{ estadisticas.proveedores_distintos }}</p>
+            <p class="text-xs text-gray-500">Proveedores</p>
         </div>
-        <div class="bg-white rounded-lg shadow p-4 text-center">
-            <p class="text-3xl font-bold text-green-600">{{ estadisticas.categorizados }}</p>
-            <p class="text-xs text-gray-500 mt-1">Categorizados</p>
+        <div class="bg-white rounded-lg shadow px-4 py-2 text-center">
+            <p class="text-2xl font-bold text-green-600">{{ estadisticas.categorizados }}</p>
+            <p class="text-xs text-gray-500">Categorizados</p>
         </div>
-        <div class="bg-white rounded-lg shadow p-4 text-center">
-            <p class="text-3xl font-bold text-orange-500">{{ estadisticas.sin_categoria }}</p>
-            <p class="text-xs text-gray-500 mt-1">Sin Categoria</p>
+        <div class="bg-white rounded-lg shadow px-4 py-2 text-center">
+            <p class="text-2xl font-bold text-orange-500">{{ estadisticas.sin_categoria }}</p>
+            <p class="text-xs text-gray-500">Sin Categoria</p>
         </div>
     </div>
 

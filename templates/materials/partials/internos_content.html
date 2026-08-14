@@ -83,10 +83,6 @@
     <div class="glass-panel rounded-xl shadow-lg p-4 border-l-4 border-[#00BABB] mb-4 hidden md:block">
         <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
-                <div class="mb-1">
-                    <a href="/materials/ui" hx-get="/materials/ui" hx-target="#main-content" hx-push-url="true"
-                        class="text-sm text-[#00BABB] hover:underline">← Historial XML</a>
-                </div>
                 <h1 class="text-2xl font-light text-[#123456]">
                     Catálogo <span class="font-bold text-[#00BABB]">Interno</span> de Materiales
                 </h1>
@@ -122,21 +118,21 @@
 
     <!-- Estadísticas -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4" id="stats-internos">
-        <div class="bg-white rounded-lg shadow p-4 text-center">
-            <p class="text-3xl font-bold text-[#123456]">{{ estadisticas.total_activos }}</p>
-            <p class="text-xs text-gray-500 mt-1">Materiales activos</p>
+        <div class="bg-white rounded-lg shadow px-4 py-2 text-center">
+            <p class="text-2xl font-bold text-[#123456]">{{ estadisticas.total_activos }}</p>
+            <p class="text-xs text-gray-500">Materiales activos</p>
         </div>
-        <div class="bg-white rounded-lg shadow p-4 text-center">
-            <p class="text-3xl font-bold text-[#00BABB]">{{ estadisticas.con_categoria }}</p>
-            <p class="text-xs text-gray-500 mt-1">Con categoría</p>
+        <div class="bg-white rounded-lg shadow px-4 py-2 text-center">
+            <p class="text-2xl font-bold text-[#00BABB]">{{ estadisticas.con_categoria }}</p>
+            <p class="text-xs text-gray-500">Con categoría</p>
         </div>
-        <div class="bg-white rounded-lg shadow p-4 text-center">
-            <p class="text-3xl font-bold text-green-600">{{ estadisticas.con_precio }}</p>
-            <p class="text-xs text-gray-500 mt-1">Con precio referencia</p>
+        <div class="bg-white rounded-lg shadow px-4 py-2 text-center">
+            <p class="text-2xl font-bold text-green-600">{{ estadisticas.con_precio }}</p>
+            <p class="text-xs text-gray-500">Con precio referencia</p>
         </div>
-        <div class="bg-white rounded-lg shadow p-4 text-center">
-            <p class="text-3xl font-bold text-orange-500">{{ estadisticas.total_inactivos }}</p>
-            <p class="text-xs text-gray-500 mt-1">Desactivados</p>
+        <div class="bg-white rounded-lg shadow px-4 py-2 text-center">
+            <p class="text-2xl font-bold text-orange-500">{{ estadisticas.total_inactivos }}</p>
+            <p class="text-xs text-gray-500">Desactivados</p>
         </div>
     </div>
 
