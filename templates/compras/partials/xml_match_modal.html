@@ -288,6 +288,7 @@
         // Cargar comprobantes pendientes de inmediato (sin necesidad de teclear)
         htmx.ajax('GET', '/compras/comprobantes-pendientes', {
             target: '#match-candidatos-body',
+            source: '#match-candidatos-body',
             swap: 'innerHTML'
         });
     };

@@ -290,6 +290,7 @@
                             // Redirigir con HTMX programático y pasar el legacy_term
                             htmx.ajax('GET', `/comercial/form?legacy_term=${encodeURIComponent(term)}`, {
                                 target: '#main-content',
+                                source: '#main-content',
                                 swap: 'innerHTML'
                             });
                         } else {

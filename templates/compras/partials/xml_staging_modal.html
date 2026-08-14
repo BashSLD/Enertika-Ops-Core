@@ -75,6 +75,7 @@
       .then(function () {
         htmx.ajax('GET', '/compras/xml-staging/pendientes', {
           target: '#xml-staging-modal-container',
+          source: '#xml-staging-modal-container',
           swap: 'innerHTML'
         });
         setTimeout(function () {

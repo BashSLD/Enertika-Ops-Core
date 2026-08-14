@@ -81,6 +81,7 @@
 
         htmx.ajax('GET', '/simulacion/partials/graphs?' + params, {
             target: '#sim-tab-content',
+            source: '#sim-tab-content',
             swap: 'innerHTML'
         });
     },
@@ -88,6 +89,7 @@
     limpiarFiltros() {
         htmx.ajax('GET', '/simulacion/partials/graphs', {
             target: '#sim-tab-content',
+            source: '#sim-tab-content',
             swap: 'innerHTML'
         });
     },

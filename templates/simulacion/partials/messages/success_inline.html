@@ -13,12 +13,14 @@
         if (modalContainer) {
             htmx.ajax('GET', '/simulacion/modals/edit/{{ id_oportunidad }}', {
                 target: '#modal-backdrop',
+                source: '#modal-backdrop',
                 swap: 'outerHTML'
             });
         }
         const currentTab = new URLSearchParams(window.location.search).get('tab') || 'activos';
         htmx.ajax('GET', `/simulacion/partials/cards?tab=${currentTab}`, {
             target: '#sim-tab-content',
+            source: '#sim-tab-content',
             swap: 'innerHTML'
         });
     }, 700);

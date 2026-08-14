@@ -87,7 +87,7 @@ function initPdfCharts() {
 
             htmx.ajax('GET', url, {
                 target: '#report-content',
-                indicator: '#loading-overlay-analisis'
+                source: '#report-content'
             });
         },
         limpiarFiltros() {

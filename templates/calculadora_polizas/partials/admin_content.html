@@ -63,6 +63,7 @@
              this.mostrarModalZona = false;
              htmx.ajax('POST', '/calculadora-polizas/admin/precios-zona', {
                  target: '#main-content',
+                 source: '#main-content',
                  swap: 'innerHTML',
                  values: { zona: zonaNormalizada, precio: precioNumerico.toFixed(2) },
              });
@@ -151,7 +152,7 @@
                             </div>
                         </template>
                         <template x-if="editing">
-                            <form @submit.prevent="htmx.ajax('PATCH', '/calculadora-polizas/admin/precios-zona/{{ z.zona | urlencode }}', { values: { precio: val }, swap: 'none' }); editing = false;"
+                            <form @submit.prevent="htmx.ajax('PATCH', '/calculadora-polizas/admin/precios-zona/{{ z.zona | urlencode }}', { source: $el, values: { precio: val }, swap: 'none' }); editing = false;"
                                   class="flex items-center gap-1">
                                 <input type="number" x-model.number="val" step="0.01" min="0.01"
                                        class="w-24 border border-slate-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-slate-400">
@@ -208,7 +209,7 @@
                         <template x-if="editing">
                             <div class="flex items-center gap-1">
                                 <input type="number" x-model.number="val" step="1" min="1" class="w-24 border border-slate-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-slate-400">
-                                <button @click="htmx.ajax('PATCH', '/calculadora-polizas/admin/wattabit/{{ w.id }}', { values: { precio: val }, swap: 'none' }); editing = false;" class="text-emerald-600 hover:text-emerald-700">
+                                <button @click="htmx.ajax('PATCH', '/calculadora-polizas/admin/wattabit/{{ w.id }}', { source: $el, values: { precio: val }, swap: 'none' }); editing = false;" class="text-emerald-600 hover:text-emerald-700">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                                 </button>
                                 <button @click="editing = false" class="text-slate-400 hover:text-slate-600">
@@ -262,7 +263,7 @@
                             <div class="flex items-center gap-1 flex-shrink-0 mt-0.5">
                                 <input type="number" x-model.number="val" step="0.0001" min="0"
                                        class="w-24 border border-slate-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-slate-400">
-                                <button @click="htmx.ajax('PATCH', '/calculadora-polizas/admin/costos-fijos/{{ cf.concepto }}', { values: { valor: val, notas: notas }, swap: 'none' }); editing = false;"
+                                <button @click="htmx.ajax('PATCH', '/calculadora-polizas/admin/costos-fijos/{{ cf.concepto }}', { source: $el, values: { valor: val, notas: notas }, swap: 'none' }); editing = false;"
                                         class="text-emerald-600 hover:text-emerald-700 p-1">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                                 </button>

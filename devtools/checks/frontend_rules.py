@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from devtools.models import DiffSnapshot, Finding, Severity
+from devtools.models import AddedLine, ChangedFile, DiffSnapshot, Finding, Severity
 
 _LOCAL_DATE_ISO_RE = re.compile(
     r"\.toISOString\(\)\.(?:"
@@ -16,6 +16,9 @@ _LOCAL_DATE_ISO_RE = re.compile(
 _TOAST_TYPO_RE = re.compile(r"#toast-container\b")
 _OVERLAY_ROOT_RE = re.compile(r"fixed\s+inset-0")
 _OVERLAY_DIM_RE = re.compile(r"bg-opacity|backdrop-blur")
+_HTMX_AJAX_RE = re.compile(r"htmx\.ajax\(")
+_HTMX_AJAX_SOURCE_RE = re.compile(r"\bsource\s*[:,]")
+_HTMX_AJAX_LOOKAHEAD_LINES = 6
 
 
 def check_frontend_rules(snapshot: DiffSnapshot) -> list[Finding]:
@@ -88,6 +91,24 @@ def check_frontend_rules(snapshot: DiffSnapshot) -> list[Finding]:
                         line=line.number,
                     )
                 )
+        for hit in _find_htmx_ajax_missing_source(changed_file):
+            findings.append(
+                Finding(
+                    code="HTMX003",
+                    severity=Severity.WARNING,
+                    message=(
+                        "htmx.ajax(...) sin 'source': si no se especifica, htmx usa "
+                        "document.body como elemento emisor y le agrega la clase "
+                        "htmx-request, activando CUALQUIER .htmx-indicator "
+                        "descendiente (ej. #global-loading-overlay) sin haber sido "
+                        "pedido. Agregar source apuntando a un elemento estable "
+                        "(normalmente el mismo target, o $el/$event.target si no "
+                        "hay target)."
+                    ),
+                    path=hit.path,
+                    line=hit.number,
+                )
+            )
     return findings
 
 
@@ -105,3 +126,23 @@ def _is_overlay_missing_stacking_layer(text: str) -> bool:
         and bool(_OVERLAY_DIM_RE.search(text))
         and "modal-overlay-layer" not in text
     )
+
+
+def _find_htmx_ajax_missing_source(changed_file: ChangedFile) -> list[AddedLine]:
+    """Heuristico multilinea: busca 'source' en la misma linea de htmx.ajax(...)
+    o en las siguientes lineas agregadas del mismo archivo, dentro de una
+    ventana razonable. Si no aparece, htmx usara document.body como emisor
+    (ver HTMX003 mas abajo)."""
+    hits: list[AddedLine] = []
+    lines = changed_file.added_lines
+    for index, line in enumerate(lines):
+        if not _HTMX_AJAX_RE.search(line.text):
+            continue
+        window = [line] + [
+            candidate
+            for candidate in lines[index + 1 : index + 1 + _HTMX_AJAX_LOOKAHEAD_LINES]
+            if candidate.number - line.number <= _HTMX_AJAX_LOOKAHEAD_LINES
+        ]
+        if not any(_HTMX_AJAX_SOURCE_RE.search(candidate.text) for candidate in window):
+            hits.append(line)
+    return hits

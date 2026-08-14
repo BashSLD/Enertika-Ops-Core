@@ -117,7 +117,7 @@ async function guardarAsignaciones(rfqId) {
     }
     // Recargar
     htmx.ajax('GET', window.location.pathname.replace('/ui', '/cotizaciones/comparativa'), {
-        target: '#comparativa-container', swap: 'innerHTML'
+        target: '#comparativa-container', source: '#comparativa-container', swap: 'innerHTML'
     });
 }
 </script>

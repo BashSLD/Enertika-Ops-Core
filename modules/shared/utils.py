@@ -91,11 +91,28 @@ def hx_location_response(
     A diferencia de HX-Redirect, no reconstruye el documento entero — preserva
     el x-data raiz de base.html (ej. sidebarOpen) entre navegaciones. Como el
     hx-target original (ej. #modal-action-container) nunca recibe el swap de
-    esta respuesta, dispara el evento "bom:clear-modal-overlays" (ver
-    base.html) para vaciar los contenedores globales de modal y evitar que
-    quede un overlay huerfano flotando sobre el contenido nuevo.
+    esta respuesta, dispara el evento "clear-modal-overlays" (ver base.html)
+    para vaciar los contenedores globales de modal y evitar que quede un
+    overlay huerfano flotando sobre el contenido nuevo.
+
+    Se incluye "source" en el payload porque htmx, al procesar HX-Location
+    internamente (ajaxHelper -> issueAjaxRequest), usa document.body como
+    elemento emisor si no se especifica uno. Eso le agrega la clase
+    htmx-request al <body>, lo que activa (via CSS ".htmx-request
+    .htmx-indicator") CUALQUIER .htmx-indicator descendiente de body -incluido
+    #global-loading-overlay, que ningun elemento de esta navegacion pidio
+    explicitamente. Apuntar "source" a un elemento estable (el mismo target)
+    evita que ese overlay global aparezca huerfano durante la navegacion.
+
+    ADVERTENCIA: no combinar el elemento que dispara esta ruta con
+    hx-disabled-elt="this". saveCurrentPageToHistory() serializa el DOM vivo
+    de #main-content en localStorage ANTES de que htmx limpie los indicadores
+    de la request (que es lo que revierte el disabled), por lo que el snapshot
+    cacheado queda con ese elemento deshabilitado para siempre y navegaciones
+    "atras" futuras lo restauran ya muerto. Usar hx-sync="this:drop" si se
+    necesita evitar doble submit.
     """
-    payload = json.dumps({"path": path, "target": target, "swap": swap})
+    payload = json.dumps({"path": path, "target": target, "swap": swap, "source": target})
     return Response(
         status_code=status_code,
         headers={"HX-Location": payload, "HX-Trigger": "clear-modal-overlays"},

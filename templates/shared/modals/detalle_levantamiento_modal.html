@@ -312,6 +312,7 @@
                         setTimeout(function(){
                             htmx.ajax('GET', '/levantamientos/modal/historial/{{ lev.id_levantamiento }}', {
                                 target: '#modal-content',
+                                source: '#modal-content',
                                 swap: 'innerHTML'
                             }).then(function(){
                                 openModal();

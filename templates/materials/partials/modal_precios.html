@@ -189,6 +189,7 @@
         const encoded = encodeURIComponent(query);
         htmx.ajax('GET', `/materials/similar?q=${encoded}`, {
             target: '#fuzzy-results-container',
+            source: '#fuzzy-results-container',
             swap: 'innerHTML'
         });
     }

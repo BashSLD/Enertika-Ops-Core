@@ -24,7 +24,7 @@
                         .then(() => {
                           syncing = false;
                           const params = new URLSearchParams(new FormData(document.getElementById('filtros-asistencia'))).toString();
-                          htmx.ajax('GET', '/rrhh/asistencia?' + params, { target: '#rrhh-content', swap: 'innerHTML' });
+                          htmx.ajax('GET', '/rrhh/asistencia?' + params, { target: '#rrhh-content', source: '#rrhh-content', swap: 'innerHTML' });
                         })
                         .catch(() => { syncing = false })"
               :disabled="syncing"

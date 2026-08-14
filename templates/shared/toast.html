@@ -91,6 +91,7 @@
         setTimeout(function() {
             htmx.ajax('GET', '{{ redirect_url }}', {
                 target: '#main-content',
+                source: '#main-content',
                 swap: 'innerHTML',
                 pushUrl: true
             });

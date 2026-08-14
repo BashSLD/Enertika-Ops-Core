@@ -61,7 +61,7 @@
 (function () {
     window.abrirModalProveedor = function (id) {
         const url = id ? `/compras/proveedores/${id}/modal` : '/compras/proveedores/modal';
-        htmx.ajax('GET', url, {target: '#proveedores-modal-container', swap: 'innerHTML'});
+        htmx.ajax('GET', url, {target: '#proveedores-modal-container', source: '#proveedores-modal-container', swap: 'innerHTML'});
     };
     window.cerrarModalProveedor = function () {
         document.getElementById('proveedores-modal-container').innerHTML = '';

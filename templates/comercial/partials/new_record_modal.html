@@ -124,6 +124,7 @@
 
         htmx.ajax('GET', '/comercial/form', {
             target: '#main-content',
+            source: '#main-content',
             swap: 'innerHTML',
             values: { 'push-url': 'true' }
         }).then(() => {
@@ -151,6 +152,7 @@
 
         htmx.ajax('GET', '/comercial/form', {
             target: '#main-content',
+            source: '#main-content',
             swap: 'innerHTML'
         }).then(() => {
             if (indicator) indicator.classList.add('hidden');

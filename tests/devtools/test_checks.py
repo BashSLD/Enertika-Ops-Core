@@ -240,3 +240,53 @@ def test_modal_overlay_without_stacking_layer_is_flagged():
     assert len(ui001) == 1
     assert ui001[0].path == "templates/demo/modal.html"
     assert ui001[0].severity is Severity.WARNING
+
+
+def test_htmx_ajax_missing_source_is_flagged_same_line_and_multiline():
+    snapshot = _snapshot(
+        _changed_file(
+            "templates/demo/sin_source.html",
+            "htmx.ajax('GET', url, {target: '#x', swap: 'innerHTML'});",
+        ),
+        _changed_file(
+            "templates/demo/sin_source_multilinea.html",
+            "htmx.ajax('GET', url, {",
+            "    target: '#report-content',",
+            "    swap: 'innerHTML'",
+            "});",
+        ),
+    )
+
+    findings = run_checks(snapshot)
+
+    htmx003 = [item for item in findings if item.code == "HTMX003"]
+    assert {item.path for item in htmx003} == {
+        "templates/demo/sin_source.html",
+        "templates/demo/sin_source_multilinea.html",
+    }
+    assert all(item.severity is Severity.WARNING for item in htmx003)
+
+
+def test_htmx_ajax_with_source_same_line_or_multiline_is_not_flagged():
+    snapshot = _snapshot(
+        _changed_file(
+            "templates/demo/con_source.html",
+            "htmx.ajax('GET', url, {target: '#x', source: '#x', swap: 'innerHTML'});",
+        ),
+        _changed_file(
+            "templates/demo/con_source_multilinea.html",
+            "htmx.ajax('GET', url, {",
+            "    target: '#report-content',",
+            "    source: '#report-content',",
+            "    swap: 'innerHTML'",
+            "});",
+        ),
+        _changed_file(
+            "templates/demo/con_source_el.html",
+            '@change="htmx.ajax(\'PATCH\', url, { source: $el, swap: \'none\' })"',
+        ),
+    )
+
+    findings = run_checks(snapshot)
+
+    assert [item for item in findings if item.code == "HTMX003"] == []

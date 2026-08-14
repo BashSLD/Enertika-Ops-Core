@@ -163,7 +163,7 @@
         {% if mostrar_bom %}
         <button hx-get="/bom/{{ p.id_proyecto }}/acceso"
             hx-target="#modal-action-container" hx-swap="innerHTML"
-            hx-indicator="#bom-spinner-{{ p.id_proyecto }}" hx-disabled-elt="this" hx-sync="this:drop" @click="openMore = false"
+            hx-indicator="#bom-spinner-{{ p.id_proyecto }}" hx-sync="this:drop" @click="openMore = false"
             class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-gray-100 transition-colors font-medium">
             <span id="bom-spinner-{{ p.id_proyecto }}" class="htmx-indicator shrink-0">{{ spinner_icon('w-3 h-3') }}</span>
             <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

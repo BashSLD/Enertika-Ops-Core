@@ -417,6 +417,7 @@
         <button
           @click="
             htmx.ajax('POST', '/asistencia/api/horas-extra/' + modalId + '/aprobar', {
+              source: $el,
               values: { minutos_aprobados: modalMinutosTotal, comentario: modalComentario },
               swap: 'none'
             }).then(() => {

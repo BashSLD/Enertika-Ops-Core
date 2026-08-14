@@ -23,6 +23,7 @@
         // Refrescar manteniendo el tab actual
         htmx.ajax('GET', refreshUrl, {
             target: '#sim-tab-content',
+            source: '#sim-tab-content',
             swap: 'innerHTML'
         });
     }, 800);

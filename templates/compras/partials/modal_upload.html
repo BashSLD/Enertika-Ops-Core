@@ -237,6 +237,7 @@
                         window.clearUploadModal();
                         htmx.ajax('GET', '/compras/ui', {
                             target: '#main-content',
+                            source: '#main-content',
                             swap: 'innerHTML',
                             headers: { 'HX-Request': 'true' }
                         });

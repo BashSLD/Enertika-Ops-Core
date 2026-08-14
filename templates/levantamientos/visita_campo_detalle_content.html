@@ -120,7 +120,7 @@
                     <input type="checkbox"
                            x-model="sinViaticos"
                            @change="htmx.ajax('PATCH', '/levantamientos/visitas-campo/{{ visita.id_visita }}/viaticos-opcionales',
-                                   { values: { viaticos_opcionales: sinViaticos ? '1' : '0' }, swap: 'none' })"
+                                   { source: $el, values: { viaticos_opcionales: sinViaticos ? '1' : '0' }, swap: 'none' })"
                            class="w-4 h-4 accent-amber-500" />
                     <span class="text-sm text-slate-300 select-none">Sin viáticos (visita local / misma jornada)</span>
                 </label>

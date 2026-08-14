@@ -35,7 +35,15 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
             </svg>
-            Materiales
+            Materiales (XML)
+        </a>
+        <a hx-get="/materials/internos/ui" hx-target="#main-content" hx-push-url="true"
+            class="bg-indigo-600 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full cursor-pointer">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+            </svg>
+            Materiales (interno)
         </a>
         <button hx-get="/compras/relaciones" hx-target="#relaciones-container" hx-swap="innerHTML"
             class="bg-teal-600 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
@@ -310,6 +318,7 @@
         htmx.ajax('POST', '/compras/comprobantes/bulk-update', {
             values: Object.fromEntries(formData),
             target: '#global-toast-container',
+            source: '#global-toast-container',
             swap: 'afterbegin'
         }).then(() => {
             cancelarSeleccion();
@@ -328,6 +337,7 @@
     function abrirModalEdicion(id) {
         htmx.ajax('GET', `/compras/comprobantes/${id}/modal`, {
             target: '#modal-editar-container',
+            source: '#modal-editar-container',
             swap: 'innerHTML'
         });
     }

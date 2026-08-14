@@ -28,7 +28,7 @@
              if (this.solicitante) p.set('solicitante_id_filter', this.solicitante);
              if (this.limit)      p.set('limit', this.limit);
              const url = '/oym/cotizaciones/ui?' + p.toString();
-             htmx.ajax('GET', url, { target: '#main-content', swap: 'innerHTML' });
+             htmx.ajax('GET', url, { target: '#main-content', source: '#main-content', swap: 'innerHTML' });
              history.pushState({}, '', url);
          },
          clearAll() { this.estatus = ''; this.planta = ''; this.tipo = ''; this.solicitante = ''; this.apply(); },
@@ -311,11 +311,11 @@
                                     $event.target.value = '{{ c.estatus }}';
                                     htmx.ajax('GET',
                                         '/oym/cotizaciones/{{ c.id }}/aceptar-modal?estatus_filter={{ estatus_filter }}&limit={{ limit }}',
-                                        { target: '#modal-action-container', swap: 'innerHTML' });
+                                        { target: '#modal-action-container', source: $event.target, swap: 'innerHTML' });
                                 } else {
                                     htmx.ajax('PATCH',
                                         '/oym/cotizaciones/{{ c.id }}/estatus',
-                                        { target: '#cotizaciones-container', swap: 'outerHTML',
+                                        { target: '#cotizaciones-container', source: $event.target, swap: 'outerHTML',
                                           values: { estatus: $event.target.value, estatus_filter: '{{ estatus_filter }}', limit: {{ limit }} } });
                                 }
                             "

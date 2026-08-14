@@ -35,6 +35,7 @@
             const params = new URLSearchParams({ proyecto_id_estandar: proyectoIdEstandar || '' });
             htmx.ajax('GET', '/integraciones/sharepoint/proyecto/' + idProyecto + '/modal-picker?' + params.toString(), {
                 target: '#modal-action-container',
+                source: '#modal-action-container',
                 swap: 'innerHTML'
             });
         }
@@ -1354,7 +1355,7 @@
                     closeSessionModal();
                     if (sameAccount) {
                         // Misma cuenta: conservar formulario/URL/historial, solo refrescar contenido.
-                        htmx.ajax('GET', window.location.pathname + window.location.search, { target: '#main-content', swap: 'innerHTML' });
+                        htmx.ajax('GET', window.location.pathname + window.location.search, { target: '#main-content', source: '#main-content', swap: 'innerHTML' });
                     } else {
                         // Cuenta distinta (o sin forma de confirmar que es la misma):
                         // reconstruir documento completo para no arrastrar sidebar/identidad viejos.
@@ -1416,6 +1417,30 @@
                     var el = document.getElementById(id);
                     if (el) el.innerHTML = '';
                 });
+        });
+
+        // === INDICADOR VISIBLE PARA NAVEGACIONES CON source:'#main-content' ===
+        // hx_location_response() y algunos htmx.ajax() manuales (comercial/tabs.html,
+        // shared/toast.html, etc.) usan source:'#main-content' para que htmx NO caiga
+        // a document.body como elemento emisor (eso disparaba #global-loading-overlay
+        // sin que nadie lo pidiera - ver comentario de hx_location_response en
+        // modules/shared/utils.py). El efecto secundario: esas navegaciones se quedan
+        // sin NINGUN indicador visible, porque #main-content no tiene hx-indicator
+        // propio. Este listener muestra el overlay global solo cuando #main-content
+        // MISMO es el elemento emisor de la peticion (evt.target) - nunca cuando es
+        // solo el target de un link normal, porque ahi el emisor es el link, no
+        // #main-content. No usa hx-indicator="..." en #main-content porque eso
+        // activaria el overlay para cualquier link interno sin indicador propio,
+        // cambiando el comportamiento de toda la navegacion dentro del modulo.
+        document.body.addEventListener('htmx:beforeRequest', function (evt) {
+            if (evt.target && evt.target.id === 'main-content') {
+                document.getElementById('global-loading-overlay')?.classList.add('htmx-request');
+            }
+        });
+        document.body.addEventListener('htmx:afterRequest', function (evt) {
+            if (evt.target && evt.target.id === 'main-content') {
+                document.getElementById('global-loading-overlay')?.classList.remove('htmx-request');
+            }
         });
 
         // === INTERCEPTOR DE ERRORES HTMX ===
@@ -1987,6 +2012,7 @@
                     // Navigate to module UI, then open detail modal
                     htmx.ajax('GET', target.url, {
                         target: '#main-content',
+                        source: '#main-content',
                         swap: 'innerHTML'
                     }).then(() => {
                         // Small delay to let the module UI render
@@ -1994,6 +2020,7 @@
                             // Detail modals are self-contained overlays (fixed inset-0).
                             htmx.ajax('GET', target.detail_url, {
                                 target: '#modal-action-container',
+                                source: '#modal-action-container',
                                 swap: 'innerHTML'
                             });
                         }, 500);

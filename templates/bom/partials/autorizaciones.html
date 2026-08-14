@@ -81,7 +81,7 @@
                             const motivo = prompt('Motivo de rechazo (obligatorio):');
                             if (motivo && motivo.trim()) {
                                 htmx.ajax('POST', '/bom/autorizaciones/{{ aut.id }}/rechazar',
-                                    { target: '#tab-autorizaciones', swap: 'innerHTML',
+                                    { target: '#tab-autorizaciones', source: $el, swap: 'innerHTML',
                                       values: { motivo: motivo.trim(), lock_version: '{{ aut.lock_version }}' } });
                             }
                         "
@@ -107,7 +107,7 @@
                             const motivo = prompt('Motivo de rechazo (obligatorio):');
                             if (motivo && motivo.trim()) {
                                 htmx.ajax('POST', '/bom/autorizaciones/{{ aut.id }}/rechazar',
-                                    { target: '#tab-autorizaciones', swap: 'innerHTML',
+                                    { target: '#tab-autorizaciones', source: $el, swap: 'innerHTML',
                                       values: { motivo: motivo.trim(), lock_version: '{{ aut.lock_version }}' } });
                             }
                         "
@@ -133,7 +133,7 @@
                             const motivo = prompt('Motivo de rechazo (obligatorio):');
                             if (motivo && motivo.trim()) {
                                 htmx.ajax('POST', '/bom/autorizaciones/{{ aut.id }}/rechazar',
-                                    { target: '#tab-autorizaciones', swap: 'innerHTML',
+                                    { target: '#tab-autorizaciones', source: $el, swap: 'innerHTML',
                                       values: { motivo: motivo.trim(), lock_version: '{{ aut.lock_version }}' } });
                             }
                         "

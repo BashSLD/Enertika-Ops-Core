@@ -49,6 +49,9 @@ venv\Scripts\python.exe -m devtools quality --no-tests
 - Ternarios de cadenas en `:class` de tabs Alpine.
 - Emojis en backend y UI (`EMOJI001`).
 - Typo `#toast-container` en toast OOB, sin el prefijo `global-` (`HTMX002`).
+- `htmx.ajax(...)` sin `source`: cae a `document.body` como elemento emisor, lo
+  que activa cualquier `.htmx-indicator` descendiente (ej. `#global-loading-overlay`)
+  sin haber sido pedido (`HTMX003`, heuristico multilinea).
 - `Depends()` envolviendo `require_module_access`/`require_manager_access`, que ya retornan `Depends()` (`RBAC001`).
 - `|tojson` dentro de `x-data` de Alpine (`ALPINE001`).
 - SQL armado con f-strings o concatenacion en `db_service.py` (`SQL002`, heuristico).
