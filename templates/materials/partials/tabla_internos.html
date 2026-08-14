@@ -1,3 +1,4 @@
+{% from "shared/partials/_sort_th.html" import sort_th %}
 <!-- OOB: actualizar estadísticas -->
 <div id="stats-internos" hx-swap-oob="innerHTML">
     <div class="bg-white rounded-lg shadow px-4 py-2 text-center">
@@ -24,25 +25,14 @@
     <div class="overflow-x-auto">
         <table class="min-w-full text-sm">
             <thead class="bg-[#123456] text-white">
-                {% macro sort_th(col, label, extra_cls='') %}
-                <th class="px-3 py-3 {{ extra_cls }}">
-                    <button type="button" @click="sort('{{ col }}')"
-                            class="inline-flex items-center gap-1 font-semibold hover:text-gray-200 transition-colors">
-                        {{ label }}
-                        <span class="text-[10px] leading-none"
-                              :class="sortBy === '{{ col }}' ? 'text-[#00BABB]' : 'text-white/40'"
-                              x-text="sortBy === '{{ col }}' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'"></span>
-                    </button>
-                </th>
-                {% endmacro %}
                 <tr>
-                    {{ sort_th('descripcion', 'Descripción canónica') }}
-                    {{ sort_th('unidad', 'Unidad') }}
-                    {{ sort_th('categoria', 'Categoría') }}
-                    {{ sort_th('precio', 'Precio ref.', 'text-right') }}
-                    {{ sort_th('clave', 'Clave SAT', 'text-center') }}
-                    {{ sort_th('xml', 'XML', 'text-center') }}
-                    {{ sort_th('creado', 'Creado por') }}
+                    {{ sort_th('descripcion', 'Descripción canónica', variant='dark') }}
+                    {{ sort_th('unidad', 'Unidad', variant='dark') }}
+                    {{ sort_th('categoria', 'Categoría', variant='dark') }}
+                    {{ sort_th('precio', 'Precio ref.', 'text-right', 'dark') }}
+                    {{ sort_th('clave', 'Clave SAT', 'text-center', 'dark') }}
+                    {{ sort_th('xml', 'XML', 'text-center', 'dark') }}
+                    {{ sort_th('creado', 'Creado por', variant='dark') }}
                     <th class="px-3 py-3 text-center font-semibold">Acciones</th>
                 </tr>
             </thead>

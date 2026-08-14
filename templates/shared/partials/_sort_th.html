@@ -1,0 +1,22 @@
+{# Encabezado de columna ordenable para tablas que usan Alpine.data('sortableTable',
+   numericCols) definido en base.html. `variant='dark'` para thead con fondo oscuro
+   (materiales internos), 'light' (default) para thead gris claro (historial XML).
+
+   El texto de cada `<tr data-{{ col }}="...">` debe venir pre-normalizado: columnas
+   numericas se pasan tal cual (se comparan con parseFloat), columnas de texto deben
+   llevar `| lower` en el Jinja que arma el data-attribute — sortableTable no
+   normaliza mayusculas/minusculas por si solo. #}
+{% macro sort_th(col, label, extra_cls='', variant='light') %}
+{% set btn_cls = 'inline-flex items-center gap-1 font-semibold hover:text-gray-200 transition-colors' if variant == 'dark' else 'inline-flex items-center gap-1 text-xs font-medium text-gray-500 uppercase hover:text-gray-800 transition-colors' %}
+{% set active_cls = 'text-[#00BABB]' if variant == 'dark' else 'text-blue-500' %}
+{% set inactive_cls = 'text-white/40' if variant == 'dark' else 'text-gray-300' %}
+<th class="px-3 py-3 {{ extra_cls }}">
+    <button type="button" @click="sort('{{ col }}')"
+            class="{{ btn_cls }}">
+        {{ label }}
+        <span class="text-[10px] leading-none"
+              :class="sortBy === '{{ col }}' ? '{{ active_cls }}' : '{{ inactive_cls }}'"
+              x-text="sortBy === '{{ col }}' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'"></span>
+    </button>
+</th>
+{% endmacro %}

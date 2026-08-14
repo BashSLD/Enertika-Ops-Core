@@ -55,8 +55,7 @@ class MaterialsDBService:
                     p.rfc as proveedor_rfc,
                     cat.nombre as categoria_nombre,
                     pr.proyecto_id_estandar as proyecto_nombre,
-                    (SELECT COUNT(*) FROM tb_materiales_interno_xml v
-                     WHERE v.id_material_xml = m.id) AS vinculos_interno,
+                    (CASE WHEN vlink.id_material_xml IS NOT NULL THEN 1 ELSE 0 END) AS vinculos_interno,
                     ci.descripcion_canonica AS descripcion_interno_vinculado
                 FROM tb_materiales_historial m
                 LEFT JOIN tb_proveedores p ON m.id_proveedor = p.id_proveedor

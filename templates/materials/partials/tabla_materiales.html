@@ -1,3 +1,4 @@
+{% from "shared/partials/_sort_th.html" import sort_th %}
 <!-- Tabla de materiales con paginacion -->
 <div class="bg-white rounded-lg shadow overflow-hidden"
      x-data="sortableTable(['cantidad','preciounit','importe'])">
@@ -5,17 +6,6 @@
     <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200 text-sm">
             <thead class="bg-gray-50">
-                {% macro sort_th(col, label, extra_cls='') %}
-                <th class="px-3 py-3 {{ extra_cls }}">
-                    <button type="button" @click="sort('{{ col }}')"
-                            class="inline-flex items-center gap-1 text-xs font-medium text-gray-500 uppercase hover:text-gray-800 transition-colors">
-                        {{ label }}
-                        <span class="text-[10px] leading-none"
-                              :class="sortBy === '{{ col }}' ? 'text-blue-500' : 'text-gray-300'"
-                              x-text="sortBy === '{{ col }}' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'"></span>
-                    </button>
-                </th>
-                {% endmacro %}
                 <tr>
                     {{ sort_th('proveedor', 'Proveedor') }}
                     {{ sort_th('descripcion', 'Descripcion') }}
