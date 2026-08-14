@@ -9,6 +9,7 @@
             <div class="text-xs text-gray-500">
                 {{ v.proveedor_nombre or '—' }} · {{ v.unidad or '—' }}
                 {% if v.precio_unitario %} · ${{ "{:,.2f}".format(v.precio_unitario) }}{% endif %}
+                {% if v.clave_prod_serv %} · Clave: {{ v.clave_prod_serv }}{% endif %}
             </div>
         </div>
         <button

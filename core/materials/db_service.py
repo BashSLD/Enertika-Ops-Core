@@ -56,12 +56,15 @@ class MaterialsDBService:
                     cat.nombre as categoria_nombre,
                     pr.proyecto_id_estandar as proyecto_nombre,
                     (SELECT COUNT(*) FROM tb_materiales_interno_xml v
-                     WHERE v.id_material_xml = m.id) AS vinculos_interno
+                     WHERE v.id_material_xml = m.id) AS vinculos_interno,
+                    ci.descripcion_canonica AS descripcion_interno_vinculado
                 FROM tb_materiales_historial m
                 LEFT JOIN tb_proveedores p ON m.id_proveedor = p.id_proveedor
                 LEFT JOIN tb_cat_categorias_compra cat ON m.id_categoria = cat.id
                 LEFT JOIN tb_comprobantes_pago c ON m.id_comprobante = c.id_comprobante
                 LEFT JOIN tb_proyectos_gate pr ON c.id_proyecto = pr.id_proyecto
+                LEFT JOIN tb_materiales_interno_xml vlink ON vlink.id_material_xml = m.id
+                LEFT JOIN tb_cat_materiales ci ON ci.id = vlink.id_material_interno
                 WHERE 1=1
             """
 
@@ -586,6 +589,7 @@ class MaterialsDBService:
                 m.descripcion_proveedor,
                 COALESCE(m.unidad_homologada, m.unidad) AS unidad,
                 m.precio_unitario,
+                m.clave_prod_serv,
                 p.razon_social AS proveedor_nombre,
                 m.fecha_factura,
                 v.created_at AS vinculado_en
