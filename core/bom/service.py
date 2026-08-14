@@ -59,6 +59,11 @@ CAMPOS_BULK = {
 }
 CAMPOS_BULK_BASE = CAMPOS_BASE_BOM - _CAMPOS_BULK_EXCLUIDOS
 
+# Campos de bulk-edit que exigen moneda en la misma escritura (valor_secundario):
+# capturar el monto sin la moneda deja el dato financiero ambiguo. No aplica cuando
+# el campo se redirige a ejecucion (compras + precio_unitario -> precio_real).
+CAMPOS_BULK_REQUIERE_MONEDA = {'precio_unitario'}
+
 # Estados en los que NO se puede editar de ninguna forma
 ESTATUS_BLOQUEADOS = {EstatusBOM.CANCELADO, EstatusBOM.APROBADO_FINAL}
 ESTATUS_BLOQUEADOS_EJECUCION = {EstatusBOM.CANCELADO}
@@ -127,11 +132,11 @@ BOM_COSTOS_ASUNTO_KEY = "bom.costos_notificacion_asunto"
 BOM_COSTOS_TEMPLATE_KEY = "bom.costos_notificacion_template"
 BOM_COSTOS_SSE_KEY = "bom.costos_notificacion_sse_activa"
 BOM_COSTOS_DEFAULT_ASUNTO = (
-    "BOM {proyecto_id} - {paquete_codigo} v{version} - Items sin presupuesto base"
+    "BOM {proyecto_id} - {paquete_codigo} v{version} - Items sin costo estimado"
 )
 BOM_COSTOS_DEFAULT_TEMPLATE = (
     "El ingeniero ingreso {total_items} item(s) para {paquete_codigo} v{version} "
-    "del proyecto {proyecto_id} sin presupuesto base. Ingresa para actualizarlos."
+    "del proyecto {proyecto_id} sin costo estimado. Ingresa para actualizarlos."
 )
 
 
@@ -1010,7 +1015,7 @@ class BomService(BomComprasServiceMixin):
     @staticmethod
     def mensaje_item_sin_costo() -> str:
         return (
-            "Item guardado sin presupuesto base. Ingenieria debe capturar el presupuesto "
+            "Item guardado sin costo estimado. Ingenieria debe capturar el costo "
             "antes de avanzar el BOM."
         )
 
@@ -1034,8 +1039,8 @@ class BomService(BomComprasServiceMixin):
     def _build_costos_pendientes_error(self, items: list[dict]) -> str:
         detalle = self._resumen_costos_pendientes(items)
         return (
-            f"No se puede avanzar el BOM: hay {len(items)} item(s) sin presupuesto base. "
-            "Captura el presupuesto base antes de continuar. "
+            f"No se puede avanzar el BOM: hay {len(items)} item(s) sin costo estimado. "
+            "Captura el costo estimado antes de continuar. "
             f"Pendientes: {detalle}."
         )
 
@@ -2297,6 +2302,11 @@ class BomService(BomComprasServiceMixin):
             )
             if precio < 0:
                 raise ValueError("El precio unitario no puede ser negativo")
+        if "precio_unitario" in campos_base and area_editor != "compras":
+            if campos_base.get("moneda") not in ("MXN", "USD"):
+                raise ValueError(
+                    "Selecciona la moneda del presupuesto antes de aplicar el cambio"
+                )
 
         mapping_ejecucion = {
             "id_proveedor": "id_proveedor_real",
@@ -2474,6 +2484,7 @@ class BomService(BomComprasServiceMixin):
         self, conn, id_bom: UUID, item_ids: List[UUID], user_id: UUID,
         area_editor: str, campo: str,
         valor=None, grupo_ids: Optional[List[int]] = None,
+        valor_secundario: Optional[dict] = None,
         lock_version_esperado: Optional[int] = None,
         user_role: Optional[str] = None,
         rol_org: Optional[str] = None,
@@ -2499,6 +2510,13 @@ class BomService(BomComprasServiceMixin):
             and campo not in CAMPOS_BULK.get(area_editor, set())
         ):
             raise ValueError("Campo no editable en lote para tu area")
+
+        if campo in CAMPOS_BULK_REQUIERE_MONEDA and area_editor != 'compras':
+            moneda_secundaria = (valor_secundario or {}).get('moneda')
+            if moneda_secundaria not in ('MXN', 'USD'):
+                raise ValueError(
+                    "Selecciona la moneda del presupuesto antes de aplicar el cambio"
+                )
 
         async with conn.transaction():
             bom = await self.db.get_bom_by_id(conn, id_bom)
@@ -2551,7 +2569,10 @@ class BomService(BomComprasServiceMixin):
                     reservar_bom=False,
                     capacidades=capacidades,
                     bom=bom,
-                    **({} if es_grupos else {campo: valor}),
+                    **(
+                        {} if es_grupos
+                        else {campo: valor, **(valor_secundario or {})}
+                    ),
                 )
         return {"actualizados": len(item_ids), "omitidos": [], "capacidades": capacidades}
 
@@ -3277,9 +3298,56 @@ class BomService(BomComprasServiceMixin):
         """Lista aprobaciones/rechazos."""
         return await self.db.get_aprobaciones_by_bom(conn, id_bom)
 
-    async def get_estadisticas(self, conn, id_bom: UUID) -> dict:
-        """Estadisticas del BOM."""
-        return await self.db.get_estadisticas_bom(conn, id_bom)
+    async def get_estadisticas(self, conn, id_bom: UUID, items: Optional[List[dict]] = None) -> dict:
+        """Estadisticas del BOM. Los campos de costo se calculan en Python sobre
+        `items` (ya trae costo_mxn resuelto por get_items via cadena de TC de 3
+        niveles: XML->Banxico reciente->promedio 7d) en vez de en SQL, que no
+        tenia forma de convertir USD y descartaba el total completo con solo un
+        item en esa moneda."""
+        estadisticas = await self.db.get_estadisticas_bom(conn, id_bom)
+        if items is None:
+            items = await self.get_items(conn, id_bom)
+        estadisticas.update(self._calcular_estadisticas_costo(items))
+        return estadisticas
+
+    @staticmethod
+    def _calcular_estadisticas_costo(items: List[dict]) -> dict:
+        """Costo estimado total en MXN + contadores, sobre items BASE activos.
+
+        Todo-o-nada: si algun item visible no resuelve costo en MXN (sin precio
+        capturado, o en USD sin ningun TC disponible), el total es None — nunca
+        un numero parcial que aparente estar completo."""
+        base_activos = [
+            i for i in items
+            if i.get("activo", True) and (i.get("tipo_origen_item") or "BASE") == "BASE"
+        ]
+        items_con_precio = 0
+        items_sin_costo = 0
+        items_sin_tc = 0
+        total = Decimal("0")
+        total_resuelto = True
+        for item in base_activos:
+            precio = item.get("precio_unitario")
+            tiene_precio = precio is not None and Decimal(str(precio)) > 0
+            if not tiene_precio:
+                items_sin_costo += 1
+                total_resuelto = False
+                continue
+            items_con_precio += 1
+            moneda = item.get("moneda")
+            if moneda == "MXN":
+                total += Decimal(str(item.get("importe") or 0))
+            elif moneda == "USD" and item.get("costo_mxn") is not None:
+                total += Decimal(str(item["costo_mxn"]))
+            else:
+                items_sin_tc += 1
+                total_resuelto = False
+        return {
+            "costo_total_estimado": total if total_resuelto else None,
+            "items_con_precio": items_con_precio,
+            "items_sin_costo": items_sin_costo,
+            "items_sin_tc": items_sin_tc,
+        }
 
     # ─── PERMISOS BOM-ROLE ───────────────────────────────────
 
@@ -3556,7 +3624,7 @@ class BomService(BomComprasServiceMixin):
         bom = await self.get_bom(conn, id_bom)
         items = await self.get_items_sin_costo(conn, id_bom)
         if not items:
-            raise ValueError("No hay items sin presupuesto base para notificar.")
+            raise ValueError("No hay items sin costo estimado para notificar.")
 
         try:
             from core.workflow.notification_service import NotificationService
@@ -3666,9 +3734,9 @@ class BomService(BomComprasServiceMixin):
         titulo = (
             f"BOM {bom.get('proyecto_id_estandar', '')} - "
             f"{bom.get('paquete_codigo', 'BOM')} v{bom.get('version', '')} - "
-            "Items sin presupuesto"
+            "Items sin costo estimado"
         )
-        mensaje = f"{len(items)} item(s) sin presupuesto pendiente(s) de actualizar."
+        mensaje = f"{len(items)} item(s) sin costo estimado pendiente(s) de actualizar."
         count = 0
         for usuario in usuarios_compras:
             usuario_id = usuario.get("id_usuario")

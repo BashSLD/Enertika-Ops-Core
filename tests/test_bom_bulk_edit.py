@@ -335,6 +335,106 @@ async def test_bulk_grupos_ingenieria_exige_jefe_o_ingeniero_asignado():
 
 
 @pytest.mark.asyncio
+async def test_bulk_precio_unitario_con_valor_secundario_escribe_moneda_junto_con_precio():
+    """Fase 1b: capturar 'Presupuesto unitario' en bulk-edit debe forzar la
+    moneda en la misma escritura, nunca dejarla para una segunda pasada."""
+    bom_id = uuid4()
+    proyecto_id = uuid4()
+    item_id = uuid4()
+    user_id = uuid4()
+    svc = _service(
+        [_item(item_id, bom_id, proyecto_id)],
+        actor_id=user_id, es_jefe=True,
+    )
+
+    await svc.editar_items_bulk(
+        FakeConn(), bom_id, [item_id], user_id,
+        "ingenieria", "precio_unitario", valor="150",
+        valor_secundario={"moneda": "USD"},
+        lock_version_esperado=0,
+        module_roles={"ingenieria": "editor"},
+    )
+
+    assert svc.db.base_updates == [
+        (item_id, {"precio_unitario": "150", "moneda": "USD"})
+    ]
+
+
+@pytest.mark.asyncio
+async def test_bulk_precio_unitario_sin_valor_secundario_rechaza_sin_escribir():
+    """editar_items_bulk exige moneda junto con precio_unitario (CAMPOS_BULK_REQUIERE_MONEDA)
+    para que la validacion viva junto al resto de reglas de campos del bulk, no en el router."""
+    bom_id = uuid4()
+    proyecto_id = uuid4()
+    item_id = uuid4()
+    user_id = uuid4()
+    svc = _service(
+        [_item(item_id, bom_id, proyecto_id)],
+        actor_id=user_id, es_jefe=True,
+    )
+
+    with pytest.raises(ValueError, match="Selecciona la moneda"):
+        await svc.editar_items_bulk(
+            FakeConn(), bom_id, [item_id], user_id,
+            "ingenieria", "precio_unitario", valor="150",
+            lock_version_esperado=0,
+            module_roles={"ingenieria": "editor"},
+        )
+
+    assert svc.db.base_updates == []
+
+
+@pytest.mark.asyncio
+async def test_editar_item_singular_precio_unitario_sin_moneda_rechaza_sin_escribir():
+    """La misma regla de CAMPOS_BULK_REQUIERE_MONEDA debe protegerse tambien en el
+    path singular de editar_item, no solo en editar_items_bulk — cualquier caller
+    futuro que edite precio_unitario de un item individual (no via bulk-edit) debe
+    seguir exigiendo moneda junto con el precio."""
+    bom_id = uuid4()
+    proyecto_id = uuid4()
+    item_id = uuid4()
+    user_id = uuid4()
+    svc = _service(
+        [_item(item_id, bom_id, proyecto_id)],
+        actor_id=user_id, es_jefe=True,
+    )
+
+    with pytest.raises(ValueError, match="Selecciona la moneda"):
+        await svc.editar_item(
+            FakeConn(), item_id, user_id, "ingenieria",
+            precio_unitario="150", lock_version_esperado=0,
+            module_roles={"ingenieria": "editor"},
+        )
+
+    assert svc.db.base_updates == []
+
+
+@pytest.mark.asyncio
+async def test_bulk_precio_unitario_compras_no_exige_moneda_secundaria():
+    """area_editor='compras' redirige precio_unitario a precio_real/moneda_real
+    (ver editar_item); no debe exigirse valor_secundario porque no muta la base."""
+    bom_id = uuid4()
+    proyecto_id = uuid4()
+    item_id = uuid4()
+    user_id = uuid4()
+    svc = _service(
+        [_item(item_id, bom_id, proyecto_id, estatus="APROBADO_FINAL")],
+    )
+
+    resultado = await svc.editar_items_bulk(
+        FakeConn(), bom_id, [item_id], user_id,
+        "compras", "precio_unitario", valor="150",
+        module_roles={"compras": "editor"},
+    )
+
+    assert resultado["actualizados"] == 1
+    assert svc.db.base_updates == []
+    assert svc.db.execution_updates == [
+        (item_id, user_id, {"precio_real": "150", "estatus_ejecucion": "COTIZADO"})
+    ]
+
+
+@pytest.mark.asyncio
 async def test_editar_item_compras_rechaza_precio_negativo():
     bom_id = uuid4()
     proyecto_id = uuid4()
@@ -491,7 +591,8 @@ async def test_editar_item_ingenieria_aprobado_final_rechaza_presupuesto_base():
 
     with pytest.raises(ValueError, match="Operacion downstream"):
         await svc.editar_item(
-            FakeConn(), item_id, uuid4(), "ingenieria", precio_unitario="90"
+            FakeConn(), item_id, uuid4(), "ingenieria",
+            precio_unitario="90", moneda="MXN",
         )
 
     assert svc.db.base_updates == []
@@ -556,7 +657,7 @@ async def test_validar_sin_costos_pendientes_bloquea_null_y_cero():
         await svc.validar_sin_costos_pendientes(FakeConn(), uuid4())
 
     message = str(exc.value)
-    assert "hay 2 item(s) sin presupuesto base" in message
+    assert "hay 2 item(s) sin costo estimado" in message
     assert "Modulo FV" in message
     assert "Inversor" in message
 

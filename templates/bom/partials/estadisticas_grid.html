@@ -29,19 +29,21 @@
     </div>
     <div class="bg-white rounded-lg border p-3 text-center border-emerald-200 bg-emerald-50">
         <div class="text-lg font-bold text-emerald-700">
-            {% if estadisticas.costo_total_estimado is not none %}
-            ${{ "{:,.2f}".format(estadisticas.costo_total_estimado|float) }} MXN
-            {% else %}
-            <span class="text-sm text-amber-700">Importe pendiente</span>
-            {% endif %}
+            <span id="stat-costo-estimado-monto" {{ 'hidden' if estadisticas.costo_total_estimado is none }}>
+                $<span id="stat-costo-estimado-valor">{{ "{:,.2f}".format(estadisticas.costo_total_estimado|float) if estadisticas.costo_total_estimado is not none else '0.00' }}</span> MXN
+            </span>
+            <span id="stat-costo-estimado-pendiente" class="text-sm text-amber-700" {{ 'hidden' if estadisticas.costo_total_estimado is not none }}>Importe pendiente</span>
         </div>
         <div class="text-xs text-emerald-600">
             Costo Estimado
-            <span class="text-gray-400">({{ estadisticas.items_con_precio or 0 }}/{{ estadisticas.total_items or 0
-                }})</span>
-            {% if estadisticas.items_sin_costo %}
-            <span class="ml-1 text-amber-600">{{ estadisticas.items_sin_costo }} sin presupuesto</span>
-            {% endif %}
+            <span id="stat-costo-filtrado-wrap" class="text-emerald-500" hidden>(filtrado)</span>
+            <span class="text-gray-400">(<span id="stat-items-con-precio">{{ estadisticas.items_con_precio or 0 }}</span>/<span id="stat-total-items-costo">{{ estadisticas.total_items or 0 }}</span>)</span>
+            <span id="stat-items-sin-costo-wrap" class="ml-1 text-amber-600" {{ 'hidden' if not estadisticas.items_sin_costo }}>
+                <span id="stat-items-sin-costo">{{ estadisticas.items_sin_costo or 0 }}</span> sin costo estimado
+            </span>
+            <span id="stat-items-sin-tc-wrap" class="ml-1 text-amber-600" {{ 'hidden' if not estadisticas.items_sin_tc }}>
+                <span id="stat-items-sin-tc">{{ estadisticas.items_sin_tc or 0 }}</span> en USD sin tipo de cambio
+            </span>
         </div>
     </div>
 </div>

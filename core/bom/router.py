@@ -209,7 +209,12 @@ def _parse_bulk_valor(campo: str, raw: Optional[str]):
         return raw if raw in ("CATALOGO", "MANUAL") else None
     if campo == "estatus_ejecucion":
         return raw or None
-    # Texto: unidad_medida, tipo_entrega, comentarios, tipo_partida, moneda
+    if campo == "moneda":
+        raw = raw.upper()
+        if raw not in ("MXN", "USD"):
+            raise ValueError("Moneda invalida; debe ser MXN o USD")
+        return raw
+    # Texto: unidad_medida, tipo_entrega, comentarios, tipo_partida
     return raw or None
 
 
@@ -508,7 +513,7 @@ async def paquete_ui(
             context.get("module_roles"),
         )
         items = await service.get_items(conn, bom['id_bom'])
-        estadisticas = await service.get_estadisticas(conn, bom['id_bom'])
+        estadisticas = await service.get_estadisticas(conn, bom['id_bom'], items=items)
         versiones = await service.get_versiones_paquete(conn, id_paquete)
         if bom['estatus'] == 'BORRADOR':
             ultimo_rechazo = await service.get_ultimo_rechazo(conn, bom['id_bom'])
@@ -716,7 +721,7 @@ async def version_bom_ui(
         request, context, bom,
         proyecto=proyecto,
         items=items,
-        estadisticas=await service.get_estadisticas(conn, id_bom),
+        estadisticas=await service.get_estadisticas(conn, id_bom, items=items),
         catalogos=await service.get_catalogos(conn),
         versiones=await service.get_versiones_paquete(conn, bom["id_paquete"]),
         id_proyecto=bom["id_proyecto"],
@@ -1051,13 +1056,13 @@ async def agregar_item(
         # Retornar tabla actualizada
         items = await service.get_items(conn, bom['id_bom'])
         bom = await service.get_bom(conn, bom['id_bom'])
-        estadisticas = await service.get_estadisticas(conn, bom['id_bom'])
+        estadisticas = await service.get_estadisticas(conn, bom['id_bom'], items=items)
 
         if service.item_sin_costo(item):
             bulk_toast = {
                 "message": service.mensaje_item_sin_costo(),
                 "type": "warning",
-                "title": "Presupuesto pendiente",
+                "title": "Costo estimado pendiente",
             }
         else:
             bulk_toast = {
@@ -1311,8 +1316,11 @@ async def bulk_editar_items(
             )
         else:
             valor = _parse_bulk_valor(campo, form.get("valor"))
+            moneda_bulk = (form.get("moneda_bulk") or "").strip().upper() or None
+            valor_secundario = {"moneda": moneda_bulk} if moneda_bulk else None
             resultado = await service.editar_items_bulk(
                 conn, id_bom, item_ids, user_id, area_editor, campo, valor=valor,
+                valor_secundario=valor_secundario,
                 lock_version_esperado=_parse_lock_version(form),
                 user_role=context.get("role"),
                 rol_org=context.get("rol_organizacional"),
@@ -1328,12 +1336,12 @@ async def bulk_editar_items(
         n = resultado["actualizados"]
         pendientes_sin_costo = await service.get_items_sin_costo(conn, id_bom)
         aviso_costo = (
-            f"Hay {len(pendientes_sin_costo)} item(s) sin presupuesto base. Captura el presupuesto antes de avanzar el BOM."
+            f"Hay {len(pendientes_sin_costo)} item(s) sin costo estimado. Captura el costo antes de avanzar el BOM."
             if pendientes_sin_costo else None
         )
 
         if aviso_costo:
-            toast = {"message": aviso_costo, "type": "warning", "title": "Presupuesto pendiente"}
+            toast = {"message": aviso_costo, "type": "warning", "title": "Costo estimado pendiente"}
         elif n:
             toast = {"message": f"{n} items actualizados", "type": "success", "title": "Edicion masiva"}
         else:
@@ -1404,7 +1412,7 @@ async def eliminar_item(
         # Retornar tabla actualizada
         bom = await service.get_bom(conn, bom["id_bom"])
         items = await service.get_items(conn, bom['id_bom'])
-        estadisticas = await service.get_estadisticas(conn, bom['id_bom'])
+        estadisticas = await service.get_estadisticas(conn, bom['id_bom'], items=items)
 
         ctx = _build_bom_context(
             request, context, bom,
@@ -1448,7 +1456,7 @@ async def restaurar_item(
 
         bom = await service.get_bom(conn, item['id_bom'])
         items = await service.get_items(conn, bom['id_bom'])
-        estadisticas = await service.get_estadisticas(conn, bom['id_bom'])
+        estadisticas = await service.get_estadisticas(conn, bom['id_bom'], items=items)
 
         ctx = _build_bom_context(
             request, context, bom,
@@ -1512,7 +1520,7 @@ async def refrescar_costos_catalogo(
             request, context, bom,
             items=items,
             bulk_toast=toast,
-            estadisticas=await service.get_estadisticas(conn, id_bom),
+            estadisticas=await service.get_estadisticas(conn, id_bom, items=items),
             oob_estadisticas=True,
             actualizar_lock_oob=True,
             capacidades=resultado["capacidades"],
@@ -1652,7 +1660,7 @@ async def _tabla_items_bom_ctx(
 ) -> dict:
     bom = await service.get_bom(conn, id_bom)
     items = await service.get_items(conn, id_bom)
-    estadisticas = await service.get_estadisticas(conn, id_bom)
+    estadisticas = await service.get_estadisticas(conn, id_bom, items=items)
     return _build_bom_context(
         request, context, bom,
         items=items,
@@ -2502,7 +2510,7 @@ async def notificar_costos_pendientes(
     service: BomService = Depends(get_bom_service),
     _=require_any_module_access(["ingenieria", "construccion"], "viewer", allow_org_roles={"director"}),
 ):
-    """Notifica a Compras los items del BOM que siguen sin presupuesto base."""
+    """Notifica a Compras los items del BOM que siguen sin costo estimado."""
     user_id = context.get("user_db_id")
     try:
         resultado = await service.notificar_items_sin_costo_compras(conn, id_bom, user_id)
@@ -2516,7 +2524,7 @@ async def notificar_costos_pendientes(
             request,
             (
                 f"Notificado por {canal_txt} con {resultado['items_sin_costo']} "
-                f"item(s) sin presupuesto base."
+                f"item(s) sin costo estimado."
             ),
             "success",
             "Compras notificado",

@@ -14,6 +14,12 @@ from core.bom.schemas import EstatusBOM
 
 logger = logging.getLogger("BOM.DBService")
 
+# Heuristica de moneda para materiales sin columna moneda propia (tb_materiales_historial):
+# tipo_cambio_xml solo se captura cuando el CFDI original viene en USD (ver migracion 048
+# y modules/compras/xml_extractor.py). Reusada en buscar_materiales_para_bom,
+# get_materiales_recientes y sincronizar_costos_catalogo.
+_MONEDA_XML_SQL = "CASE WHEN m.tipo_cambio_xml IS NOT NULL THEN 'USD' ELSE 'MXN' END"
+
 
 class BomDBService(BomComprasDBMixin):
     """Capa de acceso a datos para BOM."""
@@ -1348,25 +1354,26 @@ class BomDBService(BomComprasDBMixin):
         (tb_materiales_interno_xml + tb_materiales_historial) si existe, si no
         precio_referencia del catalogo (tb_cat_materiales). Solo toca items con
         id_material_interno asignado."""
-        rows = await conn.fetch("""
+        rows = await conn.fetch(f"""
             WITH resueltos AS (
                 SELECT c.id AS id_material_interno,
-                       COALESCE(
-                           (SELECT m.precio_unitario
-                            FROM tb_materiales_interno_xml v
-                            JOIN tb_materiales_historial m ON m.id = v.id_material_xml
-                            WHERE v.id_material_interno = c.id
-                            ORDER BY m.fecha_factura DESC NULLS LAST
-                            LIMIT 1),
-                           c.precio_referencia
-                       ) AS precio_resuelto
+                       COALESCE(xml.precio_unitario, c.precio_referencia) AS precio_resuelto,
+                       COALESCE(xml.moneda_xml, c.moneda, 'MXN') AS moneda_resuelta
                 FROM tb_cat_materiales c
+                LEFT JOIN LATERAL (
+                    SELECT m.precio_unitario, {_MONEDA_XML_SQL} AS moneda_xml
+                    FROM tb_materiales_interno_xml v
+                    JOIN tb_materiales_historial m ON m.id = v.id_material_xml
+                    WHERE v.id_material_interno = c.id
+                    ORDER BY m.fecha_factura DESC NULLS LAST
+                    LIMIT 1
+                ) xml ON TRUE
                 WHERE c.activo = TRUE
             ),
             candidatos AS (
                 SELECT i.id_item, i.descripcion, i.precio_unitario AS precio_anterior,
                        i.origen_precio AS origen_precio_anterior,
-                       r.precio_resuelto
+                       r.precio_resuelto, r.moneda_resuelta
                 FROM tb_bom_items i
                 JOIN resueltos r ON r.id_material_interno = i.id_material_interno
                 WHERE i.id_bom = $1
@@ -1378,6 +1385,7 @@ class BomDBService(BomComprasDBMixin):
             )
             UPDATE tb_bom_items i
             SET precio_unitario = c.precio_resuelto,
+                moneda = c.moneda_resuelta,
                 origen_precio = 'CATALOGO',
                 updated_at = now()
             FROM candidatos c
@@ -2235,29 +2243,6 @@ class BomDBService(BomComprasDBMixin):
                                      i.entregado
                                      OR (i.cantidad > 0 AND COALESCE(er.cantidad_recibida, i.cantidad_recibida, 0) >= i.cantidad)
                                  )) AS atrasados,
-                CASE WHEN COUNT(*) FILTER (
-                    WHERE i.activo
-                      AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
-                      AND (
-                          i.cantidad IS NULL OR i.precio_unitario IS NULL
-                          OR i.moneda IS NULL OR i.moneda <> 'MXN'
-                      )
-                ) > 0 THEN NULL ELSE COALESCE(
-                    SUM(i.cantidad * i.precio_unitario) FILTER (
-                        WHERE i.activo
-                          AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
-                    ), 0
-                ) END AS costo_total_estimado,
-                COUNT(*) FILTER (
-                    WHERE i.activo
-                      AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
-                      AND i.precio_unitario > 0
-                ) AS items_con_precio,
-                COUNT(*) FILTER (
-                    WHERE i.activo
-                      AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
-                      AND (i.precio_unitario IS NULL OR i.precio_unitario <= 0)
-                ) AS items_sin_costo,
                 COUNT(*) FILTER (
                     WHERE i.activo AND COALESCE(i.tipo_origen_item, 'BASE') = 'REEMPLAZO'
                 ) AS items_reemplazo,
@@ -2355,7 +2340,7 @@ class BomDBService(BomComprasDBMixin):
     ) -> dict:
         """Busca materiales en historial XML y catalogo interno.
         query_norm debe ser normalizar_descripcion(query) para el matching contra descripcion_norm."""
-        rows = await conn.fetch("""
+        rows = await conn.fetch(f"""
             WITH xml_dedup AS (
                 SELECT DISTINCT ON (m.descripcion_proveedor)
                     m.id::text                                        AS id,
@@ -2367,6 +2352,7 @@ class BomDBService(BomComprasDBMixin):
                     m.clave_prod_serv,
                     m.fecha_factura,
                     'XML'::text                                        AS fuente,
+                    {_MONEDA_XML_SQL} AS moneda,
                     GREATEST(
                         similarity(m.descripcion_proveedor, $1),
                         word_similarity($1, m.descripcion_proveedor)
@@ -2385,7 +2371,7 @@ class BomDBService(BomComprasDBMixin):
                 SELECT
                     xd.id, xd.descripcion, xd.unidad, xd.precio_unitario,
                     xd.proveedor_nombre, xd.categoria_nombre, xd.clave_prod_serv,
-                    xd.fecha_factura, xd.fuente, xd.similitud,
+                    xd.fecha_factura, xd.fuente, xd.moneda, xd.similitud,
                     ci.descripcion_canonica                                AS descripcion_interna,
                     xd.id_material_interno::text                           AS id_material_interno,
                     1                                                      AS prioridad
@@ -2402,6 +2388,7 @@ class BomDBService(BomComprasDBMixin):
                     c.clave_prod_serv,
                     NULL::date,
                     'INTERNO'::text,
+                    c.moneda,
                     GREATEST(
                         similarity(c.descripcion_norm, $3),
                         word_similarity($3, c.descripcion_norm)
@@ -2421,7 +2408,7 @@ class BomDBService(BomComprasDBMixin):
                   )
             )
             SELECT id, descripcion, unidad, precio_unitario, proveedor_nombre, categoria_nombre,
-                   clave_prod_serv, fecha_factura, fuente, similitud, descripcion_interna,
+                   clave_prod_serv, fecha_factura, fuente, moneda, similitud, descripcion_interna,
                    id_material_interno, COUNT(*) OVER() AS total_count
             FROM combinado
             ORDER BY prioridad ASC, similitud DESC NULLS LAST
@@ -2458,7 +2445,7 @@ class BomDBService(BomComprasDBMixin):
 
     async def get_materiales_recientes(self, conn, limite: int = 10, offset: int = 0) -> dict:
         """Lista materiales recientes (XML) y todos los internos activos para el dropdown inicial."""
-        rows = await conn.fetch("""
+        rows = await conn.fetch(f"""
             WITH xml_dedup AS (
                 SELECT DISTINCT ON (m.descripcion_proveedor)
                     m.id::text                              AS id,
@@ -2470,6 +2457,7 @@ class BomDBService(BomComprasDBMixin):
                     m.clave_prod_serv,
                     m.fecha_factura,
                     'XML'::text                             AS fuente,
+                    {_MONEDA_XML_SQL} AS moneda,
                     1.0::real                               AS similitud,
                     vlink.id_material_interno
                 FROM tb_materiales_historial m
@@ -2483,7 +2471,7 @@ class BomDBService(BomComprasDBMixin):
                 SELECT
                     xd.id, xd.descripcion, xd.unidad, xd.precio_unitario,
                     xd.proveedor_nombre, xd.categoria_nombre, xd.clave_prod_serv,
-                    xd.fecha_factura, xd.fuente, xd.similitud,
+                    xd.fecha_factura, xd.fuente, xd.moneda, xd.similitud,
                     ci.descripcion_canonica                 AS descripcion_interna,
                     xd.id_material_interno::text            AS id_material_interno,
                     1                                        AS prioridad,
@@ -2501,6 +2489,7 @@ class BomDBService(BomComprasDBMixin):
                     c.clave_prod_serv,
                     (c.created_at AT TIME ZONE 'America/Mexico_City')::date,
                     'INTERNO'::text,
+                    c.moneda,
                     1.0::real,
                     NULL::text,
                     NULL::text,
@@ -2516,7 +2505,7 @@ class BomDBService(BomComprasDBMixin):
                   )
             )
             SELECT id, descripcion, unidad, precio_unitario, proveedor_nombre, categoria_nombre,
-                   clave_prod_serv, fecha_factura, fuente, similitud, descripcion_interna,
+                   clave_prod_serv, fecha_factura, fuente, moneda, similitud, descripcion_interna,
                    id_material_interno, COUNT(*) OVER() AS total_count
             FROM combinado
             ORDER BY prioridad ASC, orden_alfa ASC NULLS LAST, fecha_factura DESC NULLS LAST

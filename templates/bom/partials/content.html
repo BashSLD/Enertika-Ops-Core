@@ -203,23 +203,15 @@
     {% include "bom/partials/estadisticas_grid.html" %}
     {% endif %}
 
-    {# Boton agregar item — permitido en todos los estados menos CANCELADO y APROBADO_FINAL #}
+    {# Boton agregar item — permitido en todos los estados menos CANCELADO y APROBADO_FINAL.
+       Se renderiza junto al filtro de tipo de partida, mas abajo. #}
     {% set puede_agregar_item = capacidades.agregar_items|default(false) %}
+    {% set muestra_agregar_item = bom and puede_agregar_item and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] %}
     {% set puede_cotizar_seleccionados = not solo_lectura|default(false) and es_compras_editor and bom.estatus == 'APROBADO_CONST' %}
     {% set puede_agregar_fuera_scope = not solo_lectura|default(false) and (area_editor == 'construccion' or es_compras_editor) and bom.estatus == 'APROBADO_FINAL' %}
     {% set puede_refrescar_costos = capacidades.refrescar_costos|default(false) and estadisticas.items_sin_costo %}
-    {% if bom and ((bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and (puede_agregar_item or puede_cotizar_seleccionados)) or puede_agregar_fuera_scope or puede_refrescar_costos) %}
+    {% if bom and (puede_cotizar_seleccionados or puede_agregar_fuera_scope or puede_refrescar_costos) %}
     <div class="mb-4 flex gap-2">
-        {% if puede_agregar_item and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] %}
-        <button type="button"
-            onclick="window.dispatchEvent(new CustomEvent('abrir-modal-agregar-item-bom'))"
-            class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition shadow-sm">
-            <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-            </svg>
-            Agregar Item
-        </button>
-        {% endif %}
         {% if puede_refrescar_costos %}
         <button type="button"
             hx-post="/bom/{{ bom.id_bom }}/refrescar-costos"
@@ -265,59 +257,98 @@
     </div>
     {% endif %}
 
-    {# Filtro por grupo BOM #}
+    {# Filtros de la tabla (grupo BOM + tipo de partida) — un solo estado Alpine
+       compartido: antes eran dos x-data independientes que se pisaban entre si
+       (el ultimo filtro clickeado ganaba y resetaba el display del otro). #}
     {% if bom %}
-    <div class="mb-3 flex flex-wrap gap-1.5" x-data="{ grupoActivo: 'TODOS' }">
-        <button @click="grupoActivo = 'TODOS'; filtrarGrupo('TODOS')"
-            :class="{'bg-gray-800 text-white': grupoActivo === 'TODOS', 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50': grupoActivo !== 'TODOS'}"
-            class="px-3 py-1 text-xs font-medium rounded-full transition">Todos</button>
-        {% for grupo in catalogos.grupos_bom %}
-        <button @click="grupoActivo = '{{ grupo.codigo }}'; filtrarGrupo('{{ grupo.codigo }}')"
-            :class="{'bg-gray-800 text-white': grupoActivo === '{{ grupo.codigo }}', 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50': grupoActivo !== '{{ grupo.codigo }}'}"
-            class="px-3 py-1 text-xs font-medium rounded-full transition">
-            <span class="font-bold">{{ grupo.codigo }}</span> &mdash; {{ grupo.nombre }}
-        </button>
-        {% endfor %}
-    </div>
-    <script>
-    function filtrarGrupo(codigo) {
-        const filas = document.querySelectorAll('#tabla-bom-items tbody tr[data-grupos]');
-        filas.forEach(tr => {
-            if (codigo === 'TODOS') {
-                tr.style.display = '';
-            } else {
-                const grupos = tr.dataset.grupos ? tr.dataset.grupos.split(',') : [];
-                tr.style.display = grupos.includes(codigo) ? '' : 'none';
-            }
-        });
-    }
-    </script>
-    {% endif %}
+    <div x-data="{ grupoActivo: 'TODOS', tipoActivo: 'TODOS' }"
+         @htmx:after-swap="if ($event.detail.target && $event.detail.target.id === 'tabla-bom-items') aplicarFiltrosBom(grupoActivo, tipoActivo)">
+        {# Filtro por grupo BOM #}
+        <div class="mb-3 flex flex-wrap gap-1.5">
+            <button @click="grupoActivo = 'TODOS'; aplicarFiltrosBom(grupoActivo, tipoActivo)"
+                :class="{'bg-gray-800 text-white': grupoActivo === 'TODOS', 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50': grupoActivo !== 'TODOS'}"
+                class="px-3 py-0.5 text-xs font-medium rounded-full transition">Todos</button>
+            {% for grupo in catalogos.grupos_bom %}
+            <button @click="grupoActivo = '{{ grupo.codigo }}'; aplicarFiltrosBom(grupoActivo, tipoActivo)"
+                :class="{'bg-gray-800 text-white': grupoActivo === '{{ grupo.codigo }}', 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50': grupoActivo !== '{{ grupo.codigo }}'}"
+                class="px-3 py-0.5 text-xs font-medium rounded-full transition">
+                <span class="font-bold">{{ grupo.codigo }}</span> &mdash; {{ grupo.nombre }}
+            </button>
+            {% endfor %}
+        </div>
 
-    {# Filtro por tipo de partida #}
-    {% if bom %}
-    <div class="mb-3 flex flex-wrap gap-1.5" x-data="{ tipoActivo: 'TODOS' }">
-        <button @click="tipoActivo = 'TODOS'; filtrarTipo('TODOS')"
-            :class="{'bg-gray-800 text-white': tipoActivo === 'TODOS', 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50': tipoActivo !== 'TODOS'}"
-            class="px-3 py-1 text-xs font-medium rounded-full transition">Todos</button>
-        {% set tipos_filtro = ['MATERIAL', 'MANO_OBRA', 'SERVICIO', 'LEGALIZACION', 'EQUIPO'] %}
-        {% set tipo_labels_filtro = {'MATERIAL': 'Materiales', 'MANO_OBRA': 'Mano de Obra', 'SERVICIO': 'Servicios', 'LEGALIZACION': 'Legalizaciones', 'EQUIPO': 'Equipos'} %}
-        {% for t in tipos_filtro %}
-        <button @click="tipoActivo = '{{ t }}'; filtrarTipo('{{ t }}')"
-            :class="{'bg-gray-800 text-white': tipoActivo === '{{ t }}', 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50': tipoActivo !== '{{ t }}'}"
-            class="px-3 py-1 text-xs font-medium rounded-full transition">{{ tipo_labels_filtro[t] }}</button>
-        {% endfor %}
+        {# Filtro por tipo de partida + boton Agregar Item alineado a la derecha #}
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-1.5">
+            <div class="flex flex-wrap gap-1.5">
+                <button @click="tipoActivo = 'TODOS'; aplicarFiltrosBom(grupoActivo, tipoActivo)"
+                    :class="{'bg-gray-800 text-white': tipoActivo === 'TODOS', 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50': tipoActivo !== 'TODOS'}"
+                    class="px-3 py-0.5 text-xs font-medium rounded-full transition">Todos</button>
+                {% set tipos_filtro = ['MATERIAL', 'MANO_OBRA', 'SERVICIO', 'LEGALIZACION', 'EQUIPO'] %}
+                {% set tipo_labels_filtro = {'MATERIAL': 'Materiales', 'MANO_OBRA': 'Mano de Obra', 'SERVICIO': 'Servicios', 'LEGALIZACION': 'Legalizaciones', 'EQUIPO': 'Equipos'} %}
+                {% for t in tipos_filtro %}
+                <button @click="tipoActivo = '{{ t }}'; aplicarFiltrosBom(grupoActivo, tipoActivo)"
+                    :class="{'bg-gray-800 text-white': tipoActivo === '{{ t }}', 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50': tipoActivo !== '{{ t }}'}"
+                    class="px-3 py-0.5 text-xs font-medium rounded-full transition">{{ tipo_labels_filtro[t] }}</button>
+                {% endfor %}
+            </div>
+            {% if muestra_agregar_item %}
+            <button type="button"
+                onclick="window.dispatchEvent(new CustomEvent('abrir-modal-agregar-item-bom'))"
+                class="inline-flex items-center shrink-0 px-3 py-2 text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition shadow-sm">
+                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                Agregar Item
+            </button>
+            {% endif %}
+        </div>
     </div>
     <script>
-    function filtrarTipo(tipo) {
-        const filas = document.querySelectorAll('#tabla-bom-items tbody tr[data-tipo-partida]');
+    function aplicarFiltrosBom(grupo, tipo) {
+        const filas = document.querySelectorAll('#tabla-bom-items tbody tr[data-grupos]');
+        let totalBase = 0, conPrecio = 0, sinCosto = 0, sinTc = 0, totalMxn = 0, totalResuelto = true;
         filas.forEach(tr => {
-            if (tipo === 'TODOS') {
-                tr.style.display = '';
+            const grupos = tr.dataset.grupos ? tr.dataset.grupos.split(',') : [];
+            const pasaGrupo = grupo === 'TODOS' || grupos.includes(grupo);
+            const pasaTipo = tipo === 'TODOS' || tr.dataset.tipoPartida === tipo;
+            const visible = pasaGrupo && pasaTipo;
+            tr.style.display = visible ? '' : 'none';
+            if (!visible || tr.dataset.tipoOrigenItem !== 'BASE') return;
+            totalBase++;
+            if (tr.dataset.tienePrecio !== '1') {
+                sinCosto++;
+                totalResuelto = false;
             } else {
-                tr.style.display = tr.dataset.tipoPartida === tipo ? '' : 'none';
+                conPrecio++;
+                if (tr.dataset.costoMxn) {
+                    totalMxn += parseFloat(tr.dataset.costoMxn);
+                } else {
+                    sinTc++;
+                    totalResuelto = false;
+                }
             }
         });
+        const filtradoEl = document.getElementById('stat-costo-filtrado-wrap');
+        if (filtradoEl) filtradoEl.hidden = grupo === 'TODOS' && tipo === 'TODOS';
+        const montoEl = document.getElementById('stat-costo-estimado-monto');
+        const pendienteEl = document.getElementById('stat-costo-estimado-pendiente');
+        if (montoEl && pendienteEl) {
+            montoEl.hidden = !totalResuelto;
+            pendienteEl.hidden = totalResuelto;
+            if (totalResuelto) {
+                document.getElementById('stat-costo-estimado-valor').textContent =
+                    totalMxn.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
+        }
+        const setTexto = (id, valor) => { const el = document.getElementById(id); if (el) el.textContent = valor; };
+        setTexto('stat-items-con-precio', conPrecio);
+        setTexto('stat-total-items-costo', totalBase);
+        setTexto('stat-items-sin-costo', sinCosto);
+        setTexto('stat-items-sin-tc', sinTc);
+        const sinCostoWrap = document.getElementById('stat-items-sin-costo-wrap');
+        if (sinCostoWrap) sinCostoWrap.hidden = sinCosto === 0;
+        const sinTcWrap = document.getElementById('stat-items-sin-tc-wrap');
+        if (sinTcWrap) sinTcWrap.hidden = sinTc === 0;
     }
     </script>
     {% endif %}
@@ -351,13 +382,14 @@
     <div x-data="{
             itemSeleccionados: [],
             campo: '',
+            monedaBulk: '',
             toggleAll(e) {
                 document.querySelectorAll('#bom-items-body input[name=item_ids]').forEach(cb => { cb.checked = e.target.checked; });
                 this.itemSeleccionados = e.target.checked
                     ? Array.from(document.querySelectorAll('#bom-items-body input[name=item_ids]')).map(c => c.value)
                     : [];
             },
-            reset() { this.itemSeleccionados = []; this.campo = ''; }
+            reset() { this.itemSeleccionados = []; this.campo = ''; this.monedaBulk = ''; }
          }"
          @htmx:after-swap="if ($event.detail.target && $event.detail.target.id === 'tabla-bom-items') reset()">
 
@@ -427,8 +459,16 @@
                 </select>
                 <input type="text" name="valor" {{ vctl('unidad_medida') }}
                        placeholder="ej. pza, m, kg" class="w-full rounded-lg border-gray-300 text-sm">
-                <input type="number" name="valor" {{ vctl('precio_unitario') }}
-                       step="0.01" min="0" placeholder="0.00" class="w-full rounded-lg border-gray-300 text-sm">
+                <div x-show="campo === 'precio_unitario'" class="flex gap-2">
+                    <input type="number" name="valor" {{ vctl('precio_unitario') }}
+                           step="0.01" min="0" placeholder="0.00" class="w-full rounded-lg border-gray-300 text-sm">
+                    <select name="moneda_bulk" x-model="monedaBulk" :disabled="campo !== 'precio_unitario'"
+                            class="rounded-lg border-gray-300 text-sm">
+                        <option value="">-- Moneda --</option>
+                        <option value="MXN">MXN</option>
+                        <option value="USD">USD</option>
+                    </select>
+                </div>
                 <select name="valor" {{ vctl('moneda') }}
                         class="w-full rounded-lg border-gray-300 text-sm">
                     <option value="MXN">MXN — Peso mexicano</option>
@@ -520,7 +560,7 @@
                         hx-patch="/bom/{{ bom.id_bom }}/items/bulk-edit"
                         hx-target="#tabla-bom-items" hx-swap="innerHTML"
                         hx-include="#bom-bulk-bar, #bom-items-body input[name='item_ids']:checked"
-                        :disabled="campo === ''"
+                        :disabled="campo === '' || (campo === 'precio_unitario' && !monedaBulk)"
                         class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
                     Aplicar
                 </button>
@@ -827,7 +867,7 @@
                 this.unidadCatalogoFija = !!String(this.unidad || '').trim();
                 this.asignarCantidadDefaultPorUnidad({ forzar: true });
                 this.origen           = 'CATALOGO';
-                this.moneda           = 'MXN';
+                this.moneda           = material.moneda || 'MXN';
                 this.fuenteSeleccionada = material.fuente || '';
                 this.materialSeleccionado = material.descripcionInterna || material.descripcion || '';
                 this.claveSeleccionada  = material.clave || '';

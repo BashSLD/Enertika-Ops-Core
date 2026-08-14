@@ -40,6 +40,7 @@
     data-categoria="{{ mat.categoria_nombre or '' }}"
     data-clave="{{ mat.clave_prod_serv or '' }}"
     data-fuente="{{ mat.fuente }}"
+    data-moneda="{{ mat.moneda or 'MXN' }}"
     @click="seleccionarMaterial({
         id: $el.dataset.materialId,
         descripcion: $el.dataset.descripcion,
@@ -50,7 +51,8 @@
         proveedor: $el.dataset.proveedor,
         categoria: $el.dataset.categoria,
         clave: $el.dataset.clave,
-        fuente: $el.dataset.fuente
+        fuente: $el.dataset.fuente,
+        moneda: $el.dataset.moneda
     })">
     <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex-1">

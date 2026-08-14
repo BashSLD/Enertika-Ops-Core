@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from core.bom.db_service import BomDBService
-from core.bom.router import router
+from core.bom.router import router, _parse_bulk_valor
 from core.bom.service import get_bom_service
 from core.database import get_db_connection
 from core.security import get_current_user_context
@@ -76,7 +76,7 @@ class FakeMutationService:
     async def get_items(self, conn, id_bom):
         return []
 
-    async def get_estadisticas(self, conn, id_bom):
+    async def get_estadisticas(self, conn, id_bom, items=None):
         return {}
 
     @staticmethod
@@ -262,6 +262,18 @@ def test_mutaciones_y_navegacion_no_seleccionan_bom_por_proyecto():
     assert f'href="{canonical_link}"' in hub_source
     assert f'hx-get="{canonical_link}"' in hub_source
     assert "/bom/{{ paquete.id_proyecto }}/ui" not in hub_source
+
+
+def test_parse_bulk_valor_moneda_acepta_mxn_y_usd():
+    assert _parse_bulk_valor("moneda", "MXN") == "MXN"
+    assert _parse_bulk_valor("moneda", "usd") == "USD"
+
+
+def test_parse_bulk_valor_moneda_rechaza_valor_invalido():
+    with pytest.raises(ValueError):
+        _parse_bulk_valor("moneda", "EUR")
+    with pytest.raises(ValueError):
+        _parse_bulk_valor("moneda", "")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

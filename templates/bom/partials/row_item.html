@@ -11,9 +11,14 @@
 {% set puede_adenda_item = not solo_lectura|default(false) and bom and bom.estatus == 'APROBADO_FINAL' and area_editor in ['construccion', 'compras'] and tipo_origen_item == 'BASE' and not item_cerrado_compra and not item_compra_bloquea_adenda and not item.bloqueado %}
 {% set puede_editar_item = capacidades.editar_base|default(false) or capacidades.editar_ejecucion|default(false) %}
 {% set puede_eliminar_item = capacidades.eliminar_items|default(false) %}
+{% set tiene_precio = item.precio_unitario and item.precio_unitario|float > 0 %}
+{% set costo_mxn_resuelto = item.costo_mxn if (item.moneda == 'USD' and item.costo_mxn) else (item.importe if (item.moneda == 'MXN' and tiene_precio) else '') %}
 <tr id="item-{{ item.id_item }}"
     data-grupos="{{ grupos_filtro | join(',') if grupos_filtro else '' }}"
     data-tipo-partida="{{ item.tipo_partida or 'MATERIAL' }}"
+    data-tipo-origen-item="{{ tipo_origen_item }}"
+    data-tiene-precio="{{ '1' if tiene_precio else '0' }}"
+    data-costo-mxn="{{ costo_mxn_resuelto }}"
     class="hover:bg-gray-50 transition-colors {{ 'bg-green-50' if item.entregado else '' }} {{ 'bg-gray-100 opacity-70' if item.bloqueado else '' }}">
     <td class="px-2 py-2 text-center">
         {% if item.bloqueado or item_cerrado_compra %}
@@ -182,7 +187,7 @@
         {% endif %}
         {% else %}
         <span class="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
-            title="Presupuesto pendiente">Sin presupuesto</span>
+            title="Item sin costo estimado configurado, actualizar costo">Sin costo estimado</span>
         {% endif %}
     </td>
     {% if fase_compras %}
