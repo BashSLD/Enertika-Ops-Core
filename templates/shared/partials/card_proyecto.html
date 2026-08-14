@@ -251,8 +251,8 @@
 {# --- Tabla completa: encabezado + filas (escritorio) y tarjetas (movil) --- #}
 
 {% macro render_tabla(items, area, area_destino=None, puede_enviar=False, mostrar_area=False, mostrar_mfv=False, mostrar_bom=False) %}
-{# Escritorio: tabla densa ordenable #}
-<div class="hidden md:block">
+{# Escritorio/tablet: tabla densa ordenable, con scroll horizontal si no cabe #}
+<div class="hidden sm:block overflow-x-auto">
     <table class="proyectos-table w-full text-left">
         <thead>
             <tr class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-200">
@@ -270,8 +270,8 @@
         </tbody>
     </table>
 </div>
-{# Movil: tarjetas compactas #}
-<div class="md:hidden space-y-2">
+{# Movil (telefono real): tarjetas compactas #}
+<div class="sm:hidden space-y-2">
     {% for p in items %}
     {{ render_card(p, area, area_destino, puede_enviar, mostrar_area, mostrar_mfv, mostrar_bom) }}
     {% endfor %}

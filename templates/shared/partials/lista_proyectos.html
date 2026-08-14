@@ -18,8 +18,8 @@
         Pendientes de Recepcion ({{ pendientes|length }})
     </h3>
     {% set module_prefix = {'CONSTRUCCION': 'construccion', 'OYM': 'oym'}.get(area, '') %}
-    {# Escritorio: tabla compacta con acento ambar #}
-    <div class="hidden md:block rounded-xl border border-amber-200 overflow-hidden">
+    {# Escritorio/tablet: tabla compacta con acento ambar, con scroll horizontal si no cabe #}
+    <div class="hidden sm:block rounded-xl border border-amber-200 overflow-x-auto">
         <table class="w-full text-left">
             <thead>
                 <tr class="text-[11px] font-semibold text-amber-700 uppercase tracking-wider bg-amber-50 border-b border-amber-200">
@@ -66,8 +66,8 @@
             </tbody>
         </table>
     </div>
-    {# Movil: tarjetas #}
-    <div class="md:hidden space-y-2">
+    {# Movil (telefono real): tarjetas #}
+    <div class="sm:hidden space-y-2">
         {% for pend in pendientes %}
         <div class="glass-card p-3 rounded-xl border-l-4 border-amber-400 bg-amber-50/50">
             <div class="flex justify-between items-start gap-2">
