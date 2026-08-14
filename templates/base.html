@@ -145,6 +145,29 @@
                 }
             }));
 
+            // Ordenado client-side de tablas paginadas server-side (solo reordena las
+            // filas ya renderizadas en la pagina actual). numericCols: columnas que se
+            // comparan como float en vez de string. Requiere x-ref="tbody" en el <tbody>
+            // y data-<col> en cada <tr>.
+            Alpine.data('sortableTable', (numericCols = []) => ({
+                sortBy: '', sortDir: 'asc',
+                sort(col) {
+                    this.sortBy === col
+                        ? (this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc')
+                        : (this.sortBy = col, this.sortDir = 'asc');
+                    const nums = new Set(numericCols);
+                    const rows = Array.from(this.$refs.tbody.querySelectorAll('tr'));
+                    rows.sort((a, b) => {
+                        let av = a.dataset[col] ?? '', bv = b.dataset[col] ?? '';
+                        if (nums.has(col)) { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+                        if (av < bv) return this.sortDir === 'asc' ? -1 : 1;
+                        if (av > bv) return this.sortDir === 'asc' ? 1 : -1;
+                        return 0;
+                    });
+                    rows.forEach(r => this.$refs.tbody.appendChild(r));
+                }
+            }));
+
             // Navegador de carpetas de SharePoint (drive de Visitas), compartido entre
             // el modal de Visita a Obra y el picker de carpeta de Pendientes de Recepcion.
             // No lee ni escribe ningun "form" ancestro — al seleccionar, dispara

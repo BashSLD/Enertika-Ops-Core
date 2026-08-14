@@ -1,4 +1,12 @@
-<tr id="row-material-{{ m.id }}" class="hover:bg-gray-50 transition-colors">
+<tr id="row-material-{{ m.id }}" class="hover:bg-gray-50 transition-colors"
+    data-proveedor="{{ m.proveedor_nombre | lower if m.proveedor_nombre else '' }}"
+    data-descripcion="{{ m.descripcion_proveedor | lower if m.descripcion_proveedor else '' }}"
+    data-descint="{{ m.descripcion_interna | lower if m.descripcion_interna else '' }}"
+    data-categoria="{{ m.categoria_nombre | lower if m.categoria_nombre else '' }}"
+    data-cantidad="{{ m.cantidad }}"
+    data-preciounit="{{ m.precio_unitario }}"
+    data-importe="{{ m.importe }}"
+    data-fecha="{{ m.fecha_factura.isoformat() if m.fecha_factura else '' }}">
     <!-- Proveedor -->
     <td class="px-3 py-2">
         <div class="font-medium text-gray-800 truncate max-w-[180px]" title="{{ m.proveedor_nombre }}">

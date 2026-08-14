@@ -1,4 +1,11 @@
-<tr id="row-interno-{{ m.id }}" class="hover:bg-gray-50 transition-colors">
+<tr id="row-interno-{{ m.id }}" class="hover:bg-gray-50 transition-colors"
+    data-descripcion="{{ m.descripcion_canonica | lower if m.descripcion_canonica else '' }}"
+    data-unidad="{{ m.unidad_codigo | lower if m.unidad_codigo else '' }}"
+    data-categoria="{{ m.categoria_nombre | lower if m.categoria_nombre else '' }}"
+    data-precio="{{ m.precio_referencia if m.precio_referencia else 0 }}"
+    data-clave="{{ m.clave_prod_serv | lower if m.clave_prod_serv else '' }}"
+    data-xml="{{ m.vinculos_xml }}"
+    data-creado="{{ m.creado_por_nombre | lower if m.creado_por_nombre else '' }}">
     <!-- Descripción -->
     <td class="px-3 py-2">
         <div class="font-medium text-gray-800 truncate max-w-[280px]" title="{{ m.descripcion_canonica }}">
