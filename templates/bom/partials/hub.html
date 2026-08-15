@@ -162,7 +162,11 @@
     {% else %}
     <div class="rounded-xl border bg-white py-14 text-center">
         <h2 class="text-base font-semibold text-gray-700">Todavía no hay paquetes BOM</h2>
+        {% if puede_crear %}
         <p class="mt-1 text-sm text-gray-500">Crea un BOM completo o divide el alcance en paquetes parciales.</p>
+        {% else %}
+        <p class="mt-1 text-sm text-gray-500">Solicita a {{ responsable_ingenieria_label }} que asigne este proyecto para poder crear el BOM.</p>
+        {% endif %}
     </div>
     {% endif %}
 

@@ -1631,6 +1631,13 @@ class BomService(BomComprasServiceMixin):
         jefe = await self.db.get_usuario_activo_por_rol_org(conn, "jefe_ingenieria")
         return jefe["nombre"] if jefe else "el jefe de Ingeniería"
 
+    async def get_responsable_ingenieria_label(self, conn, id_proyecto: UUID) -> str:
+        """Nombre del RI del proyecto (o el jefe global si aun no tiene RI asignado)."""
+        responsable = await self.db.get_responsable_proyecto_o_global(
+            conn, id_proyecto, "jefe_ingenieria"
+        )
+        return responsable["nombre"] if responsable else "el Responsable de Ingeniería"
+
     @staticmethod
     def requiere_propuesta_construccion(bom: dict, area_editor: str) -> bool:
         # El actor que controla Obra/Construccion edita directamente; las

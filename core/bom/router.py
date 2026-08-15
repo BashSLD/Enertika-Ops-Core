@@ -358,6 +358,11 @@ async def bom_hub_ui(
     puede_gestionar_captura = await service.puede_administrar_paquete(
         conn, id_proyecto, context.get("user_db_id"), role
     )
+    responsable_ingenieria_label = None
+    if not puede_crear and not paquetes:
+        responsable_ingenieria_label = await service.get_responsable_ingenieria_label(
+            conn, id_proyecto
+        )
 
     ctx = {
         "user_name": context.get("user_name"),
@@ -373,6 +378,7 @@ async def bom_hub_ui(
         "puede_crear": puede_crear,
         "multi_habilitado": multi_habilitado,
         "puede_gestionar_captura": puede_gestionar_captura,
+        "responsable_ingenieria_label": responsable_ingenieria_label,
         "es_admin": role == "ADMIN",
         "clave_idempotencia_paquete": str(uuid4()),
     }
