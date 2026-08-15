@@ -1,0 +1,20 @@
+{% if resultados %}
+<div class="mt-1 rounded-lg border border-amber-200 bg-amber-50 divide-y divide-amber-100">
+    <p class="px-2 py-1 text-amber-700 font-medium">Posibles coincidencias en el catalogo:</p>
+    {% for r in resultados %}
+    <div class="px-2 py-1.5 flex items-center justify-between gap-2">
+        <div class="min-w-0">
+            <p class="text-gray-800 truncate" title="{{ r.descripcion_canonica }}">{{ r.descripcion_canonica }}</p>
+            {% if r.clave_prod_serv %}<p class="text-gray-400 text-[11px]">SAT: {{ r.clave_prod_serv }}</p>{% endif %}
+        </div>
+        {% set pct = (r.similitud * 100)|int if r.similitud else 0 %}
+        <span class="shrink-0 inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-medium
+            {% if pct >= 80 %}bg-green-100 text-green-800
+            {% elif pct >= 50 %}bg-amber-100 text-amber-800
+            {% else %}bg-gray-100 text-gray-700{% endif %}">
+            {{ pct }}%
+        </span>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}

@@ -45,5 +45,11 @@
                 <span id="stat-items-sin-tc">{{ estadisticas.items_sin_tc or 0 }}</span> en USD sin tipo de cambio
             </span>
         </div>
+        {% if estadisticas.tc_promedio %}
+        <div class="text-[10px] text-emerald-500 mt-0.5"
+            title="Tipo de cambio ponderado USD-MXN sobre el total de items en dolares del BOM completo (no cambia con los filtros)">
+            TC prom. USD: {{ "{:,.4f}".format(estadisticas.tc_promedio|float) }}
+        </div>
+        {% endif %}
     </div>
 </div>

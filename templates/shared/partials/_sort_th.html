@@ -15,7 +15,7 @@
             class="{{ btn_cls }}">
         {{ label }}
         <span class="text-[10px] leading-none"
-              :class="sortBy === '{{ col }}' ? '{{ active_cls }}' : '{{ inactive_cls }}'"
+              :class="{'{{ active_cls }}': sortBy === '{{ col }}', '{{ inactive_cls }}': sortBy !== '{{ col }}'}"
               x-text="sortBy === '{{ col }}' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'"></span>
     </button>
 </th>

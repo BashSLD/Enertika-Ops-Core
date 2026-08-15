@@ -2,9 +2,9 @@
 {% if actualizar_lock_oob|default(false) %}
 {% include "bom/partials/lock_version_oob.html" %}
 {% endif %}
-{% if oob_estadisticas and estadisticas %}
-{% with oob=True %}
-{% include "bom/partials/estadisticas_grid.html" %}
+{% if oob_estadisticas %}
+{% with stats=estadisticas %}
+{% include "bom/partials/_estadisticas_oob.html" %}
 {% endwith %}
 {% endif %}
 {% if bulk_toast %}

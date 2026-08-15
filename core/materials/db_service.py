@@ -13,6 +13,22 @@ from core.timezone import now_mx
 
 logger = logging.getLogger("Materials.DBService")
 
+# Predicado de homologacion contra tb_cat_materiales.descripcion_norm: ILIKE +
+# word_similarity() en vez de solo similarity() (similarity() falla en palabras
+# cortas, memoria del proyecto). Compartido entre
+# MaterialsDBService.buscar_internos_similares y
+# BomDBService.buscar_materiales_para_bom (rama interno) -- mismo predicado,
+# alias de columna y placeholders de parametro distintos por eso se parametriza
+# en vez de repetirse literal.
+
+
+def interno_similitud_expr_sql(col: str, q_param: str) -> str:
+    return f"GREATEST(similarity({col}, {q_param}), word_similarity({q_param}, {col}))"
+
+
+def interno_similitud_where_sql(col: str, q_param: str, threshold_param: str) -> str:
+    return f"({col} ILIKE '%' || {q_param} || '%' OR word_similarity({q_param}, {col}) >= {threshold_param})"
+
 
 class MaterialsDBService:
     """Queries SQL para modulo de Materiales."""
@@ -580,6 +596,27 @@ class MaterialsDBService:
         """, query, threshold, limit)
         return [dict(r) for r in rows]
 
+    async def buscar_internos_similares(
+        self, conn, query_norm: str, threshold: float = 0.3, limit: int = 10
+    ) -> List[dict]:
+        """Homologacion/anti-duplicados: busca en tb_cat_materiales (catalogo interno),
+        no en tb_materiales_historial (historial XML de proveedor) -- buscar_similar_materiales
+        de arriba responde una pregunta distinta ("se ha visto algo parecido en facturas"),
+        esta responde la que hace falta antes de dar de alta ("ya existe en el catalogo").
+
+        ILIKE + word_similarity() en vez de solo similarity(): similarity() falla en
+        palabras cortas (memoria del proyecto). Usa idx_cat_materiales_norm (GIN
+        trigram ya indexado, sin trabajo de BD adicional)."""
+        rows = await conn.fetch(f"""
+            SELECT id, descripcion_canonica, clave_prod_serv, precio_referencia, moneda,
+                   {interno_similitud_expr_sql('descripcion_norm', '$1')} AS similitud
+            FROM tb_cat_materiales
+            WHERE activo = TRUE
+              AND {interno_similitud_where_sql('descripcion_norm', '$1', '$2')}
+            ORDER BY similitud DESC
+            LIMIT $3
+        """, query_norm, threshold, limit)
+        return [dict(r) for r in rows]
 
     async def get_vinculos_xml(self, conn, id_interno: UUID) -> list:
         rows = await conn.fetch("""

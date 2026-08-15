@@ -1,0 +1,5 @@
+hx-get="/materials/similares-internos"
+                                hx-trigger="keyup changed delay:400ms[target.value.length >= 3]"
+                                hx-vals='js:{"q": event.target.value}'
+                                hx-target="next .material-similar-results"
+                                hx-swap="innerHTML"

@@ -61,14 +61,9 @@ class MaterialsService:
             conn, filtros, page, per_page, count_only=False
         )
 
-        materiales = []
-        for row in rows:
-            m = dict(row)
-            for key in ('cantidad', 'precio_unitario', 'importe'):
-                if m.get(key) and isinstance(m[key], Decimal):
-                    m[key] = float(m[key])
-            materiales.append(m)
-
+        materiales = self._decimals_a_float(
+            [dict(row) for row in rows], ('cantidad', 'precio_unitario', 'importe')
+        )
         return materiales, total
 
     async def get_material_precios(
@@ -79,26 +74,21 @@ class MaterialsService:
         if not material:
             return None, [], []
 
-        precios = await self.db.get_material_precios(
-            conn, material['descripcion_proveedor']
+        precios = self._decimals_a_float(
+            await self.db.get_material_precios(conn, material['descripcion_proveedor']),
+            ('min_precio', 'max_precio', 'avg_precio'),
         )
-        # Convertir Decimal a float
-        for p in precios:
-            for key in ('min_precio', 'max_precio', 'avg_precio'):
-                if p.get(key) and isinstance(p[key], Decimal):
-                    p[key] = float(p[key])
 
         # Productos similares por clave SAT (excluye misma descripcion)
         precios_sat = []
         if material.get('clave_prod_serv'):
-            precios_sat = await self.db.get_precios_por_clave_sat(
-                conn, material['clave_prod_serv'],
-                exclude_descripcion=material['descripcion_proveedor']
+            precios_sat = self._decimals_a_float(
+                await self.db.get_precios_por_clave_sat(
+                    conn, material['clave_prod_serv'],
+                    exclude_descripcion=material['descripcion_proveedor']
+                ),
+                ('min_precio', 'max_precio', 'avg_precio'),
             )
-            for p in precios_sat:
-                for key in ('min_precio', 'max_precio', 'avg_precio'):
-                    if p.get(key) and isinstance(p[key], Decimal):
-                        p[key] = float(p[key])
 
         return material, precios, precios_sat
 
@@ -115,9 +105,7 @@ class MaterialsService:
             return None
         material = await self.db.get_material_by_id(conn, material_id)
         if material:
-            for key in ('cantidad', 'precio_unitario', 'importe'):
-                if material.get(key) and isinstance(material[key], Decimal):
-                    material[key] = float(material[key])
+            self._decimals_a_float([material], ('cantidad', 'precio_unitario', 'importe'))
         return material
 
     async def get_estadisticas(self, conn, filtros: dict) -> dict:
@@ -135,23 +123,23 @@ class MaterialsService:
         rows = await self.db.buscar_similar_materiales(
             conn, query, threshold, limit
         )
-        for r in rows:
-            for key in ('precio_unitario', 'importe', 'similitud'):
-                if r.get(key) and isinstance(r[key], Decimal):
-                    r[key] = float(r[key])
-        return rows
+        return self._decimals_a_float(rows, ('precio_unitario', 'importe', 'similitud'))
+
+    async def buscar_internos_similares(
+        self, conn, query: str, threshold: float = 0.3, limit: int = 10
+    ) -> List[dict]:
+        """Homologacion: posibles coincidencias en el catalogo interno antes de dar
+        de alta un material nuevo (anti-duplicados)."""
+        query_norm = normalizar_descripcion(query)
+        rows = await self.db.buscar_internos_similares(conn, query_norm, threshold, limit)
+        return self._decimals_a_float(rows, ('precio_referencia', 'similitud'))
 
     async def get_internos(
         self, conn, filtros: dict, page: int = 1, per_page: int = 50
     ) -> Tuple[List[dict], int]:
         total = await self.db.get_internos_filtered(conn, filtros, page, per_page, count_only=True)
         rows  = await self.db.get_internos_filtered(conn, filtros, page, per_page, count_only=False)
-        internos = []
-        for row in rows:
-            m = dict(row)
-            if m.get('precio_referencia') and isinstance(m['precio_referencia'], Decimal):
-                m['precio_referencia'] = float(m['precio_referencia'])
-            internos.append(m)
+        internos = self._decimals_a_float([dict(row) for row in rows], ('precio_referencia',))
         return internos, total
 
     async def get_interno_by_id(self, conn, id: UUID) -> Optional[dict]:
@@ -166,8 +154,8 @@ class MaterialsService:
         if not ok:
             return None
         m = await self.db.get_interno_by_id(conn, id)
-        if m and m.get('precio_referencia') and isinstance(m['precio_referencia'], Decimal):
-            m['precio_referencia'] = float(m['precio_referencia'])
+        if m:
+            self._decimals_a_float([m], ('precio_referencia',))
         return m
 
     async def desactivar_interno(self, conn, id: UUID) -> bool:
@@ -256,20 +244,24 @@ class MaterialsService:
         await self.db.eliminar_vinculo_xml(conn, id_interno, id_xml)
 
     @staticmethod
-    def _precios_referencia_a_float(rows: list) -> list:
-        """Convierte precio_referencia de Decimal a float en una lista de filas."""
+    def _decimals_a_float(rows: list, keys: tuple) -> list:
+        """Convierte a float, in-place, las columnas Decimal indicadas de cada fila.
+        `isinstance` directo (no `r.get(key) and ...`) para no saltarse Decimal('0')."""
         for r in rows:
-            if r.get('precio_referencia') and isinstance(r['precio_referencia'], Decimal):
-                r['precio_referencia'] = float(r['precio_referencia'])
+            for key in keys:
+                if isinstance(r.get(key), Decimal):
+                    r[key] = float(r[key])
         return rows
 
-    @staticmethod
-    def _precio_unitario_a_float(rows: list) -> list:
+    @classmethod
+    def _precios_referencia_a_float(cls, rows: list) -> list:
+        """Convierte precio_referencia de Decimal a float en una lista de filas."""
+        return cls._decimals_a_float(rows, ('precio_referencia',))
+
+    @classmethod
+    def _precio_unitario_a_float(cls, rows: list) -> list:
         """Convierte precio_unitario de Decimal a float en una lista de filas."""
-        for r in rows:
-            if r.get('precio_unitario') and isinstance(r['precio_unitario'], Decimal):
-                r['precio_unitario'] = float(r['precio_unitario'])
-        return rows
+        return cls._decimals_a_float(rows, ('precio_unitario',))
 
     async def get_vinculos_interno_por_xml(self, conn, id_xml: UUID) -> list:
         rows = await self.db.get_vinculos_interno_por_xml(conn, id_xml)

@@ -11,6 +11,7 @@ from typing import Optional, List
 
 from core.bom.db_compras import BomComprasDBMixin
 from core.bom.schemas import EstatusBOM
+from core.materials.db_service import interno_similitud_expr_sql, interno_similitud_where_sql
 
 logger = logging.getLogger("BOM.DBService")
 
@@ -1329,6 +1330,8 @@ class BomDBService(BomComprasDBMixin):
                    i.moneda,
                    i.tipo_partida,
                    i.orden,
+                   i.lock_version,
+                   i.id_material_interno,
                    c.nombre AS categoria_nombre,
                    COALESCE(
                        string_agg(DISTINCT g.codigo, ', ' ORDER BY g.codigo),
@@ -1346,6 +1349,89 @@ class BomDBService(BomComprasDBMixin):
             ORDER BY i.orden, i.created_at
         """, id_bom)
         return [dict(r) for r in rows]
+
+    async def get_items_por_ids_para_bom(
+        self, conn, id_bom: UUID, item_ids: List[UUID]
+    ) -> List[dict]:
+        """Items solicitados que realmente pertenecen a id_bom (protege contra IDOR:
+        un id_item de otro BOM simplemente no aparece en el resultado)."""
+        rows = await conn.fetch("""
+            SELECT id_item, precio_unitario, moneda, lock_version, activo,
+                   COALESCE(tipo_origen_item, 'BASE') AS tipo_origen_item,
+                   id_material_interno
+            FROM tb_bom_items
+            WHERE id_bom = $1 AND id_item = ANY($2::uuid[])
+        """, id_bom, item_ids)
+        return [dict(r) for r in rows]
+
+    async def actualizar_precios_items_compras_cas_batch(
+        self, conn, entradas: List[tuple],
+    ) -> List[UUID]:
+        """CAS a nivel de item sobre tb_bom_items.lock_version (columna existente,
+        sin otro consumidor hoy) — evita la colision falsa de un CAS a nivel de BOM
+        completo entre Compras e Ingenieria/Construccion editando items distintos.
+        Un solo UPDATE con arrays desanidados en vez de N round-trips secuenciales.
+        `entradas` es una lista de tuplas
+        (id_item, precio_unitario, moneda, lock_version_esperado).
+        Devuelve los id_item cuyo CAS tuvo exito."""
+        if not entradas:
+            return []
+        ids = [e[0] for e in entradas]
+        precios = [e[1] for e in entradas]
+        monedas = [e[2] for e in entradas]
+        locks = [e[3] for e in entradas]
+        rows = await conn.fetch("""
+            UPDATE tb_bom_items i
+            SET precio_unitario = v.precio_unitario,
+                moneda = v.moneda,
+                origen_precio = 'MANUAL',
+                lock_version = i.lock_version + 1,
+                updated_at = now()
+            FROM (
+                SELECT unnest($1::uuid[]) AS id_item,
+                       unnest($2::numeric[]) AS precio_unitario,
+                       unnest($3::text[]) AS moneda,
+                       unnest($4::int[]) AS lock_version_esperado
+            ) v
+            WHERE i.id_item = v.id_item AND i.lock_version = v.lock_version_esperado
+            RETURNING i.id_item
+        """, ids, precios, monedas, locks)
+        return [r["id_item"] for r in rows]
+
+    async def actualizar_precio_catalogo_interno(
+        self, conn, id_material_interno: UUID, precio_referencia, moneda: str,
+        user_id: UUID,
+    ) -> bool:
+        """Doble escritura opt-in (checkbox del modal): actualiza el precio de
+        referencia global del catalogo interno, no solo el item del BOM."""
+        row = await conn.fetchrow("""
+            UPDATE tb_cat_materiales
+            SET precio_referencia = $1,
+                moneda = $2,
+                actualizado_por = $3,
+                updated_at = now()
+            WHERE id = $4 AND activo = TRUE
+            RETURNING id
+        """, precio_referencia, moneda, user_id, id_material_interno)
+        return row is not None
+
+    async def actualizar_precios_catalogo_interno_batch(
+        self, conn, entradas: List[tuple],
+    ) -> None:
+        """Version en lote de `actualizar_precio_catalogo_interno` via executemany
+        (un solo pipeline de statements preparados en vez de N round-trips).
+        `entradas` es una lista de tuplas
+        (precio_referencia, moneda, user_id, id_material_interno)."""
+        if not entradas:
+            return
+        await conn.executemany("""
+            UPDATE tb_cat_materiales
+            SET precio_referencia = $1,
+                moneda = $2,
+                actualizado_por = $3,
+                updated_at = now()
+            WHERE id = $4 AND activo = TRUE
+        """, entradas)
 
     async def sincronizar_costos_catalogo(self, conn, id_bom: UUID) -> List[dict]:
         """Sincroniza precio_unitario de items BASE sin costo desde el catalogo interno.
@@ -1480,8 +1566,12 @@ class BomDBService(BomComprasDBMixin):
         return [dict(row) for row in rows]
 
     async def update_item(self, conn, id_item: UUID, **campos) -> dict:
-        """Actualiza campos de un item. Solo actualiza los campos proporcionados."""
-        sets = ["updated_at = NOW()"]
+        """Actualiza campos de un item. Solo actualiza los campos proporcionados.
+
+        Incrementa lock_version igual que actualizar_precios_items_compras_cas_batch:
+        ambas rutas escriben precio_unitario/moneda sobre la misma fila y deben
+        invalidarse mutuamente ante ediciones concurrentes."""
+        sets = ["updated_at = NOW()", "lock_version = lock_version + 1"]
         params = [id_item]
         idx = 2
 
@@ -2142,6 +2232,25 @@ class BomDBService(BomComprasDBMixin):
             valor_anterior, valor_nuevo, version_bom, realizado_por)
         return dict(row)
 
+    async def registrar_historial_batch(self, conn, entradas: List[tuple]) -> None:
+        """Version en lote de `registrar_historial` via executemany. `entradas` es
+        una lista de tuplas
+        (id_bom, id_item, accion, campo_modificado, valor_anterior, valor_nuevo,
+        version_bom, realizado_por)."""
+        if not entradas:
+            return
+        await conn.executemany("""
+            INSERT INTO tb_bom_historial (
+                id_bom, id_paquete, id_linea_bom, id_item, accion,
+                campo_modificado, valor_anterior, valor_nuevo, version_bom,
+                realizado_por
+            )
+            SELECT $1, bom.id_paquete, item.id_linea_bom, $2, $3, $4, $5, $6, $7, $8
+            FROM tb_bom bom
+            LEFT JOIN tb_bom_items item ON item.id_item = $2 AND item.id_bom = bom.id_bom
+            WHERE bom.id_bom = $1
+        """, entradas)
+
     async def get_historial_by_bom(self, conn, id_bom: UUID) -> List[dict]:
         """Lista historial de cambios de un BOM."""
         rows = await conn.fetch("""
@@ -2389,10 +2498,7 @@ class BomDBService(BomComprasDBMixin):
                     NULL::date,
                     'INTERNO'::text,
                     c.moneda,
-                    GREATEST(
-                        similarity(c.descripcion_norm, $3),
-                        word_similarity($3, c.descripcion_norm)
-                    ),
+                    {interno_similitud_expr_sql('c.descripcion_norm', '$3')},
                     NULL::text,
                     NULL::text,
                     0                                                      AS prioridad
@@ -2400,8 +2506,7 @@ class BomDBService(BomComprasDBMixin):
                 LEFT JOIN tb_cat_unidades_medida u   ON u.id  = c.id_unidad_medida
                 LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
                 WHERE c.activo = TRUE
-                  AND (c.descripcion_norm ILIKE '%' || $3 || '%'
-                       OR word_similarity($3, c.descripcion_norm) >= $2)
+                  AND {interno_similitud_where_sql('c.descripcion_norm', '$3', '$2')}
                   AND NOT EXISTS (
                       SELECT 1 FROM tb_materiales_interno_xml v
                       WHERE v.id_material_interno = c.id
@@ -2417,7 +2522,7 @@ class BomDBService(BomComprasDBMixin):
         if not rows and offset > 0:
             # COUNT(*) OVER() viaja en las filas devueltas; si el offset deja la pagina vacia
             # no hay fila de la cual leer el total real, por eso se recalcula aparte.
-            total = await conn.fetchval("""
+            total = await conn.fetchval(f"""
                 WITH xml_dedup AS (
                     SELECT DISTINCT ON (m.descripcion_proveedor) m.id
                     FROM tb_materiales_historial m
@@ -2431,8 +2536,7 @@ class BomDBService(BomComprasDBMixin):
                     SELECT c.id
                     FROM tb_cat_materiales c
                     WHERE c.activo = TRUE
-                      AND (c.descripcion_norm ILIKE '%' || $3 || '%'
-                           OR word_similarity($3, c.descripcion_norm) >= $2)
+                      AND {interno_similitud_where_sql('c.descripcion_norm', '$3', '$2')}
                       AND NOT EXISTS (
                           SELECT 1 FROM tb_materiales_interno_xml v
                           WHERE v.id_material_interno = c.id

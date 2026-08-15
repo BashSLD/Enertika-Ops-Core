@@ -1,4 +1,7 @@
 {# Fila individual de un item del BOM #}
+{% with stats=estadisticas_oob %}
+{% include "bom/partials/_estadisticas_oob.html" %}
+{% endwith %}
 {% if warning_message %}
 {% with message=warning_message, type='warning', title='Costo estimado pendiente' %}
 {% include "shared/toast.html" %}
@@ -12,7 +15,9 @@
 {% set puede_editar_item = capacidades.editar_base|default(false) or capacidades.editar_ejecucion|default(false) %}
 {% set puede_eliminar_item = capacidades.eliminar_items|default(false) %}
 {% set tiene_precio = item.precio_unitario and item.precio_unitario|float > 0 %}
-{% set costo_mxn_resuelto = item.costo_mxn if (item.moneda == 'USD' and item.costo_mxn) else (item.importe if (item.moneda == 'MXN' and tiene_precio) else '') %}
+{% set costo_mxn_total = (item.costo_mxn|float * item.cantidad|float) if item.costo_mxn else none %}
+{% set tc_item = (item.costo_mxn|float / item.precio_unitario|float) if (item.costo_mxn and item.precio_unitario and item.precio_unitario|float > 0) else none %}
+{% set costo_mxn_resuelto = ('%.2f'|format(costo_mxn_total)) if (item.moneda == 'USD' and costo_mxn_total is not none) else (item.importe if (item.moneda == 'MXN' and tiene_precio) else '') %}
 <tr id="item-{{ item.id_item }}"
     data-grupos="{{ grupos_filtro | join(',') if grupos_filtro else '' }}"
     data-tipo-partida="{{ item.tipo_partida or 'MATERIAL' }}"
@@ -152,7 +157,8 @@
                         hx-vals='{"lock_version": "{{ bom.lock_version }}"}'
                         data-bom-lock-vals
                         hx-confirm="Eliminar este item del BOM?" @click="openMenu = false"
-                        class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors font-medium">
+                        hx-indicator="#global-loading-overlay" hx-disabled-elt="this" hx-sync="this:drop"
+                        class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors font-medium disabled:opacity-50 disabled:cursor-wait">
                         <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -181,9 +187,13 @@
     <td class="px-3 py-2 text-xs text-gray-600">{{ item.unidad_medida or '--' }}</td>
     <td class="px-3 py-2 text-sm text-right font-mono">
         {% if item.importe and item.precio_unitario and item.precio_unitario|float > 0 %}
+        {% if item.moneda == 'USD' and costo_mxn_total is not none %}
+        <span {% if tc_item %}title="Tipo de cambio usado: {{ "{:,.4f}".format(tc_item) }} MXN/USD"{% endif %} class="cursor-help">${{ "{:,.2f}".format(costo_mxn_total) }} MXN</span>
+        <div class="text-[10px] text-gray-400 font-normal">≈ ${{ "{:,.2f}".format(item.importe|float) }} USD</div>
+        {% elif item.moneda == 'USD' %}
+        ${{ "{:,.2f}".format(item.importe|float) }} USD
+        {% else %}
         ${{ "{:,.2f}".format(item.importe|float) }}
-        {% if item.costo_mxn and item.moneda == 'USD' %}
-        <div class="text-[10px] text-gray-400 font-normal">≈ ${{ "{:,.2f}".format(item.costo_mxn|float) }} MXN</div>
         {% endif %}
         {% else %}
         <span class="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
@@ -199,14 +209,22 @@
         {% set real_total = item.gasto_real if item.gasto_real is defined else none %}
         {% endif %}
         {% if real_total is not none %}
+        {% set real_total_mxn = (item.costo_real_mxn|float * item.cantidad|float) if (tiene_precio_real and item.moneda_real == 'USD' and item.costo_real_mxn) else none %}
         <span class="{% if item.importe and real_total|float > item.importe|float %}text-red-600{% else %}text-green-600{% endif %}">
+            {% if real_total_mxn is not none %}
+            ${{ "{:,.2f}".format(real_total_mxn) }} MXN
+            {% elif tiene_precio_real and item.moneda_real == 'USD' %}
+            ${{ "{:,.2f}".format(real_total|float) }} USD
+            {% else %}
             ${{ "{:,.2f}".format(real_total|float) }}
+            {% endif %}
         </span>
         {% if tiene_precio_real %}
         <div class="text-[10px] text-gray-400 font-normal">
+            {% if real_total_mxn is not none %}
+            ≈ ${{ "{:,.2f}".format(real_total|float) }} USD
+            {% else %}
             {{ item.moneda_real or 'MXN' }}
-            {% if item.costo_real_mxn and item.moneda_real == 'USD' %}
-            - MXN ${{ "{:,.2f}".format((item.costo_real_mxn|float) * (item.cantidad|float)) }}
             {% endif %}
         </div>
         {% endif %}

@@ -1721,6 +1721,44 @@ class ComprasDBService:
         """)
         return [dict(r) for r in rows]
 
+    async def get_proyectos_bom_pendientes_precio(self, conn) -> list:
+        """Una fila por paquete con BOM en BORRADOR que tiene items base sin costo.
+
+        Mismo JOIN por cabeza_trabajo_id/estado_paquete='ACTIVO' que get_proyectos_con_bom
+        (evita traer versiones historicas del paquete), y el mismo predicado de "sin costo"
+        que core.bom.db_service.get_items_sin_costo_bom (excluye items de adenda)."""
+        rows = await conn.fetch("""
+            SELECT
+                p.id_proyecto,
+                p.proyecto_id_estandar,
+                o.nombre_proyecto,
+                paquete.id_paquete,
+                paquete.codigo AS paquete_codigo,
+                paquete.nombre AS paquete_nombre,
+                paquete.tipo_alcance,
+                b.id_bom,
+                b.estatus AS bom_estatus,
+                b.version AS bom_version,
+                pendientes.total_pendientes
+            FROM tb_bom_paquetes paquete
+            JOIN tb_bom b ON b.id_bom = paquete.cabeza_trabajo_id
+            JOIN tb_proyectos_gate p ON p.id_proyecto = b.id_proyecto
+            LEFT JOIN tb_oportunidades o ON o.id_oportunidad = p.id_oportunidad
+            JOIN LATERAL (
+                SELECT COUNT(*) AS total_pendientes
+                FROM tb_bom_items i
+                WHERE i.id_bom = b.id_bom
+                  AND i.activo = TRUE
+                  AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
+                  AND (i.precio_unitario IS NULL OR i.precio_unitario <= 0)
+            ) pendientes ON TRUE
+            WHERE paquete.estado_paquete = 'ACTIVO'
+              AND b.estatus = 'BORRADOR'
+              AND pendientes.total_pendientes > 0
+            ORDER BY p.proyecto_id_estandar, paquete.codigo, paquete.id_paquete
+        """)
+        return [dict(r) for r in rows]
+
     # ─── MINI ALMACÉN (Gap 9) ─────────────────────────────
 
     async def get_proveedores_activos(self, conn) -> list:

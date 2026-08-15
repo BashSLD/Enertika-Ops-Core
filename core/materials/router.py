@@ -307,6 +307,26 @@ async def buscar_materiales_similares(
     )
 
 
+@router.get("/similares-internos", response_class=HTMLResponse)
+async def buscar_internos_similares(
+    request: Request,
+    q: str = Query(..., min_length=3, description="Texto de busqueda"),
+    threshold: float = Query(0.3, ge=0.1, le=1.0),
+    conn=Depends(get_db_connection),
+    service: MaterialsService = Depends(get_materials_service),
+    _=Depends(require_materials_view_access),
+):
+    """Homologacion/anti-duplicados: posibles coincidencias en el catalogo interno
+    (tb_cat_materiales) antes de dar de alta un material nuevo. Distinto de /similar,
+    que busca en el historial XML de proveedor, no en el catalogo."""
+    resultados = await service.buscar_internos_similares(conn, q, threshold=threshold, limit=10)
+
+    return templates.TemplateResponse(
+        request, "materials/partials/similar_internos_results.html",
+        {"resultados": resultados, "query": q}
+    )
+
+
 # ========================================
 # CATALOGOS
 # ========================================

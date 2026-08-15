@@ -207,7 +207,7 @@
                     hx-swap="afterbegin"
                     @htmx:after-request="if($event.detail.successful){ cerrarModal(); }"
                     class="space-y-4">
-                    {% include "materials/partials/_form_interno.html" %}
+                    {% with modo_edicion=false %}{% include "materials/partials/_form_interno.html" %}{% endwith %}
                     <div class="flex justify-end gap-3 pt-2">
                         <button type="submit"
                             class="bg-[#00BABB] hover:bg-[#009999] text-white px-5 py-2 rounded-lg text-sm font-semibold">
@@ -222,7 +222,7 @@
                     hx-swap="outerHTML"
                     @htmx:after-request="if($event.detail.successful){ cerrarModal(); }"
                     class="space-y-4">
-                    {% include "materials/partials/_form_interno.html" %}
+                    {% with modo_edicion=true %}{% include "materials/partials/_form_interno.html" %}{% endwith %}
                     <div class="flex justify-end gap-3 pt-2">
                         <button type="submit"
                             class="bg-[#123456] hover:bg-[#0d2640] text-white px-5 py-2 rounded-lg text-sm font-semibold">

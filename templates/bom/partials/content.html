@@ -210,29 +210,8 @@
     {% set puede_cotizar_seleccionados = not solo_lectura|default(false) and es_compras_editor and bom.estatus == 'APROBADO_CONST' %}
     {% set puede_agregar_fuera_scope = not solo_lectura|default(false) and (area_editor == 'construccion' or es_compras_editor) and bom.estatus == 'APROBADO_FINAL' %}
     {% set puede_refrescar_costos = capacidades.refrescar_costos|default(false) and estadisticas.items_sin_costo %}
-    {% if bom and (puede_cotizar_seleccionados or puede_agregar_fuera_scope or puede_refrescar_costos) %}
+    {% if bom and (puede_cotizar_seleccionados or puede_agregar_fuera_scope) %}
     <div class="mb-4 flex gap-2">
-        {% if puede_refrescar_costos %}
-        <button type="button"
-            hx-post="/bom/{{ bom.id_bom }}/refrescar-costos"
-            hx-vals='{"lock_version": "{{ bom.lock_version }}"}'
-            data-bom-lock-vals
-            hx-target="#tabla-bom-items" hx-swap="innerHTML"
-            hx-confirm="¿Actualizar el presupuesto de los items sin costo con el precio actual del catalogo interno?"
-            hx-indicator="#refrescar-costos-spinner"
-            hx-disabled-elt="this"
-            hx-sync="this:drop"
-            class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 transition shadow-sm"
-            title="Actualiza items sin costo con el precio vigente del catalogo interno">
-            <span id="refrescar-costos-spinner" class="htmx-indicator mr-1.5">
-                {{ spinner_icon('w-4 h-4') }}
-            </span>
-            <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Refrescar costos
-        </button>
-        {% endif %}
         {% if puede_agregar_fuera_scope %}
         <button type="button"
             hx-get="/bom/{{ bom.id_bom }}/adenda-modal?accion=fuera_scope"
@@ -291,15 +270,40 @@
                     class="px-3 py-0.5 text-xs font-medium rounded-full transition">{{ tipo_labels_filtro[t] }}</button>
                 {% endfor %}
             </div>
-            {% if muestra_agregar_item %}
-            <button type="button"
-                onclick="window.dispatchEvent(new CustomEvent('abrir-modal-agregar-item-bom'))"
-                class="inline-flex items-center shrink-0 px-3 py-2 text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition shadow-sm">
-                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                </svg>
-                Agregar Item
-            </button>
+            {% if muestra_agregar_item or puede_refrescar_costos %}
+            <div class="flex gap-2 shrink-0">
+                {% if puede_refrescar_costos %}
+                <button type="button"
+                    hx-post="/bom/{{ bom.id_bom }}/refrescar-costos"
+                    hx-vals='{"lock_version": "{{ bom.lock_version }}"}'
+                    data-bom-lock-vals
+                    hx-target="#tabla-bom-items" hx-swap="innerHTML"
+                    hx-confirm="¿Actualizar el presupuesto de los items sin costo con el precio actual del catalogo interno?"
+                    hx-indicator="#refrescar-costos-spinner"
+                    hx-disabled-elt="this"
+                    hx-sync="this:drop"
+                    class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 transition shadow-sm"
+                    title="Actualiza items sin costo con el precio vigente del catalogo interno">
+                    <span id="refrescar-costos-spinner" class="htmx-indicator mr-1.5">
+                        {{ spinner_icon('w-4 h-4') }}
+                    </span>
+                    <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refrescar costos
+                </button>
+                {% endif %}
+                {% if muestra_agregar_item %}
+                <button type="button"
+                    onclick="window.dispatchEvent(new CustomEvent('abrir-modal-agregar-item-bom'))"
+                    class="inline-flex items-center shrink-0 px-3 py-2 text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition shadow-sm">
+                    <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Agregar Item
+                </button>
+                {% endif %}
+            </div>
             {% endif %}
         </div>
     </div>
@@ -1111,11 +1115,19 @@
 
                         {# Entrada manual #}
                         <div x-show="modo === 'manual'" class="space-y-3">
+                            <div class="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+                                <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                <span>Este material se agrega solo a este BOM; no se guarda en el catalogo de materiales.</span>
+                            </div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Descripcion *</label>
                             <textarea name="descripcion" required rows="2" x-model="descripcion"
                                 :disabled="modo !== 'manual'"
+                                {% include "materials/partials/_similar_internos_hx_attrs.html" %}
                                 class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none"
                                 placeholder="Detalle del material o equipo"></textarea>
+                            <div class="material-similar-results text-xs"></div>
 
                             <div class="grid grid-cols-2 gap-3">
                                 <div>

@@ -1,0 +1,80 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon, spinner_overlay %}
+{# Modal de Compras para capturar precio/moneda de items BASE sin costo (BOM en BORRADOR).
+   Patron de modal_gate_paneles.html: backdrop modal-overlay-layer, X sin boton Cancelar
+   redundante, spinner_icon en el boton de accion. #}
+<div id="modal-precios-pendientes-compras" class="modal-overlay-layer fixed inset-0 z-50 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+    _="on keyup[key=='Escape'] from window remove me">
+    <div class="relative bg-white rounded-xl shadow-2xl max-w-3xl w-full flex flex-col max-h-[90dvh]">
+        {{ spinner_overlay('precios-compras-overlay') }}
+        <div class="flex items-center justify-between p-6 border-b shrink-0">
+            <div>
+                <h3 class="text-lg font-bold text-gray-900">Actualizar precios pendientes</h3>
+                <p class="text-xs text-gray-500 mt-0.5">
+                    {{ bom.paquete_codigo }} — {{ bom.paquete_nombre }} (v{{ bom.version }})
+                </p>
+            </div>
+            <button type="button" onclick="document.getElementById('compras-modal-container').innerHTML=''"
+                class="p-2 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+
+        <form hx-post="/bom/{{ bom.id_bom }}/precios-pendientes-compras"
+            hx-target="#tab-proyectos-bom-pendientes-precio" hx-swap="innerHTML"
+            hx-indicator="#precios-compras-overlay"
+            hx-disabled-elt="#precios-compras-guardar"
+            hx-on::after-request="if(event.detail.successful) document.getElementById('compras-modal-container').innerHTML=''"
+            class="flex flex-col flex-1 min-h-0">
+
+            <div class="p-6 flex-1 min-h-0 overflow-y-auto space-y-3">
+                <p class="text-xs text-gray-500">
+                    Marca los items a actualizar, captura su precio y moneda. Los items sin marcar
+                    se dejan sin cambios.
+                </p>
+                {% for item in items %}
+                <div class="flex items-start gap-3 rounded-lg border border-gray-200 p-3">
+                    <input type="checkbox" name="item_ids" value="{{ item.id_item }}"
+                        class="mt-1 rounded border-gray-300 text-amber-600 focus:ring-amber-500">
+                    <input type="hidden" name="lock_version_{{ item.id_item }}" value="{{ item.lock_version or 0 }}">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm text-gray-800 truncate" title="{{ item.descripcion }}">{{ item.descripcion }}</p>
+                        <p class="text-xs text-gray-400">{{ item.cantidad }} {{ item.unidad_medida or '' }}{% if item.categoria_nombre %} — {{ item.categoria_nombre }}{% endif %}</p>
+                        <div class="mt-2 grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Precio unitario</label>
+                                <input type="number" name="precio_unitario_{{ item.id_item }}" step="0.0001" min="0.0001"
+                                    placeholder="0.00"
+                                    class="w-full rounded-lg border-gray-300 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Moneda</label>
+                                <select name="moneda_{{ item.id_item }}" class="w-full rounded-lg border-gray-300 text-sm">
+                                    <option value="MXN">MXN — Peso mexicano</option>
+                                    <option value="USD">USD — Dolar americano</option>
+                                </select>
+                            </div>
+                        </div>
+                        {% if item.id_material_interno %}
+                        <label class="mt-2 flex items-center gap-1.5 text-xs text-gray-500">
+                            <input type="checkbox" name="actualizar_catalogo_{{ item.id_item }}" value="true"
+                                class="rounded border-gray-300 text-amber-600 focus:ring-amber-500">
+                            Tambien actualizar el precio de referencia en el catalogo interno
+                        </label>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="flex justify-end gap-2 p-6 pt-4 border-t shrink-0">
+                <button type="submit" id="precios-compras-guardar"
+                    class="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg text-white bg-amber-600 hover:bg-amber-700 transition font-medium disabled:opacity-60 disabled:cursor-not-allowed">
+                    <span class="htmx-indicator">{{ spinner_icon('w-4 h-4') }}</span>
+                    Guardar precios
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

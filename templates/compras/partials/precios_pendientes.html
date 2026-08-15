@@ -1,0 +1,82 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+{% if bulk_toast %}
+{% with message=bulk_toast.message, type=bulk_toast.type, title=bulk_toast.title %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+
+<div id="precios-pendientes-container" class="animate-fade-in-down">
+    {% if deshabilitada %}
+    <div class="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
+        <p class="text-sm text-gray-500">Esta seccion esta deshabilitada temporalmente.</p>
+    </div>
+    {% elif proyectos %}
+    <div class="overflow-x-auto bg-white rounded-xl border border-gray-200 shadow-sm">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID Proyecto</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paquete</th>
+                    <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Version</th>
+                    <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Items sin costo</th>
+                    <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">Accion</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for p in proyectos %}
+                <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-4 py-3 text-sm font-mono text-gray-800">{{ p.proyecto_id_estandar }}</td>
+                    <td class="px-4 py-3 text-sm text-gray-800 max-w-xs truncate" title="{{ p.nombre_proyecto }}">{{ p.nombre_proyecto or '—' }}</td>
+                    <td class="px-4 py-3 text-sm text-gray-800">
+                        <span class="font-semibold">{{ p.paquete_codigo }} - {{ p.paquete_nombre }}</span>
+                        <span class="block text-xs text-gray-500">{{ p.tipo_alcance }}</span>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-center text-gray-600">v{{ p.bom_version }}</td>
+                    <td class="px-4 py-3 text-center">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">
+                            {{ p.total_pendientes }} pendiente{{ 's' if p.total_pendientes != 1 }}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        <button type="button"
+                            hx-get="/bom/{{ p.id_bom }}/precios-pendientes-compras/modal"
+                            hx-target="#compras-modal-container"
+                            hx-swap="innerHTML"
+                            hx-indicator="#precios-modal-spinner-{{ p.id_bom }}"
+                            hx-disabled-elt="this"
+                            hx-sync="this:drop"
+                            class="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-amber-600 hover:bg-amber-700 transition shadow-sm">
+                            <span id="precios-modal-spinner-{{ p.id_bom }}" class="htmx-indicator">
+                                {{ spinner_icon('w-3 h-3') }}
+                            </span>
+                            Actualizar precios
+                        </button>
+                        <button hx-get="/bom/paquetes/{{ p.id_paquete }}/ui"
+                            hx-target="#main-content"
+                            hx-push-url="true"
+                            hx-indicator="#bom-precios-spinner-{{ p.id_paquete }}"
+                            hx-disabled-elt="this"
+                            hx-sync="this:drop"
+                            class="mt-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-gray-600 border border-gray-300 hover:bg-gray-50 transition shadow-sm">
+                            <span id="bom-precios-spinner-{{ p.id_paquete }}" class="htmx-indicator">
+                                {{ spinner_icon('w-3 h-3') }}
+                            </span>
+                            Ver BOM
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
+        <svg class="mx-auto w-12 h-12 text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        <p class="text-sm text-gray-500">No hay BOM en borrador con items pendientes de costo.</p>
+    </div>
+    {% endif %}
+</div>

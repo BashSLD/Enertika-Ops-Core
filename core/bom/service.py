@@ -41,6 +41,9 @@ CAMPOS_CONSTRUCCION_EJECUCION = {
 }
 CAMPOS_CONSTRUCCION = CAMPOS_CONSTRUCCION_BASE | CAMPOS_CONSTRUCCION_EJECUCION
 CAMPOS_BASE_BOM = CAMPOS_INGENIERIA | CAMPOS_CONSTRUCCION_BASE
+# Campos que entran en `_calcular_estadisticas_costo`: solo estos justifican
+# refrescar el grid de estadisticas OOB tras editar un item.
+CAMPOS_AFECTAN_COSTO_ESTIMADO = {'precio_unitario', 'moneda', 'cantidad'}
 CAMPOS_COMPRAS = {
     'id_proveedor', 'tipo_entrega', 'fecha_estimada_entrega',
     'fecha_llegada_real', 'comentarios', 'comentarios_operativos',
@@ -75,6 +78,8 @@ ESTATUS_ADENDA_PENDIENTE_INGENIERIA = "PENDIENTE_INGENIERIA"
 ESTATUS_ADENDA_TERMINALES = {ESTATUS_ADENDA_APROBADA, "RECHAZADA", "CANCELADA"}
 TIPOS_PROPUESTA_CAMBIO = {"OBRA", "CONSTRUCCION"}
 ACCIONES_PROPUESTA_CAMBIO = {"AGREGAR", "EDITAR", "ELIMINAR"}
+MONEDAS_VALIDAS = {"MXN", "USD"}
+FLAG_ACTUALIZACION_PRECIOS_COMPRAS = "compras.actualizacion_precios_habilitada"
 ESTATUS_PROPUESTA_CAMBIO = {EstatusBOM.EN_REVISION_OBRA, EstatusBOM.EN_REVISION_CONST}
 ESTATUS_BASE_CONSTRUCCION_BLOQUEADA = {
     EstatusBOM.EN_REVISION_OBRA,
@@ -1047,6 +1052,139 @@ class BomService(BomComprasServiceMixin):
     async def get_items_sin_costo(self, conn, id_bom: UUID) -> list[dict]:
         """Lista items activos sin costo asignado."""
         return await self.db.get_items_sin_costo_bom(conn, id_bom)
+
+    async def resolver_costos_pendientes_compras(
+        self, conn, id_bom: UUID, user_id: UUID, items_payload: List[dict],
+    ) -> dict:
+        """Compras captura precio_unitario/moneda (presupuesto) sobre items BASE sin
+        costo de un BOM en BORRADOR — un flujo nuevo y explicito, no una variante de
+        `editar_item(area_editor='compras')`: ese metodo redirige precio_unitario/moneda
+        a precio_real/moneda_real (costo real, no presupuesto), asi que reusarlo
+        escribiria en la columna equivocada sin error visible.
+
+        CAS a nivel de item (tb_bom_items.lock_version) en vez del CAS de BOM completo
+        de `_reservar_mutacion_base` — evita que un guardado de Compras sobre el item X
+        invalide el lock_version que Ingenieria tiene cargado editando el item Y.
+
+        `get_bom_for_update` SI se usa (bloquea la fila del BOM/paquete) para releer
+        `estatus` fresco dentro de la misma transaccion y serializar contra una
+        transicion de estado concurrente — sin la semantica de CAS por version que
+        tiene `incrementar_lock_bom_cas` (aqui no se compara ni incrementa lock_version
+        de tb_bom, solo se usa el lock de fila como exclusion mutua).
+
+        Patron validar-todo-luego-aplicar-subconjunto (core.materials.service
+        `_parse_y_validar`), no todo-o-nada: un item invalido no descarta el lote
+        completo, se reporta en `rechazados` con motivo."""
+        if not items_payload:
+            raise ValueError("No hay items para actualizar")
+
+        async with self._transaction(conn):
+            bom = await self.db.get_bom_for_update(conn, id_bom)
+            if not bom:
+                raise ValueError("BOM no encontrado")
+            if bom["estatus"] != EstatusBOM.BORRADOR.value:
+                raise ValueError(
+                    "El BOM ya avanzo de etapa; tus cambios no se aplicaron. "
+                    "Contacta a Ingenieria."
+                )
+            if bom.get("estado_paquete") != "ACTIVO":
+                raise ValueError(
+                    "Este paquete BOM ya no esta activo; tus cambios no se aplicaron."
+                )
+
+            ids_solicitados = [entrada["id_item"] for entrada in items_payload]
+            items_actuales = {
+                item["id_item"]: item
+                for item in await self.db.get_items_por_ids_para_bom(
+                    conn, id_bom, ids_solicitados
+                )
+            }
+
+            rechazados: List[dict] = []
+            validos: List[dict] = []
+            for entrada in items_payload:
+                id_item = entrada["id_item"]
+                actual = items_actuales.get(id_item)
+                # `actual is None` cubre tanto item inexistente como -por el WHERE
+                # id_bom=$1 de get_items_por_ids_para_bom- un id_item de OTRO BOM
+                # colado en el payload (proteccion IDOR: nunca se toca).
+                if actual is None:
+                    rechazados.append({"id_item": id_item, "motivo": "Item no encontrado en este BOM"})
+                    continue
+                if not self.item_sin_costo(actual):
+                    rechazados.append({
+                        "id_item": id_item,
+                        "motivo": "Este item ya no aplica (fue resuelto, no es base, o esta inactivo)",
+                    })
+                    continue
+
+                try:
+                    precio = self._decimal_o_error(
+                        entrada.get("precio_unitario"), "El precio unitario no puede ser negativo"
+                    )
+                except ValueError as exc:
+                    rechazados.append({"id_item": id_item, "motivo": str(exc)})
+                    continue
+                if precio <= 0:
+                    rechazados.append({"id_item": id_item, "motivo": "El precio debe ser mayor a cero"})
+                    continue
+                moneda = entrada.get("moneda")
+                if moneda not in MONEDAS_VALIDAS:
+                    rechazados.append({"id_item": id_item, "motivo": "Selecciona la moneda"})
+                    continue
+
+                validos.append({
+                    "id_item": id_item, "actual": actual, "precio": precio,
+                    "moneda": moneda, "entrada": entrada,
+                })
+
+            # Un solo UPDATE en lote (arrays desanidados) en vez de un CAS por item:
+            # ver `actualizar_precios_items_compras_cas_batch`.
+            actualizados_ids = set(await self.db.actualizar_precios_items_compras_cas_batch(
+                conn,
+                [
+                    (v["id_item"], v["precio"], v["moneda"], v["entrada"].get("lock_version", -1))
+                    for v in validos
+                ],
+            ))
+
+            aplicados: List[UUID] = []
+            historial_entradas: List[tuple] = []
+            catalogo_entradas: List[tuple] = []
+            for v in validos:
+                id_item = v["id_item"]
+                if id_item not in actualizados_ids:
+                    rechazados.append({
+                        "id_item": id_item,
+                        "motivo": "Este item fue modificado por alguien mas; recarga e intenta de nuevo",
+                    })
+                    continue
+
+                actual, precio, moneda = v["actual"], v["precio"], v["moneda"]
+                for campo, valor_anterior, valor_nuevo in (
+                    ("precio_unitario", actual.get("precio_unitario"), precio),
+                    ("moneda", actual.get("moneda"), moneda),
+                ):
+                    historial_entradas.append((
+                        id_bom, id_item, AccionHistorial.EDITADO,
+                        CAMPO_LABELS.get(campo, campo),
+                        str(valor_anterior) if valor_anterior is not None else None,
+                        str(valor_nuevo), bom["version"], user_id,
+                    ))
+
+                if v["entrada"].get("actualizar_catalogo") and actual.get("id_material_interno"):
+                    catalogo_entradas.append(
+                        (precio, moneda, user_id, actual["id_material_interno"])
+                    )
+
+                aplicados.append(id_item)
+
+            # Historial y catalogo tambien en lote (executemany): ver
+            # `registrar_historial_batch` / `actualizar_precios_catalogo_interno_batch`.
+            await self.db.registrar_historial_batch(conn, historial_entradas)
+            await self.db.actualizar_precios_catalogo_interno_batch(conn, catalogo_entradas)
+
+        return {"aplicados": aplicados, "rechazados": rechazados}
 
     async def validar_sin_costos_pendientes(self, conn, id_bom: UUID) -> None:
         """Bloquea avances del workflow si quedan items activos sin costo."""
@@ -2303,7 +2441,7 @@ class BomService(BomComprasServiceMixin):
             if precio < 0:
                 raise ValueError("El precio unitario no puede ser negativo")
         if "precio_unitario" in campos_base and area_editor != "compras":
-            if campos_base.get("moneda") not in ("MXN", "USD"):
+            if campos_base.get("moneda") not in MONEDAS_VALIDAS:
                 raise ValueError(
                     "Selecciona la moneda del presupuesto antes de aplicar el cambio"
                 )
@@ -2513,7 +2651,7 @@ class BomService(BomComprasServiceMixin):
 
         if campo in CAMPOS_BULK_REQUIERE_MONEDA and area_editor != 'compras':
             moneda_secundaria = (valor_secundario or {}).get('moneda')
-            if moneda_secundaria not in ('MXN', 'USD'):
+            if moneda_secundaria not in MONEDAS_VALIDAS:
                 raise ValueError(
                     "Selecciona la moneda del presupuesto antes de aplicar el cambio"
                 )
@@ -3326,6 +3464,8 @@ class BomService(BomComprasServiceMixin):
         items_sin_tc = 0
         total = Decimal("0")
         total_resuelto = True
+        total_mxn_usd = Decimal("0")
+        total_usd_nativo = Decimal("0")
         for item in base_activos:
             precio = item.get("precio_unitario")
             tiene_precio = precio is not None and Decimal(str(precio)) > 0
@@ -3338,7 +3478,14 @@ class BomService(BomComprasServiceMixin):
             if moneda == "MXN":
                 total += Decimal(str(item.get("importe") or 0))
             elif moneda == "USD" and item.get("costo_mxn") is not None:
-                total += Decimal(str(item["costo_mxn"]))
+                # costo_mxn es precio unitario en MXN; se multiplica por cantidad
+                # para obtener el importe total del item (mismo patron que costo_real_mxn).
+                cantidad_raw = item.get("cantidad")
+                cantidad = Decimal(str(cantidad_raw)) if cantidad_raw is not None else Decimal("1")
+                monto_mxn = Decimal(str(item["costo_mxn"])) * cantidad
+                total += monto_mxn
+                total_mxn_usd += monto_mxn
+                total_usd_nativo += Decimal(str(item.get("importe") or 0))
             else:
                 items_sin_tc += 1
                 total_resuelto = False
@@ -3347,6 +3494,10 @@ class BomService(BomComprasServiceMixin):
             "items_con_precio": items_con_precio,
             "items_sin_costo": items_sin_costo,
             "items_sin_tc": items_sin_tc,
+            "tc_promedio": (
+                (total_mxn_usd / total_usd_nativo)
+                if total_usd_nativo and items_sin_tc == 0 else None
+            ),
         }
 
     # ─── PERMISOS BOM-ROLE ───────────────────────────────────

@@ -32,11 +32,13 @@ from core.database import get_db_connection
 from core.security import get_current_user_context
 from core.permissions import require_module_access
 from core.config import settings
+from core.config_service import ConfigService
 from core.timezone import now_mx, today_mx
 
 # Module imports
 from .service import ComprasService, get_compras_service, parse_exceso_monto_error
 from modules.proveedores.service import ProveedoresService, get_proveedores_service
+from core.bom.service import FLAG_ACTUALIZACION_PRECIOS_COMPRAS
 from .schemas import (
     ComprobanteUpdate,
     ComprobanteBulkUpdate,
@@ -232,7 +234,31 @@ async def get_proyectos_bom(
     context = Depends(get_current_user_context),
     _ = require_module_access("compras"),
 ):
-    """Lista proyectos con BOM en estatus visible para Compras (APROBADO_CONST+)."""
+    """Shell de tabs (Activos / Actualizacion de precios). Cada tab carga su propio
+    contenido via hx-get + intersect once (patron bom/partials/content.html:585-648)."""
+    actualizacion_precios_habilitada = await ConfigService.get_global_config(
+        conn, FLAG_ACTUALIZACION_PRECIOS_COMPRAS, False, bool
+    )
+    ctx = {
+        "user_name": context.get("user_name"),
+        "actualizacion_precios_habilitada": actualizacion_precios_habilitada,
+    }
+
+    is_htmx = request.headers.get("hx-request")
+    is_history_restore = request.headers.get("hx-history-restore-request")
+    if is_htmx and not is_history_restore:
+        return templates.TemplateResponse(request, "compras/partials/proyectos_bom_tabs.html", ctx)
+    return templates.TemplateResponse(request, "compras/proyectos_bom.html", ctx)
+
+
+@router.get("/proyectos-bom/activos", include_in_schema=False)
+async def get_proyectos_bom_activos(
+    request: Request,
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_module_access("compras"),
+):
+    """Partial: tab 'Activos' (BOM en estatus visible para Compras, APROBADO_CONST+)."""
     from .db_service import get_db_service
     db_svc = get_db_service()
     proyectos = await db_svc.get_proyectos_con_bom(conn)
@@ -240,6 +266,33 @@ async def get_proyectos_bom(
     return templates.TemplateResponse(
         request, "compras/partials/proyectos_bom.html",
         {"proyectos": proyectos, "user_name": context.get("user_name")}
+    )
+
+
+@router.get("/proyectos-bom/pendientes-precio", include_in_schema=False)
+async def get_proyectos_bom_pendientes_precio(
+    request: Request,
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_module_access("compras"),
+):
+    """Partial: tab 'Actualizacion de precios' (BOM en BORRADOR con items base sin costo)."""
+    habilitada = await ConfigService.get_global_config(
+        conn, FLAG_ACTUALIZACION_PRECIOS_COMPRAS, False, bool
+    )
+    if not habilitada:
+        return templates.TemplateResponse(
+            request, "compras/partials/precios_pendientes.html",
+            {"proyectos": [], "deshabilitada": True, "user_name": context.get("user_name")}
+        )
+
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+    proyectos = await db_svc.get_proyectos_bom_pendientes_precio(conn)
+
+    return templates.TemplateResponse(
+        request, "compras/partials/precios_pendientes.html",
+        {"proyectos": proyectos, "deshabilitada": False, "user_name": context.get("user_name")}
     )
 
 

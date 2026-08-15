@@ -25,6 +25,9 @@ from .service import (
     BomService,
     get_bom_service,
     CAMPOS_CONSTRUCCION_BASE,
+    CAMPOS_AFECTAN_COSTO_ESTIMADO,
+    MONEDAS_VALIDAS,
+    FLAG_ACTUALIZACION_PRECIOS_COMPRAS,
 )
 
 _ESTATUS_FASE_COMPRAS = {e.value for e in ESTATUS_COTIZABLE}
@@ -122,6 +125,7 @@ def _toast_response(
     redirect_url: Optional[str] = None,
     close_modal: bool = False,
     status_code: int = 200,
+    hx_trigger: Optional[str] = None,
 ) -> Response:
     """Retorna toast OOB sin reemplazar el contenido HTMX actual."""
     ctx = {"message": message, "type": type_, "title": title}
@@ -129,12 +133,15 @@ def _toast_response(
         ctx["redirect_url"] = redirect_url
     if close_modal:
         ctx["close_modal"] = True
+    headers = {"HX-Reswap": "none", "HX-Push-Url": "false"}
+    if hx_trigger:
+        headers["HX-Trigger"] = hx_trigger
     return templates.TemplateResponse(
         request,
         "shared/toast.html",
         ctx,
         status_code=status_code,
-        headers={"HX-Reswap": "none", "HX-Push-Url": "false"},
+        headers=headers,
     )
 
 
@@ -211,11 +218,55 @@ def _parse_bulk_valor(campo: str, raw: Optional[str]):
         return raw or None
     if campo == "moneda":
         raw = raw.upper()
-        if raw not in ("MXN", "USD"):
+        if raw not in MONEDAS_VALIDAS:
             raise ValueError("Moneda invalida; debe ser MXN o USD")
         return raw
     # Texto: unidad_medida, tipo_entrega, comentarios, tipo_partida
     return raw or None
+
+
+def _parse_precios_pendientes_compras_form(form) -> tuple[list[dict], list[dict]]:
+    """Payload por item para `resolver_costos_pendientes_compras`: cada fila trae su
+    propio lock_version (CAS por item), no uno solo compartido para todo el BOM.
+    Devuelve (payload, rechazados): una fila malformada (id/lock_version/precio
+    invalidos) se reporta en rechazados en vez de descartarse en silencio, igual
+    que los rechazos de negocio que aplica el service."""
+    from decimal import Decimal, InvalidOperation
+
+    payload = []
+    rechazados = []
+    for raw_id in form.getlist("item_ids"):
+        try:
+            id_item = UUID(raw_id)
+        except ValueError:
+            rechazados.append({"id_item": raw_id, "motivo": "Identificador de item invalido"})
+            continue
+        precio_raw = (form.get(f"precio_unitario_{raw_id}") or "").strip()
+        moneda = (form.get(f"moneda_{raw_id}") or "").strip().upper()
+        lock_raw = form.get(f"lock_version_{raw_id}")
+        try:
+            lock_version = int(lock_raw) if lock_raw not in (None, "") else None
+        except ValueError:
+            lock_version = None
+        if lock_version is None:
+            rechazados.append({"id_item": raw_id, "motivo": "Falta el lock_version del item"})
+            continue
+        if not precio_raw:
+            rechazados.append({"id_item": raw_id, "motivo": "Falta el precio unitario"})
+            continue
+        try:
+            precio = Decimal(precio_raw)
+        except InvalidOperation:
+            rechazados.append({"id_item": raw_id, "motivo": "Precio unitario invalido"})
+            continue
+        payload.append({
+            "id_item": id_item,
+            "precio_unitario": precio,
+            "moneda": moneda,
+            "lock_version": lock_version,
+            "actualizar_catalogo": form.get(f"actualizar_catalogo_{raw_id}") in ("true", "on", "1"),
+        })
+    return payload, rechazados
 
 
 def _parse_item_form_data(form) -> tuple[dict, list[int], dict[int, object]]:
@@ -1074,6 +1125,7 @@ async def agregar_item(
         ctx = _build_bom_context(
             request, context, bom,
             items=items, estadisticas=estadisticas,
+            oob_estadisticas=True,
             bulk_toast=bulk_toast,
             actualizar_lock_oob=True,
             capacidades=capacidades,
@@ -1216,9 +1268,22 @@ async def editar_item(
             else await _capacidades_actuales(conn, service, context, bom)
         )
 
+        # estadisticas_oob (no "estadisticas") a proposito: esta respuesta es solo
+        # la fila, no tabla_items.html — si se llamara "estadisticas" colisionaria
+        # con el nombre que usa el bloque OOB del grid cuando row_item.html se
+        # incluye N veces dentro del loop de tabla_items.html, duplicando el swap.
+        # Solo se recalcula si el campo editado entra en _calcular_estadisticas_costo
+        # (precio_unitario/moneda/cantidad) — el resto (fechas, comentarios, entrega,
+        # proveedor...) no cambia el grid y no amerita la query completa.
+        estadisticas_oob = (
+            await service.get_estadisticas(conn, bom['id_bom'])
+            if campos.keys() & CAMPOS_AFECTAN_COSTO_ESTIMADO else None
+        )
+
         ctx = _build_bom_context(
             request, context, bom,
             item=item,
+            estadisticas_oob=estadisticas_oob,
             warning_message=service.mensaje_item_sin_costo() if service.item_sin_costo(item) else None,
             actualizar_lock_oob=True,
             capacidades=capacidades,
@@ -1417,6 +1482,7 @@ async def eliminar_item(
         ctx = _build_bom_context(
             request, context, bom,
             items=items, estadisticas=estadisticas,
+            oob_estadisticas=True,
             actualizar_lock_oob=True,
             capacidades=resultado["capacidades"],
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
@@ -1534,6 +1600,100 @@ async def refrescar_costos_catalogo(
     except asyncpg.PostgresError:
         logger.exception("Error de BD al refrescar costos de catalogo en BOM")
         return _toast_response(request, "Error interno al refrescar costos", "error", "Error", status_code=500)
+
+
+@router.get("/{id_bom}/precios-pendientes-compras/modal", include_in_schema=False)
+async def get_modal_precios_pendientes_compras(
+    request: Request,
+    id_bom: UUID,
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Modal de Compras para capturar precio_unitario/moneda de items BASE sin costo
+    de un BOM en BORRADOR — lugar propio, ya que Compras no es actor de ningun turno
+    antes de APROBADO_FINAL y no puede usar el editor de items normal en esta etapa."""
+    habilitada = await ConfigService.get_global_config(
+        conn, FLAG_ACTUALIZACION_PRECIOS_COMPRAS, False, bool
+    )
+    if not habilitada:
+        return _toast_response(request, "Esta funcion esta deshabilitada temporalmente.", "error")
+    try:
+        bom = await service.get_bom(conn, id_bom)
+    except ValueError as exc:
+        return _toast_response(request, str(exc), "error", status_code=404)
+    if bom["estatus"] != "BORRADOR":
+        return _toast_response(request, "Este BOM ya no esta en borrador.", "error")
+    if bom.get("estado_paquete") != "ACTIVO":
+        return _toast_response(request, "Este paquete BOM ya no esta activo.", "error")
+    items = await service.get_items_sin_costo(conn, id_bom)
+    if not items:
+        return _toast_response(
+            request, "Este BOM ya no tiene items pendientes de costo.", "success", "Sin pendientes"
+        )
+    return templates.TemplateResponse(
+        request, "bom/partials/modal_precios_pendientes_compras.html",
+        {"bom": bom, "items": items}
+    )
+
+
+@router.post("/{id_bom}/precios-pendientes-compras", include_in_schema=False)
+async def post_precios_pendientes_compras(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Aplica el lote de precios capturados por Compras. Todo-o-nada NO aplica aqui:
+    se valida y aplica el subconjunto valido, aplicados/rechazados se reportan juntos."""
+    habilitada = await ConfigService.get_global_config(
+        conn, FLAG_ACTUALIZACION_PRECIOS_COMPRAS, False, bool
+    )
+    if not habilitada:
+        return _toast_response(request, "Esta funcion esta deshabilitada temporalmente.", "error")
+
+    user_id = context.get("user_db_id")
+    form = await request.form()
+    items_payload, rechazados_parseo = _parse_precios_pendientes_compras_form(form)
+
+    if not items_payload:
+        if rechazados_parseo:
+            motivos = "; ".join(r["motivo"] for r in rechazados_parseo[:3])
+            return _toast_response(request, motivos, "error", "Sin cambios")
+        return _toast_response(request, "No hay items para actualizar", "error", status_code=400)
+
+    try:
+        resultado = await service.resolver_costos_pendientes_compras(
+            conn, id_bom, user_id, items_payload
+        )
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al actualizar precios pendientes desde Compras")
+        return _toast_response(request, "Error interno al actualizar precios", "error", status_code=500)
+
+    n_ok = len(resultado["aplicados"])
+    rechazados = resultado["rechazados"] + rechazados_parseo
+    n_rechazados = len(rechazados)
+    motivos = "; ".join(r["motivo"] for r in rechazados[:3])
+    # Refresca la tab de Compras via evento en vez de renderizar aqui su partial
+    # (owned por modules/compras): mantiene BOM sin conocer el template de Compras.
+    hx_trigger = "refrescar-pendientes-precio" if n_ok else None
+    if n_ok and not n_rechazados:
+        return _toast_response(
+            request, f"{n_ok} item(s) actualizados.", "success", "Precios actualizados",
+            hx_trigger=hx_trigger,
+        )
+    if n_ok:
+        return _toast_response(
+            request, f"{n_ok} actualizados, {n_rechazados} no se pudieron aplicar: {motivos}",
+            "warning", "Actualizacion parcial", hx_trigger=hx_trigger,
+        )
+    return _toast_response(
+        request, motivos or "Ningun item se pudo actualizar.", "error", "Sin cambios",
+    )
 
 
 @router.get("/items/{id_item}/modal", include_in_schema=False)

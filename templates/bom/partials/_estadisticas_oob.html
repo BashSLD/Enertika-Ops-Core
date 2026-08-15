@@ -1,0 +1,10 @@
+{# Wrap OOB compartido para refrescar el grid de estadisticas de costo.
+   Incluir con {% with stats=<dict> %}{% include "bom/partials/_estadisticas_oob.html" %}{% endwith %}.
+   El nombre de la variable de origen (estadisticas vs estadisticas_oob) lo decide
+   quien incluye este archivo -- ver comentario en core/bom/router.py sobre la
+   colision de nombres cuando row_item.html se incluye N veces dentro de tabla_items.html. #}
+{% if stats %}
+{% with oob=True, estadisticas=stats %}
+{% include "bom/partials/estadisticas_grid.html" %}
+{% endwith %}
+{% endif %}
