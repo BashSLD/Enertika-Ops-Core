@@ -234,6 +234,7 @@ class FakeAprobacionesDB:
     async def crear_cotizacion_aprobacion(
         self, conn, cotizacion_id, bom_id, proyecto_id, solicitado_por,
         comentarios_solicitud=None,
+        cotizacion_reemplazada_id=None, aprobacion_reemplazada_id=None,
     ):
         aprobacion = {
             "id": uuid4(),
@@ -243,10 +244,29 @@ class FakeAprobacionesDB:
             "estatus": "PENDIENTE_DIRECCION",
             "solicitado_por": solicitado_por,
             "comentarios_solicitud": comentarios_solicitud,
+            "cotizacion_reemplazada_id": cotizacion_reemplazada_id,
+            "aprobacion_reemplazada_id": aprobacion_reemplazada_id,
             "lock_version": 0,
         }
         self.aprobaciones[aprobacion["id"]] = aprobacion
         return dict(aprobacion)
+
+    async def marcar_cotizacion_aprobacion_reemplazada(
+        self, conn, aprobacion_id, nuevo_estatus, motivo_reemplazo, lock_version_esperado,
+    ):
+        ap = self.aprobaciones.get(aprobacion_id)
+        if (
+            not ap
+            or ap["estatus"] != "APROBADA"
+            or ap["lock_version"] != lock_version_esperado
+        ):
+            return None
+        ap.update({
+            "estatus": nuevo_estatus,
+            "motivo_reemplazo": motivo_reemplazo,
+            "lock_version": lock_version_esperado + 1,
+        })
+        return dict(ap)
 
     async def get_cotizacion_aprobacion_activa(self, conn, cotizacion_id):
         for ap in self.aprobaciones.values():
@@ -369,6 +389,41 @@ async def _rechazar(
         aprobacion_lock_version_esperado=aprobacion["lock_version"],
         autorizacion_lock_version_esperado=autorizacion["lock_version"],
     )
+
+
+async def _reemplazar(
+    svc, db, cotizacion_id, motivo, user_id=None, user_role="USER", rol_org=None,
+    es_override=False, cancelar_definitivo=False,
+):
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    aprobacion = await db.get_cotizacion_aprobacion_activa(None, cotizacion_id)
+    return await svc.reemplazar_cotizacion_proveedor(
+        FakeConn(),
+        cotizacion_id,
+        motivo,
+        user_id or uuid4(),
+        user_role,
+        rol_org,
+        aprobacion_lock_version_esperado=aprobacion["lock_version"],
+        autorizacion_lock_version_esperado=autorizacion["lock_version"],
+        es_override=es_override,
+        cancelar_definitivo=cancelar_definitivo,
+    )
+
+
+async def _llevar_a_aprobada(svc, db, cotizacion_id):
+    """Recorre solicitar+aprobar para dejar la cotizacion con aprobacion APROBADA."""
+    await _solicitar(svc, db, cotizacion_id)
+    return await _aprobar(svc, db, cotizacion_id, db.aprobador_direccion_id)
+
+
+def _nueva_cotizacion_lista_para_aprobar(db, bom_id):
+    """Crea una cotizacion + autorizacion AUTORIZADO_OBRA lista para solicitar aprobacion."""
+    nueva_cot_id = uuid4()
+    db.cotizaciones[nueva_cot_id] = _cotizacion(nueva_cot_id, bom_id)
+    nueva_aut = _autorizacion(nueva_cot_id, bom_id, "AUTORIZADO_OBRA")
+    db.autorizaciones[nueva_aut["id"]] = nueva_aut
+    return nueva_cot_id
 
 
 # ─── SOLICITAR ───────────────────────────────────────────────
@@ -695,3 +750,174 @@ async def test_rechazada_permite_nueva_solicitud():
         if a["estatus"] in ("PENDIENTE_DIRECCION", "APROBADA")
     ]
     assert len(activas) == 1
+
+
+# ─── REEMPLAZO POR PROVEEDOR INCUMPLIDO (## 7.4) ─────────────
+
+@pytest.mark.asyncio
+async def test_reemplazar_libera_items_y_cancela_fase_d_sin_tocar_cotizacion():
+    svc, db, eventos_outbox, cotizacion_id = build_escenario()
+    await _llevar_a_aprobada(svc, db, cotizacion_id)
+
+    updated = await _reemplazar(svc, db, cotizacion_id, "El proveedor quebró")
+
+    assert updated["estatus"] == "REEMPLAZADA"
+    assert updated["motivo_reemplazo"] == "El proveedor quebró"
+    aut = list(db.autorizaciones.values())[0]
+    assert aut["estatus"] == "RECHAZADO"
+    assert aut["rechazado_en_paso"] == "REEMPLAZO_PROVEEDOR"
+    # La cotizacion original NO se toca (evidencia historica) — sigue SELECCIONADA,
+    # a diferencia del rechazo (## 7.3) que la regresa a RECIBIDA.
+    assert db.cotizaciones[cotizacion_id]["estatus"] == "SELECCIONADA"
+    assert db.items_estatus_updates
+    assert db.items_estatus_updates[-1][1] == "SIN_COTIZAR"
+    assert any(
+        evento["tipo_evento"] == "COTIZACION_APROBACION_REEMPLAZADA"
+        for evento in eventos_outbox
+    )
+
+
+@pytest.mark.asyncio
+async def test_reemplazar_cancelar_definitivo_usa_cancelada_proveedor():
+    svc, db, _, cotizacion_id = build_escenario()
+    await _llevar_a_aprobada(svc, db, cotizacion_id)
+
+    updated = await _reemplazar(
+        svc, db, cotizacion_id, "Se cancela el paquete", cancelar_definitivo=True
+    )
+    assert updated["estatus"] == "CANCELADA_PROVEEDOR"
+
+
+@pytest.mark.asyncio
+async def test_reemplazar_falla_sin_motivo():
+    svc, db, _, cotizacion_id = build_escenario()
+    await _llevar_a_aprobada(svc, db, cotizacion_id)
+    with pytest.raises(ValueError, match="motivo"):
+        await _reemplazar(svc, db, cotizacion_id, "   ")
+
+
+@pytest.mark.asyncio
+async def test_reemplazar_falla_si_no_esta_aprobada():
+    svc, db, _, cotizacion_id = build_escenario()
+    await _solicitar(svc, db, cotizacion_id)  # se queda PENDIENTE_DIRECCION
+    with pytest.raises(ValueError, match="aprobada"):
+        await _reemplazar(svc, db, cotizacion_id, "Motivo")
+
+
+@pytest.mark.asyncio
+async def test_reemplazar_bloqueado_si_autorizacion_pagada():
+    svc, db, _, cotizacion_id = build_escenario()
+    await _llevar_a_aprobada(svc, db, cotizacion_id)
+    aut = list(db.autorizaciones.values())[0]
+    aut["estatus"] = "PAGADO"
+
+    with pytest.raises(ValueError, match="pago"):
+        await _reemplazar(svc, db, cotizacion_id, "Motivo")
+
+
+@pytest.mark.asyncio
+async def test_reemplazar_bloqueado_si_item_facturado():
+    svc, db, _, cotizacion_id = build_escenario()
+    await _llevar_a_aprobada(svc, db, cotizacion_id)
+
+    async def get_items_by_ids_facturado(conn, item_ids):
+        return [
+            {"id_item": iid, "id_bom": db.bom["id_bom"], "estatus_compra": "FACTURADO"}
+            for iid in item_ids
+        ]
+    db.get_items_by_ids = get_items_by_ids_facturado
+
+    with pytest.raises(ValueError, match="facturados"):
+        await _reemplazar(svc, db, cotizacion_id, "Motivo")
+
+
+@pytest.mark.asyncio
+async def test_reemplazar_override_admin_permite_pese_a_bloqueo():
+    svc, db, _, cotizacion_id = build_escenario()
+    await _llevar_a_aprobada(svc, db, cotizacion_id)
+    aut = list(db.autorizaciones.values())[0]
+    aut["estatus"] = "PAGO_PARCIAL"
+
+    updated = await _reemplazar(
+        svc, db, cotizacion_id, "Excepcion autorizada",
+        user_role="ADMIN", es_override=True,
+    )
+    assert updated["estatus"] == "REEMPLAZADA"
+
+
+@pytest.mark.asyncio
+async def test_reemplazar_override_rechazado_si_no_es_admin_director():
+    svc, db, _, cotizacion_id = build_escenario()
+    await _llevar_a_aprobada(svc, db, cotizacion_id)
+    aut = list(db.autorizaciones.values())[0]
+    aut["estatus"] = "PAGADO"
+
+    with pytest.raises(ValueError, match="pago"):
+        await _reemplazar(
+            svc, db, cotizacion_id, "Motivo",
+            user_role="USER", rol_org=None, es_override=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_solicitar_liga_reemplazo_exitoso():
+    svc, db, _, cotizacion_id = build_escenario()
+    await _llevar_a_aprobada(svc, db, cotizacion_id)
+    reemplazada = await _reemplazar(svc, db, cotizacion_id, "Proveedor incumplió")
+
+    nueva_cot_id = _nueva_cotizacion_lista_para_aprobar(db, db.bom["id_bom"])
+
+    nueva_aprobacion = await svc.solicitar_aprobacion_cotizacion(
+        FakeConn(), nueva_cot_id, uuid4(),
+        cotizacion_lock_version_esperado=0,
+        autorizacion_lock_version_esperado=0,
+        reemplaza_aprobacion_id=reemplazada["id"],
+    )
+    assert nueva_aprobacion["aprobacion_reemplazada_id"] == reemplazada["id"]
+    assert nueva_aprobacion["cotizacion_reemplazada_id"] == cotizacion_id
+
+
+@pytest.mark.asyncio
+async def test_solicitar_rechaza_reemplazo_invalido_no_reemplazada():
+    svc, db, _, cotizacion_id = build_escenario()
+    await _llevar_a_aprobada(svc, db, cotizacion_id)
+    aprobacion_aprobada = await db.get_cotizacion_aprobacion_activa(None, cotizacion_id)
+
+    nueva_cot_id = _nueva_cotizacion_lista_para_aprobar(db, db.bom["id_bom"])
+
+    with pytest.raises(ValueError, match="reemplazada"):
+        await svc.solicitar_aprobacion_cotizacion(
+            FakeConn(), nueva_cot_id, uuid4(),
+            cotizacion_lock_version_esperado=0,
+            autorizacion_lock_version_esperado=0,
+            # Referencia una aprobacion que sigue APROBADA, no REEMPLAZADA
+            reemplaza_aprobacion_id=aprobacion_aprobada["id"],
+        )
+
+
+# ─── TOCTOU: re-validacion post-lock en seleccionar_cotizacion ──
+
+@pytest.mark.asyncio
+async def test_seleccionar_revalida_items_tras_adquirir_locks():
+    """Un item que pasa el pre-check pero llega COTIZADO al lock debe bloquear la seleccion."""
+    svc, db, _, cotizacion_id = build_escenario(
+        con_autorizacion=False, cotizacion_extra={"estatus": "RECIBIDA"}
+    )
+
+    async def lock_items_comprometidos(conn, item_ids):
+        # Simula que otra cotizacion se quedo con los items entre el pre-check
+        # (get_items_by_ids, estatus SIN_COTIZAR) y la adquisicion del lock.
+        return [
+            {
+                "id_item": iid, "id_bom": db.bom["id_bom"],
+                "estatus_compra": "COTIZADO", "descripcion": "Item",
+            }
+            for iid in item_ids
+        ]
+    db.lock_items_context_by_ids = lock_items_comprometidos
+
+    with pytest.raises(ValueError, match="ya cotizados"):
+        await svc.seleccionar_cotizacion(
+            FakeConn(), cotizacion_id, uuid4(),
+            lock_version_esperado=db.cotizaciones[cotizacion_id]["lock_version"],
+        )

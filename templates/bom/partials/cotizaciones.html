@@ -116,11 +116,27 @@
                     hx-sync="this:replace">
                     <input type="hidden" name="cotizacion_lock_version" value="{{ cot.lock_version }}">
                     <input type="hidden" name="autorizacion_lock_version" value="{{ cot.autorizacion_lock_version }}">
+                    {% if reemplazables %}
+                    <select name="reemplaza_aprobacion_id"
+                        class="text-xs border border-gray-300 rounded-lg px-1.5 py-1.5 max-w-[11rem]"
+                        title="Si esta cotización reemplaza a un proveedor incumplido, liga el historial aquí (opcional)">
+                        <option value="">No reemplaza a nadie</option>
+                        {% for r in reemplazables %}
+                        <option value="{{ r.id }}">Reemplaza a: {{ r.nombre_proveedor or 'Sin proveedor' }}</option>
+                        {% endfor %}
+                    </select>
+                    {% endif %}
                     <button type="submit"
                         class="rounded-lg bg-violet-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:cursor-wait disabled:opacity-60">
                         Solicitar aprobación de Dirección
                     </button>
                 </form>
+                {% elif cot.aprobacion_estatus == 'APROBADA' and es_compras_editor %}
+                <button type="button"
+                    @click="abrirModalReemplazo('{{ cot.id }}', {{ cot.aprobacion_lock_version | tojson }}, {{ cot.autorizacion_lock_version | tojson }}, {{ (cot.nombre_proveedor or 'Sin proveedor') | tojson }})"
+                    class="shrink-0 rounded-lg bg-amber-500 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600">
+                    Reemplazar por proveedor incumplido
+                </button>
                 {% elif cot.aprobacion_estatus == 'PENDIENTE_DIRECCION' and es_aprobador_direccion %}
                 <div class="flex shrink-0 items-center gap-2">
                     <form hx-post="/bom/cotizaciones/{{ cot.id }}/aprobar-direccion"
@@ -392,6 +408,60 @@
     </div>
 </div>
 
+{# Modal Reemplazar por proveedor incumplido (## 7.4) #}
+<div x-show="modalReemplazoAbierto" x-cloak
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm modal-overlay-layer"
+    @keydown.escape.window="cerrarModalReemplazo()">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-md mx-3 max-h-[90dvh] flex flex-col">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0"
+            style="background: linear-gradient(135deg, #b45309 0%, #d97706 100%);">
+            <div>
+                <h2 class="text-base font-semibold text-white">Reemplazar por proveedor incumplido</h2>
+                <p class="text-xs text-amber-100" x-text="'Cotización de: ' + reemplazo.proveedor"></p>
+            </div>
+            <button @click="cerrarModalReemplazo()" class="text-white/60 hover:text-white transition-colors p-1">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div class="overflow-y-auto flex-1 min-h-0 px-5 py-4 space-y-4">
+            <p class="text-sm text-gray-600">
+                La cotización original se conserva como evidencia histórica. Sus ítems se liberan
+                para poder recotizarlos con otro proveedor.
+            </p>
+            <div>
+                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Motivo (obligatorio)</label>
+                <textarea x-model="reemplazoMotivo" rows="3"
+                    class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-500 resize-none"
+                    placeholder="Explica por qué el proveedor ya no puede cumplir..."></textarea>
+            </div>
+            <label class="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" x-model="reemplazoCancelarDefinitivo"
+                    class="rounded border-gray-300 text-amber-600 focus:ring-amber-500">
+                Cancelar definitivamente (no se creará una cotización de reemplazo)
+            </label>
+            {% if es_admin_o_director %}
+            <label class="flex items-center gap-2 text-sm text-gray-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <input type="checkbox" x-model="reemplazoOverride"
+                    class="rounded border-gray-300 text-amber-600 focus:ring-amber-500">
+                Forzar reemplazo aunque ya haya pago o factura conciliada (excepción ADMIN/Dirección)
+            </label>
+            {% endif %}
+            <p x-show="reemplazoError" x-text="reemplazoError" class="text-sm text-red-600 font-medium"></p>
+        </div>
+        <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
+            <button type="button" @click="guardarReemplazo()" :disabled="reemplazoGuardando"
+                class="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed bg-amber-600 hover:bg-amber-700">
+                <svg class="w-4 h-4" :class="{'animate-spin': reemplazoGuardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+                <span x-text="reemplazoGuardando ? 'Guardando...' : 'Confirmar reemplazo'"></span>
+            </button>
+        </div>
+    </div>
+</div>
+
 <script>
 function cotizacionesBom() {
     return {
@@ -407,6 +477,14 @@ function cotizacionesBom() {
         proveedorSeleccionado: { id: null, nombre: '' },
         guardando: false,
         errorMsg: '',
+
+        modalReemplazoAbierto: false,
+        reemplazo: { cotizacionId: null, aprobacionLockVersion: null, autorizacionLockVersion: null, proveedor: '' },
+        reemplazoMotivo: '',
+        reemplazoCancelarDefinitivo: false,
+        reemplazoOverride: false,
+        reemplazoGuardando: false,
+        reemplazoError: '',
 
         init() {
             try {
@@ -517,6 +595,51 @@ function cotizacionesBom() {
                 this.errorMsg = e.message;
             } finally {
                 this.guardando = false;
+            }
+        },
+
+        abrirModalReemplazo(cotizacionId, aprobacionLockVersion, autorizacionLockVersion, proveedor) {
+            this.reemplazo = { cotizacionId, aprobacionLockVersion, autorizacionLockVersion, proveedor };
+            this.reemplazoMotivo = '';
+            this.reemplazoCancelarDefinitivo = false;
+            this.reemplazoOverride = false;
+            this.reemplazoError = '';
+            this.modalReemplazoAbierto = true;
+        },
+
+        cerrarModalReemplazo() { this.modalReemplazoAbierto = false; },
+
+        async guardarReemplazo() {
+            if (!this.reemplazoMotivo.trim()) {
+                this.reemplazoError = 'El motivo es obligatorio.';
+                return;
+            }
+            this.reemplazoGuardando = true;
+            this.reemplazoError = '';
+            try {
+                const body = new URLSearchParams({
+                    motivo: this.reemplazoMotivo,
+                    aprobacion_lock_version: this.reemplazo.aprobacionLockVersion,
+                    autorizacion_lock_version: this.reemplazo.autorizacionLockVersion,
+                    es_override: this.reemplazoOverride ? 'true' : 'false',
+                    cancelar_definitivo: this.reemplazoCancelarDefinitivo ? 'true' : 'false',
+                });
+                const resp = await fetch(`/bom/cotizaciones/${this.reemplazo.cotizacionId}/reemplazar`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'HX-Request': 'true' },
+                    body: body.toString(),
+                });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Error al reemplazar la cotización');
+                }
+                const html = await resp.text();
+                document.getElementById('tab-cotizaciones').innerHTML = html;
+                this.cerrarModalReemplazo();
+            } catch(e) {
+                this.reemplazoError = e.message;
+            } finally {
+                this.reemplazoGuardando = false;
             }
         }
     };

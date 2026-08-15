@@ -442,15 +442,63 @@ class BomComprasDBMixin:
 
     async def crear_cotizacion_aprobacion(
         self, conn, cotizacion_id: UUID, bom_id: UUID, proyecto_id: UUID,
-        solicitado_por: UUID, comentarios_solicitud: Optional[str] = None
+        solicitado_por: UUID, comentarios_solicitud: Optional[str] = None,
+        cotizacion_reemplazada_id: Optional[UUID] = None,
+        aprobacion_reemplazada_id: Optional[UUID] = None,
     ) -> dict:
         row = await conn.fetchrow("""
             INSERT INTO tb_bom_cotizacion_aprobaciones
-                (cotizacion_id, bom_id, proyecto_id, solicitado_por, comentarios_solicitud)
-            VALUES ($1,$2,$3,$4,$5)
+                (cotizacion_id, bom_id, proyecto_id, solicitado_por, comentarios_solicitud,
+                 cotizacion_reemplazada_id, aprobacion_reemplazada_id)
+            VALUES ($1,$2,$3,$4,$5,$6,$7)
             RETURNING *
-        """, cotizacion_id, bom_id, proyecto_id, solicitado_por, comentarios_solicitud)
+        """, cotizacion_id, bom_id, proyecto_id, solicitado_por, comentarios_solicitud,
+            cotizacion_reemplazada_id, aprobacion_reemplazada_id)
         return dict(row)
+
+    async def marcar_cotizacion_aprobacion_reemplazada(
+        self, conn, aprobacion_id: UUID, nuevo_estatus: str, motivo_reemplazo: str,
+        lock_version_esperado: int,
+    ) -> Optional[dict]:
+        """Cierra una aprobacion APROBADA como REEMPLAZADA o CANCELADA_PROVEEDOR (## 7.4).
+
+        No toca tb_bom_cotizaciones.estatus: su CHECK no admite un valor de
+        reemplazo (BORRADOR|RECIBIDA|SELECCIONADA|RECHAZADA) y la cotizacion
+        original se conserva intacta como evidencia historica.
+        """
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_cotizacion_aprobaciones
+            SET estatus = $2,
+                motivo_reemplazo = $3,
+                updated_at = NOW(),
+                lock_version = lock_version + 1
+            WHERE id = $1 AND estatus = 'APROBADA' AND lock_version = $4
+            RETURNING *
+        """, aprobacion_id, nuevo_estatus, motivo_reemplazo, lock_version_esperado)
+        return dict(row) if row else None
+
+    async def get_cotizacion_aprobaciones_reemplazables(
+        self, conn, bom_id: UUID,
+    ) -> List[dict]:
+        """Aprobaciones REEMPLAZADA de este BOM sin una cotizacion sucesora aun ligada.
+
+        Alimenta el selector opcional de "esta cotizacion reemplaza a" en el
+        formulario de solicitar aprobacion de Direccion.
+        """
+        rows = await conn.fetch("""
+            SELECT ap.id, ap.cotizacion_id, ap.motivo_reemplazo, ap.updated_at,
+                   c.nombre_proveedor
+            FROM tb_bom_cotizacion_aprobaciones ap
+            JOIN tb_bom_cotizaciones c ON c.id = ap.cotizacion_id
+            WHERE ap.bom_id = $1
+              AND ap.estatus = 'REEMPLAZADA'
+              AND NOT EXISTS (
+                  SELECT 1 FROM tb_bom_cotizacion_aprobaciones sucesora
+                  WHERE sucesora.aprobacion_reemplazada_id = ap.id
+              )
+            ORDER BY ap.updated_at DESC
+        """, bom_id)
+        return [dict(r) for r in rows]
 
     async def get_cotizacion_aprobacion_activa(self, conn, cotizacion_id: UUID) -> Optional[dict]:
         """Aprobacion activa (pendiente o aprobada) de una cotizacion; maximo una por indice unico parcial."""

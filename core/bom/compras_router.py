@@ -100,6 +100,7 @@ async def _render_cotizaciones_tab(
         _item_cotizacion_json(i) for i in items if _item_disponible_cotizacion(i)
     ]
     role = context.get("role")
+    rol_org = context.get("rol_organizacional")
     module_roles = context.get("module_roles", {})
     es_compras_editor = role == "ADMIN" or module_roles.get("compras") in ("editor", "admin")
     user_id = context.get("user_db_id")
@@ -110,12 +111,27 @@ async def _render_cotizaciones_tab(
     es_aprobador_direccion = bool(
         aprobador_direccion and aprobador_direccion in representados
     )
+    # Solo aplica cuando existe una cotizacion lista para solicitar aprobacion
+    # (mismo gate que el formulario en cotizaciones.html) — evita la consulta
+    # en el caso comun (BOM sin cotizaciones o sin ninguna en ese punto exacto).
+    puede_solicitar_aprobacion = es_compras_editor and any(
+        c.get("estatus") == "SELECCIONADA"
+        and c.get("autorizacion_estatus") == "AUTORIZADO_OBRA"
+        and c.get("aprobacion_estatus") not in ("PENDIENTE_DIRECCION", "APROBADA")
+        for c in cotizaciones
+    )
+    reemplazables = (
+        await service.db.get_cotizacion_aprobaciones_reemplazables(conn, bom_id)
+        if puede_solicitar_aprobacion else []
+    )
     return templates.TemplateResponse(
         request, "bom/partials/cotizaciones.html",
         {
             **_cotizacion_ctx(request, cotizaciones, bom, es_compras_editor),
             "items_disponibles": items_disponibles,
             "es_aprobador_direccion": es_aprobador_direccion,
+            "es_admin_o_director": role == "ADMIN" or rol_org == "director",
+            "reemplazables": reemplazables,
             **extra,
         }
     )
@@ -430,6 +446,7 @@ async def solicitar_aprobacion_cotizacion(
     comentarios: Optional[str] = Form(None),
     cotizacion_lock_version: int = Form(...),
     autorizacion_lock_version: int = Form(...),
+    reemplaza_aprobacion_id: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -438,9 +455,14 @@ async def solicitar_aprobacion_cotizacion(
     """Solicita aprobación de Dirección para una cotización seleccionada (post-BOM)."""
     user_id = context.get("user_db_id")
     try:
+        reemplaza_id = UUID(reemplaza_aprobacion_id) if reemplaza_aprobacion_id else None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="reemplaza_aprobacion_id inválido")
+    try:
         aprobacion = await service.solicitar_aprobacion_cotizacion(
             conn, cotizacion_id, user_id, comentarios,
             cotizacion_lock_version, autorizacion_lock_version,
+            reemplaza_aprobacion_id=reemplaza_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -507,6 +529,44 @@ async def rechazar_cotizacion_direccion(
     except asyncpg.PostgresError:
         logger.exception("Error de BD al rechazar cotización por Dirección")
         raise HTTPException(status_code=500, detail="Error al rechazar la cotización.")
+
+    return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
+
+
+@compras_router.post("/cotizaciones/{cotizacion_id}/reemplazar", include_in_schema=False)
+async def reemplazar_cotizacion_proveedor(
+    request: Request,
+    cotizacion_id: UUID,
+    motivo: str = Form(...),
+    aprobacion_lock_version: int = Form(...),
+    autorizacion_lock_version: int = Form(...),
+    es_override: bool = Form(False),
+    cancelar_definitivo: bool = Form(False),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Reemplaza una cotización aprobada por proveedor incumplido (plan ## 7.4)."""
+    user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
+    if es_override and not (user_role == "ADMIN" or rol_org == "director"):
+        raise HTTPException(
+            status_code=403,
+            detail="Solo ADMIN o Dirección pueden autorizar la excepción de reemplazo.",
+        )
+    try:
+        aprobacion = await service.reemplazar_cotizacion_proveedor(
+            conn, cotizacion_id, motivo, user_id, user_role, rol_org,
+            aprobacion_lock_version, autorizacion_lock_version,
+            es_override=es_override, cancelar_definitivo=cancelar_definitivo,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al reemplazar cotización por proveedor incumplido")
+        raise HTTPException(status_code=500, detail="Error al reemplazar la cotización.")
 
     return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
 

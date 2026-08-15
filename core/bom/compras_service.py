@@ -1,6 +1,6 @@
 """
 BOM – Compras: cotizaciones, RFQ, autorizaciones Fase D, conciliacion y match.
-Mixin incluido en BomService; los metodos usan self.db, self.get_bom y self._broadcast_bom.
+Mixin incluido en BomService; los metodos usan self.db y self.get_bom.
 """
 
 import logging
@@ -10,10 +10,8 @@ from uuid import UUID
 from typing import Optional, List
 
 import asyncpg
-from jinja2 import TemplateError
 
 from core.bom.schemas import EstatusBOM, EstatusCotizacionAprobacion
-from core.config import settings
 
 logger = logging.getLogger("BOM.Service")
 
@@ -62,12 +60,18 @@ class BomComprasServiceMixin:
         )
 
     async def _actualizar_estatus_items_cotizacion(
-        self, conn, cotizacion_id: UUID, nuevo_estatus: str
+        self, conn, cotizacion_id: UUID, nuevo_estatus: str,
+        item_ids: Optional[list] = None,
     ) -> None:
-        """Obtiene ítems de una cotización y actualiza su estatus_compra en lote."""
-        items = await self.db.get_items_cotizacion(conn, cotizacion_id)
-        if items:
+        """Actualiza estatus_compra en lote para los items de una cotización.
+
+        Si `item_ids` no viene, los obtiene de la cotización (round trip extra);
+        pasarlo evita re-consultar cuando el caller ya los tiene cargados.
+        """
+        if item_ids is None:
+            items = await self.db.get_items_cotizacion(conn, cotizacion_id)
             item_ids = [i['bom_item_id'] for i in items]
+        if item_ids:
             await self._actualizar_estatus_items_por_ids(
                 conn, item_ids, nuevo_estatus
             )
@@ -384,6 +388,7 @@ class BomComprasServiceMixin:
                 )
                 if len(bloqueados) != len(set(item_ids)):
                     raise ValueError("La cotizacion contiene items invalidos")
+                self._validar_items_cotizables(bloqueados, "seleccionar cotizaciones con")
                 locks_ejecucion = {
                     str(item["id_item"]): int(
                         item.get("ejecucion_lock_version") or 0
@@ -572,21 +577,6 @@ class BomComprasServiceMixin:
         logger.info("Autorización %s aprobada (dirección) por usuario %s", autorizacion_id, user_id)
         return updated
 
-    async def _notify_direccion_aprobada(
-        self, conn, aut: dict, updated: dict, user_id: UUID, nota: Optional[str]
-    ) -> None:
-        """Notifica al creador de la autorización (Compras) como proxy hasta Fase E."""
-        if not aut.get('creado_por'):
-            return
-        bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
-        await self._notify_autorizacion(
-            conn, {**aut, **updated}, bom,
-            to_user_id=aut['creado_por'],
-            evento='PENDIENTE_FINANZAS',
-            por_user_id=user_id,
-            nota=nota,
-        )
-
     async def aprobar_finanzas(
         self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
         user_role: str, finanzas_role: Optional[str] = None,
@@ -713,30 +703,48 @@ class BomComprasServiceMixin:
 
     # ─── APROBACIONES DE COTIZACION (post-BOM) ──────────────
 
-    async def _liberar_cotizacion_rechazada(self, conn, cotizacion_id: UUID) -> None:
-        """Regresa la cotización a RECIBIDA y libera sus items a SIN_COTIZAR tras un rechazo."""
-        cotizacion = await self.db.get_cotizacion_for_update(conn, cotizacion_id)
-        if not cotizacion:
-            raise ValueError("Cotizacion no encontrada")
-        actualizada = await self.db.actualizar_estatus_cotizacion(
-            conn, cotizacion_id, 'RECIBIDA', cotizacion["estatus"],
-            cotizacion["lock_version"],
+    async def _liberar_cotizacion_rechazada(
+        self, conn, cotizacion_id: UUID,
+        resetear_estatus_cotizacion: bool = True,
+        item_ids: Optional[list] = None,
+    ) -> None:
+        """Libera los items de una cotización a SIN_COTIZAR tras un rechazo o reemplazo.
+
+        Por defecto regresa `tb_bom_cotizaciones.estatus` a RECIBIDA (rechazo
+        normal, ## 7.3). `reemplazar_cotizacion_proveedor` pasa
+        `resetear_estatus_cotizacion=False`: su CHECK no admite un valor de
+        reemplazo, la cotización se conserva SELECCIONADA como evidencia
+        histórica (## 7.4).
+        """
+        if resetear_estatus_cotizacion:
+            cotizacion = await self.db.get_cotizacion_for_update(conn, cotizacion_id)
+            if not cotizacion:
+                raise ValueError("Cotizacion no encontrada")
+            actualizada = await self.db.actualizar_estatus_cotizacion(
+                conn, cotizacion_id, 'RECIBIDA', cotizacion["estatus"],
+                cotizacion["lock_version"],
+            )
+            if not actualizada:
+                raise ValueError("La cotizacion cambio; recarga la pestaña")
+        await self._actualizar_estatus_items_cotizacion(
+            conn, cotizacion_id, 'SIN_COTIZAR', item_ids=item_ids
         )
-        if not actualizada:
-            raise ValueError("La cotizacion cambio; recarga la pestaña")
-        await self._actualizar_estatus_items_cotizacion(conn, cotizacion_id, 'SIN_COTIZAR')
 
     async def solicitar_aprobacion_cotizacion(
         self, conn, cotizacion_id: UUID, user_id: UUID,
         comentarios: Optional[str] = None,
         cotizacion_lock_version_esperado: Optional[int] = None,
         autorizacion_lock_version_esperado: Optional[int] = None,
+        reemplaza_aprobacion_id: Optional[UUID] = None,
     ) -> dict:
         """
         Crea la aprobacion documental de Direccion (tb_bom_cotizacion_aprobaciones)
         para una cotizacion. Precondiciones (plan ## 7.2 / ## 8.1 / ## 9.3): cotizacion
         real (no RFQ) con PDF y total, SELECCIONADA, BOM en APROBADO_FINAL y
         autorizacion Fase D ya aprobada por Obra.
+
+        Si `reemplaza_aprobacion_id` viene (## 7.4), liga esta cotizacion como la
+        sucesora de una aprobacion REEMPLAZADA del mismo BOM sin sucesor aun.
         """
         cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
         if not cotizacion:
@@ -786,10 +794,30 @@ class BomComprasServiceMixin:
                 raise ValueError(
                     "La cotización ya tiene una aprobación de Dirección pendiente o aprobada."
                 )
+            reemplazada = None
+            if reemplaza_aprobacion_id:
+                reemplazada = await self.db.get_cotizacion_aprobacion_for_update(
+                    conn, reemplaza_aprobacion_id
+                )
+                if (
+                    not reemplazada
+                    or str(reemplazada["bom_id"]) != str(cotizacion["bom_id"])
+                    or reemplazada["estatus"] != EstatusCotizacionAprobacion.REEMPLAZADA
+                ):
+                    raise ValueError(
+                        "La cotización reemplazada no es válida para ligar como sucesora."
+                    )
+                # Nota: sin constraint unico en aprobacion_reemplazada_id, dos
+                # solicitudes concurrentes podrian ligarse al mismo predecesor
+                # (solo afecta el enlace historico, no el estado de items/pagos).
             try:
                 aprobacion = await self.db.crear_cotizacion_aprobacion(
                     conn, cotizacion_id, cotizacion['bom_id'], bom['id_proyecto'],
-                    user_id, comentarios
+                    user_id, comentarios,
+                    cotizacion_reemplazada_id=(
+                        reemplazada["cotizacion_id"] if reemplazada else None
+                    ),
+                    aprobacion_reemplazada_id=reemplaza_aprobacion_id,
                 )
             except asyncpg.UniqueViolationError:
                 raise ValueError(
@@ -990,58 +1018,145 @@ class BomComprasServiceMixin:
         )
         return updated
 
-    async def _notify_autorizacion(
-        self, conn, autorizacion: dict, bom: dict,
-        to_user_id, evento: str,
-        por_user_id=None, nota: Optional[str] = None
-    ) -> None:
-        """Envía email de notificación de cambio en autorización. Fire-and-forget."""
-        if not to_user_id:
-            return
-        try:
-            from core.workflow.notification_service import NotificationService
-            notif = NotificationService()
+    async def reemplazar_cotizacion_proveedor(
+        self, conn, cotizacion_id: UUID, motivo: str, user_id: UUID,
+        user_role: str, rol_org: Optional[str],
+        aprobacion_lock_version_esperado: Optional[int] = None,
+        autorizacion_lock_version_esperado: Optional[int] = None,
+        es_override: bool = False,
+        cancelar_definitivo: bool = False,
+    ) -> dict:
+        """
+        Reemplaza una cotizacion ya aprobada por Direccion porque el proveedor
+        ya no puede cumplir (plan ## 7.4). No edita la cotizacion original (queda
+        como evidencia historica; su CHECK de estatus no admite un valor de
+        reemplazo): cancela la autorizacion Fase D asociada (paso
+        'REEMPLAZO_PROVEEDOR'), libera sus items a SIN_COTIZAR para que puedan
+        recotizarse, y marca la aprobacion como REEMPLAZADA (o
+        CANCELADA_PROVEEDOR si `cancelar_definitivo`, sin cotizacion sucesora
+        planeada).
 
-            to_email = await self.db.get_usuario_email(conn, to_user_id)
-            if not to_email:
-                return
+        Bloqueado si ya hay pago (autorizacion en PAGADO/PAGO_PARCIAL) o algun
+        item ya FACTURADO, salvo `es_override` con ADMIN o Direccion (decision
+        de negocio 2026-07-01, plan ## 7.4).
+        """
+        if not motivo or not motivo.strip():
+            raise ValueError("El motivo del reemplazo es obligatorio.")
 
-            sender_email = await self.db.get_sender_email(conn, 'DEFAULT')
-            if not sender_email:
-                return
+        aprobacion = await self.db.get_cotizacion_aprobacion_activa(conn, cotizacion_id)
+        if not aprobacion or aprobacion['estatus'] != EstatusCotizacionAprobacion.APROBADA:
+            raise ValueError("Solo se puede reemplazar una cotización ya aprobada por Dirección.")
 
-            por_nombre = None
-            if por_user_id:
-                por_nombre = await self.db.get_usuario_nombre(conn, por_user_id)
+        autorizacion = await self.db.get_autorizacion_by_cotizacion(conn, cotizacion_id)
+        if not autorizacion:
+            raise ValueError("La cotización no tiene una autorización de compra asociada.")
 
-            html = notif._render_template('shared/emails/bom/bom_autorizacion.html', {
-                'autorizacion': autorizacion,
-                'bom': bom,
-                'evento': evento,
-                'por_nombre': por_nombre or 'Sistema',
-                'nota': nota,
-                'app_url': f"{settings.APP_BASE_URL}/bom/versiones/{bom.get('id_bom')}/ui",
-            })
+        es_admin_o_director = user_role == "ADMIN" or rol_org == "director"
+        bloqueado_por_pago = autorizacion['estatus'] in ('PAGADO', 'PAGO_PARCIAL')
 
-            identidad = (
-                f"{bom.get('proyecto_id_estandar', '')} - "
-                f"{bom.get('paquete_codigo', 'BOM')} v{bom.get('version', '')}"
+        # El estatus de facturacion de los items solo se valida bajo lock (mas
+        # abajo, en la transaccion): un pre-check aqui nunca es la fuente de
+        # verdad (siempre se re-verifica bajo lock) y duplicaria la consulta.
+        if bloqueado_por_pago and not (es_override and es_admin_o_director):
+            raise ValueError(
+                "No se puede reemplazar: la cotización ya tiene pago registrado. "
+                "Solo ADMIN o Dirección pueden autorizar una excepción."
             )
 
-            subject_map = {
-                'PENDIENTE_OBRA':      f"Autorización BOM {identidad} - Requiere aprobación de Obra",
-                'PENDIENTE_DIRECCION': f"Autorización BOM {identidad} - Requiere aprobación de Dirección",
-                'PENDIENTE_FINANZAS':  f"Autorización BOM {identidad} - Requiere aprobación de Finanzas",
-                'RECHAZADO':           f"Autorización BOM {identidad} - Rechazada",
-                'AUTORIZADO_FINANZAS': f"Autorización BOM {identidad} - Aprobada completamente",
-            }
-            subject = subject_map.get(evento, f"Autorización BOM {identidad} - Actualización")
+        items_cot = await self.db.get_items_cotizacion(conn, cotizacion_id)
+        item_ids = [i['bom_item_id'] for i in items_cot]
 
-            await notif._send_email({to_email}, set(), subject, html, sender_email)
-            logger.info("Autorizacion notify: evento=%s to_user=%s", evento, to_user_id)
-            await self._broadcast_bom(conn, to_user_id, f"BOM_AUT_{evento}", subject, bom.get('proyecto_nombre', ''))
-        except (asyncpg.PostgresError, KeyError, RuntimeError, TemplateError, TypeError, ValueError) as exc:
-            logger.warning("Autorizacion notify: error enviando email, evento=%s: %s", evento, exc)
+        if aprobacion_lock_version_esperado is None or autorizacion_lock_version_esperado is None:
+            raise ValueError(
+                "Faltan datos del formulario (lock_version de la cotización o su "
+                "autorización); recarga la pestaña e intenta de nuevo."
+            )
+
+        nuevo_estatus = (
+            EstatusCotizacionAprobacion.CANCELADA_PROVEEDOR if cancelar_definitivo
+            else EstatusCotizacionAprobacion.REEMPLAZADA
+        )
+
+        bom = await self.db.get_bom_by_id(conn, aprobacion["bom_id"])
+        async with conn.transaction():
+            paquete_bloqueado = await self.db.get_paquete_for_update(conn, bom["id_paquete"])
+            aprobacion_bloqueada = await self.db.get_cotizacion_aprobacion_for_update(
+                conn, aprobacion["id"]
+            )
+            autorizacion_bloqueada = await self.db.get_autorizacion_for_update(
+                conn, autorizacion["id"]
+            )
+            if (
+                not paquete_bloqueado
+                or paquete_bloqueado["estado_paquete"] != "ACTIVO"
+                or not aprobacion_bloqueada
+                or aprobacion_bloqueada["estatus"] != "APROBADA"
+                or aprobacion_bloqueada["lock_version"] != aprobacion_lock_version_esperado
+                or not autorizacion_bloqueada
+                or autorizacion_bloqueada["estatus"] != autorizacion["estatus"]
+                or autorizacion_bloqueada["lock_version"] != autorizacion_lock_version_esperado
+            ):
+                raise ValueError("La cotización o autorización cambió; recarga la pestaña.")
+
+            bloqueado_por_pago_actual = autorizacion_bloqueada["estatus"] in ('PAGADO', 'PAGO_PARCIAL')
+            bloqueado_por_factura_actual = False
+            if item_ids:
+                bom_items_actuales = await self.db.get_items_by_ids(conn, item_ids)
+                bloqueado_por_factura_actual = any(
+                    i.get('estatus_compra') == 'FACTURADO' for i in bom_items_actuales
+                )
+            if (bloqueado_por_pago_actual or bloqueado_por_factura_actual) and not (
+                es_override and es_admin_o_director
+            ):
+                causa = (
+                    "ya tiene pago registrado" if bloqueado_por_pago_actual
+                    else "tiene ítems ya facturados/conciliados"
+                )
+                raise ValueError(
+                    f"No se puede reemplazar: la cotización {causa}. "
+                    "Solo ADMIN o Dirección pueden autorizar una excepción."
+                )
+
+            rechazada = await self.db.rechazar_autorizacion_db(
+                conn, autorizacion['id'], user_id, motivo, 'REEMPLAZO_PROVEEDOR',
+                autorizacion['estatus'], autorizacion_lock_version_esperado,
+            )
+            if not rechazada:
+                raise ValueError("La autorización cambió; recarga la pestaña.")
+
+            await self._liberar_cotizacion_rechazada(
+                conn, cotizacion_id,
+                resetear_estatus_cotizacion=False, item_ids=item_ids,
+            )
+
+            updated = await self.db.marcar_cotizacion_aprobacion_reemplazada(
+                conn, aprobacion['id'], nuevo_estatus.value, motivo,
+                aprobacion_lock_version_esperado,
+            )
+            if not updated:
+                raise ValueError("La aprobación cambió; recarga la pestaña.")
+
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"COTIZACION_APROBACION:{updated['id']}:{updated['lock_version']}:REEMPLAZO",
+                "COTIZACION_APROBACION_REEMPLAZADA", updated["proyecto_id"], user_id,
+                {
+                    "id_cotizacion": str(cotizacion_id),
+                    "id_aprobacion": str(updated["id"]),
+                    "id_autorizacion": str(rechazada["id"]),
+                    "estatus": updated["estatus"],
+                    "motivo": motivo,
+                    "override_admin_direccion": bool(es_override and es_admin_o_director),
+                },
+                id_paquete=bom["id_paquete"], id_bom=updated["bom_id"],
+                id_documento=updated["id"],
+            )
+
+        logger.info(
+            "Cotización %s reemplazada (aprobación %s -> %s) por usuario %s: %s",
+            cotizacion_id, aprobacion['id'], nuevo_estatus.value, user_id, motivo[:80]
+        )
+        return updated
 
     async def rechazar_cotizacion(
         self, conn, cotizacion_id: UUID, user_id: UUID,
