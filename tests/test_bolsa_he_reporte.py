@@ -44,7 +44,11 @@ def test_workbook_empleado_sin_movimientos_bloque_en_ceros():
     rows = _visible_rows(wb.active)
 
     assert rows == [
-        ("Empleado Test", "test@test.com", "Jefe Uno", None),
+        ("Empleado: Empleado Test", "Email: test@test.com", "Jefe(s) jerarquico(s): Jefe Uno", None),
+        (
+            "Aprobador de horas extra: regla normal (jefe(s) jerarquico(s) de arriba)",
+            None, None, None,
+        ),
         ("Horas acumuladas", "Horas tomadas", "Horas disponibles", None),
         (0.0, 0.0, 0.0, None),
         ("Fecha", "Concepto", "Horas", "Saldo despues"),
@@ -71,9 +75,9 @@ def test_workbook_incluye_creditos_debitos_y_saldo_despues():
     wb = _build_he_bolsa_workbook(usuarios=usuarios, saldos=saldos, movimientos=movimientos, feriados=[])
     rows = _visible_rows(wb.active)
 
-    assert rows[2] == (2.0, 1.0, 1.0, None)
-    assert rows[4] == (date(2026, 7, 1), "HE aprobada", 2.0, 2.0)
-    assert rows[5] == (date(2026, 7, 5), "Compensatorio aprobado", -1.0, 1.0)
+    assert rows[3] == (2.0, 1.0, 1.0, None)
+    assert rows[5] == (date(2026, 7, 1), "HE aprobada", 2.0, 2.0)
+    assert rows[6] == (date(2026, 7, 5), "Compensatorio aprobado", -1.0, 1.0)
 
 
 def test_workbook_incluye_feriados_sin_afectar_saldo():
@@ -89,7 +93,7 @@ def test_workbook_incluye_feriados_sin_afectar_saldo():
     wb = _build_he_bolsa_workbook(usuarios=usuarios, saldos={}, movimientos=[], feriados=feriados)
     rows = _visible_rows(wb.active)
 
-    assert rows[4] == (date(2026, 12, 25), "FERIADO PAGO ECONOMICO", 2.0, "")
+    assert rows[5] == (date(2026, 12, 25), "FERIADO PAGO ECONOMICO", 2.0, "")
 
 
 def test_workbook_multiples_empleados_un_bloque_cada_uno():
@@ -102,6 +106,9 @@ def test_workbook_multiples_empleados_un_bloque_cada_uno():
     wb = _build_he_bolsa_workbook(usuarios=usuarios, saldos={}, movimientos=[], feriados=[])
     rows = _visible_rows(wb.active)
 
-    nombres = [row[0] for row in rows if row[0] in ("Empleado Uno", "Empleado Dos")]
-    assert nombres == ["Empleado Uno", "Empleado Dos"]
+    nombres = [
+        row[0] for row in rows
+        if row[0] in ("Empleado: Empleado Uno", "Empleado: Empleado Dos")
+    ]
+    assert nombres == ["Empleado: Empleado Uno", "Empleado: Empleado Dos"]
     assert rows.count(("Fecha", "Concepto", "Horas", "Saldo despues")) == 2

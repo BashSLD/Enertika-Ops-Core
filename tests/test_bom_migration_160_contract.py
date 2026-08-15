@@ -287,13 +287,13 @@ async def test_outbox_rechaza_par_bom_paquete_cruzado_con_datos_reales(real_conn
             )
 
 
-@pytest.mark.asyncio
-async def test_feature_flag_multi_paquete_permanece_apagada(real_conn):
-    valor = await real_conn.fetchval(
-        "SELECT valor FROM tb_configuracion_global WHERE clave = 'bom.multi_paquete_habilitado'"
-    )
-    assert valor == "false"
-
+def test_feature_flag_multi_paquete_inserta_apagada_de_forma_idempotente():
+    """El contrato de la migracion es que el INSERT inicial defaulteaba a 'false' y
+    es idempotente (ON CONFLICT DO NOTHING) -- no que el flag siga apagado para
+    siempre. Es config operativa mutable: se activo a proposito en PROD/DEV el
+    2026-08-12 al completar la feature (memory/bom_multiples_paquetes_diagnostico_
+    precommit.md), asi que ya no se verifica el valor actual en BD -- mismo patron
+    que test_no_reconstruye_snapshots_historicos_desde_datos_vivos arriba."""
     flag = _section(
         "INSERT INTO tb_configuracion_global (clave, valor, descripcion, tipo_dato)\n"
         "VALUES (\n    'bom.multi_paquete_habilitado'",
