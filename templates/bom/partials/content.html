@@ -241,7 +241,7 @@
        (el ultimo filtro clickeado ganaba y resetaba el display del otro). #}
     {% if bom %}
     <div x-data="{ grupoActivo: 'TODOS', tipoActivo: 'TODOS' }"
-         @htmx:after-swap="if ($event.detail.target && $event.detail.target.id === 'tabla-bom-items') aplicarFiltrosBom(grupoActivo, tipoActivo)">
+         @htmx:after-swap.window="if ($event.detail.target && $event.detail.target.id === 'tabla-bom-items') aplicarFiltrosBom(grupoActivo, tipoActivo)">
         {# Filtro por grupo BOM #}
         <div class="mb-3 flex flex-wrap gap-1.5">
             <button @click="grupoActivo = 'TODOS'; aplicarFiltrosBom(grupoActivo, tipoActivo)"
@@ -295,7 +295,7 @@
                 {% endif %}
                 {% if muestra_agregar_item %}
                 <button type="button"
-                    onclick="window.dispatchEvent(new CustomEvent('abrir-modal-agregar-item-bom'))"
+                    @click="window.dispatchEvent(new CustomEvent('abrir-modal-agregar-item-bom', { detail: { grupo: grupoActivo } }))"
                     class="inline-flex items-center shrink-0 px-3 py-2 text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition shadow-sm">
                     <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -831,8 +831,13 @@
                     this.cantidadAutogenerada = cantidadDefault !== '';
                 }
             },
-            abrir() {
+            abrir(grupoCodigo) {
                 this.reset();
+                if (grupoCodigo && grupoCodigo !== 'TODOS' && this.$refs.formAgregarItem) {
+                    const selectGrupo = this.$refs.formAgregarItem.querySelector('[name=grupo_ids]');
+                    const opcion = selectGrupo && Array.from(selectGrupo.options).find(o => o.dataset.codigo === grupoCodigo);
+                    if (opcion) selectGrupo.value = opcion.value;
+                }
                 const modal = this.$refs.modalAgregarItem || document.getElementById('modal-agregar-item');
                 if (modal) modal.classList.remove('hidden');
                 this.$nextTick(() => {
@@ -854,6 +859,8 @@
                 const modal = this.$refs.modalAgregarItem || document.getElementById('modal-agregar-item');
                 const res = modal ? modal.querySelector('#resultados-materiales') : null;
                 if (res) res.innerHTML = '';
+                const homolog = modal ? modal.querySelector('.material-similar-results') : null;
+                if (homolog) homolog.innerHTML = '';
                 this.limpiarIndicadorBusqueda();
             },
             setModo(nuevoModo) {
@@ -888,6 +895,20 @@
                 if (this.$refs.inputBusqueda) this.$refs.inputBusqueda.value = '';
                 this.mostrarResultados = false;
                 this.limpiarIndicadorBusqueda();
+            },
+            usarMaterialHomologado(material) {
+                this.setModo('catalogo');
+                this.seleccionarMaterial({
+                    id: material.id,
+                    descripcionInterna: material.descripcion,
+                    idMaterialInterno: '',
+                    precio: material.precio,
+                    unidad: material.unidad,
+                    proveedor: '',
+                    clave: material.clave,
+                    fuente: 'INTERNO',
+                    moneda: material.moneda
+                });
             },
             validarSubmit(event) {
                 if (this.modo === 'catalogo' && !this.materialRef && !this.materialInterno) {
@@ -950,7 +971,7 @@
                 this.errorCatalogo = '';
             }
         }"
-        @abrir-modal-agregar-item-bom.window="abrir()"
+        @abrir-modal-agregar-item-bom.window="abrir($event.detail && $event.detail.grupo)"
         @keydown.escape.window="if (!$el.classList.contains('hidden')) cerrar()"
         @htmx:after-request.window="if ($event.detail.target && $event.detail.target.id === 'resultados-materiales') { mostrarResultados = true; limpiarIndicadorBusqueda(); }"
         @htmx:response-error.window="if ($event.detail.target && $event.detail.target.id === 'resultados-materiales') { limpiarResultadosBusqueda(); }">
@@ -1122,11 +1143,13 @@
                                 <span>Este material se agrega solo a este BOM; no se guarda en el catalogo de materiales.</span>
                             </div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Descripcion *</label>
-                            <textarea name="descripcion" required rows="2" x-model="descripcion"
+                            <input type="text" name="descripcion" required x-model="descripcion"
                                 :disabled="modo !== 'manual'"
+                                {% set similar_search_id = 'similar-search-material-bom' %}
                                 {% include "materials/partials/_similar_internos_hx_attrs.html" %}
+                                autocomplete="off"
                                 class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none"
-                                placeholder="Detalle del material o equipo"></textarea>
+                                placeholder="Detalle del material o equipo">
                             <div class="material-similar-results text-xs"></div>
 
                             <div class="grid grid-cols-2 gap-3">
@@ -1216,7 +1239,7 @@
                                 class="w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
                                 <option value="" disabled selected>Selecciona grupo</option>
                                 {% for grupo in catalogos.grupos_bom %}
-                                <option value="{{ grupo.id }}">{{ grupo.codigo }} — {{ grupo.nombre }}</option>
+                                <option value="{{ grupo.id }}" data-codigo="{{ grupo.codigo }}">{{ grupo.codigo }} — {{ grupo.nombre }}</option>
                                 {% endfor %}
                             </select>
                             <p class="text-xs text-gray-400 mt-0.5">Obligatorio. Puedes asignar grupos adicionales editando el item.</p>

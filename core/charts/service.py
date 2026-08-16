@@ -77,3 +77,33 @@ async def generar_charts_simulacion(graficas: dict) -> dict:
             logger.warning("Error generando chart %s: %s", key, resultado)
 
     return charts
+
+
+async def generar_charts_bom_consolidado(graficas: dict) -> dict:
+    """
+    Recibe el dict de graficas de core.bom.pdf_resumen_compra y retorna
+    {totales, por_paquete, por_grupo} listo para el template PDF del
+    consolidado BOM (doc 40, puntos 6.3/6.4). Cualquier grafica que falle
+    queda ausente (el template maneja {% if %}), mismo criterio que
+    generar_charts_simulacion.
+    """
+    specs = [
+        ("totales", _to_chart_dict(graficas.get("totales_bar")), 500, 300),
+        ("por_paquete", _to_chart_dict(graficas.get("por_paquete_bar")), 550, 320),
+        ("por_grupo", _to_chart_dict(graficas.get("por_grupo_bar")), 550, 320),
+    ]
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resultados = await asyncio.gather(
+            *[_grafica_a_base64(client, datos, w, h) for _, datos, w, h in specs],
+            return_exceptions=True,
+        )
+
+    charts = {}
+    for (key, _, _, _), resultado in zip(specs, resultados):
+        if isinstance(resultado, str):
+            charts[key] = resultado
+        elif isinstance(resultado, Exception):
+            logger.warning("Error generando chart BOM %s: %s", key, resultado)
+
+    return charts

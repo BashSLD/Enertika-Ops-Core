@@ -87,10 +87,14 @@ class FakeBulkDB:
     async def set_item_grupos_operativos(self, conn, item_id, grupo_ids, user_id):
         self.grupo_calls.append((item_id, list(grupo_ids)))
 
-    async def update_item(self, conn, item_id, **campos):
+    async def update_item(self, conn, item_id, lock_version_esperado=None, **campos):
+        item = self.items[item_id]
+        if lock_version_esperado is not None and item.get("lock_version", 0) != lock_version_esperado:
+            return None
         self.base_updates.append((item_id, campos))
-        self.items[item_id].update(campos)
-        return self.items[item_id]
+        item.update(campos)
+        item["lock_version"] = item.get("lock_version", 0) + 1
+        return item
 
     async def upsert_item_ejecucion(
         self, conn, item_id, updated_by=None, lock_version_esperado=None, **campos
@@ -222,7 +226,10 @@ class FakeSeleccionCotizacionDB:
         return None
 
 
-def _item(item_id, bom_id, proyecto_id, *, estatus="BORRADOR", activo=True, bloqueado=False):
+def _item(
+    item_id, bom_id, proyecto_id, *, estatus="BORRADOR", activo=True, bloqueado=False,
+    precio_unitario=100, lock_version=0, precio_pendiente_confirmacion=False,
+):
     return {
         "id_item": item_id,
         "id_bom": bom_id,
@@ -231,16 +238,18 @@ def _item(item_id, bom_id, proyecto_id, *, estatus="BORRADOR", activo=True, bloq
         "bom_version": 1,
         "bom_lock_version": 0,
         "ejecucion_lock_version": 0,
+        "lock_version": lock_version,
         "id_paquete": uuid4(),
         "activo": activo,
         "bloqueado": bloqueado,
         "cantidad": 10,
         "cantidad_recibida": 0,
-        "precio_unitario": 100,
+        "precio_unitario": precio_unitario,
         "precio_real": None,
         "moneda": "MXN",
         "moneda_real": None,
         "origen_precio": "MANUAL",
+        "precio_pendiente_confirmacion": precio_pendiente_confirmacion,
     }
 
 
@@ -343,7 +352,7 @@ async def test_bulk_precio_unitario_con_valor_secundario_escribe_moneda_junto_co
     item_id = uuid4()
     user_id = uuid4()
     svc = _service(
-        [_item(item_id, bom_id, proyecto_id)],
+        [_item(item_id, bom_id, proyecto_id, precio_unitario=None)],
         actor_id=user_id, es_jefe=True,
     )
 
@@ -356,7 +365,10 @@ async def test_bulk_precio_unitario_con_valor_secundario_escribe_moneda_junto_co
     )
 
     assert svc.db.base_updates == [
-        (item_id, {"precio_unitario": "150", "moneda": "USD"})
+        (item_id, {
+            "precio_unitario": "150", "moneda": "USD",
+            "precio_pendiente_confirmacion": True,
+        })
     ]
 
 
@@ -597,6 +609,118 @@ async def test_editar_item_ingenieria_aprobado_final_rechaza_presupuesto_base():
 
     assert svc.db.base_updates == []
     assert svc.db.execution_updates == []
+
+
+@pytest.mark.asyncio
+async def test_editar_item_ingenieria_rechaza_sobreescribir_costo_configurado():
+    """Fase 4: un item con costo ya configurado (precio_unitario > 0) no puede ser
+    modificado por Ingenieria a un valor distinto de cero, sin importar el origen
+    del item (entrada manual o catalogo) — regla confirmada con el usuario."""
+    bom_id = uuid4()
+    proyecto_id = uuid4()
+    item_id = uuid4()
+    user_id = uuid4()
+    svc = _service([
+        _item(item_id, bom_id, proyecto_id, precio_unitario=100),
+    ], actor_id=user_id, es_jefe=True)
+
+    with pytest.raises(ValueError, match="ya tiene un costo configurado"):
+        await svc.editar_item(
+            FakeConn(), item_id, user_id, "ingenieria",
+            precio_unitario="150", moneda="MXN", lock_version_esperado=0,
+            module_roles={"ingenieria": "editor"},
+        )
+
+    assert svc.db.base_updates == []
+
+
+@pytest.mark.asyncio
+async def test_editar_item_ingenieria_reabre_a_cero_item_con_costo():
+    """Unica accion permitida sobre un item con costo configurado: dejarlo en cero,
+    lo que lo reabre (limpia precio_pendiente_confirmacion) para que Compras lo
+    capture de nuevo."""
+    bom_id = uuid4()
+    proyecto_id = uuid4()
+    item_id = uuid4()
+    user_id = uuid4()
+    svc = _service([
+        _item(item_id, bom_id, proyecto_id, precio_unitario=100, lock_version=3),
+    ], actor_id=user_id, es_jefe=True)
+
+    await svc.editar_item(
+        FakeConn(), item_id, user_id, "ingenieria",
+        precio_unitario="0", moneda="MXN", lock_version_esperado=0,
+        module_roles={"ingenieria": "editor"},
+    )
+
+    assert svc.db.base_updates == [
+        (item_id, {
+            "precio_unitario": "0", "moneda": "MXN",
+            "precio_pendiente_confirmacion": False,
+        })
+    ]
+
+
+@pytest.mark.asyncio
+async def test_editar_item_ingenieria_captura_costo_item_sin_costo_queda_pendiente():
+    """Caso (b) de la regla: item sin costo configurado, Ingenieria lo captura por
+    primera vez — se acepta, pero queda pendiente de confirmacion de Compras, no
+    oficial todavia."""
+    bom_id = uuid4()
+    proyecto_id = uuid4()
+    item_id = uuid4()
+    user_id = uuid4()
+    svc = _service([
+        _item(item_id, bom_id, proyecto_id, precio_unitario=None, lock_version=7),
+    ], actor_id=user_id, es_jefe=True)
+
+    resultado = await svc.editar_item(
+        FakeConn(), item_id, user_id, "ingenieria",
+        precio_unitario="80", moneda="MXN", lock_version_esperado=0,
+        module_roles={"ingenieria": "editor"},
+    )
+
+    assert svc.db.base_updates == [
+        (item_id, {
+            "precio_unitario": "80", "moneda": "MXN",
+            "precio_pendiente_confirmacion": True,
+        })
+    ]
+    assert resultado["item"]["precio_pendiente_confirmacion"] is True
+    assert resultado["item"]["lock_version"] == 8
+
+
+@pytest.mark.asyncio
+async def test_editar_item_ingenieria_costo_conflicto_cas_da_mensaje_especifico():
+    """Si el lock_version del item ya avanzo (ej. Compras confirmo justo antes) el
+    intento de Ingenieria de reabrir/capturar el costo debe rechazarse con un
+    mensaje especifico de conflicto, no el generico de BOM completo (Grupo 1 #4)."""
+    bom_id = uuid4()
+    proyecto_id = uuid4()
+    item_id = uuid4()
+    user_id = uuid4()
+    svc = _service([
+        _item(item_id, bom_id, proyecto_id, precio_unitario=100, lock_version=3),
+    ], actor_id=user_id, es_jefe=True)
+    # Compras ya confirmo el costo (bump de lock_version) justo antes de que
+    # Ingenieria, con el item cargado desde antes, intente reabrirlo a cero.
+    svc.db.items[item_id]["lock_version"] = 4
+
+    async def get_item_desactualizado(conn, id_item):
+        item = dict(svc.db.items[id_item])
+        item["lock_version"] = 3  # snapshot obsoleto que Ingenieria tiene cargado
+        return item
+
+    svc.db.get_item_by_id = get_item_desactualizado
+
+    with pytest.raises(ValueError, match="modificado por alguien mas"):
+        await svc.editar_item(
+            FakeConn(), item_id, user_id, "ingenieria",
+            precio_unitario="0", moneda="MXN", lock_version_esperado=0,
+            module_roles={"ingenieria": "editor"},
+        )
+
+    assert svc.db.base_updates == []
 
 
 @pytest.mark.asyncio

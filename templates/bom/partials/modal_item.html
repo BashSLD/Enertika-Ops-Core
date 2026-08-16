@@ -82,7 +82,11 @@
                 {% set ejecucion_bloqueada = bloqueado or not capacidades.editar_ejecucion|default(false) %}
                 {% set base_construccion_bloqueada = base_bloqueada %}
                 {% set disabled_ing = base_bloqueada %}
-                {% set disabled_presupuesto = disabled_ing %}
+                {# Mismo criterio que tiene_costo_configurado en editar_item (Fase 4):
+                   un costo > 0 ya confirmado por Compras (precio_pendiente_confirmacion
+                   False) ya no lo puede tocar Ingenieria directo, solo reabrirlo en 0. #}
+                {% set costo_ya_configurado = item.precio_unitario and item.precio_unitario|float > 0 and not item.precio_pendiente_confirmacion %}
+                {% set disabled_presupuesto = disabled_ing or costo_ya_configurado %}
                 {% set disabled_construccion = ejecucion_bloqueada %}
                 {% set disabled_fecha_requerida = base_bloqueada or base_construccion_bloqueada %}
                 {% set disabled_compras = area_editor != 'compras' or ejecucion_bloqueada %}
@@ -140,35 +144,37 @@
                             {% if disabled_ing or es_catalogo %}disabled{% endif %}>{{ item.descripcion }}</textarea>
                     </div>
 
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
-                        <input type="number" name="cantidad" value="{{ item.cantidad }}" step="0.0001"
-                            class="w-full rounded-lg border-gray-300 text-sm"
-                            {% if disabled_ing %}disabled{% endif %}>
-                    </div>
+                    <div class="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
+                            <input type="number" name="cantidad" value="{{ item.cantidad }}" step="0.0001"
+                                class="w-full rounded-lg border-gray-300 text-sm"
+                                {% if disabled_ing %}disabled{% endif %}>
+                        </div>
 
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1"
-                            title="Costo estimado con base a los precios registrados en base de datos de cada item">Costo Estimado Unitario</label>
-                        <input type="number" name="precio_unitario" step="0.0001" min="0"
-                            value="{{ item.precio_unitario if item.precio_unitario else '' }}"
-                            class="w-full rounded-lg border-gray-300 text-sm {{ 'bg-gray-100 text-gray-500' if disabled_presupuesto }}"
-                            placeholder="0.00"
-                            {% if disabled_presupuesto %}disabled{% endif %}>
-                        {% if es_catalogo %}
-                        <span class="text-xs text-blue-500 mt-0.5">Editable solo para completar el costo base.</span>
-                        {% endif %}
-                    </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1"
+                                title="Costo estimado con base a los precios registrados en base de datos de cada item">Costo Estimado Unitario</label>
+                            <input type="number" name="precio_unitario" step="0.0001" min="0"
+                                value="{{ item.precio_unitario if item.precio_unitario else '' }}"
+                                class="w-full rounded-lg border-gray-300 text-sm {{ 'bg-gray-100 text-gray-500' if disabled_presupuesto }}"
+                                placeholder="0.00"
+                                {% if disabled_presupuesto %}disabled{% endif %}>
+                            {% if es_catalogo %}
+                            <span class="text-xs text-blue-500 mt-0.5">Editable solo para completar el costo base.</span>
+                            {% endif %}
+                        </div>
 
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Moneda</label>
-                        <select name="moneda"
-                            class="w-full rounded-lg border-gray-300 text-sm {{ 'bg-gray-100 text-gray-500' if disabled_presupuesto }}"
-                            {% if disabled_presupuesto %}disabled{% endif %}>
-                            <option value="MXN" {{ 'selected' if not item.moneda or item.moneda == 'MXN' }}>MXN — Peso mexicano</option>
-                            <option value="USD" {{ 'selected' if item.moneda == 'USD' }}>USD — Dólar americano</option>
-                        </select>
-                        <span class="text-xs text-gray-400 mt-0.5">El costo MXN se calcula con el tipo de cambio Banxico</span>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Moneda</label>
+                            <select name="moneda"
+                                class="w-full rounded-lg border-gray-300 text-sm {{ 'bg-gray-100 text-gray-500' if disabled_presupuesto }}"
+                                {% if disabled_presupuesto %}disabled{% endif %}>
+                                <option value="MXN" {{ 'selected' if not item.moneda or item.moneda == 'MXN' }}>MXN — Peso mexicano</option>
+                                <option value="USD" {{ 'selected' if item.moneda == 'USD' }}>USD — Dólar americano</option>
+                            </select>
+                            <span class="text-xs text-gray-400 mt-0.5">El costo MXN se calcula con el tipo de cambio Banxico</span>
+                        </div>
                     </div>
                 </div>
 

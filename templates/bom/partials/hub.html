@@ -1,4 +1,5 @@
 {% import 'shared/partials/_paquete_nombre_datalist.html' as paquete_datalist %}
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 <div class="w-full px-4 py-6 animate-fade-in-down" hx-history="false"
     x-data="{ crearAbierto: false, capturaAbierta: false, tipo: 'PARCIAL' }">
     <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -10,14 +11,9 @@
             </p>
         </div>
         <div class="flex flex-wrap gap-2">
-            {% if paquetes %}
-            <a href="/bom/{{ id_proyecto }}/consolidado/ui?modo=CURSO"
-                hx-get="/bom/{{ id_proyecto }}/consolidado/ui?modo=CURSO"
-                hx-target="#main-content" hx-push-url="true"
-                class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                Ver consolidado
-            </a>
-            {% endif %}
+            {# El acceso a "Ver consolidado" vive en las tarjetas de abajo (En curso / Oficial,
+               con totales y pendientes) — un boton duplicado aqui con el mismo destino que la
+               tarjeta "Consolidado en curso" era ruido, no una opcion distinta. #}
             {% if puede_crear and not estado_conjunto.captura_cerrada and (multi_habilitado or not paquetes) %}
             <button type="button" @click="crearAbierto = true"
                 class="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
@@ -120,7 +116,12 @@
                             <a href="/bom/paquetes/{{ paquete.id_paquete }}/ui"
                                 hx-get="/bom/paquetes/{{ paquete.id_paquete }}/ui"
                                 hx-target="#main-content" hx-push-url="true"
-                                class="font-semibold text-blue-700 hover:underline">
+                                hx-indicator="#paquete-abrir-spinner-{{ paquete.id_paquete }}"
+                                hx-sync="this:drop"
+                                class="inline-flex items-center gap-1.5 font-semibold text-blue-700 hover:underline">
+                                <span id="paquete-abrir-spinner-{{ paquete.id_paquete }}" class="htmx-indicator">
+                                    {{ spinner_icon('w-3.5 h-3.5') }}
+                                </span>
                                 {{ paquete.codigo }} - {{ paquete.nombre }}
                             </a>
                             <div class="mt-1 flex gap-1 text-xs">
@@ -145,7 +146,13 @@
                         </td>
                         <td class="px-4 py-3 text-right font-mono text-sm text-gray-800">
                             {% if paquete.total_trabajo_mxn is none or paquete.total_trabajo_usd is none %}
-                            <span class="font-sans text-xs text-amber-700">Importe pendiente</span>
+                            <span class="action-wrapper inline-flex cursor-help items-center gap-1 font-sans text-xs text-amber-700">
+                                Importe pendiente
+                                <svg class="h-3.5 w-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                <span class="action-tooltip">Faltan precios en items o un tipo de cambio vigente para USD; el importe se calculará cuando estén disponibles.</span>
+                            </span>
                             {% else %}
                             ${{ '{:,.2f}'.format(paquete.total_trabajo_mxn|float) }} MXN
                             {% if paquete.total_trabajo_usd %}
@@ -189,16 +196,22 @@
                 </div>
                 <div>
                     <label class="mb-1 block text-sm font-medium text-gray-700">Nombre</label>
-                    <input name="nombre" required maxlength="160" list="sugerencias-nombre-paquete-nuevo"
-                        placeholder="Ej. AC, DC, o un nombre libre"
-                        class="w-full rounded-lg border-gray-300 text-sm">
+                    <div class="relative">
+                        <input name="nombre" required maxlength="160" list="sugerencias-nombre-paquete-nuevo"
+                            placeholder="Ej. AC, DC, o un nombre libre"
+                            class="w-full rounded-lg border-gray-300 px-3 py-2 pr-8 text-sm">
+                        <svg class="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </div>
                     {{ paquete_datalist.nombre_paquete_datalist('sugerencias-nombre-paquete-nuevo') }}
+                    <p class="mt-1 text-xs text-gray-400">Escribe un nombre libre o elige uno de los grupos comunes (DC, AC, OC, CM, TE).</p>
                 </div>
                 <div>
                     <label class="mb-1 block text-sm font-medium text-gray-700">Descripción del alcance</label>
                     <textarea name="descripcion_alcance" rows="3" :required="tipo === 'PARCIAL'"
                         placeholder="Indica qué incluye y qué queda fuera de este paquete."
-                        class="w-full rounded-lg border-gray-300 text-sm"></textarea>
+                        class="w-full rounded-lg border-gray-300 px-3 py-2 text-sm"></textarea>
                 </div>
                 {% if paquetes %}
                 <div class="rounded-lg bg-gray-50 p-3 text-xs text-gray-600">

@@ -806,6 +806,7 @@ class ComprasDBService:
         bom_item_map: dict = None,
         match_meta_map: dict = None,
         suggestion_map: dict = None,
+        interno_suggestion_map: dict = None,
         tipo_factura: str = "NORMAL",
         moneda: str = "MXN",
     ):
@@ -819,10 +820,17 @@ class ComprasDBService:
             Comparte indice con `conceptos` y `bom_item_map` (lista ya filtrada en el caller).
         suggestion_map: dict opcional {indice_concepto: {id_item, confianza, origen}}.
             Guarda sugerencias de baja confianza sin poblar id_bom_item.
+        interno_suggestion_map: dict opcional {indice_concepto: {id_material_interno,
+            confianza, origen}} del matcher catalogo interno<->XML (doc 39). Comparte
+            indice con `conceptos`. Solo sugerencias BAJA (TEXTO) llegan aqui -- las
+            ALTA (CLAVE_SAT/MEMORIA) se auto-aplican aparte, despues del INSERT
+            (ver ComprasService.confirmar_match_xml / aplicar_matches_interno_alta),
+            porque necesitan el id real de la fila que este INSERT genera.
         """
         bom_item_map = bom_item_map or {}
         match_meta_map = match_meta_map or {}
         suggestion_map = suggestion_map or {}
+        interno_suggestion_map = interno_suggestion_map or {}
 
         # Batch: obtener categorias conocidas por clave SAT
         claves_sat = list(set(
@@ -840,6 +848,7 @@ class ComprasDBService:
             id_bom_item = bom_item_map.get(idx)
             meta = match_meta_map.get(idx) or {}
             suggestion = suggestion_map.get(idx) or {}
+            interno_suggestion = interno_suggestion_map.get(idx) or {}
             rows.append((
                 uuid_factura, id_comprobante, id_proveedor,
                 idx + 1,
@@ -848,7 +857,9 @@ class ComprasDBService:
                 c.get('clave_unidad'), id_categoria, 'XML', fecha_factura,
                 tipo_cambio_xml, user_id, id_bom_item,
                 meta.get('confianza'), meta.get('origen'),
-                suggestion.get('id_item'), suggestion.get('confianza'), suggestion.get('origen')
+                suggestion.get('id_item'), suggestion.get('confianza'), suggestion.get('origen'),
+                interno_suggestion.get('id_material_interno'),
+                interno_suggestion.get('confianza'), interno_suggestion.get('origen'),
             ))
 
         if rows:
@@ -861,8 +872,10 @@ class ComprasDBService:
                     id_categoria, origen, fecha_factura,
                     tipo_cambio_xml, created_by_id, id_bom_item,
                     match_confianza, match_origen,
-                    id_bom_item_sugerido, sugerencia_confianza, sugerencia_origen
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+                    id_bom_item_sugerido, sugerencia_confianza, sugerencia_origen,
+                    id_material_interno_sugerido, sugerencia_interno_confianza,
+                    sugerencia_interno_origen
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
                 ON CONFLICT (uuid_factura, numero_linea_cfdi) DO UPDATE
                 SET id_comprobante = EXCLUDED.id_comprobante,
                     id_proveedor = EXCLUDED.id_proveedor,
@@ -1701,6 +1714,7 @@ class ComprasDBService:
                        CASE WHEN COUNT(*) FILTER (WHERE activo AND (
                            cantidad IS NULL OR precio_unitario IS NULL
                            OR moneda IS NULL OR moneda NOT IN ('MXN', 'USD')
+                           OR precio_pendiente_confirmacion
                        )) > 0 THEN NULL ELSE COALESCE(
                            SUM(cantidad * precio_unitario)
                                FILTER (WHERE activo AND moneda = 'MXN'), 0
@@ -1708,6 +1722,7 @@ class ComprasDBService:
                        CASE WHEN COUNT(*) FILTER (WHERE activo AND (
                            cantidad IS NULL OR precio_unitario IS NULL
                            OR moneda IS NULL OR moneda NOT IN ('MXN', 'USD')
+                           OR precio_pendiente_confirmacion
                        )) > 0 THEN NULL ELSE COALESCE(
                            SUM(cantidad * precio_unitario)
                                FILTER (WHERE activo AND moneda = 'USD'), 0
@@ -1722,11 +1737,14 @@ class ComprasDBService:
         return [dict(r) for r in rows]
 
     async def get_proyectos_bom_pendientes_precio(self, conn) -> list:
-        """Una fila por paquete con BOM en BORRADOR que tiene items base sin costo.
+        """Una fila por paquete con BOM en BORRADOR que tiene items base sin costo
+        oficial: sin precio, o con un precio capturado por Ingenieria que Compras
+        aun no confirma (precio_pendiente_confirmacion).
 
         Mismo JOIN por cabeza_trabajo_id/estado_paquete='ACTIVO' que get_proyectos_con_bom
-        (evita traer versiones historicas del paquete), y el mismo predicado de "sin costo"
-        que core.bom.db_service.get_items_sin_costo_bom (excluye items de adenda)."""
+        (evita traer versiones historicas del paquete), y el mismo predicado que
+        core.bom.db_service.get_items_sin_costo_bom (excluye items de adenda) — mantener
+        ambos sincronizados si cambia el criterio de "sin costo"."""
         rows = await conn.fetch("""
             SELECT
                 p.id_proyecto,
@@ -1750,7 +1768,10 @@ class ComprasDBService:
                 WHERE i.id_bom = b.id_bom
                   AND i.activo = TRUE
                   AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
-                  AND (i.precio_unitario IS NULL OR i.precio_unitario <= 0)
+                  AND (
+                      i.precio_unitario IS NULL OR i.precio_unitario <= 0
+                      OR i.precio_pendiente_confirmacion = TRUE
+                  )
             ) pendientes ON TRUE
             WHERE paquete.estado_paquete = 'ACTIVO'
               AND b.estatus = 'BORRADOR'

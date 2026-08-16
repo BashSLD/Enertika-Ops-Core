@@ -12,6 +12,9 @@
                 <p class="text-xs text-gray-500 mt-0.5">
                     {{ bom.paquete_codigo }} — {{ bom.paquete_nombre }} (v{{ bom.version }})
                 </p>
+                <p class="text-xs text-gray-400 mt-1">
+                    El precio y moneda que confirmes aqui se guardan como costo oficial del item en este BOM.
+                </p>
             </div>
             <button type="button" onclick="document.getElementById('compras-modal-container').innerHTML=''"
                 class="p-2 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100">
@@ -39,29 +42,70 @@
                         class="mt-1 rounded border-gray-300 text-amber-600 focus:ring-amber-500">
                     <input type="hidden" name="lock_version_{{ item.id_item }}" value="{{ item.lock_version or 0 }}">
                     <div class="flex-1 min-w-0">
-                        <p class="text-sm text-gray-800 truncate" title="{{ item.descripcion }}">{{ item.descripcion }}</p>
+                        <div class="flex items-center gap-1.5">
+                            <p class="text-sm text-gray-800 truncate" title="{{ item.descripcion }}">{{ item.descripcion }}</p>
+                            {% if item.precio_pendiente_confirmacion %}
+                            <span class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700"
+                                title="Ingenieria capturo este precio; confirmalo tal cual o editalo antes de guardar">
+                                Pendiente de confirmar
+                            </span>
+                            {% endif %}
+                        </div>
                         <p class="text-xs text-gray-400">{{ item.cantidad }} {{ item.unidad_medida or '' }}{% if item.categoria_nombre %} — {{ item.categoria_nombre }}{% endif %}</p>
                         <div class="mt-2 grid grid-cols-2 gap-2">
                             <div>
                                 <label class="block text-xs font-medium text-gray-600 mb-1">Precio unitario</label>
                                 <input type="number" name="precio_unitario_{{ item.id_item }}" step="0.0001" min="0.0001"
                                     placeholder="0.00"
-                                    class="w-full rounded-lg border-gray-300 text-sm">
+                                    {% if item.precio_pendiente_confirmacion and item.precio_unitario %}value="{{ item.precio_unitario }}"{% endif %}
+                                    class="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-gray-600 mb-1">Moneda</label>
-                                <select name="moneda_{{ item.id_item }}" class="w-full rounded-lg border-gray-300 text-sm">
-                                    <option value="MXN">MXN — Peso mexicano</option>
-                                    <option value="USD">USD — Dolar americano</option>
+                                <select name="moneda_{{ item.id_item }}" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+                                    <option value="MXN" {% if item.moneda == 'MXN' %}selected{% endif %}>MXN — Peso mexicano</option>
+                                    <option value="USD" {% if item.moneda == 'USD' %}selected{% endif %}>USD — Dolar americano</option>
                                 </select>
                             </div>
                         </div>
                         {% if item.id_material_interno %}
-                        <label class="mt-2 flex items-center gap-1.5 text-xs text-gray-500">
+                        <label class="mt-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
                             <input type="checkbox" name="actualizar_catalogo_{{ item.id_item }}" value="true"
-                                class="rounded border-gray-300 text-amber-600 focus:ring-amber-500">
+                                class="rounded border-amber-400 text-amber-600 focus:ring-amber-500">
                             Tambien actualizar el precio de referencia en el catalogo interno
                         </label>
+                        {% else %}
+                        <div x-data="{
+                                vinculado: null,
+                                usarMaterialHomologado(material) { this.vinculado = material; },
+                            }" class="mt-2">
+                            <template x-if="vinculado">
+                                <div class="flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs">
+                                    <span class="text-emerald-800 truncate">
+                                        Se vinculara al material existente: <span class="font-medium" x-text="vinculado.descripcion"></span>
+                                    </span>
+                                    <button type="button" @click="vinculado = null" class="shrink-0 text-emerald-700 underline">Cambiar</button>
+                                </div>
+                            </template>
+                            <input type="hidden" name="id_material_vinculado_{{ item.id_item }}" :value="vinculado ? vinculado.id : ''">
+                            <div x-show="!vinculado">
+                                <label class="flex items-center gap-1.5 text-xs text-gray-500">
+                                    <input type="checkbox" name="crear_catalogo_{{ item.id_item }}" value="true"
+                                        :disabled="!!vinculado"
+                                        class="rounded border-gray-300 text-amber-600 focus:ring-amber-500 disabled:opacity-50">
+                                    Crear como material nuevo en el catalogo interno
+                                </label>
+                                <div class="mt-1">
+                                    {% set similar_search_id = 'similar-search-pendiente-' ~ item.id_item %}
+                                    {% set similar_search_extra_trigger = 'load' %}
+                                    <input type="text" value="{{ item.descripcion }}" autocomplete="off"
+                                        {% include "materials/partials/_similar_internos_hx_attrs.html" %}
+                                        class="w-full rounded-lg border-gray-300 text-xs"
+                                        placeholder="Buscar en catalogo para evitar duplicados">
+                                    <div class="material-similar-results text-xs mt-1"></div>
+                                </div>
+                            </div>
+                        </div>
                         {% endif %}
                     </div>
                 </div>

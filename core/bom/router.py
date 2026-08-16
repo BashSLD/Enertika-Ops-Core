@@ -7,19 +7,23 @@ from fastapi import APIRouter, Depends, Request, HTTPException, Form, Query
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse, Response
 from uuid import UUID, uuid4
-from typing import Optional
+from typing import Callable, Optional
 import json
 import asyncpg
 import logging
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
-from core.permissions import require_module_access, require_manager_access, require_role, require_any_module_access, require_authenticated_session
+from core.permissions import require_module_access, require_manager_access, require_role, require_any_module_access, require_authenticated_session, user_has_module_access
 from core.config import settings
 from core.config_service import ConfigService
 from core.timezone import now_mx
 from core.materials.normalizer import normalizar_descripcion
+from core.pdf_service.service import PDFService, get_pdf_service
+from core.charts.service import generar_charts_bom_consolidado
+from .pdf_resumen_compra import datos_graficas_resumen_compra
 from modules.shared.utils import hx_location_response, is_htmx
+import jinja2
 from .compras_service import ESTATUS_COTIZABLE
 from .service import (
     BomService,
@@ -259,12 +263,20 @@ def _parse_precios_pendientes_compras_form(form) -> tuple[list[dict], list[dict]
         except InvalidOperation:
             rechazados.append({"id_item": raw_id, "motivo": "Precio unitario invalido"})
             continue
+        id_material_vinculado_raw = (form.get(f"id_material_vinculado_{raw_id}") or "").strip()
+        try:
+            id_material_vinculado = UUID(id_material_vinculado_raw) if id_material_vinculado_raw else None
+        except ValueError:
+            rechazados.append({"id_item": raw_id, "motivo": "Material vinculado invalido"})
+            continue
         payload.append({
             "id_item": id_item,
             "precio_unitario": precio,
             "moneda": moneda,
             "lock_version": lock_version,
             "actualizar_catalogo": form.get(f"actualizar_catalogo_{raw_id}") in ("true", "on", "1"),
+            "crear_catalogo": form.get(f"crear_catalogo_{raw_id}") in ("true", "on", "1"),
+            "id_material_vinculado": id_material_vinculado,
         })
     return payload, rechazados
 
@@ -449,6 +461,60 @@ async def exportar_bom_consolidado(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/{id_proyecto}/consolidado/export-pdf", include_in_schema=False)
+async def exportar_bom_consolidado_pdf(
+    id_proyecto: UUID,
+    modo: str = Query("CURSO"),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: BomService = Depends(get_bom_service),
+    pdf_service: PDFService = Depends(get_pdf_service),
+    _=require_any_module_access(
+        ["ingenieria", "construccion", "compras", "finanzas"],
+        "viewer", allow_org_roles={"director"},
+    ),
+):
+    """PDF 'resumen de compra' con graficas del consolidado (doc 40, puntos 6.3/6.4).
+    Mismo permiso, parametros y patron de nombre de archivo que el Excel hermano
+    (exportar_bom_consolidado) -- convive con el, no lo reemplaza: el Excel exporta
+    datos crudos tabulares, este PDF es un reporte visual."""
+    proyecto = await service.get_proyecto_info(conn, id_proyecto)
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    try:
+        consolidado = await service.get_consolidado_proyecto(conn, id_proyecto, modo)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    graficas_datos = datos_graficas_resumen_compra(consolidado)
+    charts = await generar_charts_bom_consolidado(graficas_datos)
+    proyecto_codigo = proyecto.get("proyecto_id_estandar") or str(id_proyecto)
+
+    try:
+        pdf_bytes = await pdf_service.generate(
+            "bom/resumen_compra.html",
+            {
+                "consolidado": consolidado,
+                "charts": charts,
+                "proyecto_id": proyecto_codigo,
+                "generado_en": now_mx().strftime("%d/%m/%Y %H:%M"),
+                "generado_por": context.get("user_name", ""),
+            },
+        )
+    except (OSError, RuntimeError, ValueError, jinja2.TemplateError) as exc:
+        logger.exception("Error generando PDF de consolidado BOM (proyecto=%s)", id_proyecto)
+        raise HTTPException(status_code=500, detail="Error generando el PDF") from exc
+
+    modo_normalizado = (modo or "CURSO").strip().upper()
+    filename = f"BOM_{proyecto_codigo}_CONSOLIDADO_{modo_normalizado}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 
 @router.get("/paquetes/{id_paquete}/ui", include_in_schema=False)
 async def paquete_ui(
@@ -1582,9 +1648,14 @@ async def refrescar_costos_catalogo(
                 "message": f"{n} item(s) actualizados. Aun quedan {len(pendientes_sin_costo)} sin costo en el catalogo interno.",
                 "type": "warning", "title": "Costos refrescados",
             }
+        elif not pendientes_sin_costo:
+            toast = {
+                "message": "No hay items pendientes de costo; no hace falta refrescar.",
+                "type": "info", "title": "Sin pendientes",
+            }
         else:
             toast = {
-                "message": "Ningun item tiene un precio disponible en el catalogo interno todavia.",
+                "message": f"{len(pendientes_sin_costo)} item(s) siguen sin costo, pero no tienen un precio de referencia en el catalogo interno todavia.",
                 "type": "warning", "title": "Sin cambios",
             }
 
@@ -1608,13 +1679,36 @@ async def refrescar_costos_catalogo(
         return _toast_response(request, "Error interno al refrescar costos", "error", "Error", status_code=500)
 
 
+def _requiere_compras_editor_precios_pendientes() -> Callable:
+    """Depends() declarativo para 'compras editor', con mensaje de negocio
+    explicito en vez del generico de require_module_access — comun que un RI
+    llegue aqui buscando actualizar un costo (Grupo 1 #5, doc 37). El detail se
+    convierte en toast de error via core/error_handlers.py::auth_exception_handler
+    (mismo contrato que cualquier HTTPException 403). Declarado en la firma de
+    get/post_precios_pendientes_compras para que un endpoint nuevo en esta area
+    no pueda olvidar la validacion, a diferencia del helper manual que reemplaza."""
+    async def _validate(context=Depends(get_current_user_context)):
+        if not user_has_module_access("compras", context, "editor"):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Solo Compras puede actualizar costos aqui. Si el item no "
+                    "tiene costo, Ingenieria puede capturarlo directamente desde "
+                    "el item del BOM."
+                ),
+            )
+        return True
+    return Depends(_validate)
+
+
 @router.get("/{id_bom}/precios-pendientes-compras/modal", include_in_schema=False)
 async def get_modal_precios_pendientes_compras(
     request: Request,
     id_bom: UUID,
+    context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("compras", "editor"),
+    _=_requiere_compras_editor_precios_pendientes(),
 ):
     """Modal de Compras para capturar precio_unitario/moneda de items BASE sin costo
     de un BOM en BORRADOR — lugar propio, ya que Compras no es actor de ningun turno
@@ -1650,7 +1744,7 @@ async def post_precios_pendientes_compras(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("compras", "editor"),
+    _=_requiere_compras_editor_precios_pendientes(),
 ):
     """Aplica el lote de precios capturados por Compras. Todo-o-nada NO aplica aqui:
     se valida y aplica el subconjunto valido, aplicados/rechazados se reportan juntos."""

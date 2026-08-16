@@ -26,7 +26,15 @@
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[200px]">Descripcion</th>
                     <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cantidad</th>
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unidad</th>
-                    <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider" title="Costo estimado con base a los precios registrados en base de datos de cada item">Costo Estimado</th>
+                    <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <span class="action-wrapper inline-flex cursor-help items-center gap-1">
+                            Costo Estimado
+                            <svg class="h-3.5 w-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <span class="action-tooltip normal-case tracking-normal">Costo estimado con base a los precios registrados en base de datos de cada item</span>
+                        </span>
+                    </th>
                     {% if fase_compras %}
                     <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Costo Real</th>
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha Req.</th>

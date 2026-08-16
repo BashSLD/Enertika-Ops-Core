@@ -1238,6 +1238,7 @@ class BomDBService(BomComprasDBMixin):
         creado_en_adenda: Optional[UUID] = None,
         id_linea_bom: Optional[UUID] = None,
         creado_por: Optional[UUID] = None,
+        precio_pendiente_confirmacion: bool = False,
     ) -> dict:
         """Agrega un item al BOM."""
         id_paquete = await conn.fetchval(
@@ -1268,15 +1269,17 @@ class BomDBService(BomComprasDBMixin):
                                       precio_unitario, origen_precio, id_material_ref,
                                       id_material_interno, tipo_partida, moneda,
                                       tipo_origen_item, id_item_reemplazado,
-                                      motivo_adenda, creado_en_adenda)
+                                      motivo_adenda, creado_en_adenda,
+                                      precio_pendiente_confirmacion)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                    $14, $15, $16, $17, $18, $19)
+                    $14, $15, $16, $17, $18, $19, $20)
             RETURNING *
         """, id_bom, id_paquete, id_linea_bom, id_categoria, descripcion, cantidad,
             unidad_medida, comentarios, orden,
             precio_unitario, origen_precio, id_material_ref,
             id_material_interno, tipo_partida, moneda,
-            tipo_origen_item, id_item_reemplazado, motivo_adenda, creado_en_adenda)
+            tipo_origen_item, id_item_reemplazado, motivo_adenda, creado_en_adenda,
+            precio_pendiente_confirmacion)
         return dict(row)
 
     async def get_item_ids_by_bom(self, conn, id_bom: UUID) -> List[UUID]:
@@ -1320,7 +1323,9 @@ class BomDBService(BomComprasDBMixin):
         return [self._merge_item_ejecucion(r) for r in rows]
 
     async def get_items_sin_costo_bom(self, conn, id_bom: UUID) -> List[dict]:
-        """Lista items activos sin costo asignado (NULL o menor/igual a cero)."""
+        """Lista items activos sin costo util para presupuesto: sin precio (NULL o
+        <=0), o con un precio capturado por Ingenieria que Compras aun no confirma
+        (precio_pendiente_confirmacion) — ese precio no es oficial todavia."""
         rows = await conn.fetch("""
             SELECT i.id_item,
                    i.descripcion,
@@ -1332,6 +1337,7 @@ class BomDBService(BomComprasDBMixin):
                    i.orden,
                    i.lock_version,
                    i.id_material_interno,
+                   i.precio_pendiente_confirmacion,
                    c.nombre AS categoria_nombre,
                    COALESCE(
                        string_agg(DISTINCT g.codigo, ', ' ORDER BY g.codigo),
@@ -1344,7 +1350,10 @@ class BomDBService(BomComprasDBMixin):
             WHERE i.id_bom = $1
               AND i.activo = TRUE
               AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
-              AND (i.precio_unitario IS NULL OR i.precio_unitario <= 0)
+              AND (
+                  i.precio_unitario IS NULL OR i.precio_unitario <= 0
+                  OR i.precio_pendiente_confirmacion = TRUE
+              )
             GROUP BY i.id_item, c.nombre
             ORDER BY i.orden, i.created_at
         """, id_bom)
@@ -1358,7 +1367,8 @@ class BomDBService(BomComprasDBMixin):
         rows = await conn.fetch("""
             SELECT id_item, precio_unitario, moneda, lock_version, activo,
                    COALESCE(tipo_origen_item, 'BASE') AS tipo_origen_item,
-                   id_material_interno
+                   id_material_interno, precio_pendiente_confirmacion,
+                   descripcion, id_categoria, unidad_medida
             FROM tb_bom_items
             WHERE id_bom = $1 AND id_item = ANY($2::uuid[])
         """, id_bom, item_ids)
@@ -1372,30 +1382,41 @@ class BomDBService(BomComprasDBMixin):
         completo entre Compras e Ingenieria/Construccion editando items distintos.
         Un solo UPDATE con arrays desanidados en vez de N round-trips secuenciales.
         `entradas` es una lista de tuplas
-        (id_item, precio_unitario, moneda, lock_version_esperado).
-        Devuelve los id_item cuyo CAS tuvo exito."""
+        (id_item, precio_unitario, moneda, lock_version_esperado, id_material_interno).
+        El ultimo elemento es opcional (None si no aplica) — cuando viene, gatea el
+        vinculo/creacion de material interno (doc 42, BOM 6.1) por el MISMO CAS que
+        el precio, en una sola pasada (evita la ventana de material creado pero no
+        enlazado). COALESCE preserva el vinculo existente cuando no se pasa uno
+        nuevo. Devuelve los id_item cuyo CAS tuvo exito. Tambien limpia
+        precio_pendiente_confirmacion: esta funcion es el punto unico donde
+        Compras confirma (tal cual) o edita un precio — cualquiera de las dos
+        acciones deja el valor como costo oficial (Fase 4)."""
         if not entradas:
             return []
         ids = [e[0] for e in entradas]
         precios = [e[1] for e in entradas]
         monedas = [e[2] for e in entradas]
         locks = [e[3] for e in entradas]
+        materiales = [e[4] for e in entradas]
         rows = await conn.fetch("""
             UPDATE tb_bom_items i
             SET precio_unitario = v.precio_unitario,
                 moneda = v.moneda,
                 origen_precio = 'MANUAL',
+                precio_pendiente_confirmacion = FALSE,
+                id_material_interno = COALESCE(v.id_material_interno, i.id_material_interno),
                 lock_version = i.lock_version + 1,
                 updated_at = now()
             FROM (
                 SELECT unnest($1::uuid[]) AS id_item,
                        unnest($2::numeric[]) AS precio_unitario,
                        unnest($3::text[]) AS moneda,
-                       unnest($4::int[]) AS lock_version_esperado
+                       unnest($4::int[]) AS lock_version_esperado,
+                       unnest($5::uuid[]) AS id_material_interno
             ) v
             WHERE i.id_item = v.id_item AND i.lock_version = v.lock_version_esperado
             RETURNING i.id_item
-        """, ids, precios, monedas, locks)
+        """, ids, precios, monedas, locks, materiales)
         return [r["id_item"] for r in rows]
 
     async def actualizar_precio_catalogo_interno(
@@ -1565,12 +1586,27 @@ class BomDBService(BomComprasDBMixin):
         """, item_ids)
         return [dict(row) for row in rows]
 
-    async def update_item(self, conn, id_item: UUID, **campos) -> dict:
+    async def update_item(
+        self, conn, id_item: UUID,
+        lock_version_esperado: Optional[int] = None,
+        **campos,
+    ) -> dict:
         """Actualiza campos de un item. Solo actualiza los campos proporcionados.
 
-        Incrementa lock_version igual que actualizar_precios_items_compras_cas_batch:
-        ambas rutas escriben precio_unitario/moneda sobre la misma fila y deben
-        invalidarse mutuamente ante ediciones concurrentes."""
+        `lock_version_esperado`: si se pasa, agrega el CAS a nivel de item
+        (WHERE lock_version = ...) — usarlo cuando el campo editado (ej.
+        precio_unitario desde Ingenieria) puede chocar con
+        actualizar_precios_items_compras_cas_batch, que escribe la misma fila
+        via el mismo lock_version. Sin este parametro (caso general de otros
+        campos) el UPDATE no valida version, solo la incrementa."""
+        if 'id_material_interno' in campos:
+            raise ValueError(
+                "update_item no soporta id_material_interno (queda fuera de "
+                "`allowed` a proposito) -- usa "
+                "actualizar_precios_items_compras_cas_batch (doc 42, BOM 6.1), "
+                "que lo enlaza gateado por el mismo CAS de precio. Pasarlo aqui "
+                "antes solo se descartaba en silencio sin error."
+            )
         sets = ["updated_at = NOW()", "lock_version = lock_version + 1"]
         params = [id_item]
         idx = 2
@@ -1581,7 +1617,8 @@ class BomDBService(BomComprasDBMixin):
             'tipo_entrega', 'fecha_estimada_entrega', 'comentarios',
             'entregado', 'fecha_entrega_check', 'orden',
             'precio_unitario', 'origen_precio', 'id_material_ref',
-            'cantidad_recibida', 'tipo_partida', 'moneda'
+            'cantidad_recibida', 'tipo_partida', 'moneda',
+            'precio_pendiente_confirmacion',
         }
 
         for key, val in campos.items():
@@ -1590,9 +1627,15 @@ class BomDBService(BomComprasDBMixin):
                 params.append(val)
                 idx += 1
 
+        where_lock = ""
+        if lock_version_esperado is not None:
+            where_lock = f" AND lock_version = ${idx}"
+            params.append(lock_version_esperado)
+            idx += 1
+
         query = f"""
             UPDATE tb_bom_items SET {', '.join(sets)}
-            WHERE id_item = $1
+            WHERE id_item = $1{where_lock}
             RETURNING *
         """
         row = await conn.fetchrow(query, *params)
@@ -2507,15 +2550,24 @@ class BomDBService(BomComprasDBMixin):
                 LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
                 WHERE c.activo = TRUE
                   AND {interno_similitud_where_sql('c.descripcion_norm', '$3', '$2')}
-                  AND NOT EXISTS (
-                      SELECT 1 FROM tb_materiales_interno_xml v
-                      WHERE v.id_material_interno = c.id
-                  )
+            ),
+            deduplicado AS (
+                -- Un material del catalogo ya vinculado a XML puede calzar por su
+                -- descripcion canonica (rama INTERNO) sin calzar por el texto crudo
+                -- de la factura (rama XML) o viceversa -- se dedupe por
+                -- id_material_interno (o por id propio si no hay vinculo) y se queda
+                -- la coincidencia de mayor similitud, no la primera rama que aparezca.
+                SELECT DISTINCT ON (COALESCE(id_material_interno, id))
+                    id, descripcion, unidad, precio_unitario, proveedor_nombre, categoria_nombre,
+                    clave_prod_serv, fecha_factura, fuente, moneda, similitud, descripcion_interna,
+                    id_material_interno, prioridad
+                FROM combinado
+                ORDER BY COALESCE(id_material_interno, id), similitud DESC NULLS LAST, prioridad ASC
             )
             SELECT id, descripcion, unidad, precio_unitario, proveedor_nombre, categoria_nombre,
                    clave_prod_serv, fecha_factura, fuente, moneda, similitud, descripcion_interna,
                    id_material_interno, COUNT(*) OVER() AS total_count
-            FROM combinado
+            FROM deduplicado
             ORDER BY prioridad ASC, similitud DESC NULLS LAST
             LIMIT $4 OFFSET $5
         """, query, umbral, query_norm or query, limite, offset)
@@ -2524,25 +2576,26 @@ class BomDBService(BomComprasDBMixin):
             # no hay fila de la cual leer el total real, por eso se recalcula aparte.
             total = await conn.fetchval(f"""
                 WITH xml_dedup AS (
-                    SELECT DISTINCT ON (m.descripcion_proveedor) m.id
+                    SELECT DISTINCT ON (m.descripcion_proveedor)
+                        m.id, vlink.id_material_interno
                     FROM tb_materiales_historial m
+                    LEFT JOIN tb_materiales_interno_xml vlink ON vlink.id_material_xml = m.id
                     WHERE m.descripcion_proveedor ILIKE '%' || $1 || '%'
                        OR word_similarity($1, m.descripcion_proveedor) >= $2
-                    ORDER BY m.descripcion_proveedor
+                    ORDER BY m.descripcion_proveedor,
+                             (vlink.id_material_interno IS NOT NULL) DESC,
+                             m.fecha_factura DESC
                 ),
                 combinado AS (
-                    SELECT id FROM xml_dedup
+                    SELECT xd.id::text AS id, xd.id_material_interno::text AS id_material_interno
+                    FROM xml_dedup xd
                     UNION ALL
-                    SELECT c.id
+                    SELECT c.id::text, NULL::text
                     FROM tb_cat_materiales c
                     WHERE c.activo = TRUE
                       AND {interno_similitud_where_sql('c.descripcion_norm', '$3', '$2')}
-                      AND NOT EXISTS (
-                          SELECT 1 FROM tb_materiales_interno_xml v
-                          WHERE v.id_material_interno = c.id
-                      )
                 )
-                SELECT COUNT(*) FROM combinado
+                SELECT COUNT(DISTINCT COALESCE(id_material_interno, id)) FROM combinado
             """, query, umbral, query_norm or query)
             return {"items": [], "total": total, "limit": limite, "offset": offset}
         return self._empaquetar_paginado(rows, limite, offset)

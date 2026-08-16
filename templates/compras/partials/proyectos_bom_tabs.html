@@ -10,14 +10,14 @@
     <div class="border-b border-gray-200">
         <nav class="flex -mb-px space-x-4">
             <button @click="tab = 'activos'"
-                :class="{'border-blue-500 text-blue-600': tab === 'activos', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'activos'}"
-                class="py-2 px-3 border-b-2 font-medium text-sm transition">
+                :class="{'border-blue-600 bg-blue-50 text-blue-700': tab === 'activos', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'activos'}"
+                class="py-2 px-3 border-b-2 rounded-t-lg font-medium text-sm transition">
                 Activos
             </button>
             {% if actualizacion_precios_habilitada %}
             <button @click="tab = 'pendientes-precio'"
-                :class="{'border-amber-500 text-amber-600': tab === 'pendientes-precio', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'pendientes-precio'}"
-                class="py-2 px-3 border-b-2 font-medium text-sm transition">
+                :class="{'border-amber-600 bg-amber-50 text-amber-800': tab === 'pendientes-precio', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'pendientes-precio'}"
+                class="py-2 px-3 border-b-2 rounded-t-lg font-medium text-sm transition">
                 Actualizacion de precios
             </button>
             {% endif %}

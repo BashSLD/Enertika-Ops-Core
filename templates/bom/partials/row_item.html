@@ -1,12 +1,8 @@
 {# Fila individual de un item del BOM #}
-{% with stats=estadisticas_oob %}
-{% include "bom/partials/_estadisticas_oob.html" %}
-{% endwith %}
-{% if warning_message %}
-{% with message=warning_message, type='warning', title='Costo estimado pendiente' %}
-{% include "shared/toast.html" %}
-{% endwith %}
-{% endif %}
+{# El <tr> debe ser la primera etiqueta del fragmento: si un OOB (div) lo precede,
+   htmx parsea el resto en modo "in body" y el <tr> pierde su estructura de tabla
+   (fila renderizada como bloques sueltos, no columnas). Los OOB van despues del
+   </tr> de cierre, igual que ya hace lock_version_oob.html mas abajo. #}
 {% set tipo_origen_item = item.tipo_origen_item or 'BASE' %}
 {% set item_cerrado_compra = item.estatus_ejecucion in ['NO_ADQUIRIDO', 'REEMPLAZADO', 'CERRADO'] %}
 {% set item_compra_bloquea_adenda = item.estatus_compra in ['COTIZADO', 'AUTORIZADO', 'PAGADO', 'FACTURADO'] %}
@@ -15,6 +11,11 @@
 {% set puede_editar_item = capacidades.editar_base|default(false) or capacidades.editar_ejecucion|default(false) %}
 {% set puede_eliminar_item = capacidades.eliminar_items|default(false) %}
 {% set tiene_precio = item.precio_unitario and item.precio_unitario|float > 0 %}
+{# Mismo criterio que item_sin_costo/_calcular_estadisticas_costo (Fase 4): un
+   precio > 0 aun pendiente de confirmar por Compras no cuenta como resuelto
+   para el conteo/filtro de aplicarFiltrosBom (content.html), aunque si se
+   siga mostrando el valor capturado en la columna de costo mas abajo. #}
+{% set tiene_precio_resuelto = tiene_precio and not item.precio_pendiente_confirmacion %}
 {% set costo_mxn_total = (item.costo_mxn|float * item.cantidad|float) if item.costo_mxn else none %}
 {% set tc_item = (item.costo_mxn|float / item.precio_unitario|float) if (item.costo_mxn and item.precio_unitario and item.precio_unitario|float > 0) else none %}
 {% set costo_mxn_resuelto = ('%.2f'|format(costo_mxn_total)) if (item.moneda == 'USD' and costo_mxn_total is not none) else (item.importe if (item.moneda == 'MXN' and tiene_precio) else '') %}
@@ -22,7 +23,7 @@
     data-grupos="{{ grupos_filtro | join(',') if grupos_filtro else '' }}"
     data-tipo-partida="{{ item.tipo_partida or 'MATERIAL' }}"
     data-tipo-origen-item="{{ tipo_origen_item }}"
-    data-tiene-precio="{{ '1' if tiene_precio else '0' }}"
+    data-tiene-precio="{{ '1' if tiene_precio_resuelto else '0' }}"
     data-costo-mxn="{{ costo_mxn_resuelto }}"
     class="hover:bg-gray-50 transition-colors {{ 'bg-green-50' if item.entregado else '' }} {{ 'bg-gray-100 opacity-70' if item.bloqueado else '' }}">
     <td class="px-2 py-2 text-center">
@@ -195,6 +196,12 @@
         {% else %}
         ${{ "{:,.2f}".format(item.importe|float) }}
         {% endif %}
+        {% if item.precio_pendiente_confirmacion %}
+        <div class="mt-0.5">
+            <span class="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                title="Costo capturado por Ingenieria, pendiente de que Compras lo confirme o edite">Pendiente de confirmar</span>
+        </div>
+        {% endif %}
         {% else %}
         <span class="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
             title="Item sin costo estimado configurado, actualizar costo">Sin costo estimado</span>
@@ -309,6 +316,14 @@
         {% endif %}
     </td>
 </tr>
+{% with stats=estadisticas_oob %}
+{% include "bom/partials/_estadisticas_oob.html" %}
+{% endwith %}
+{% if warning_message %}
+{% with message=warning_message, type='warning', title='Costo estimado pendiente' %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
 {% if actualizar_lock_oob|default(false) %}
 {% include "bom/partials/lock_version_oob.html" %}
 {% endif %}

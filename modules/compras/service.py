@@ -17,6 +17,7 @@ import asyncpg
 import base64
 import httpx
 from pdfminer.pdfexceptions import PSException
+from core.materials.service import get_materials_service
 from .pdf_extractor import process_pdf_bytes
 from .xml_extractor import parse_cfdi_xml, validate_xml_content
 from .schemas import (
@@ -92,6 +93,24 @@ def _separar_matches_bom(match_result: dict) -> tuple[dict, dict, dict]:
             suggestion_map[idx] = {'id_item': match['id_item'], **meta}
 
     return bom_item_map, match_meta_map, suggestion_map
+
+
+def _separar_matches_interno(match_result: dict) -> tuple[dict, dict]:
+    """Separa matches ALTA (CLAVE_SAT/MEMORIA, auto-aplicables) de sugerencias
+    BAJA (TEXTO, requieren revision humana) del matcher catalogo interno<->XML
+    (doc 39). Mismo criterio que _separar_matches_bom, pero ALTA no se escribe
+    en la misma fila del INSERT -- necesita el id real de tb_materiales_historial,
+    que se aplica en un paso aparte (ver ComprasService.confirmar_match_xml)."""
+    alta_map = {}
+    suggestion_map = {}
+    for idx, match in match_result.items():
+        if not match:
+            continue
+        if match['confianza'] == 'ALTA':
+            alta_map[idx] = match
+        else:
+            suggestion_map[idx] = match
+    return alta_map, suggestion_map
 
 
 class ComprasService:
@@ -1195,6 +1214,32 @@ class ComprasService:
             except Exception:
                 logger.exception("BOM auto-link: error no critico, continuando sin vincular")
 
+        # Matcher automatico catalogo interno <-> XML (doc 39, punto 6.2). Independiente
+        # del origen BOM del comprobante -- aplica a cualquier factura con conceptos.
+        interno_alta_map = {}
+        interno_suggestion_map = {}
+        if conceptos_dicts:
+            try:
+                materials_svc = get_materials_service()
+                interno_result = await materials_svc.match_conceptos_a_internos(
+                    conn, conceptos_dicts, id_proveedor
+                )
+                interno_alta_map, interno_suggestion_map = _separar_matches_interno(
+                    interno_result
+                )
+                logger.info(
+                    "Materiales interno auto-link: conceptos=%d matches_alta=%d sugeridos=%d",
+                    len(conceptos_dicts), len(interno_alta_map), len(interno_suggestion_map)
+                )
+            except Exception:  # devtools: allow-broad-except
+                # Feature auxiliar de UX (sugerencia de vinculo): una falla aqui NUNCA
+                # debe abortar la confirmacion real de la factura/pago -- mismo criterio
+                # que el bloque BOM auto-link de arriba.
+                logger.exception(
+                    "Materiales interno auto-link: error no critico (match), "
+                    "continuando sin vincular"
+                )
+
         # 3. Guardar conceptos en historial de materiales
         # Anticipos y cierres no contienen productos reales — omitir por completo
         if tipo_factura not in ('ANTICIPO', 'CIERRE_ANTICIPO') and conceptos_dicts:
@@ -1212,6 +1257,7 @@ class ComprasService:
                 bom_item_map=bom_item_map,
                 match_meta_map=match_meta_map,
                 suggestion_map=suggestion_map,
+                interno_suggestion_map=interno_suggestion_map,
                 tipo_factura=tipo_factura,
                 moneda=cfdi_moneda,
             )
@@ -1231,6 +1277,20 @@ class ComprasService:
                         )
                 except Exception:
                     logger.exception("BOM actualizar estatus_compra: error no critico")
+
+            if interno_alta_map:
+                try:
+                    materials_svc = get_materials_service()
+                    await materials_svc.aplicar_matches_interno_alta(
+                        conn, uuid_factura, interno_alta_map
+                    )
+                except Exception:  # devtools: allow-broad-except
+                    # Mismo criterio que arriba: aplicar el vinculo automatico es
+                    # best-effort, nunca debe abortar la confirmacion de la factura.
+                    logger.exception(
+                        "Materiales interno auto-link: error no critico (aplicar), "
+                        "continuando sin vincular"
+                    )
 
         # 4. Guardar CFDI relacionados
         if relacionados:

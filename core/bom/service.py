@@ -26,6 +26,8 @@ from core.bom.compras_service import (
 from core.bom.db_service import BomDBService
 from core.bom.schemas import EstatusBOM, AccionHistorial, TipoAprobacion
 from core.config import settings
+from core.materials.normalizer import normalizar_unidad
+from core.materials.service import MaterialsService
 from core.notifications.service import get_notifications_service
 from core.timezone import now_mx, today_mx
 from core.config_service import ConfigService
@@ -129,6 +131,7 @@ CAMPO_LABELS = {
     'comentarios_operativos': 'Comentarios operativos',
     'grupos_bom': 'Grupo',
     'grupos_operativos': 'Grupo operativo',
+    'id_material_interno': 'Material vinculado',
 }
 
 BOM_COSTOS_EVENTO = "BOM_ITEMS_SIN_COSTO"
@@ -150,6 +153,7 @@ class BomService(BomComprasServiceMixin):
 
     def __init__(self):
         self.db = BomDBService()
+        self.materials = MaterialsService()
 
     # Cache en memoria (por worker) de get_catalogos: son catalogos que casi
     # no cambian (proveedores, tipos de entrega, usuarios por area, grupos
@@ -1004,11 +1008,15 @@ class BomService(BomComprasServiceMixin):
 
     @staticmethod
     def item_sin_costo(item: dict) -> bool:
-        """True si el item activo no tiene costo util para presupuesto."""
+        """True si el item activo no tiene costo util (oficial) para presupuesto:
+        sin precio, o con un precio que Ingenieria capturo pero Compras aun no
+        confirma (precio_pendiente_confirmacion) — no cuenta como resuelto."""
         if not item.get("activo", True):
             return False
         if (item.get("tipo_origen_item") or TIPO_ITEM_BASE) != TIPO_ITEM_BASE:
             return False
+        if item.get("precio_pendiente_confirmacion"):
+            return True
         precio = item.get("precio_unitario")
         if precio is None:
             return True
@@ -1060,7 +1068,12 @@ class BomService(BomComprasServiceMixin):
         costo de un BOM en BORRADOR — un flujo nuevo y explicito, no una variante de
         `editar_item(area_editor='compras')`: ese metodo redirige precio_unitario/moneda
         a precio_real/moneda_real (costo real, no presupuesto), asi que reusarlo
-        escribiria en la columna equivocada sin error visible.
+        escribiria en la columna equivocada sin error visible. La misma trampa aplica
+        a `id_material_interno`: `update_item` (BomDBService) lo excluye a proposito de
+        su set `allowed` y lanza ValueError si se le pasa — el enlace/creacion de
+        material para items de entrada manual (doc 42, BOM 6.1) va SIEMPRE via
+        `actualizar_precios_items_compras_cas_batch`, gateado por el mismo CAS que el
+        precio, nunca via el editor generico de items.
 
         CAS a nivel de item (tb_bom_items.lock_version) en vez del CAS de BOM completo
         de `_reservar_mutacion_base` — evita que un guardado de Compras sobre el item X
@@ -1138,15 +1151,105 @@ class BomService(BomComprasServiceMixin):
                     "moneda": moneda, "entrada": entrada,
                 })
 
+            # Crear/vincular material interno para items sin id_material_interno
+            # (entrada manual) ANTES del batch de precios: si el anti-duplicado
+            # rechaza la creacion, el item completo se rechaza aqui (no se aplica
+            # el precio con un vinculo a medias) — doc 42, BOM 6.1.
+            id_materiales_resueltos: dict[UUID, UUID] = {}
+            # Savepoint por material recien creado en este intento: si el CAS de
+            # precio del item falla mas abajo (lock_version desalineado), se hace
+            # rollback del savepoint para no dejar el material huerfano en catalogo
+            # -- de lo contrario el reintento lo detecta como "similar" y bloquea
+            # la re-creacion (buscar_internos_similares, threshold=0.9).
+            savepoints_material_nuevo: dict[UUID, object] = {}
+            # Materiales creados mas temprano en ESTE MISMO batch: Postgres los
+            # hace visibles a buscar_internos_similares aunque su savepoint no se
+            # haya liberado, y si ese savepoint termina en rollback (CAS fallido)
+            # no deben contar como "ya existe" para los items siguientes del loop.
+            ids_creados_este_intento: List[UUID] = []
+            alias_map: Optional[dict] = None
+            validos_confirmados: List[dict] = []
+            for v in validos:
+                entrada, actual, id_item = v["entrada"], v["actual"], v["id_item"]
+                if actual.get("id_material_interno"):
+                    validos_confirmados.append(v)
+                    continue
+                id_vinculado = entrada.get("id_material_vinculado")
+                if id_vinculado:
+                    id_materiales_resueltos[id_item] = id_vinculado
+                    validos_confirmados.append(v)
+                    continue
+                if not entrada.get("crear_catalogo"):
+                    validos_confirmados.append(v)
+                    continue
+
+                descripcion = (actual.get("descripcion") or "").strip()
+                if not descripcion:
+                    rechazados.append({
+                        "id_item": id_item,
+                        "motivo": "El item no tiene descripcion para crear el material",
+                    })
+                    continue
+                similares = await self.materials.buscar_internos_similares(
+                    conn, descripcion, threshold=0.9, limit=1,
+                    excluir_ids=ids_creados_este_intento,
+                )
+                if similares:
+                    rechazados.append({
+                        "id_item": id_item,
+                        "motivo": (
+                            f"Ya existe un material muy similar en el catalogo: "
+                            f"\"{similares[0]['descripcion_canonica']}\". Usa la "
+                            "sugerencia de homologacion para vincularlo en vez de "
+                            "crear uno nuevo."
+                        ),
+                    })
+                    continue
+
+                if alias_map is None:
+                    alias_map = await self.materials.db.get_unidad_alias_map(conn)
+                unidad_txt = actual.get("unidad_medida")
+                id_unidad = alias_map.get(normalizar_unidad(unidad_txt)) if unidad_txt else None
+
+                savepoint = conn.transaction()
+                await savepoint.start()
+                nuevo_material = await self.materials.crear_interno(conn, {
+                    "descripcion_canonica": descripcion,
+                    "id_unidad_medida": id_unidad,
+                    "id_categoria": actual.get("id_categoria"),
+                    "clave_prod_serv": None,
+                    "precio_referencia": v["precio"],
+                    "notas": f"Creado desde BOM {id_bom} por Compras, {today_mx().strftime('%d/%m/%Y')}",
+                    "material": None, "tipo": None, "acabado": None,
+                    "marca": None, "adicional": None, "medida": None,
+                    "moneda": v["moneda"],
+                    "creado_por": user_id, "actualizado_por": user_id,
+                })
+                id_materiales_resueltos[id_item] = nuevo_material["id"]
+                savepoints_material_nuevo[id_item] = savepoint
+                ids_creados_este_intento.append(nuevo_material["id"])
+                validos_confirmados.append(v)
+            validos = validos_confirmados
+
             # Un solo UPDATE en lote (arrays desanidados) en vez de un CAS por item:
             # ver `actualizar_precios_items_compras_cas_batch`.
             actualizados_ids = set(await self.db.actualizar_precios_items_compras_cas_batch(
                 conn,
                 [
-                    (v["id_item"], v["precio"], v["moneda"], v["entrada"].get("lock_version", -1))
+                    (
+                        v["id_item"], v["precio"], v["moneda"],
+                        v["entrada"].get("lock_version", -1),
+                        id_materiales_resueltos.get(v["id_item"]),
+                    )
                     for v in validos
                 ],
             ))
+
+            for id_item_material, savepoint in savepoints_material_nuevo.items():
+                if id_item_material in actualizados_ids:
+                    await savepoint.commit()
+                else:
+                    await savepoint.rollback()
 
             aplicados: List[UUID] = []
             historial_entradas: List[tuple] = []
@@ -1170,6 +1273,12 @@ class BomService(BomComprasServiceMixin):
                         CAMPO_LABELS.get(campo, campo),
                         str(valor_anterior) if valor_anterior is not None else None,
                         str(valor_nuevo), bom["version"], user_id,
+                    ))
+                if id_item in id_materiales_resueltos:
+                    historial_entradas.append((
+                        id_bom, id_item, AccionHistorial.EDITADO,
+                        CAMPO_LABELS.get('id_material_interno', 'id_material_interno'),
+                        None, str(id_materiales_resueltos[id_item]), bom["version"], user_id,
                     ))
 
                 if v["entrada"].get("actualizar_catalogo") and actual.get("id_material_interno"):
@@ -1292,6 +1401,16 @@ class BomService(BomComprasServiceMixin):
             grupo_ids, grupo_porcentajes
         )
 
+        # Autoridad de edicion de costos (Fase 4): si Ingenieria captura el
+        # precio en el mismo alta (no solo al editar despues), el costo queda
+        # igual pendiente de que Compras lo confirme -- mismo criterio que
+        # editar_item (linea ~2665), replicado aqui para no saltarse el gate.
+        precio_pendiente_confirmacion = (
+            area_editor == "ingenieria"
+            and precio_unitario is not None
+            and self._decimal_o_error(precio_unitario, "") > 0
+        )
+
         async with conn.transaction():
             bom, capacidades = await self._reservar_mutacion_base(
                 conn, id_bom, user_id, lock_version_esperado,
@@ -1311,6 +1430,7 @@ class BomService(BomComprasServiceMixin):
                 tipo_partida=tipo_partida,
                 moneda=moneda,
                 creado_por=user_id,
+                precio_pendiente_confirmacion=precio_pendiente_confirmacion,
             )
             await self.db.set_item_grupos(conn, item["id_item"], grupo_ids)
             await self._guardar_distribucion_grupos(
@@ -2165,6 +2285,12 @@ class BomService(BomComprasServiceMixin):
                     id_material_interno=id_material_interno,
                     tipo_partida=datos.get("tipo_partida") or "MATERIAL",
                     moneda=datos.get("moneda") or "MXN",
+                    # Esta ruta solo la ejecuta el Responsable de Ingenieria
+                    # (aprobar_propuesta_cambio via _validar_aprobador_bom),
+                    # mismo criterio de agregar_item (Fase 4).
+                    precio_pendiente_confirmacion=bool(
+                        precio_unitario and precio_unitario > 0
+                    ),
                 )
                 if grupo_ids:
                     await self.db.set_item_grupos(conn, item["id_item"], grupo_ids)
@@ -2206,13 +2332,45 @@ class BomService(BomComprasServiceMixin):
                     )
                     if campos_base["precio_unitario"] < 0:
                         raise ValueError("El precio unitario no puede ser negativo")
+                    # Autoridad de edicion de costos (Fase 4): esta ruta solo la
+                    # ejecuta el Responsable de Ingenieria (aprobar_propuesta_cambio
+                    # via _validar_aprobador_bom), mismo gate que editar_item -- sin
+                    # esto una adenda podia sobreescribir un costo ya confirmado sin
+                    # pasar por Compras.
+                    precio_nuevo = campos_base["precio_unitario"]
+                    precio_actual = item.get("precio_unitario")
+                    try:
+                        tiene_costo_configurado = (
+                            precio_actual is not None and Decimal(str(precio_actual)) > 0
+                            and not item.get("precio_pendiente_confirmacion")
+                        )
+                    except (InvalidOperation, TypeError, ValueError):
+                        tiene_costo_configurado = False
+                    if tiene_costo_configurado and precio_nuevo != 0:
+                        raise ValueError(
+                            "Este item ya tiene un costo configurado; Ingenieria no "
+                            "puede modificarlo. Si necesitas corregirlo, dejalo en "
+                            "cero para reabrirlo y que Compras lo capture de nuevo."
+                        )
+                    campos_base["precio_pendiente_confirmacion"] = precio_nuevo > 0
                 if "id_categoria" in campos_base:
                     id_categoria = campos_base["id_categoria"]
                     campos_base["id_categoria"] = (
                         int(id_categoria) if id_categoria not in (None, "") else None
                     )
                 if campos_base:
-                    await self.db.update_item(conn, id_item, **campos_base)
+                    lock_item_esperado = (
+                        item["lock_version"] if "precio_unitario" in campos_base else None
+                    )
+                    item_base_actualizado = await self.db.update_item(
+                        conn, id_item, lock_version_esperado=lock_item_esperado,
+                        **campos_base
+                    )
+                    if lock_item_esperado is not None and item_base_actualizado is None:
+                        raise ValueError(
+                            "El costo de este item fue modificado por alguien mas "
+                            "(probablemente Compras); recarga el item e intenta de nuevo"
+                        )
                 if grupo_ids:
                     await self.db.set_item_grupos(conn, id_item, grupo_ids)
                 await self.db.registrar_historial(
@@ -2536,8 +2694,43 @@ class BomService(BomComprasServiceMixin):
             if grupo_ids is not None and not grupos_base and not capacidades["editar_ejecucion"]:
                 raise ValueError("Solo Construccion puede actualizar grupos operativos")
 
+            if area_editor == "ingenieria" and campos_base.get("precio_unitario") is not None:
+                # Autoridad de edicion de costos (Fase 4): Ingenieria puede capturar
+                # el costo de un item sin costo, pero una vez que el item YA tiene
+                # un costo configurado (sin importar si es de entrada manual o de
+                # catalogo) ya no puede modificarlo — solo dejarlo en cero para
+                # reabrirlo. El valor que deje Ingenieria queda pendiente de que
+                # Compras lo confirme o edite (precio_pendiente_confirmacion); ese
+                # es el que se vuelve costo oficial. Se valida aqui (despues del
+                # gate de turno/estatus de arriba) para que "no es tu turno"
+                # siga siendo el mensaje correcto cuando ambas cosas aplican.
+                precio_nuevo = precio
+                precio_actual = item.get("precio_unitario")
+                try:
+                    # precio_pendiente_confirmacion=True significa que el precio
+                    # actual todavia no es oficial (Compras no lo ha confirmado) --
+                    # Ingenieria puede seguir corrigiendolo directo, sin pasar por
+                    # el "dejalo en cero" que solo aplica a un costo ya oficial.
+                    tiene_costo_configurado = (
+                        precio_actual is not None and Decimal(str(precio_actual)) > 0
+                        and not item.get("precio_pendiente_confirmacion")
+                    )
+                except (InvalidOperation, TypeError, ValueError):
+                    tiene_costo_configurado = False
+                if tiene_costo_configurado and precio_nuevo != 0:
+                    raise ValueError(
+                        "Este item ya tiene un costo configurado; Ingenieria no "
+                        "puede modificarlo. Si necesitas corregirlo, dejalo en "
+                        "cero para reabrirlo y que Compras lo capture de nuevo."
+                    )
+                campos_base["precio_pendiente_confirmacion"] = precio_nuevo > 0
+
             cambios = []
             for campo, valor in campos_base.items():
+                if campo == "precio_pendiente_confirmacion":
+                    # Derivado internamente (Fase 4), no un campo que el usuario
+                    # haya editado — no genera su propia linea de historial.
+                    continue
                 cambios.append((campo, item.get(campo), valor))
             publicos = {
                 "id_proveedor_real": "id_proveedor",
@@ -2548,7 +2741,25 @@ class BomService(BomComprasServiceMixin):
                 cambios.append((campo, item.get(publicos.get(campo, campo)), valor))
 
             if campos_base:
-                await self.db.update_item(conn, id_item, **campos_base)
+                # CAS a nivel de item solo cuando se toca precio_unitario: protege
+                # contra el caso donde Compras confirma un costo (bump de
+                # lock_version via actualizar_precios_items_compras_cas_batch) al
+                # mismo tiempo que Ingenieria envia su cambio (ej. reabrir a cero)
+                # sobre el mismo item con un lock_version ya obsoleto. Otros campos
+                # base (descripcion, fecha_requerida, etc.) no llevan este CAS —
+                # su unica proteccion de concurrencia sigue siendo el lock del BOM
+                # completo en _reservar_mutacion_base.
+                lock_item_esperado = (
+                    item["lock_version"] if "precio_unitario" in campos_base else None
+                )
+                item_base_actualizado = await self.db.update_item(
+                    conn, id_item, lock_version_esperado=lock_item_esperado, **campos_base
+                )
+                if lock_item_esperado is not None and item_base_actualizado is None:
+                    raise ValueError(
+                        "El costo de este item fue modificado por alguien mas "
+                        "(probablemente Compras); recarga el item e intenta de nuevo"
+                    )
             if campos_ejecucion:
                 ejecucion = await self.db.upsert_item_ejecucion(
                     conn, id_item, updated_by=user_id,
@@ -3474,6 +3685,13 @@ class BomService(BomComprasServiceMixin):
         total_mxn_usd = Decimal("0")
         total_usd_nativo = Decimal("0")
         for item in base_activos:
+            # Mismo criterio que item_sin_costo: un precio capturado por
+            # Ingenieria pero aun no confirmado por Compras no cuenta como
+            # costo oficial, aunque precio_unitario > 0.
+            if item.get("precio_pendiente_confirmacion"):
+                items_sin_costo += 1
+                total_resuelto = False
+                continue
             precio = item.get("precio_unitario")
             tiene_precio = precio is not None and Decimal(str(precio)) > 0
             if not tiene_precio:

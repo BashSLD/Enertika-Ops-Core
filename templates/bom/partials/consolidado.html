@@ -27,6 +27,10 @@
                 class="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800">
                 Exportar Excel
             </a>
+            <a href="/bom/{{ id_proyecto }}/consolidado/export-pdf?modo={{ consolidado.modo }}"
+                class="rounded-lg bg-red-700 px-3 py-2 text-sm font-medium text-white hover:bg-red-800">
+                Resumen de compra (PDF)
+            </a>
         </div>
     </div>
 
@@ -73,7 +77,13 @@
             </p>
         </div>
         <div class="rounded-xl border border-gray-200 bg-white p-4">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Costo normalizado</p>
+            <p class="action-wrapper inline-flex cursor-help items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Costo normalizado
+                <svg class="h-3.5 w-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <span class="action-tooltip normal-case tracking-normal">Presupuesto total dividido entre el divisor FV del proyecto (módulos o kWp), para comparar proyectos de distinto tamaño.</span>
+            </p>
             <p class="mt-2 text-sm text-gray-700">
                 Por módulo:
                 <span class="font-mono font-semibold">{{ '$' ~ '{:,.2f}'.format(consolidado.totales.mxn_por_modulo|float) if consolidado.totales.mxn_por_modulo is not none else 'Pendiente' }}</span>
@@ -84,7 +94,13 @@
             </p>
         </div>
         <div class="rounded-xl border border-gray-200 bg-white p-4">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Divisor FV</p>
+            <p class="action-wrapper inline-flex cursor-help items-center gap-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Divisor FV
+                <svg class="h-3.5 w-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <span class="action-tooltip normal-case tracking-normal">Módulos y potencia pico vigentes usados para calcular "Costo normalizado" (por módulo y por kWp).</span>
+            </p>
             {% if consolidado.divisor_fv.modulos_fv %}
             <p class="mt-2 text-sm text-gray-700">{{ consolidado.divisor_fv.modulos_fv }} módulos</p>
             <p class="text-sm text-gray-700">{{ '{:,.3f}'.format(consolidado.divisor_fv.potencia_pico_kwp|float) }} kWp</p>
