@@ -33,6 +33,11 @@ ROLES_EQUIPO = [
         "permiso": "puede_asignar_oym", "departamento": "oym",
         "rol_jefe": None,
     },
+    {
+        "rol": "comprador_asignado", "area": "COMPRAS", "label": "Comprador Asignado",
+        "permiso": "puede_asignar_compras", "departamento": "compras",
+        "rol_jefe": "jefe_compras",
+    },
 ]
 
 ROLES_EQUIPO_MAP = {(r["rol"], r["area"]): r for r in ROLES_EQUIPO}
@@ -46,6 +51,7 @@ ROL_PROYECTO_LABELS = {
     **{r["rol"]: r["label"] for r in ROLES_EQUIPO},
     "responsable_ingenieria": "Responsable de Ingeniería (RI)",
     "responsable_construccion": "Responsable de Construcción (RC)",
+    "responsable_compras": "Responsable de Compras",
 }
 
 # Excepcion de negocio: en Ingenieria una misma persona puede ejecutar el rol
@@ -153,6 +159,7 @@ class ProyectosService:
         jefes_rows = await self.db.get_jefes_organizacionales(conn)
         jefes_ingenieria = [j for j in jefes_rows if j["rol_organizacional"] == "jefe_ingenieria"]
         jefes_construccion = [j for j in jefes_rows if j["rol_organizacional"] == "jefe_construccion"]
+        jefes_compras = [j for j in jefes_rows if j["rol_organizacional"] == "jefe_compras"]
 
         def _slim(usuario):
             return {"id_usuario": usuario["id_usuario"], "nombre": usuario["nombre"]} if usuario else None
@@ -165,6 +172,7 @@ class ProyectosService:
 
         jefe_ingenieria = _responsable("responsable_ingenieria")
         jefe_construccion = _responsable("responsable_construccion")
+        jefe_compras = _responsable("responsable_compras")
 
         # El RC/RI actual debe poder preseleccionarse en el selector de reasignacion
         # aunque ya no sea jefe activo (no estaria en jefes_*); lo agregamos si falta.
@@ -176,25 +184,30 @@ class ProyectosService:
 
         jefes_ingenieria = _con_responsable(jefes_ingenieria, jefe_ingenieria)
         jefes_construccion = _con_responsable(jefes_construccion, jefe_construccion)
+        jefes_compras = _con_responsable(jefes_compras, jefe_compras)
 
         # Usuarios activos filtrados por departamento (via slug de tb_cat_departamentos)
         dept_rows = await self.db.get_usuarios_por_departamentos(
-            conn, ["ingenieria", "construccion", "oym"]
+            conn, ["ingenieria", "construccion", "oym", "compras"]
         )
 
         usuarios_ingenieria = [r for r in dept_rows if r["dept_slug"] == "ingenieria"]
         usuarios_construccion = [r for r in dept_rows if r["dept_slug"] == "construccion"]
         usuarios_oym = [r for r in dept_rows if r["dept_slug"] == "oym"]
+        usuarios_compras = [r for r in dept_rows if r["dept_slug"] == "compras"]
 
         return {
             "asignaciones": asignaciones,
             "jefe_ingenieria": jefe_ingenieria,
             "jefe_construccion": jefe_construccion,
+            "jefe_compras": jefe_compras,
             "jefes_ingenieria": jefes_ingenieria,
             "jefes_construccion": jefes_construccion,
+            "jefes_compras": jefes_compras,
             "usuarios_ingenieria": usuarios_ingenieria,
             "usuarios_construccion": usuarios_construccion,
             "usuarios_oym": usuarios_oym,
+            "usuarios_compras": usuarios_compras,
         }
 
     async def save_equipo_proyecto(
@@ -412,12 +425,17 @@ class ProyectosService:
                 "puede_asignar_ingenieria": True,
                 "puede_asignar_construccion": True,
                 "puede_asignar_oym": True,
+                "puede_asignar_compras": True,
                 "puede_reasignar_responsable": True,
                 "puede_ver_modal": True,
             }
 
-        rc_id = await self.db.get_responsable_proyecto(conn, id_proyecto, "CONSTRUCCION")
-        ri_id = await self.db.get_responsable_proyecto(conn, id_proyecto, "INGENIERIA")
+        responsables = await self.db.get_responsables_proyecto(
+            conn, id_proyecto, list(RESPONSABLE_POR_AREA)
+        )
+        rc_id = responsables.get("CONSTRUCCION")
+        ri_id = responsables.get("INGENIERIA")
+        r_compras_id = responsables.get("COMPRAS")
         solo_responsable = await ConfigService.get_global_config(
             conn, "equipo.gestion_solo_responsable", True, bool
         )
@@ -437,6 +455,7 @@ class ProyectosService:
             "puede_asignar_ingenieria": _puede_gestionar(ri_id, rol_org == "jefe_ingenieria"),
             "puede_asignar_construccion": _puede_gestionar(rc_id, rol_org == "jefe_construccion"),
             "puede_asignar_oym": es_admin or dept_slug == "oym",
+            "puede_asignar_compras": _puede_gestionar(r_compras_id, rol_org == "jefe_compras"),
             "puede_reasignar_responsable": es_admin or es_director,
             "puede_ver_modal": True,
         }

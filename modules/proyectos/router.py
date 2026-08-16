@@ -15,7 +15,7 @@ logger = logging.getLogger("Proyectos.Router")
 from core.security import get_current_user_context
 from core.permissions import require_module_access, user_has_module_access
 from core.database import get_db_connection
-from .service import ProyectosService, get_service
+from .service import ProyectosService, get_service, ROLES_EQUIPO, RESPONSABLE_POR_AREA
 from core.projects.router import check_puede_crear_proyecto
 
 templates = Jinja2Templates(directory="templates")
@@ -124,11 +124,14 @@ def _equipo_template_data(request, id_proyecto, data, permisos, guardado=False):
         "asignaciones": data["asignaciones"],
         "jefe_ingenieria": data["jefe_ingenieria"],
         "jefe_construccion": data["jefe_construccion"],
+        "jefe_compras": data["jefe_compras"],
         "jefes_ingenieria": data["jefes_ingenieria"],
         "jefes_construccion": data["jefes_construccion"],
+        "jefes_compras": data["jefes_compras"],
         "usuarios_ingenieria": data["usuarios_ingenieria"],
         "usuarios_construccion": data["usuarios_construccion"],
         "usuarios_oym": data["usuarios_oym"],
+        "usuarios_compras": data["usuarios_compras"],
         **permisos,
         "guardado": guardado,
     }
@@ -162,7 +165,7 @@ async def save_equipo(
     service: ProyectosService = Depends(get_service),
 ):
     permisos = await service.permisos_equipo(conn, context, id_proyecto)
-    if not any([permisos["puede_asignar_ingenieria"], permisos["puede_asignar_construccion"], permisos["puede_asignar_oym"]]):
+    if not any(permisos[r["permiso"]] for r in ROLES_EQUIPO):
         raise HTTPException(status_code=403, detail="Sin permisos para editar el equipo")
 
     user_db_id = context.get("user_db_id")
@@ -185,7 +188,7 @@ async def save_equipo(
             n += 1
 
         responsables_explicitos = {}
-        for area in ("INGENIERIA", "CONSTRUCCION"):
+        for area in RESPONSABLE_POR_AREA:
             campo = f"responsable_{area.lower()}"
             if campo in form:
                 val = form.get(campo)

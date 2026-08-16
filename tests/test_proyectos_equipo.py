@@ -519,3 +519,86 @@ async def test_get_equipo_sin_responsable_persistido_queda_vacio():
     assert data["jefe_ingenieria"] is None
     assert data["jefe_construccion"] is None   # no hay jefe_construccion configurado
     assert data["jefes_ingenieria"] == [{"id_usuario": id_jefe, "nombre": "Jefe Ing"}]
+
+
+@pytest.mark.asyncio
+async def test_get_equipo_incluye_compras():
+    id_proyecto = uuid4()
+    id_jefe_compras = uuid4()
+    id_comprador = uuid4()
+    service = ProyectosService()
+    service.db = FakeProyectosDB(
+        asignaciones_equipo=[
+            {"rol_proyecto": "comprador_asignado", "area": "COMPRAS",
+             "id_usuario": id_comprador, "nombre_usuario": "Comprador X"},
+        ],
+        jefes_org=[
+            {"id_usuario": id_jefe_compras, "nombre": "Jefe Compras",
+             "rol_organizacional": "jefe_compras"},
+        ],
+        dept_users=[
+            {"id_usuario": id_comprador, "nombre": "Comprador X", "dept_slug": "compras"},
+        ],
+    )
+
+    data = await service.get_equipo_proyecto(FakeConn(), id_proyecto)
+
+    assert data["jefe_compras"] is None  # sin responsable_compras persistido aun
+    assert data["jefes_compras"] == [{"id_usuario": id_jefe_compras, "nombre": "Jefe Compras"}]
+    assert data["usuarios_compras"] == [
+        {"id_usuario": id_comprador, "nombre": "Comprador X", "dept_slug": "compras"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_autoasigna_responsable_compras_al_jefe_que_asigna_comprador(monkeypatch):
+    from core.config_service import ConfigService
+
+    monkeypatch.setattr(ConfigService, "get_global_config", classmethod(
+        lambda cls, conn, clave, default, tipo=str: _async_value(default)))
+
+    id_proyecto = uuid4()
+    id_comprador = uuid4()
+    id_jefe = uuid4()
+    service = ProyectosService()
+    service.db = FakeProyectosDB(responsable=None, jefes={id_jefe: "jefe_compras"})
+
+    await service.save_equipo_proyecto(
+        FakeConn(),
+        id_proyecto,
+        [{"rol_proyecto": "comprador_asignado", "area": "COMPRAS", "id_usuario": id_comprador}],
+        id_jefe,
+        {"puede_asignar_ingenieria": False, "puede_asignar_construccion": False,
+         "puede_asignar_oym": False, "puede_asignar_compras": True},
+        context={"role": "USER", "rol_organizacional": "jefe_compras"},
+    )
+
+    assert (id_proyecto, id_comprador, "comprador_asignado", "COMPRAS", id_jefe) in service.db.insertadas
+    assert (id_proyecto, id_jefe, "responsable_compras", "COMPRAS", id_jefe) in service.db.insertadas
+
+
+@pytest.mark.asyncio
+async def test_admin_asigna_comprador_sin_responsable_compras_no_aborta(monkeypatch):
+    from core.config_service import ConfigService
+    monkeypatch.setattr(ConfigService, "get_global_config", classmethod(
+        lambda cls, conn, clave, default, tipo=str: _async_value(default)))
+
+    id_proyecto = uuid4()
+    id_comprador = uuid4()
+    id_admin = uuid4()
+    service = ProyectosService()
+    service.db = FakeProyectosDB(responsable=None)
+
+    await service.save_equipo_proyecto(
+        FakeConn(),
+        id_proyecto,
+        [{"rol_proyecto": "comprador_asignado", "area": "COMPRAS", "id_usuario": id_comprador}],
+        id_admin,
+        {"puede_asignar_ingenieria": True, "puede_asignar_construccion": True,
+         "puede_asignar_oym": True, "puede_asignar_compras": True},
+        context={"role": "ADMIN", "rol_organizacional": ""},
+    )
+
+    roles = [r[2] for r in service.db.insertadas]
+    assert "comprador_asignado" in roles
+    assert "responsable_compras" not in roles

@@ -10,6 +10,7 @@ from uuid import UUID
 ROL_RESPONSABLE_POR_AREA = {
     "INGENIERIA": "responsable_ingenieria",
     "CONSTRUCCION": "responsable_construccion",
+    "COMPRAS": "responsable_compras",
 }
 
 
@@ -36,7 +37,7 @@ class ProyectosDBService:
             """
             SELECT id_usuario, nombre, rol_organizacional
             FROM tb_usuarios
-            WHERE rol_organizacional IN ('jefe_ingenieria', 'jefe_construccion')
+            WHERE rol_organizacional IN ('jefe_ingenieria', 'jefe_construccion', 'jefe_compras')
               AND is_active = TRUE
             ORDER BY nombre ASC
             """
@@ -185,6 +186,32 @@ class ProyectosDBService:
             rol_resp,
             area,
         )
+
+    async def get_responsables_proyecto(
+        self, conn, id_proyecto: UUID, areas: List[str]
+    ) -> Dict[str, UUID]:
+        """RC/RI persistidos del proyecto para varias areas en una sola consulta
+        (evita N round trips cuando el caller necesita mas de un area, ej.
+        permisos_equipo)."""
+        pares = [(area, ROL_RESPONSABLE_POR_AREA[area]) for area in areas if area in ROL_RESPONSABLE_POR_AREA]
+        if not pares:
+            return {}
+        areas_arr = [p[0] for p in pares]
+        roles_arr = [p[1] for p in pares]
+        rows = await conn.fetch(
+            """
+            SELECT pu.area, pu.id_usuario
+            FROM tb_proyecto_usuarios pu
+            JOIN unnest($2::text[], $3::text[]) AS m(area, rol_proyecto)
+              ON pu.area = m.area AND pu.rol_proyecto = m.rol_proyecto
+            WHERE pu.id_proyecto = $1
+              AND pu.activo = TRUE
+            """,
+            id_proyecto,
+            areas_arr,
+            roles_arr,
+        )
+        return {r["area"]: r["id_usuario"] for r in rows}
 
     async def usuario_tiene_rol_organizacional(
         self, conn, id_usuario: UUID, rol_organizacional: str
