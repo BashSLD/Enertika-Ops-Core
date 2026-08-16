@@ -402,7 +402,9 @@ class MaterialsDBService:
                 c.created_at, c.updated_at, c.creado_por,
                 u.codigo AS unidad_codigo, u.nombre AS unidad_nombre,
                 cat.nombre AS categoria_nombre,
-                cr.nombre AS creado_por_nombre
+                cr.nombre AS creado_por_nombre,
+                (SELECT COUNT(*) FROM tb_materiales_interno_xml v
+                 WHERE v.id_material_interno = c.id) AS vinculos_xml
             FROM tb_cat_materiales c
             LEFT JOIN tb_cat_unidades_medida u    ON u.id  = c.id_unidad_medida
             LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
@@ -597,7 +599,8 @@ class MaterialsDBService:
         return [dict(r) for r in rows]
 
     async def buscar_internos_similares(
-        self, conn, query_norm: str, threshold: float = 0.3, limit: int = 10
+        self, conn, query_norm: str, threshold: float = 0.3, limit: int = 10,
+        excluir_ids: Optional[list] = None,
     ) -> List[dict]:
         """Homologacion/anti-duplicados: busca en tb_cat_materiales (catalogo interno),
         no en tb_materiales_historial (historial XML de proveedor) -- buscar_similar_materiales
@@ -606,16 +609,25 @@ class MaterialsDBService:
 
         ILIKE + word_similarity() en vez de solo similarity(): similarity() falla en
         palabras cortas (memoria del proyecto). Usa idx_cat_materiales_norm (GIN
-        trigram ya indexado, sin trabajo de BD adicional)."""
+        trigram ya indexado, sin trabajo de BD adicional).
+
+        excluir_ids: materiales creados mas temprano en el MISMO intento/transaccion
+        (ej. otro item del mismo batch de resolver_costos_pendientes_compras) --
+        Postgres los hace visibles aqui aunque esten bajo un savepoint sin liberar
+        todavia, y si ese savepoint termina en rollback (CAS de precio fallido) no
+        deben contar como "ya existe en el catalogo" para los items siguientes."""
         rows = await conn.fetch(f"""
-            SELECT id, descripcion_canonica, clave_prod_serv, precio_referencia, moneda,
-                   {interno_similitud_expr_sql('descripcion_norm', '$1')} AS similitud
-            FROM tb_cat_materiales
-            WHERE activo = TRUE
-              AND {interno_similitud_where_sql('descripcion_norm', '$1', '$2')}
+            SELECT c.id, c.descripcion_canonica, c.clave_prod_serv, c.precio_referencia, c.moneda,
+                   u.codigo AS unidad_codigo,
+                   {interno_similitud_expr_sql('c.descripcion_norm', '$1')} AS similitud
+            FROM tb_cat_materiales c
+            LEFT JOIN tb_cat_unidades_medida u ON u.id = c.id_unidad_medida
+            WHERE c.activo = TRUE
+              AND NOT (c.id = ANY($4::uuid[]))
+              AND {interno_similitud_where_sql('c.descripcion_norm', '$1', '$2')}
             ORDER BY similitud DESC
             LIMIT $3
-        """, query_norm, threshold, limit)
+        """, query_norm, threshold, limit, excluir_ids or [])
         return [dict(r) for r in rows]
 
     async def get_vinculos_xml(self, conn, id_interno: UUID) -> list:
@@ -668,9 +680,13 @@ class MaterialsDBService:
                 EXISTS(
                     SELECT 1 FROM tb_materiales_interno_xml v
                     WHERE v.id_material_interno = $1 AND v.id_material_xml = m.id
-                ) AS ya_vinculado
+                ) AS ya_vinculado,
+                otro.descripcion_canonica AS vinculado_a_otro
             FROM tb_materiales_historial m
             LEFT JOIN tb_proveedores p ON p.id_proveedor = m.id_proveedor
+            LEFT JOIN tb_materiales_interno_xml v_otro
+                ON v_otro.id_material_xml = m.id AND v_otro.id_material_interno <> $1
+            LEFT JOIN tb_cat_materiales otro ON otro.id = v_otro.id_material_interno
             WHERE m.descripcion_proveedor ILIKE '%' || $2 || '%'
             ORDER BY m.descripcion_proveedor, m.fecha_factura DESC
             LIMIT $3
@@ -715,6 +731,7 @@ class MaterialsDBService:
                         SELECT 1 FROM tb_materiales_interno_xml v
                         WHERE v.id_material_interno = $1 AND v.id_material_xml = m.id
                     ) AS ya_vinculado,
+                    otro.descripcion_canonica AS vinculado_a_otro,
                     word_similarity(
                         upper($2),
                         upper(regexp_replace(
@@ -724,6 +741,9 @@ class MaterialsDBService:
                     ) AS score
                 FROM tb_materiales_historial m
                 LEFT JOIN tb_proveedores p ON p.id_proveedor = m.id_proveedor
+                LEFT JOIN tb_materiales_interno_xml v_otro
+                    ON v_otro.id_material_xml = m.id AND v_otro.id_material_interno <> $1
+                LEFT JOIN tb_cat_materiales otro ON otro.id = v_otro.id_material_interno
             ),
             deduplicados AS (
                 SELECT DISTINCT ON (descripcion_proveedor) *
@@ -738,11 +758,10 @@ class MaterialsDBService:
         return [dict(r) for r in rows]
 
     async def crear_vinculo_xml(self, conn, id_interno: UUID, id_xml: UUID) -> None:
-        await conn.execute("""
-            INSERT INTO tb_materiales_interno_xml (id_material_interno, id_material_xml)
-            VALUES ($1, $2)
-            ON CONFLICT DO NOTHING
-        """, id_interno, id_xml)
+        """Alias de vincular_interno_a_xml con el orden de argumentos del flujo
+        'interno -> vincular XML' (mismo INSERT que vincular_interno_a_xml,
+        doc 39: unificado para no divergir en semantica de conflicto)."""
+        await self.vincular_interno_a_xml(conn, id_xml, id_interno, origen='HUMANO')
 
     async def eliminar_vinculo_xml(self, conn, id_interno: UUID, id_xml: UUID) -> None:
         await conn.execute("""
@@ -778,18 +797,163 @@ class MaterialsDBService:
         rows = await conn.fetch(query, id_xml, q_norm, limite)
         return [dict(r) for r in rows]
 
-    async def vincular_interno_a_xml(self, conn, id_xml: UUID, id_interno: UUID) -> None:
+    async def vincular_interno_a_xml(
+        self, conn, id_xml: UUID, id_interno: UUID,
+        origen: str = 'HUMANO', confianza: Optional[str] = None,
+    ) -> bool:
         """Vincula (o revincula) un registro XML a un item del catalogo interno.
 
         Relacion 1:N forzada por uq_interno_xml_xml (mig 119): cada factura XML
         pertenece a un solo item interno, por lo que un nuevo vinculo reemplaza
-        al anterior en vez de fallar por conflicto."""
-        await conn.execute("""
-            INSERT INTO tb_materiales_interno_xml (id_material_interno, id_material_xml)
-            VALUES ($1, $2)
+        al anterior en vez de fallar por conflicto.
+
+        Camino de escritura unico (doc 39, punto 6.2): un vinculo AUTO_* (matcher
+        automatico) nunca sobreescribe uno HUMANO ya confirmado -- la clausula
+        WHERE hace el UPDATE condicional. HUMANO siempre puede sobreescribir
+        cualquier vinculo, incluido uno puesto por el matcher.
+
+        Returns True si el vinculo se aplico de verdad (insert nuevo o update
+        permitido); False si un vinculo HUMANO existente bloqueo la escritura --
+        el caller no debe asumir efectos secundarios (ej. backfill) sobre un
+        vinculo que en realidad no se toco."""
+        resultado = await conn.fetchval("""
+            INSERT INTO tb_materiales_interno_xml (id_material_interno, id_material_xml, confianza, origen)
+            VALUES ($1, $2, $3, $4)
             ON CONFLICT (id_material_xml) DO UPDATE
-            SET id_material_interno = EXCLUDED.id_material_interno, created_at = now()
-        """, id_interno, id_xml)
+            SET id_material_interno = EXCLUDED.id_material_interno,
+                confianza = EXCLUDED.confianza,
+                origen = EXCLUDED.origen,
+                created_at = now()
+            WHERE tb_materiales_interno_xml.origen <> 'HUMANO' OR EXCLUDED.origen = 'HUMANO'
+            RETURNING id_material_xml
+        """, id_interno, id_xml, confianza, origen)
+        return resultado is not None
+
+    async def backfill_clave_sat_interno(
+        self, conn, id_interno: UUID, clave_prod_serv: Optional[str]
+    ) -> None:
+        """Backfill organico del nivel CLAVE_SAT (doc 39, decision D+B): si el
+        item del catalogo interno no tiene clave_prod_serv, la copia de la
+        factura que se acaba de confirmar/vincular (dato ya conocido, sin query
+        extra). Nunca sobreescribe una clave ya capturada."""
+        if not clave_prod_serv:
+            return
+        await conn.execute("""
+            UPDATE tb_cat_materiales
+            SET clave_prod_serv = $2
+            WHERE id = $1 AND clave_prod_serv IS NULL
+        """, id_interno, clave_prod_serv)
+
+    async def get_catalogo_interno_para_matching(self, conn) -> list:
+        """Catalogo interno activo, minimo necesario para el matcher automatico
+        (clave SAT + descripcion normalizada). Una sola query por factura."""
+        rows = await conn.fetch(
+            "SELECT id, clave_prod_serv, descripcion_norm FROM tb_cat_materiales WHERE activo = TRUE"
+        )
+        return [dict(r) for r in rows]
+
+    async def get_memoria_match_interno(
+        self, conn, id_proveedor: UUID, claves: List[str]
+    ) -> dict:
+        """Memoria proveedor-producto (clave SAT -> id_material_interno) del
+        historial confirmado, analoga a BomDBService.get_memoria_match_proveedor
+        pero contra el catalogo interno en vez de items del BOM.
+
+        Gating: la memoria SOLO aprende de vinculos confiables -> confirmados por
+        una persona (origen='HUMANO') o de alta confianza (confianza='ALTA').
+        Ante empate de frecuencia, el vinculo respaldado por confirmacion humana
+        gana sobre el meramente auto-aplicado.
+
+        Returns: {clave_prod_serv: UUID(id_material_interno)}
+        """
+        if not claves:
+            return {}
+        rows = await conn.fetch("""
+            SELECT DISTINCT ON (mh.clave_prod_serv)
+                   mh.clave_prod_serv, v.id_material_interno
+            FROM tb_materiales_historial mh
+            JOIN tb_materiales_interno_xml v ON v.id_material_xml = mh.id
+            WHERE mh.id_proveedor = $1 AND mh.clave_prod_serv = ANY($2)
+              AND (v.origen = 'HUMANO' OR v.confianza = 'ALTA')
+            GROUP BY mh.clave_prod_serv, v.id_material_interno
+            ORDER BY mh.clave_prod_serv,
+                     max(CASE WHEN v.origen = 'HUMANO' THEN 1 ELSE 0 END) DESC,
+                     count(*) DESC
+        """, id_proveedor, claves)
+        return {r['clave_prod_serv']: r['id_material_interno'] for r in rows}
+
+    async def get_historial_ids_por_factura(self, conn, uuid_factura: str) -> list:
+        """Mapa numero_linea_cfdi->id recien insertado/actualizado en
+        tb_materiales_historial para una factura. Usado por el matcher
+        automatico catalogo interno<->XML justo despues de
+        guardar_conceptos_historial (executemany no soporta RETURNING en
+        asyncpg, asi que no hay otra forma de recuperar los id reales)."""
+        rows = await conn.fetch(
+            "SELECT id, numero_linea_cfdi FROM tb_materiales_historial WHERE uuid_factura = $1",
+            uuid_factura,
+        )
+        return [dict(r) for r in rows]
+
+    async def get_conceptos_para_conciliacion_interno(self, conn, limite: int = 100) -> list:
+        """Conceptos de factura XML con sugerencia de vinculo al catalogo interno
+        pendiente de revision humana (columna de la UI de conciliacion,
+        analoga a BomDBCompras.get_conceptos_conciliacion pero sin scope de
+        autorizacion BOM -- aplica a cualquier factura)."""
+        rows = await conn.fetch("""
+            SELECT
+                mh.id AS historial_id,
+                mh.descripcion_proveedor, mh.clave_prod_serv, mh.cantidad,
+                mh.precio_unitario, mh.importe, mh.fecha_factura,
+                mh.id_material_interno_sugerido, mh.sugerencia_interno_confianza,
+                mh.sugerencia_interno_origen,
+                mh.lock_version AS concepto_lock_version,
+                sugerido.descripcion_canonica AS sugerido_descripcion,
+                p.razon_social AS proveedor_nombre
+            FROM tb_materiales_historial mh
+            LEFT JOIN tb_cat_materiales sugerido ON sugerido.id = mh.id_material_interno_sugerido
+            LEFT JOIN tb_proveedores p ON p.id_proveedor = mh.id_proveedor
+            WHERE mh.id_material_interno_sugerido IS NOT NULL
+            ORDER BY mh.fecha_factura DESC
+            LIMIT $1
+        """, limite)
+        return [dict(r) for r in rows]
+
+    async def confirmar_match_interno(
+        self, conn, historial_id: UUID, id_material_interno: Optional[UUID],
+        lock_version_esperado: int,
+    ) -> Optional[dict]:
+        """Persiste (confirma tal cual, edita, o rechaza) la sugerencia de
+        vinculo interno<->XML revisada por un humano, analoga a
+        BomDBCompras.confirmar_match_concepto.
+
+        id_material_interno set  -> vincula (HUMANO, alta confianza) y limpia
+                                     la sugerencia.
+        id_material_interno None -> rechaza: solo limpia la sugerencia, no toca
+                                     ningun vinculo existente.
+
+        CAS por lock_version de tb_materiales_historial (misma columna que ya
+        usa confirmar_match_concepto del matcher BOM sobre la misma fila --
+        cualquiera de los dos flujos que llegue primero avanza el lock,
+        el otro falla de forma segura con el mensaje estandar de concurrencia).
+        """
+        async with conn.transaction():
+            row = await conn.fetchrow("""
+                UPDATE tb_materiales_historial
+                SET id_material_interno_sugerido = NULL,
+                    sugerencia_interno_confianza = NULL,
+                    sugerencia_interno_origen = NULL,
+                    lock_version = lock_version + 1
+                WHERE id = $1 AND lock_version = $2
+                RETURNING id AS historial_id, lock_version, clave_prod_serv
+            """, historial_id, lock_version_esperado)
+            if not row:
+                return None
+            if id_material_interno is not None:
+                await self.vincular_interno_a_xml(
+                    conn, historial_id, id_material_interno, origen='HUMANO', confianza='ALTA'
+                )
+                await self.backfill_clave_sat_interno(conn, id_material_interno, row['clave_prod_serv'])
+        return dict(row)
 
 
 def get_materials_db_service():

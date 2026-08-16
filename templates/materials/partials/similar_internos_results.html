@@ -2,19 +2,37 @@
 <div class="mt-1 rounded-lg border border-amber-200 bg-amber-50 divide-y divide-amber-100">
     <p class="px-2 py-1 text-amber-700 font-medium">Posibles coincidencias en el catalogo:</p>
     {% for r in resultados %}
-    <div class="px-2 py-1.5 flex items-center justify-between gap-2">
+    <button type="button"
+        class="w-full px-2 py-1.5 flex items-center justify-between gap-2 text-left hover:bg-amber-100 transition-colors"
+        data-id="{{ r.id }}"
+        data-descripcion="{{ r.descripcion_canonica }}"
+        data-clave="{{ r.clave_prod_serv or '' }}"
+        data-precio="{{ r.precio_referencia if r.precio_referencia else '' }}"
+        data-moneda="{{ r.moneda or 'MXN' }}"
+        data-unidad="{{ r.unidad_codigo or '' }}"
+        @click="usarMaterialHomologado({
+            id: $el.dataset.id,
+            descripcion: $el.dataset.descripcion,
+            clave: $el.dataset.clave,
+            precio: parseFloat($el.dataset.precio || '0'),
+            moneda: $el.dataset.moneda,
+            unidad: $el.dataset.unidad
+        })">
         <div class="min-w-0">
             <p class="text-gray-800 truncate" title="{{ r.descripcion_canonica }}">{{ r.descripcion_canonica }}</p>
             {% if r.clave_prod_serv %}<p class="text-gray-400 text-[11px]">SAT: {{ r.clave_prod_serv }}</p>{% endif %}
         </div>
-        {% set pct = (r.similitud * 100)|int if r.similitud else 0 %}
-        <span class="shrink-0 inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-medium
-            {% if pct >= 80 %}bg-green-100 text-green-800
-            {% elif pct >= 50 %}bg-amber-100 text-amber-800
-            {% else %}bg-gray-100 text-gray-700{% endif %}">
-            {{ pct }}%
-        </span>
-    </div>
+        <div class="shrink-0 flex items-center gap-1.5">
+            {% set pct = (r.similitud * 100)|int if r.similitud else 0 %}
+            <span class="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-medium
+                {% if pct >= 80 %}bg-green-100 text-green-800
+                {% elif pct >= 50 %}bg-amber-100 text-amber-800
+                {% else %}bg-gray-100 text-gray-700{% endif %}">
+                {{ pct }}%
+            </span>
+            <span class="text-[11px] font-medium text-blue-700 underline">Usar este item</span>
+        </div>
+    </button>
     {% endfor %}
 </div>
 {% endif %}

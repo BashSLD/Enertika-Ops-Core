@@ -126,6 +126,7 @@ async def get_materials_ui(
         "proyectos": catalogos.get("proyectos", []),
         "filtros": {},
         "estadisticas": estadisticas,
+        "can_edit": _can_edit_internos(context),
     }
 
     if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
@@ -749,4 +750,67 @@ async def eliminar_vinculo_interno(
     return templates.TemplateResponse(
         request, "materials/partials/vinculos_interno_list.html",
         {"material_id": str(material_id), "vinculos": vinculos}
+    )
+
+
+# ========================================
+# CONCILIACION: MATCHER AUTOMATICO CATALOGO INTERNO <-> XML (doc 39, punto 6.2)
+# ========================================
+
+@router.get("/conciliacion-xml", response_class=HTMLResponse)
+async def get_conciliacion_xml(
+    request: Request,
+    conn=Depends(get_db_connection),
+    service: MaterialsService = Depends(get_materials_service),
+    _=require_materials_edit_access,
+):
+    """Sugerencias del matcher automatico (CLAVE_SAT/MEMORIA/TEXTO) pendientes
+    de revision humana. Mismo permiso que los endpoints manuales de vinculo
+    del modulo materials (compras O ingenieria, editor) -- doc 39, decision A."""
+    conceptos = await service.get_conceptos_para_conciliacion_interno(conn)
+    return templates.TemplateResponse(
+        request, "materials/partials/conciliacion_xml.html",
+        {"conceptos": conceptos}
+    )
+
+
+@router.post("/conciliacion-xml/{historial_id}/confirmar", response_class=HTMLResponse)
+async def post_confirmar_match_interno(
+    request: Request,
+    historial_id: UUID,
+    conn=Depends(get_db_connection),
+    service: MaterialsService = Depends(get_materials_service),
+    _=require_materials_edit_access,
+):
+    """Confirma la sugerencia tal cual la dejo el matcher, o la sustituye por
+    otro item si el usuario eligio uno distinto en el selector. id_material_interno
+    vacio en el form => rechaza (limpia la sugerencia sin vincular nada)."""
+    form = await request.form()
+    try:
+        lock_version = int(form["concepto_lock_version"])
+    except (KeyError, ValueError):
+        raise HTTPException(status_code=400, detail="concepto_lock_version inválido")
+
+    id_material_interno = None
+    valor = (form.get("id_material_interno") or "").strip()
+    if valor:
+        try:
+            id_material_interno = UUID(valor)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Ítem inválido")
+
+    try:
+        await service.confirmar_match_interno(
+            conn, historial_id, id_material_interno, lock_version
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al confirmar match interno<->XML")
+        raise HTTPException(status_code=500, detail="Error al guardar la conciliación")
+
+    conceptos = await service.get_conceptos_para_conciliacion_interno(conn)
+    return templates.TemplateResponse(
+        request, "materials/partials/conciliacion_xml_lista.html",
+        {"conceptos": conceptos}
     )

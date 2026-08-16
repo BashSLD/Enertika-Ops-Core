@@ -22,8 +22,14 @@
             hx-vals='{"id_xml": "{{ r.id }}"}'
             hx-target="#vinculos-list"
             hx-swap="innerHTML"
-            class="ml-3 flex-shrink-0 text-xs bg-[#00BABB] hover:bg-[#009999] text-white px-3 py-1 rounded-lg font-medium transition-colors">
-            Vincular
+            {% if r.vinculado_a_otro %}
+            hx-confirm="Este XML ya esta vinculado a &quot;{{ r.vinculado_a_otro }}&quot;. ¿Reasignar el vinculo a este material?"
+            class="ml-3 flex-shrink-0 text-xs bg-amber-500 hover:bg-amber-600 text-white px-3 py-1 rounded-lg font-medium transition-colors"
+            title="Vinculado actualmente a: {{ r.vinculado_a_otro }}"
+            {% else %}
+            class="ml-3 flex-shrink-0 text-xs bg-[#00BABB] hover:bg-[#009999] text-white px-3 py-1 rounded-lg font-medium transition-colors"
+            {% endif %}>
+            {{ 'Reasignar' if r.vinculado_a_otro else 'Vincular' }}
         </button>
         {% endif %}
     </div>

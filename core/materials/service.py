@@ -126,12 +126,15 @@ class MaterialsService:
         return self._decimals_a_float(rows, ('precio_unitario', 'importe', 'similitud'))
 
     async def buscar_internos_similares(
-        self, conn, query: str, threshold: float = 0.3, limit: int = 10
+        self, conn, query: str, threshold: float = 0.3, limit: int = 10,
+        excluir_ids: Optional[list] = None,
     ) -> List[dict]:
         """Homologacion: posibles coincidencias en el catalogo interno antes de dar
         de alta un material nuevo (anti-duplicados)."""
         query_norm = normalizar_descripcion(query)
-        rows = await self.db.buscar_internos_similares(conn, query_norm, threshold, limit)
+        rows = await self.db.buscar_internos_similares(
+            conn, query_norm, threshold, limit, excluir_ids
+        )
         return self._decimals_a_float(rows, ('precio_referencia', 'similitud'))
 
     async def get_internos(
@@ -177,6 +180,77 @@ class MaterialsService:
 
     async def crear_vinculo_xml(self, conn, id_interno: UUID, id_xml: UUID) -> None:
         await self.db.crear_vinculo_xml(conn, id_interno, id_xml)
+
+    # ====================================================================
+    # MATCHER AUTOMATICO CATALOGO INTERNO <-> XML (doc 39, punto 6.2)
+    # ====================================================================
+
+    async def match_conceptos_a_internos(self, conn, conceptos: list, id_proveedor: UUID) -> dict:
+        """Corre el matcher CLAVE_SAT->MEMORIA->TEXTO para los conceptos de una
+        factura contra el catalogo interno activo. Ver core/materials/matcher.py
+        para el algoritmo puro; aqui solo se resuelven las dependencias de BD
+        (memoria del proveedor + snapshot del catalogo)."""
+        from core.materials.matcher import match_conceptos_a_internos as _match
+
+        claves = sorted({
+            (c.get('clave_prod_serv') or '').strip()
+            for c in conceptos if (c.get('clave_prod_serv') or '').strip()
+        })
+        memoria_map = (
+            await self.db.get_memoria_match_interno(conn, id_proveedor, claves)
+            if claves else {}
+        )
+        catalogo = await self.db.get_catalogo_interno_para_matching(conn)
+        return _match(conceptos, catalogo, memoria_map)
+
+    async def aplicar_matches_interno_alta(
+        self, conn, uuid_factura: str, alta_map: dict
+    ) -> None:
+        """Aplica (auto-confirma) los matches ALTA (CLAVE_SAT/MEMORIA) directamente
+        en tb_materiales_interno_xml con origen AUTO_* -- nunca sobreescribe un
+        vinculo HUMANO (ver vincular_interno_a_xml). Incluye el backfill organico
+        de clave_prod_serv del catalogo interno (doc 39, decision D+B).
+
+        Debe llamarse DESPUES de guardar_conceptos_historial: necesita los id
+        reales de tb_materiales_historial generados en ese INSERT (executemany
+        no soporta RETURNING en asyncpg)."""
+        if not alta_map:
+            return
+        historial_rows = await self.db.get_historial_ids_por_factura(conn, uuid_factura)
+        id_por_linea = {r['numero_linea_cfdi']: r['id'] for r in historial_rows}
+        for idx, match in alta_map.items():
+            historial_id = id_por_linea.get(idx + 1)
+            if not historial_id:
+                continue
+            vinculo_aplicado = await self.db.vincular_interno_a_xml(
+                conn, historial_id, match['id_material_interno'],
+                origen=f"AUTO_{match['origen']}", confianza=match['confianza'],
+            )
+            if vinculo_aplicado:
+                await self.db.backfill_clave_sat_interno(
+                    conn, match['id_material_interno'], match.get('clave_prod_serv')
+                )
+
+    async def get_conceptos_para_conciliacion_interno(self, conn, limite: int = 100) -> list:
+        rows = await self.db.get_conceptos_para_conciliacion_interno(conn, limite)
+        return self._decimals_a_float(rows, ('precio_unitario', 'importe'))
+
+    async def confirmar_match_interno(
+        self, conn, historial_id: UUID, id_material_interno: Optional[UUID],
+        lock_version_esperado: int,
+    ) -> dict:
+        """Confirma (tal cual o editada) o rechaza una sugerencia del matcher
+        automatico. Lanza ValueError si el concepto cambio de version (CAS) --
+        mismo criterio que BomService.confirmar_match_concepto para el matcher
+        factura<->BOM."""
+        result = await self.db.confirmar_match_interno(
+            conn, historial_id, id_material_interno, lock_version_esperado
+        )
+        if not result:
+            raise ValueError(
+                "El concepto cambió (alguien más lo actualizó); recarga la conciliación."
+            )
+        return result
 
     async def sugerir_internos_para_vincular(self, conn, id_xml: UUID, descripcion_material: str) -> list:
         """Sugerencias por similitud difusa cuando aun no hay texto de busqueda manual."""

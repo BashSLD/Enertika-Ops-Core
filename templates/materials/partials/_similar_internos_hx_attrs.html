@@ -1,5 +1,6 @@
-hx-get="/materials/similares-internos"
-                                hx-trigger="keyup changed delay:400ms[target.value.length >= 3]"
-                                hx-vals='js:{"q": event.target.value}'
+id="{{ similar_search_id }}"
+                                hx-get="/materials/similares-internos"
+                                hx-trigger="keyup[target.value.length >= 3] changed delay:400ms{% if similar_search_extra_trigger %}, {{ similar_search_extra_trigger }}{% endif %}"
+                                hx-vals='js:{"q": document.getElementById("{{ similar_search_id }}").value}'
                                 hx-target="next .material-similar-results"
                                 hx-swap="innerHTML"
