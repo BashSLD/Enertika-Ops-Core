@@ -15,6 +15,7 @@
 } %}
 
 {% if aprobaciones %}
+<div class="max-h-[60vh] overflow-y-auto pr-1">
 <div class="relative">
     {# Linea vertical #}
     <div class="absolute left-3 top-0 bottom-0 w-0.5 bg-gray-200"></div>
@@ -64,6 +65,7 @@
         </div>
         {% endfor %}
     </div>
+</div>
 </div>
 {% else %}
 <div class="text-center py-6 text-sm text-gray-400">

@@ -1,6 +1,8 @@
 {# Propuestas de cambio pre-final del BOM #}
 <div id="tab-propuestas-cambio-content" class="space-y-3">
     {% if propuestas %}
+    {% set campos_labels = campo_labels|default({}) %}
+    <div class="max-h-[60vh] overflow-y-auto pr-1 space-y-3">
     {% for propuesta in propuestas %}
     {% set tipo_label = 'Coordinador de Obra' if propuesta.tipo_solicitante == 'OBRA' else 'Jefe Construccion' %}
     {% set estatus_label = propuesta.estatus|replace('_', ' ') %}
@@ -51,7 +53,13 @@
                                 <td class="px-3 py-2 font-medium text-gray-700">{{ linea.accion }}</td>
                                 <td class="px-3 py-2 text-gray-600">
                                     {% if linea.datos %}
-                                    <span class="font-mono">{{ linea.datos }}</span>
+                                    <ul class="space-y-0.5">
+                                        {% for campo, valor in linea.datos.items() %}
+                                        {% if valor is not none and valor != '' %}
+                                        <li><span class="text-gray-500">{{ campos_labels.get(campo, campo) }}:</span> {{ valor }}</li>
+                                        {% endif %}
+                                        {% endfor %}
+                                    </ul>
                                     {% elif linea.id_item %}
                                     <span class="font-mono">{{ linea.id_item }}</span>
                                     {% else %}
@@ -110,6 +118,7 @@
         </div>
     </div>
     {% endfor %}
+    </div>
     {% else %}
     <div class="rounded-lg border border-dashed border-gray-300 bg-white px-4 py-8 text-center">
         <p class="text-sm font-medium text-gray-500">Sin propuestas de cambio</p>

@@ -132,6 +132,9 @@ CAMPO_LABELS = {
     'grupos_bom': 'Grupo',
     'grupos_operativos': 'Grupo operativo',
     'id_material_interno': 'Material vinculado',
+    'id_material_ref': 'Material vinculado',
+    'tipo_partida': 'Tipo de partida',
+    'moneda': 'Moneda',
 }
 
 BOM_COSTOS_EVENTO = "BOM_ITEMS_SIN_COSTO"

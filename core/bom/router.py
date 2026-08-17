@@ -32,6 +32,7 @@ from .service import (
     CAMPOS_AFECTAN_COSTO_ESTIMADO,
     MONEDAS_VALIDAS,
     FLAG_ACTUALIZACION_PRECIOS_COMPRAS,
+    CAMPO_LABELS,
 )
 
 _ESTATUS_FASE_COMPRAS = {e.value for e in ESTATUS_COTIZABLE}
@@ -2251,7 +2252,9 @@ async def _propuestas_tab_response(
     return templates.TemplateResponse(
         request,
         "bom/partials/propuestas_cambio.html",
-        _build_bom_context(request, context, bom, propuestas=propuestas),
+        _build_bom_context(
+            request, context, bom, propuestas=propuestas, campo_labels=CAMPO_LABELS
+        ),
     )
 
 
