@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -129,3 +131,4 @@ def register_timezone_filters(jinja_env):
     jinja_env.filters["clean_text"] = clean_text
     jinja_env.filters["dhm"] = dhm
     jinja_env.globals["static_v"] = _STATIC_V
+    jinja_env.globals["entorno_label"] = settings.ENTORNO_LABEL

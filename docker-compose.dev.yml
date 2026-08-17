@@ -11,6 +11,7 @@ services:
       - .env
     environment:
       DEBUG_MODE: "True"
+      EMAIL_SEND_ENABLED: "false"
       QUICKCHART_URL: "http://quickchart:3400"
       REDIS_URL: "redis://redis:6379"
     depends_on:
@@ -30,6 +31,7 @@ services:
     env_file:
       - .env
     environment:
+      EMAIL_SEND_ENABLED: "false"
       QUICKCHART_URL: "http://quickchart:3400"
       REDIS_URL: "redis://redis:6379"
     depends_on:

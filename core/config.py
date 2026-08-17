@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     # --- Configuración de Seguridad y Sesión ---
     SECRET_KEY: str = os.getenv("SECRET_KEY")
     DEBUG_MODE: bool = os.getenv("DEBUG_MODE", "True").lower() == "true"
+
+    # --- Interruptor de correo real (Graph API) ---
+    # False = todo envio se suprime (log-only). Independiente de DEBUG_MODE,
+    # que ya controla otras cosas no relacionadas (cookie https_only, Sentry, etc).
+    EMAIL_SEND_ENABLED: bool = os.getenv("EMAIL_SEND_ENABLED", "True").lower() == "true"
+
+    # --- Etiqueta de entorno para banner en UI (vacio = no se muestra) ---
+    ENTORNO_LABEL: str = os.getenv("ENTORNO_LABEL", "")
     
     # Validación crítica: SECRET_KEY debe estar definida
     if not SECRET_KEY:

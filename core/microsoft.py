@@ -485,6 +485,10 @@ class MicrosoftAuth:
 
     # --- Envío de Correos (Híbrido) ---
     async def send_email_with_attachments(self, access_token, from_email, subject, body, recipients, cc_recipients=None, bcc_recipients=None, importance="normal", attachments_files=None):
+        if not settings.EMAIL_SEND_ENABLED:
+            logger.info("[EMAIL] Envio suprimido (EMAIL_SEND_ENABLED=false): subject=%s", subject)
+            return True, "Envio suprimido (modo no-produccion)"
+
         if not access_token:
             logger.error("Error: Token nulo.")
             return False, "No hay sesión activa"
