@@ -88,6 +88,9 @@
                                     hx-disabled-elt="find button[type='submit']" hx-sync="this:replace">
                                     <input type="hidden" name="aprobacion_lock_version" value="{{ a.aprobacion_lock_version }}">
                                     <input type="hidden" name="autorizacion_lock_version" value="{{ a.autorizacion_lock_version }}">
+                                    <input type="hidden" name="estatus" value="{{ estatus_filtro }}">
+                                    <input type="hidden" name="id_proyecto" value="{{ id_proyecto_filtro }}">
+                                    <input type="hidden" name="proveedor" value="{{ proveedor_filtro }}">
                                     <button type="submit"
                                         class="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60">
                                         Aprobar
@@ -100,6 +103,9 @@
                                     <input type="hidden" name="motivo" value="">
                                     <input type="hidden" name="aprobacion_lock_version" value="{{ a.aprobacion_lock_version }}">
                                     <input type="hidden" name="autorizacion_lock_version" value="{{ a.autorizacion_lock_version }}">
+                                    <input type="hidden" name="estatus" value="{{ estatus_filtro }}">
+                                    <input type="hidden" name="id_proyecto" value="{{ id_proyecto_filtro }}">
+                                    <input type="hidden" name="proveedor" value="{{ proveedor_filtro }}">
                                     <button type="submit"
                                         class="rounded-lg bg-red-500 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-red-600 disabled:cursor-wait disabled:opacity-60">
                                         Rechazar

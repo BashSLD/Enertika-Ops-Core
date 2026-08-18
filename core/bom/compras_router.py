@@ -680,6 +680,15 @@ async def dashboard_direccion_cotizaciones(
     return templates.TemplateResponse(request, "bom/direccion_cotizaciones.html", ctx)
 
 
+def _parse_id_proyecto_filtro(id_proyecto: Optional[str]) -> Optional[UUID]:
+    if not id_proyecto:
+        return None
+    try:
+        return UUID(id_proyecto)
+    except ValueError:
+        return None
+
+
 @compras_router.post("/direccion/cotizaciones/{cotizacion_id}/aprobar", include_in_schema=False)
 async def dashboard_aprobar_cotizacion(
     request: Request,
@@ -687,6 +696,9 @@ async def dashboard_aprobar_cotizacion(
     comentarios: Optional[str] = Form(None),
     aprobacion_lock_version: int = Form(...),
     autorizacion_lock_version: int = Form(...),
+    estatus: Optional[str] = Form(None),
+    id_proyecto: Optional[str] = Form(None),
+    proveedor: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -706,7 +718,7 @@ async def dashboard_aprobar_cotizacion(
         logger.exception("Error de BD al aprobar cotización desde el dashboard de Dirección")
         raise HTTPException(status_code=500, detail="Error al aprobar la cotización.")
     ctx = await _dashboard_direccion_ctx(
-        conn, service, context, "PENDIENTE_DIRECCION", None, None
+        conn, service, context, estatus, _parse_id_proyecto_filtro(id_proyecto), proveedor
     )
     return templates.TemplateResponse(request, "bom/partials/direccion_cotizaciones.html", ctx)
 
@@ -718,6 +730,9 @@ async def dashboard_rechazar_cotizacion(
     motivo: str = Form(...),
     aprobacion_lock_version: int = Form(...),
     autorizacion_lock_version: int = Form(...),
+    estatus: Optional[str] = Form(None),
+    id_proyecto: Optional[str] = Form(None),
+    proveedor: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -737,7 +752,7 @@ async def dashboard_rechazar_cotizacion(
         logger.exception("Error de BD al rechazar cotización desde el dashboard de Dirección")
         raise HTTPException(status_code=500, detail="Error al rechazar la cotización.")
     ctx = await _dashboard_direccion_ctx(
-        conn, service, context, "PENDIENTE_DIRECCION", None, None
+        conn, service, context, estatus, _parse_id_proyecto_filtro(id_proyecto), proveedor
     )
     return templates.TemplateResponse(request, "bom/partials/direccion_cotizaciones.html", ctx)
 
