@@ -29,6 +29,22 @@ PLANTILLA_COLUMNAS = [
 # formula de Excel en generar_plantilla_internos.
 CONCEPTO_CAMPOS = ("material", "tipo", "acabado", "medida")
 
+# marca/adicional son metadatos de su propia columna, excluidos a proposito de
+# CONCEPTO_CAMPOS — pero SI entran en la clave de deteccion de duplicados (ver
+# dedupe_key en _parse_y_validar): dos materiales que solo difieren en marca no
+# deben chocar como falso duplicado aunque su 'concepto' (texto) sea identico.
+CAMPOS_MARCA = ("marca", "adicional")
+
+
+def _construir_texto(partes: dict, campos: tuple) -> str:
+    """Concatena los campos indicados (trim, sin 'NA') separados por espacio."""
+    piezas = []
+    for k in campos:
+        v = (partes.get(k) or '').strip()
+        if v and v.upper() != 'NA':
+            piezas.append(v)
+    return ' '.join(piezas)
+
 # Columnas de la plantilla de actualizacion masiva de precios (orden de salida).
 # id, descripcion y unidad van bloqueados; moneda y precio son editables.
 PLANTILLA_PRECIOS_COLUMNAS = [
@@ -423,8 +439,23 @@ class MaterialsService:
                 cat_map[alias] = cid
         return unidad_map, cat_map
 
+    async def _get_dedupe_existentes(self, conn) -> set:
+        """Claves compuestas de los materiales ya registrados, para deteccion de
+        duplicados en carga masiva. MISMO orden/receta (CONCEPTO_CAMPOS, luego
+        marca+adicional) que usa _parse_y_validar para una fila nueva —
+        normalizar_descripcion es sensible al orden de las palabras, asi que si
+        estas dos construcciones difieren, una fila nueva idéntica a una ya
+        existente deja de detectarse como duplicado."""
+        filas = await self.db.get_materiales_campos_existentes(conn)
+        claves = set()
+        for fila in filas:
+            concepto_existente = _construir_texto(fila, CONCEPTO_CAMPOS)
+            marca_adicional = _construir_texto(fila, CAMPOS_MARCA)
+            claves.add(normalizar_descripcion(f"{concepto_existente} {marca_adicional}".strip()))
+        return claves
+
     def _parse_y_validar(self, archivo_bytes: bytes, unidad_map: dict,
-                         cat_map: dict, norms_existentes: set,
+                         cat_map: dict, dedupe_existentes: set,
                          puede_editar_costos: bool) -> dict:
         """Parsea el Excel y valida cada fila SIN escribir en BD.
         Devuelve filas listas para insertar + detalles por fila + resumen de conteos.
@@ -445,7 +476,7 @@ class MaterialsService:
 
         validas: List[dict] = []
         detalles: List[dict] = []
-        norms_sesion: set = set()
+        dedupe_sesion: set = set()
         a_cargar = advertencias = errores = duplicados = 0
 
         headers: Optional[List[str]] = None
@@ -470,9 +501,23 @@ class MaterialsService:
             partes = {k: fila.get(k, '').strip() for k in
                       ('material', 'tipo', 'acabado', 'marca', 'adicional', 'medida')}
             if not concepto:
-                concepto = ' '.join(partes[k] for k in CONCEPTO_CAMPOS
-                                     if partes[k] and partes[k].upper() != 'NA').strip()
+                # material+tipo+acabado+medida (CONCEPTO_CAMPOS) — marca/adicional
+                # nunca entran aqui, van en su propia columna (ver CAMPOS_MARCA).
+                concepto = _construir_texto(partes, CONCEPTO_CAMPOS)
+            # 'NA' como palabra suelta es un placeholder de "no aplica" en cualquier
+            # campo, ya sea tecleado a mano en 'concepto' o llegado via la formula
+            # TEXTJOIN de la plantilla (su ignore_empty solo salta celdas vacias, no
+            # filtra 'NA').
+            concepto = ' '.join(w for w in concepto.split() if w.upper() != 'NA')
             concepto = re.sub(r'\s{2,}', ' ', concepto).strip()
+            if not concepto:
+                # Ultimo recurso, unica excepcion al invariante de CONCEPTO_CAMPOS:
+                # nada tecleado en 'concepto' NI en material/tipo/acabado/medida, pero
+                # SI algo en marca/adicional — usarlos para no perder la fila en
+                # silencio en vez de solo material/tipo/acabado/medida vacios.
+                concepto = _construir_texto(partes, CAMPOS_MARCA)
+                concepto = ' '.join(w for w in concepto.split() if w.upper() != 'NA')
+                concepto = re.sub(r'\s{2,}', ' ', concepto).strip()
             if not concepto:
                 continue  # fila totalmente vacia: se ignora en silencio
 
@@ -518,19 +563,33 @@ class MaterialsService:
                 moneda = 'MXN'
 
             norm = normalizar_descripcion(concepto)
+            # Clave de duplicado: concepto (lo que ya se muestra/guarda, tecleado o
+            # derivado de CONCEPTO_CAMPOS) + marca/adicional (lo unico que concepto
+            # excluye a proposito). Asi: (a) un 'concepto' tecleado a mano se respeta
+            # como texto distintivo en vez de ser pisado por partes sueltas de otros
+            # campos: NO usar solo material/tipo/acabado/marca/adicional/medida
+            # aqui, porque un campo suelto lleno (ej. 'medida') haria que dos
+            # conceptos tecleados distintos colapsen a la misma clave si ese campo
+            # suelto coincide; (b) dos materiales con el mismo concepto pero
+            # distinta marca no chocan como falso duplicado. IMPORTANTE: el orden
+            # concepto+marca_adicional debe coincidir con _get_dedupe_existentes
+            # (normalizar_descripcion es sensible al orden de las palabras).
+            marca_adicional = _construir_texto(partes, CAMPOS_MARCA)
+            marca_adicional = ' '.join(w for w in marca_adicional.split() if w.upper() != 'NA')
+            dedupe_key = normalizar_descripcion(f"{concepto} {marca_adicional}".strip())
 
             if errs:
                 errores += 1
                 detalles.append({'fila': fila_num, 'concepto': concepto,
                                  'estado': 'error', 'mensaje': '; '.join(errs)})
                 continue
-            if norm in norms_existentes or norm in norms_sesion:
+            if dedupe_key in dedupe_existentes or dedupe_key in dedupe_sesion:
                 duplicados += 1
                 detalles.append({'fila': fila_num, 'concepto': concepto,
                                  'estado': 'duplicado', 'mensaje': 'ya existe en el catalogo'})
                 continue
 
-            norms_sesion.add(norm)
+            dedupe_sesion.add(dedupe_key)
             registro = {
                 'descripcion_canonica': concepto,
                 'descripcion_norm': norm,
@@ -565,9 +624,9 @@ class MaterialsService:
     ) -> dict:
         """Fase 1: parsea y valida sin escribir. Devuelve preview."""
         unidad_map, cat_map = await self._build_resolucion(conn)
-        norms_existentes = await self.db.get_norms_existentes(conn)
+        dedupe_existentes = await self._get_dedupe_existentes(conn)
         parsed = self._parse_y_validar(
-            archivo_bytes, unidad_map, cat_map, norms_existentes, puede_editar_costos
+            archivo_bytes, unidad_map, cat_map, dedupe_existentes, puede_editar_costos
         )
         return {
             'fase': 'validacion',
@@ -581,9 +640,9 @@ class MaterialsService:
         """Fase 2: re-valida e inserta solo las filas validas en una transaccion.
         Cada fila queda estampada con el usuario que ejecuta la carga."""
         unidad_map, cat_map = await self._build_resolucion(conn)
-        norms_existentes = await self.db.get_norms_existentes(conn)
+        dedupe_existentes = await self._get_dedupe_existentes(conn)
         parsed = self._parse_y_validar(
-            archivo_bytes, unidad_map, cat_map, norms_existentes, puede_editar_costos
+            archivo_bytes, unidad_map, cat_map, dedupe_existentes, puede_editar_costos
         )
         for fila in parsed['validas']:
             fila['creado_por'] = creado_por

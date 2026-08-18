@@ -479,12 +479,20 @@ class MaterialsDBService:
         """)
         return {r['k']: r['id'] for r in rows}
 
-    async def get_norms_existentes(self, conn) -> set:
-        """Conjunto de descripcion_norm ya registradas (para deteccion de duplicados)."""
+    async def get_materiales_campos_existentes(self, conn) -> list:
+        """Filas (material, tipo, acabado, marca, adicional, medida) de los
+        materiales activos ya registrados. MaterialsService._get_dedupe_existentes
+        arma con esto la clave compuesta de deteccion de duplicados en carga
+        masiva — no se puede derivar del descripcion_norm ya guardado porque este
+        puede venir de una version anterior de CONCEPTO_CAMPOS. Solo activos,
+        igual que get_precios_actuales y el resto de las consultas de este
+        archivo: un material desactivado no debe bloquear el alta de uno nuevo
+        equivalente."""
         rows = await conn.fetch(
-            "SELECT descripcion_norm FROM tb_cat_materiales WHERE descripcion_norm IS NOT NULL"
+            "SELECT material, tipo, acabado, marca, adicional, medida "
+            "FROM tb_cat_materiales WHERE activo = TRUE"
         )
-        return {r['descripcion_norm'] for r in rows}
+        return [dict(r) for r in rows]
 
     async def get_precios_actuales(self, conn) -> dict:
         """Mapa de precios y moneda actuales para internos activos."""
