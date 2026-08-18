@@ -23,6 +23,7 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import HTTPException
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from starlette.requests import ClientDisconnect
 
 from core.permissions import SESSION_EXPIRED_DETAIL
 from core.security import safe_redirect_path
@@ -106,3 +107,15 @@ async def auth_exception_handler(request: Request, exc: HTTPException) -> Respon
     if htmx_request:
         return toast_error(request, detail, status_code=403, title="Acceso denegado", headers=headers)
     return JSONResponse({"error": "FORBIDDEN", "detail": detail}, status_code=403, headers=headers)
+
+
+async def client_disconnect_handler(request: Request, exc: ClientDisconnect) -> Response:
+    """El cliente corto la conexion antes de terminar de enviar el body
+    (ej. cancelar la subida de un archivo, cerrar la pestana). No hay a
+    quien responder; se registra sin traceback completo para no ensuciar
+    logs/Sentry con algo que no es un error del servidor."""
+    logger.info(
+        "Cliente desconectado antes de completar el request: %s %s",
+        request.method, request.url.path,
+    )
+    return Response(status_code=499)

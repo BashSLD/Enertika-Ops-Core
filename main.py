@@ -14,10 +14,11 @@ from sentry_sdk.integrations.starlette import StarletteIntegration
 from starlette.datastructures import MutableHeaders
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.requests import ClientDisconnect
 
 from core.config import settings
 from core.database import connect_to_db, close_db_connection, get_db_connection
-from core.error_handlers import auth_exception_handler
+from core.error_handlers import auth_exception_handler, client_disconnect_handler
 from modules.admin import router as admin_router
 from modules.auth import router as auth_router
 from modules.comercial import router as comercial_router
@@ -57,6 +58,10 @@ app = FastAPI(title="Enertika Core Ops",on_startup=[connect_to_db],on_shutdown=[
 # Negociacion de respuesta para 401 SESSION_EXPIRED / 403: documento vs HTMX vs API.
 # No reescribe otros HTTPException de negocio (ver core/error_handlers.py).
 app.add_exception_handler(HTTPException, auth_exception_handler)
+
+# Cliente corto la conexion a medio request (ej. cancelar subida de archivo):
+# no es un error del servidor, solo log breve en vez de traceback completo.
+app.add_exception_handler(ClientDisconnect, client_disconnect_handler)
 
 # Middleware de Sesión (Cookie Segura)
 app.add_middleware(
