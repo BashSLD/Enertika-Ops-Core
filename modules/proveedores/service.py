@@ -109,44 +109,74 @@ class ProveedoresService:
         if not descargables:
             raise DocumentoProveedorSinArchivo("No hay documentos vigentes descargables")
 
-        sharepoint = await self._get_sharepoint_service(conn)
-        zip_buffer = BytesIO()
+        sharepoint = await self.get_sharepoint_service(conn)
         usados: set[str] = set()
-        carpeta_proveedor = self._build_proveedor_folder(documentos[0])
+        carpeta_proveedor = self.build_proveedor_folder(documentos[0])
 
-        sem = asyncio.Semaphore(5)
+        items = []
+        for doc in descargables:
+            categoria = DOCUMENTO_CATEGORIAS.get(
+                doc.get("tipo_documento"),
+                ZIP_CATEGORIA_DEFAULT,
+            )
+            nombre_archivo = self._resolve_filename(doc)
+            zip_path = self.dedupe_zip_path(
+                usados,
+                "/".join(
+                    [
+                        self.sanitize_component(carpeta_proveedor, "Proveedor"),
+                        self.sanitize_component(categoria, ZIP_CATEGORIA_DEFAULT),
+                        self.sanitize_component(nombre_archivo, "documento"),
+                    ]
+                ),
+            )
+            items.append((doc["drive_item_id"], zip_path))
+
+        zip_bytes = await self.descargar_y_zip(sharepoint, items)
+
+        zip_name = f"{carpeta_proveedor}_expediente.zip"
+        return DocumentoArchivo(
+            nombre_archivo=self.sanitize_component(zip_name, "expediente.zip"),
+            media_type="application/zip",
+            contenido=zip_bytes,
+        )
+
+    async def descargar_y_zip(
+        self,
+        sharepoint: SharePointService,
+        items: list[tuple[str, str]],
+        *,
+        max_concurrencia: int = 5,
+    ) -> bytes:
+        """Descarga N archivos de SharePoint en paralelo (acotado) y los empaqueta
+        en un ZIP en memoria. Mecanismo generico compartido por cualquier feature
+        de exportacion a ZIP (expediente de proveedor, comprobantes de Compras, etc.)
+        — cada caller resuelve su propio agrupamiento/nombres de carpeta antes de
+        llamar aqui.
+
+        items: lista de (drive_item_id, zip_path) — zip_path ya debe venir
+        sanitizado y dedupeado por el caller.
+        """
+        if not items:
+            raise DocumentoProveedorSinArchivo("No hay archivos para incluir en el ZIP")
+
+        sem = asyncio.Semaphore(max_concurrencia)
 
         async def _descargar(drive_item_id: str) -> bytes:
             async with sem:
                 return await sharepoint.download_bytes_direct_by_item_id(drive_item_id)
 
-        contenidos = await asyncio.gather(*[_descargar(doc["drive_item_id"]) for doc in descargables])
+        # httpx.HTTPError se deja propagar tal cual (no se envuelve en
+        # SharePointProveedorError): cada router distingue 404 vs 502 via
+        # _handle_sharepoint_error, y envolverlo aqui aplanaria esa distincion
+        # a un generico 503 para todo caller de este helper.
+        contenidos = await asyncio.gather(*[_descargar(item_id) for item_id, _path in items])
 
+        zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for doc, contenido in zip(descargables, contenidos):
-                categoria = DOCUMENTO_CATEGORIAS.get(
-                    doc.get("tipo_documento"),
-                    ZIP_CATEGORIA_DEFAULT,
-                )
-                nombre_archivo = self._resolve_filename(doc)
-                zip_path = self._dedupe_zip_path(
-                    usados,
-                    "/".join(
-                        [
-                            self._sanitize_component(carpeta_proveedor, "Proveedor"),
-                            self._sanitize_component(categoria, ZIP_CATEGORIA_DEFAULT),
-                            self._sanitize_component(nombre_archivo, "documento"),
-                        ]
-                    ),
-                )
+            for (_item_id, zip_path), contenido in zip(items, contenidos):
                 zf.writestr(zip_path, contenido)
-
-        zip_name = f"{carpeta_proveedor}_expediente.zip"
-        return DocumentoArchivo(
-            nombre_archivo=self._sanitize_component(zip_name, "expediente.zip"),
-            media_type="application/zip",
-            contenido=zip_buffer.getvalue(),
-        )
+        return zip_buffer.getvalue()
 
     async def registrar_documento_proveedor(
         self,
@@ -243,8 +273,8 @@ class ProveedoresService:
         return "/".join(
             [
                 SHAREPOINT_PROVEEDORES_ROOT,
-                self._sanitize_component(
-                    self._build_proveedor_folder(proveedor),
+                self.sanitize_component(
+                    self.build_proveedor_folder(proveedor),
                     "Proveedor",
                 ),
                 carpeta_categoria,
@@ -311,7 +341,7 @@ class ProveedoresService:
                 )
             raise DocumentoProveedorSinArchivo("Documento sin archivo asociado")
 
-        sharepoint = await self._get_sharepoint_service(conn)
+        sharepoint = await self.get_sharepoint_service(conn)
         contenido = await sharepoint.download_bytes_direct_by_item_id(drive_item_id)
         return DocumentoArchivo(
             nombre_archivo=nombre_archivo,
@@ -319,7 +349,7 @@ class ProveedoresService:
             contenido=contenido,
         )
 
-    async def _get_sharepoint_service(self, conn) -> SharePointService:
+    async def get_sharepoint_service(self, conn) -> SharePointService:
         ms_auth = self.ms_auth or get_ms_auth()
         app_token = await ms_auth.get_application_token()
         if not app_token:
@@ -341,7 +371,7 @@ class ProveedoresService:
             or documento.get("tipo_documento")
             or "documento"
         )
-        nombre = self._sanitize_component(str(nombre), "documento")
+        nombre = self.sanitize_component(str(nombre), "documento")
         if "." not in posixpath.basename(nombre):
             extension = mimetypes.guess_extension(
                 self._resolve_media_type(documento, nombre)
@@ -364,7 +394,7 @@ class ProveedoresService:
         filename = posixpath.basename(path)
         return unquote(filename) if filename else None
 
-    def _build_proveedor_folder(self, documento: dict) -> str:
+    def build_proveedor_folder(self, documento: dict) -> str:
         rfc = (documento.get("rfc") or "").strip().upper()
         razon_social = (
             documento.get("razon_social")
@@ -378,11 +408,11 @@ class ProveedoresService:
         suffix = f" - {id_proveedor}" if id_proveedor else ""
         return f"SIN_RFC - {razon_social}{suffix}"
 
-    def _sanitize_component(self, value: str, default: str) -> str:
+    def sanitize_component(self, value: str, default: str) -> str:
         clean = INVALID_FILENAME_CHARS.sub("_", value or "").strip().strip(".")
         return clean or default
 
-    def _dedupe_zip_path(self, usados: set[str], path: str) -> str:
+    def dedupe_zip_path(self, usados: set[str], path: str) -> str:
         if path not in usados:
             usados.add(path)
             return path

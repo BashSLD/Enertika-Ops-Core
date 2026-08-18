@@ -12,11 +12,13 @@ Endpoints:
 
 import json
 import logging
+import zipfile
 from datetime import date
 from typing import List, Optional
 from uuid import UUID
 
 import asyncpg
+import httpx
 from fastapi import APIRouter, Depends, Request, Form, File, UploadFile, Query, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -36,8 +38,13 @@ from core.config_service import ConfigService
 from core.timezone import now_mx, today_mx
 
 # Module imports
-from .service import ComprasService, get_compras_service, parse_exceso_monto_error
-from modules.proveedores.service import ProveedoresService, get_proveedores_service
+from .service import (
+    ComprasService, get_compras_service, parse_exceso_monto_error,
+    rango_valido_para_zip, MAX_DIAS_EXPORT_ZIP,
+)
+from modules.shared.utils import content_disposition_header
+from modules.proveedores.service import ProveedoresService, get_proveedores_service, SharePointProveedorError
+from modules.proveedores.router import _handle_sharepoint_error
 from core.bom.service import FLAG_ACTUALIZACION_PRECIOS_COMPRAS
 from .schemas import (
     ComprobanteFilter,
@@ -204,6 +211,11 @@ async def get_compras_ui(
             "estatus": "SIN_COMPLETAR",
             "id_usuario": default_usuario,
         },
+        # Vista default no trae fecha_inicio/fecha_fin (siempre vacías arriba) —
+        # explícito en vez de dejarlo a la plantilla, para que quede claro que el
+        # link de ZIP se habilita solo cuando SÍ hay un rango de fechas real
+        # (get_comprobantes_list, tras aplicar filtros).
+        "zip_rango_valido": rango_valido_para_zip(None, None),
         "estadisticas": estadisticas,
         "today": today_mx(),
     }
@@ -393,6 +405,13 @@ async def get_comprobantes_list(
     Lista comprobantes con filtros (HTMX partial).
     """
     filtro_dict = filtros.model_dump(exclude_none=True)
+    # Solo se consulta si hay rango de fechas: rango_valido_para_zip ya es False
+    # sin fechas, así que el valor sería descartado — evita un lookup de config
+    # (aunque cacheado) en cada render de la vista default sin filtro de fecha.
+    max_dias_zip = (
+        await service.get_max_dias_export_zip(conn)
+        if filtros.fecha_inicio and filtros.fecha_fin else MAX_DIAS_EXPORT_ZIP
+    )
 
     comprobantes, total = await service.get_comprobantes(
         conn,
@@ -432,6 +451,8 @@ async def get_comprobantes_list(
                 "id_categoria": filtros.id_categoria or "",
                 "id_usuario": str(filtros.id_usuario) if filtros.id_usuario else "",
             },
+            "zip_rango_valido": rango_valido_para_zip(filtros.fecha_inicio, filtros.fecha_fin, max_dias_zip),
+            "max_dias_zip": max_dias_zip,
             "today": today_mx(),
         }
     )
@@ -592,7 +613,48 @@ async def export_excel(
         content=excel_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            "Content-Disposition": content_disposition_header("attachment", filename)
+        }
+    )
+
+
+@router.get("/export-zip")
+async def export_zip(
+    request: Request,
+    filtros: Annotated[ComprobanteFilter, Query()],
+    conn = Depends(get_db_connection),
+    service: ComprasService = Depends(get_compras_service),
+    _ = require_module_access("compras")
+):
+    """
+    Descarga un ZIP con los PDF de comprobante de pago y XML de facturas
+    vinculadas de los comprobantes que cumplan los filtros (agrupados por
+    proveedor -> comprobante). Requiere fecha_inicio/fecha_fin acotados.
+    """
+    try:
+        zip_bytes, filename = await service.generar_zip_periodo(
+            conn,
+            filtros=filtros.model_dump(exclude_none=True)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SharePointProveedorError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except asyncpg.PostgresError as exc:
+        logger.exception("Error consultando comprobantes para ZIP")
+        raise HTTPException(status_code=500, detail="Error consultando comprobantes") from exc
+    except httpx.HTTPError as exc:
+        logger.exception("Error descargando archivos del ZIP desde SharePoint")
+        raise _handle_sharepoint_error(exc) from exc
+    except (RuntimeError, OSError, zipfile.BadZipFile) as exc:
+        logger.exception("Error generando ZIP de comprobantes")
+        raise HTTPException(status_code=502, detail="Error generando ZIP") from exc
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": content_disposition_header("attachment", filename)
         }
     )
 

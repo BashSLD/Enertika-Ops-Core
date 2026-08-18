@@ -1350,6 +1350,53 @@ class ComprasDBService:
             result[comp_id].append(dict(r))
         return result
 
+    async def get_archivos_for_comprobantes(
+        self, conn, ids: List[UUID]
+    ) -> dict:
+        """Batch fetch de archivos SharePoint (PDF comprobante + XML factura) para N comprobantes.
+
+        Evita N+1 al armar el ZIP de exportación por periodo.
+
+        Returns:
+            dict {id_comprobante: [lista de attachments]}
+        """
+        if not ids:
+            return {}
+        # Comparar como texto (no castear metadata a ::uuid en el WHERE): un
+        # registro legacy con id_comprobante NULL/vacio/mal formado tronaria
+        # toda la query con "invalid input syntax for type uuid" en vez de
+        # simplemente no matchear. El cast a UUID se hace del lado de Python,
+        # donde una fila invalida se puede loggear y saltar sin tumbar el resto.
+        rows = await conn.fetch("""
+            SELECT
+                id_documento, nombre_archivo, drive_item_id, origen_slug,
+                metadata->>'id_comprobante' AS id_comprobante_raw
+            FROM tb_documentos_attachments
+            WHERE activo = true
+              AND origen_slug IN ('comprobante_pago', 'factura_xml')
+              AND drive_item_id IS NOT NULL
+              AND metadata->>'id_comprobante' = ANY($1::text[])
+            ORDER BY origen_slug, fecha_subida
+        """, [str(i) for i in ids])
+        result = {}
+        for r in rows:
+            raw_id = r['id_comprobante_raw']
+            try:
+                comp_id = UUID(raw_id)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "tb_documentos_attachments.metadata->>'id_comprobante' invalido: %r (id_documento=%s)",
+                    raw_id, r['id_documento'],
+                )
+                continue
+            archivo = dict(r)
+            del archivo['id_comprobante_raw']
+            archivo['id_comprobante'] = comp_id
+            if comp_id not in result:
+                result[comp_id] = []
+            result[comp_id].append(archivo)
+        return result
+
     async def uuid_factura_exists_in_junction(
         self, conn, uuid_factura: str
     ) -> bool:

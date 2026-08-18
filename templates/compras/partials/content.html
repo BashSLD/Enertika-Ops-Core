@@ -394,11 +394,49 @@
         });
     }
 
-    // Actualizar URL de export Excel cuando cambian filtros (delegado para sobrevivir HTMX swaps)
+    // ZIP de comprobantes: a diferencia de Excel, requiere un rango de fechas
+    // valido (maximo data-max-dias-zip dias, ver rango_valido_para_zip en
+    // modules/compras/service.py — misma regla, el server la manda vía data
+    // attribute para no hardcodear un segundo limite en JS).
+    function isRangoZipValido(form) {
+        const fi = form.querySelector('input[name="fecha_inicio"]').value;
+        const ff = form.querySelector('input[name="fecha_fin"]').value;
+        if (!fi || !ff) return false;
+        const maxDias = parseInt(form.dataset.maxDiasZip || '31', 10);
+        const diffDias = (new Date(ff) - new Date(fi)) / 86400000;
+        return diffDias >= 0 && diffDias <= maxDias;
+    }
+
+    function getExportZipUrl(form) {
+        const formData = new FormData(form);
+        const params = new URLSearchParams(formData);
+        return '/compras/export-zip?' + params.toString();
+    }
+
+    function updateZipLinks(form) {
+        const valido = isRangoZipValido(form);
+        const url = valido ? getExportZipUrl(form) : '#';
+        document.querySelectorAll('.export-zip-link').forEach(link => {
+            link.href = url;
+            link.setAttribute('onclick', valido ? '' : 'return false;');
+            link.classList.toggle('text-blue-600', valido);
+            link.classList.toggle('hover:text-blue-800', valido);
+            link.classList.toggle('decoration-blue-300', valido);
+            link.classList.toggle('hover:decoration-blue-800', valido);
+            link.classList.toggle('cursor-pointer', valido);
+            link.classList.toggle('text-gray-400', !valido);
+            link.classList.toggle('cursor-not-allowed', !valido);
+        });
+    }
+
+    // Actualizar URL de export Excel/ZIP cuando cambian filtros (delegado para
+    // sobrevivir HTMX swaps; se adelanta a los 500ms del auto-submit para que un
+    // click inmediato en el link no use el rango anterior).
     document.body.addEventListener('change', function (event) {
         const form = event.target && event.target.closest && event.target.closest('#filtros-form');
         if (!form) return;
         updateExcelLinks(getExportExcelUrl(form));
+        updateZipLinks(form);
     });
 
     // Limpiar filtros manualmente
@@ -417,8 +455,9 @@
         // Trigger HTMX request
         htmx.trigger(form, 'submit');
 
-        // Update excel link
+        // Update excel/zip links
         updateExcelLinks(getExportExcelUrl(form));
+        updateZipLinks(form);
     }
 
 </script>

@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from decimal import Decimal, InvalidOperation
 import logging
 import time
+from io import BytesIO
 
 import asyncpg
 import base64
@@ -28,6 +29,34 @@ logger = logging.getLogger("ComprasService")
 
 # Tolerancia de matching por monto (pesos/dolares)
 MATCH_TOLERANCIA = Decimal("0.50")
+
+# Tope de rango de fechas para el ZIP de comprobantes+facturas por periodo — valor
+# por defecto si no hay override en tb_configuracion_global (clave MAX_DIAS_EXPORT_ZIP,
+# mismo mecanismo que MAX_UPLOAD_SIZE_MB en este archivo). Es una guia, no la unica
+# proteccion: el rango por si solo no acota cuantos archivos caen en el periodo, por
+# eso ademas existe MAX_ARCHIVOS_EXPORT_ZIP.
+MAX_DIAS_EXPORT_ZIP = 31
+
+# Tope duro de archivos (PDF+XML) por ZIP: cada uno es una llamada a Graph API
+# (SharePoint) y gunicorn corta requests a los 120s (gunicorn.conf.py). El rango de
+# dias por si solo no lo garantiza (un periodo corto puede tener cientos de
+# comprobantes) — este cap es la proteccion real contra ese timeout. La descarga
+# corre en lotes de 5 concurrentes (ver ProveedoresService.descargar_y_zip); 150
+# implica ~30 lotes, con margen frente a los 120s incluso con latencia alta de
+# Graph API, dejando tiempo para el query, la compresion del ZIP y la respuesta.
+MAX_ARCHIVOS_EXPORT_ZIP = 150
+
+
+def rango_valido_para_zip(
+    fecha_inicio: Optional[date], fecha_fin: Optional[date], max_dias: int = MAX_DIAS_EXPORT_ZIP
+) -> bool:
+    """Regla unica de validez del rango de fechas del ZIP — la usan tanto el
+    router (para habilitar el link en la UI) como generar_zip_periodo (para
+    validar de verdad), evitando que las dos copias del calculo diverjan."""
+    if not fecha_inicio or not fecha_fin:
+        return False
+    return 0 <= (fecha_fin - fecha_inicio).days <= max_dias
+
 
 # Constraints de unicidad que corresponden a duplicados de negocio (mismo PDF cargado dos veces).
 # Cualquier otra UniqueViolationError en insert_comprobante es un error de infraestructura y debe propagarse.
@@ -416,7 +445,6 @@ class ComprasService:
         from openpyxl import Workbook
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
         from openpyxl.utils import get_column_letter
-        from io import BytesIO
 
         TIPOS_ES = {
             "NORMAL":          "Factura",
@@ -592,7 +620,143 @@ class ComprasService:
         wb.save(buffer)
         buffer.seek(0)
         return buffer.getvalue()
-    
+
+    # ========================================
+    # EXPORTACIÓN A ZIP (comprobantes + facturas por periodo)
+    # ========================================
+
+    async def get_max_dias_export_zip(self, conn) -> int:
+        """Tope de rango de fechas del ZIP, con override opcional en
+        tb_configuracion_global (clave MAX_DIAS_EXPORT_ZIP). Vía ConfigService
+        (cache de 30s + Redis compartido entre workers) porque, a diferencia de
+        MAX_UPLOAD_SIZE_MB (solo se lee al subir un archivo), esto se llama en
+        CADA render de la lista de comprobantes filtrada — un lookup sin cache
+        ahí sería un round-trip a BD de más por cada carga de página. Router y
+        generar_zip_periodo llaman a este mismo método, así el valor efectivo
+        nunca diverge entre el habilitado del link en la UI y la validación real.
+        """
+        from core.config_service import ConfigService
+        return await ConfigService.get_global_config(conn, 'MAX_DIAS_EXPORT_ZIP', MAX_DIAS_EXPORT_ZIP, int)
+
+    async def get_max_archivos_export_zip(self, conn) -> int:
+        """Tope de archivos (PDF+XML) por ZIP, con override opcional en
+        tb_configuracion_global (clave MAX_ARCHIVOS_EXPORT_ZIP). Mismo mecanismo
+        cacheado que get_max_dias_export_zip."""
+        from core.config_service import ConfigService
+        return await ConfigService.get_global_config(conn, 'MAX_ARCHIVOS_EXPORT_ZIP', MAX_ARCHIVOS_EXPORT_ZIP, int)
+
+    async def generar_zip_periodo(self, conn, filtros: dict) -> Tuple[bytes, str]:
+        """
+        Genera un ZIP con los PDF de comprobante de pago y XML de facturas
+        vinculadas de los comprobantes que cumplen `filtros`, agrupados por
+        proveedor -> comprobante.
+
+        Requiere fecha_inicio y fecha_fin en filtros, con un rango máximo de
+        get_max_dias_export_zip() días Y un tope duro de MAX_ARCHIVOS_EXPORT_ZIP
+        archivos — el rango de días por sí solo no acota cuántos comprobantes caen
+        en el periodo, así que ambos protegen contra el timeout de gunicorn/Graph
+        API al descargar demasiados archivos en un solo request.
+
+        Reutiliza el sanitizado/dedupe/carpeta-por-proveedor y la descarga+armado
+        de ZIP de ProveedoresService (modules/proveedores/service.py), que ya
+        resuelve exactamente el mismo problema para el expediente de proveedor —
+        evita mantener una segunda copia de esa lógica aquí.
+        """
+        fecha_inicio = filtros.get('fecha_inicio')
+        fecha_fin = filtros.get('fecha_fin')
+        if not fecha_inicio or not fecha_fin:
+            raise ValueError("Selecciona un rango de fechas (fecha_inicio y fecha_fin) para descargar el ZIP")
+        if (fecha_fin - fecha_inicio).days < 0:
+            raise ValueError("La fecha de inicio no puede ser posterior a la fecha fin")
+        max_dias = await self.get_max_dias_export_zip(conn)
+        if not rango_valido_para_zip(fecha_inicio, fecha_fin, max_dias):
+            raise ValueError(
+                f"El rango de fechas no puede superar {max_dias} días para descargar el ZIP"
+            )
+        max_archivos = await self.get_max_archivos_export_zip(conn)
+
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+
+        # Pre-check barato antes del fetch completo (5 joins + 2 subqueries
+        # correlacionadas por fila, ver get_comprobantes_filtered): si solo el
+        # conteo de comprobantes ya supera el tope de archivos, se puede rechazar
+        # sin correrla — cada comprobante tiene tipicamente >=1 archivo, asi que
+        # esto atrapa el caso claramente sobre el limite. No reemplaza el chequeo
+        # exacto de mas abajo (un comprobante puede tener 0 archivos todavia).
+        count_comprobantes = await db_svc.get_comprobantes_filtered(conn, filtros, count_only=True)
+        if count_comprobantes > max_archivos:
+            raise ValueError(
+                f"El periodo tiene {count_comprobantes} comprobantes, más del máximo de "
+                f"{max_archivos} archivos permitido por ZIP — acorta el rango de fechas o los filtros"
+            )
+
+        # Fetch directo (sin el COUNT(*) que hace self.get_comprobantes()): aquí
+        # solo se usan las filas, el total nunca se muestra.
+        rows = await db_svc.get_comprobantes_filtered(conn, filtros, page=1, per_page=100000)
+        comprobantes = []
+        for row in rows:
+            comp = dict(row)
+            if comp.get('monto'):
+                comp['monto'] = float(comp['monto'])
+            comprobantes.append(comp)
+        if not comprobantes:
+            raise ValueError("No hay comprobantes en el periodo seleccionado")
+
+        comp_ids = [c['id_comprobante'] for c in comprobantes if c.get('id_comprobante')]
+        archivos_map = await db_svc.get_archivos_for_comprobantes(conn, comp_ids)
+
+        descargables = [
+            (comp, archivo)
+            for comp in comprobantes
+            for archivo in archivos_map.get(comp['id_comprobante'], [])
+            if archivo.get('drive_item_id')
+        ]
+        if not descargables:
+            raise ValueError("No hay archivos (PDF/XML) para descargar en el periodo seleccionado")
+        if len(descargables) > max_archivos:
+            raise ValueError(
+                f"El periodo tiene {len(descargables)} archivos, más del máximo de "
+                f"{max_archivos} permitido por ZIP — acorta el rango de fechas o los filtros"
+            )
+
+        from modules.proveedores.service import get_proveedores_service
+        proveedores_svc = get_proveedores_service()
+        sharepoint = await proveedores_svc.get_sharepoint_service(conn)
+
+        usados: set = set()
+        items = []
+        for comp, archivo in descargables:
+            carpeta_proveedor = proveedores_svc.sanitize_component(
+                proveedores_svc.build_proveedor_folder({
+                    "rfc": comp.get('proveedor_rfc'),
+                    "razon_social": comp.get('proveedor_nombre') or comp.get('beneficiario_orig'),
+                    "id_proveedor": comp.get('id_proveedor'),
+                }),
+                "Proveedor",
+            )
+            monto = comp.get('monto') or 0
+            fecha_str = comp['fecha_pago'].strftime("%Y-%m-%d") if comp.get('fecha_pago') else "sin_fecha"
+            comp_id_corto = str(comp.get('id_comprobante') or '')[:8]
+            moneda = comp.get('moneda') or 'MXN'
+            carpeta_comprobante = proveedores_svc.sanitize_component(
+                f"{fecha_str}_{monto:.2f}_{moneda}_{comp_id_corto}", "comprobante"
+            )
+            nombre_archivo = proveedores_svc.sanitize_component(
+                archivo.get('nombre_archivo') or archivo.get('origen_slug') or 'archivo',
+                'archivo',
+            )
+            zip_path = proveedores_svc.dedupe_zip_path(
+                usados,
+                "/".join([carpeta_proveedor, carpeta_comprobante, nombre_archivo]),
+            )
+            items.append((archivo['drive_item_id'], zip_path))
+
+        zip_bytes = await proveedores_svc.descargar_y_zip(sharepoint, items)
+
+        zip_name = f"comprobantes_pago_{fecha_inicio.isoformat()}_a_{fecha_fin.isoformat()}.zip"
+        return zip_bytes, zip_name
+
     # ========================================
     # CATÁLOGOS
     # ========================================
