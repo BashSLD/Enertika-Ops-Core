@@ -7,7 +7,7 @@
         <p class="mt-1 text-sm text-gray-500">Cotizaciones de compra post-BOM que requieren aprobación de Dirección.</p>
     </div>
 
-    <form class="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-3"
+    <form autocomplete="off" class="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-3"
         hx-get="/bom/direccion/cotizaciones" hx-target="#direccion-cotizaciones-content"
         hx-swap="outerHTML" hx-push-url="true">
         <div>
@@ -21,7 +21,7 @@
         </div>
         <div>
             <label class="mb-1 block text-xs font-medium text-gray-600">Proveedor</label>
-            <input type="text" name="proveedor" value="{{ proveedor_filtro }}" placeholder="Buscar proveedor..."
+            <input type="text" name="proveedor" autocomplete="off" value="{{ proveedor_filtro }}" placeholder="Buscar proveedor..."
                 class="rounded-lg border-gray-300 text-sm">
         </div>
         <button type="submit" class="rounded-lg bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700">

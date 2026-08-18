@@ -135,7 +135,7 @@
     </h2>
     {% endif %}
 
-    <form hx-post="{{ post_url | default('/comercial/form') }}" hx-target="#main-content" hx-swap="innerHTML"
+    <form autocomplete="off" hx-post="{{ post_url | default('/comercial/form') }}" hx-target="#main-content" hx-swap="innerHTML"
         hx-indicator="#global-loading-overlay" class="space-y-6" @submit="isSubmitting = true">
 
         {% if is_extraordinario %}

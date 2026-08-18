@@ -24,7 +24,7 @@
             </button>
         </div>
 
-        <form hx-post="/bom/{{ bom.id_bom }}/precios-pendientes-compras"
+        <form autocomplete="off" hx-post="/bom/{{ bom.id_bom }}/precios-pendientes-compras"
             hx-target="#tab-proyectos-bom-pendientes-precio" hx-swap="innerHTML"
             hx-indicator="#precios-compras-overlay"
             hx-disabled-elt="#precios-compras-guardar"

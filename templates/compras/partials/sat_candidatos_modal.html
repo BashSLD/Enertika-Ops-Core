@@ -20,7 +20,7 @@
       </button>
     </div>
 
-    <form id="form-sat-candidatos"
+    <form id="form-sat-candidatos" autocomplete="off"
           class="flex-1 min-h-0 flex flex-col"
           hx-post="/compras/sat/comprobante/{{ comprobante.id_comprobante }}/match-candidatos"
           hx-target="body"
@@ -41,6 +41,7 @@
           </div>
         </div>
         <input type="text"
+          autocomplete="off"
           value="{{ busqueda | e }}"
           placeholder="UUID, RFC, emisor o monto..."
           hx-get="/compras/sat/comprobante/{{ comprobante.id_comprobante }}/candidatos"

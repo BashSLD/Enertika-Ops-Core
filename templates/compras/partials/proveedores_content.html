@@ -5,7 +5,7 @@
     {# Barra superior #}
     <div class="flex flex-col sm:flex-row sm:items-center gap-3">
         <div class="flex-1 flex items-center gap-2">
-            <form id="form-busqueda-proveedores"
+            <form id="form-busqueda-proveedores" autocomplete="off"
                   hx-get="/compras/proveedores/lista"
                   hx-target="#proveedores-tabla-container"
                   hx-swap="innerHTML"
@@ -15,7 +15,7 @@
                     <svg class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/>
                     </svg>
-                    <input type="text" id="prov-busqueda" name="q"
+                    <input type="text" id="prov-busqueda" name="q" autocomplete="off"
                            value="{{ busqueda or '' }}"
                            placeholder="Buscar por RFC, razón social…"
                            class="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#00BABB]">

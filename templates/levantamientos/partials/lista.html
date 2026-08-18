@@ -99,7 +99,7 @@
 
     <!-- Filtros -->
     <div class="glass-panel p-3 rounded-xl mb-4 border border-gray-200/60">
-        <form hx-get="/levantamientos/partials/lista" hx-target="#kanban-container" hx-swap="outerHTML"
+        <form autocomplete="off" hx-get="/levantamientos/partials/lista" hx-target="#kanban-container" hx-swap="outerHTML"
             hx-trigger="change, submit" class="flex flex-wrap gap-3 items-end">
 
             <input type="hidden" name="tab" value="{{ tab }}" />
@@ -107,7 +107,7 @@
             <!-- Búsqueda texto -->
             <div class="flex-1 min-w-[180px]">
                 <label class="block text-xs text-gray-500 mb-1">Buscar</label>
-                <input type="text" name="q" value="{{ filtros.q }}" placeholder="Cliente, proyecto, OP-ID, sitio..."
+                <input type="text" name="q" autocomplete="off" value="{{ filtros.q }}" placeholder="Cliente, proyecto, OP-ID, sitio..."
                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
             </div>
 

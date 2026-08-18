@@ -90,7 +90,7 @@
                 htmx.trigger(document.getElementById('proyectos-filtros-form'), 'filtrar');
             }
          }" class="mb-4">
-        <form id="proyectos-filtros-form"
+        <form id="proyectos-filtros-form" autocomplete="off"
               hx-get="/proyectos/partials/proyectos"
               hx-target="#proyectos-list" hx-swap="innerHTML"
               hx-trigger="filtrar, change from:#flt-status, keyup changed delay:400ms from:#flt-q"
@@ -134,7 +134,7 @@
                     </button>
                     {# Campo (estado expandido) — siempre en el DOM para que el form lo serialice #}
                     <div x-show="buscarAbierto" x-cloak class="relative w-full lg:w-56">
-                        <input id="flt-q" name="q" type="text" placeholder="Buscar proyecto, cliente..." value="{{ q or '' }}"
+                        <input id="flt-q" name="q" type="text" autocomplete="off" placeholder="Buscar proyecto, cliente..." value="{{ q or '' }}"
                             @blur="if (!$el.value) buscarAbierto = false"
                             @keydown.escape="$el.value = ''; buscarAbierto = false; htmx.trigger(document.getElementById('proyectos-filtros-form'), 'filtrar')"
                             class="w-full pl-8 pr-8 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">

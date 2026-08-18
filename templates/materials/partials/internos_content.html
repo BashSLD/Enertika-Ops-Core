@@ -183,7 +183,7 @@
 
     <!-- Filtros -->
     <div class="bg-white rounded-lg shadow p-4 mb-4">
-        <form id="filtros-internos" hx-get="/materials/internos" hx-target="#tabla-internos" hx-swap="innerHTML"
+        <form id="filtros-internos" autocomplete="off" hx-get="/materials/internos" hx-target="#tabla-internos" hx-swap="innerHTML"
             hx-trigger="submit, change delay:400ms" class="flex flex-wrap gap-4 items-end">
             <div class="flex-1 min-w-[200px]">
                 <label class="block text-xs font-medium text-gray-600 mb-1">Buscar</label>
