@@ -1423,16 +1423,29 @@ class BomComprasDBMixin:
         """, bom_id, creado_por, notas)
         return dict(row)
 
-    async def agregar_items_rfq(self, conn, rfq_id: UUID, items: list) -> None:
-        """items: lista de dicts {bom_item_id, cantidad, unidad_override}."""
-        await conn.executemany("""
+    async def agregar_items_rfq(self, conn, rfq_id: UUID, items: list) -> int:
+        """items: lista de dicts {bom_item_id, cantidad, unidad_override}.
+
+        Retorna cuantas filas se insertaron realmente (el ON CONFLICT hace
+        no-op silencioso si el item ya estaba en el RFQ). Insert por lotes via
+        unnest en vez de una vuelta a la BD por item.
+        """
+        if not items:
+            return 0
+        rows = await conn.fetch("""
             INSERT INTO tb_bom_rfq_items (rfq_id, bom_item_id, cantidad, unidad_override)
-            VALUES ($1, $2, $3, $4)
+            SELECT $1, x.bom_item_id, x.cantidad, x.unidad_override
+            FROM unnest($2::uuid[], $3::numeric[], $4::varchar[])
+                AS x(bom_item_id, cantidad, unidad_override)
             ON CONFLICT (rfq_id, bom_item_id) DO NOTHING
-        """, [
-            (rfq_id, i['bom_item_id'], i['cantidad'], i.get('unidad_override'))
-            for i in items
-        ])
+            RETURNING id
+        """,
+            rfq_id,
+            [i['bom_item_id'] for i in items],
+            [i['cantidad'] for i in items],
+            [i.get('unidad_override') for i in items],
+        )
+        return len(rows)
 
     async def get_rfq_by_id(self, conn, rfq_id: UUID) -> Optional[dict]:
         row = await conn.fetchrow("SELECT * FROM tb_bom_rfq WHERE id = $1", rfq_id)

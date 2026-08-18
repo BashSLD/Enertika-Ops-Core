@@ -57,7 +57,15 @@ class FakeDB:
         return dict(rfq)
 
     async def agregar_items_rfq(self, conn, rfq_id, items):
-        self.rfq_items.setdefault(rfq_id, []).extend(items)
+        existentes = {i["bom_item_id"] for i in self.rfq_items.setdefault(rfq_id, [])}
+        insertados = 0
+        for item in items:
+            if item["bom_item_id"] in existentes:
+                continue
+            self.rfq_items[rfq_id].append(item)
+            existentes.add(item["bom_item_id"])
+            insertados += 1
+        return insertados
 
     async def get_rfq_by_id(self, conn, rfq_id):
         rfq = self.rfqs.get(rfq_id)
@@ -194,3 +202,41 @@ async def test_agregar_item_rfq_rechaza_item_ya_autorizado():
             FakeConn(), rfq["id"], pagado_id, 2, None, uuid4(), lock_version_esperado=0,
         )
     assert len(svc.db.rfq_items[rfq["id"]]) == 1
+
+
+@pytest.mark.asyncio
+async def test_agregar_item_rfq_agrega_y_registra_historial():
+    bom_id = uuid4()
+    inicial_id = uuid4()
+    nuevo_id = uuid4()
+    svc = make_service(_bom(bom_id), [
+        _bom_item(inicial_id, bom_id),
+        _bom_item(nuevo_id, bom_id),
+    ])
+    rfq = await svc.crear_rfq(FakeConn(), bom_id, [inicial_id], uuid4())
+
+    actualizado = await svc.agregar_item_rfq(
+        FakeConn(), rfq["id"], nuevo_id, 5, None, uuid4(), lock_version_esperado=0,
+    )
+
+    assert actualizado["lock_version"] == 1
+    assert len(svc.db.rfq_items[rfq["id"]]) == 2
+    assert svc.db.historial[-1][2] == "ITEM_AGREGADO"
+
+
+@pytest.mark.asyncio
+async def test_agregar_item_rfq_rechaza_item_duplicado_sin_escribir_historial_falso():
+    """El item ya sembrado por crear_rfq no debe poder re-agregarse: el INSERT
+    hace ON CONFLICT DO NOTHING y el servicio debe detectarlo (en vez de
+    quemar un lock_version y registrar un ITEM_AGREGADO falso)."""
+    bom_id = uuid4()
+    item_id = uuid4()
+    svc = make_service(_bom(bom_id), [_bom_item(item_id, bom_id)])
+    rfq = await svc.crear_rfq(FakeConn(), bom_id, [item_id], uuid4())
+
+    with pytest.raises(ValueError, match="ya está en este RFQ"):
+        await svc.agregar_item_rfq(
+            FakeConn(), rfq["id"], item_id, 3, None, uuid4(), lock_version_esperado=0,
+        )
+    assert len(svc.db.rfq_items[rfq["id"]]) == 1
+    assert svc.db.historial[-1][2] == "CREADO"

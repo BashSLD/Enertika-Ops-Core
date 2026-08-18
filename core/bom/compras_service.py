@@ -1594,11 +1594,13 @@ class BomComprasServiceMixin:
             actualizado = await self.db.incrementar_lock_rfq(conn, rfq_id, lock_version_esperado)
             if not actualizado:
                 raise ValueError("El RFQ cambio; recarga la pestaña")
-            await self.db.agregar_items_rfq(conn, rfq_id, [{
+            insertados = await self.db.agregar_items_rfq(conn, rfq_id, [{
                 "bom_item_id": bom_item_id,
                 "cantidad": Decimal(str(cantidad)),
                 "unidad_override": (unidad_override or "").strip() or None,
             }])
+            if not insertados:
+                raise ValueError("El item ya está en este RFQ")
             await self.db.registrar_historial_rfq(
                 conn, rfq_id, user_id, 'ITEM_AGREGADO', {"bom_item_id": str(bom_item_id)},
             )
