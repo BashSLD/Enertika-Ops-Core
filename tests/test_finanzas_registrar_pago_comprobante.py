@@ -136,7 +136,10 @@ async def test_sube_archivo_y_comparte_id_comprobante_con_pago(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_registra_pago_aunque_falle_la_subida(monkeypatch):
+async def test_falla_si_falla_la_subida_del_comprobante(monkeypatch):
+    """Si el usuario adjunto un PDF y SharePoint falla, el pago NO se registra
+    en silencio con comprobante_url=None: se rechaza para que el usuario
+    reintente en vez de perder el comprobante sin aviso."""
     async def _fake_upload_falla(self, *a, **kw):
         return None
 
@@ -146,11 +149,41 @@ async def test_registra_pago_aunque_falle_la_subida(monkeypatch):
     autorizacion_id = uuid4()
     svc, db = make_service(_autorizacion(autorizacion_id))
 
-    await svc.registrar_pago(
+    with pytest.raises(ValueError, match="No se pudo subir"):
+        await svc.registrar_pago(
+            FakeConn(), autorizacion_id=autorizacion_id, monto_pagado=Decimal("1000.00"),
+            moneda="MXN", tipo_cambio_usado=None, fecha_pago=date.today(),
+            referencia_bancaria=None, registrado_por=uuid4(), lock_version_esperado=0,
+            clave_idempotencia="clave-3", archivo=object(),
+        )
+    assert not db.crear_pago_calls
+    assert not db.crear_comprobante_calls
+
+
+@pytest.mark.asyncio
+async def test_reintento_con_misma_clave_no_vuelve_a_subir_archivo(monkeypatch):
+    """Un reintento (misma clave_idempotencia) sobre un pago ya registrado no
+    debe volver a subir el PDF a SharePoint: evita dejar un archivo/registro
+    huerfano en cada reintento."""
+    async def _no_deberia_llamarse(self, *a, **kw):
+        raise AssertionError("no debe re-subir el comprobante en un reintento idempotente")
+
+    monkeypatch.setattr(ComprasService, "upload_archivo_sharepoint", _no_deberia_llamarse)
+    monkeypatch.setattr(BomDBService, "registrar_evento_outbox", _noop_outbox)
+
+    autorizacion_id = uuid4()
+    svc, db = make_service(_autorizacion(autorizacion_id))
+    pago_previo = {"id": uuid4(), "autorizacion_id": autorizacion_id, "comprobante_url": "https://sharepoint/comprobante.pdf"}
+    db.get_pago_por_clave_idempotencia = lambda conn, clave: _async_return(pago_previo)
+
+    resultado = await svc.registrar_pago(
         FakeConn(), autorizacion_id=autorizacion_id, monto_pagado=Decimal("1000.00"),
         moneda="MXN", tipo_cambio_usado=None, fecha_pago=date.today(),
         referencia_bancaria=None, registrado_por=uuid4(), lock_version_esperado=0,
-        clave_idempotencia="clave-3", archivo=object(),
+        clave_idempotencia="clave-4", archivo=object(),
     )
-    assert db.crear_pago_calls[0]["comprobante_url"] is None
-    assert db.crear_comprobante_calls
+    assert resultado == pago_previo
+
+
+async def _async_return(value):
+    return value

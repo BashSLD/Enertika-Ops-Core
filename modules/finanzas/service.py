@@ -78,6 +78,18 @@ class FinanzasService:
         id_comprobante = uuid4()
         comprobante_url = None
         if archivo is not None:
+            # Chequeo de idempotencia previo al upload: evita volver a subir el
+            # PDF (y dejar un archivo/registro huerfano) si esta es una reposicion
+            # de un pago que ya se completo con la misma clave. El chequeo
+            # autoritativo (con FOR UPDATE) sigue corriendo dentro de la tx.
+            pago_existente_previo = await self.db.get_pago_por_clave_idempotencia(
+                conn, clave_limpia
+            )
+            if pago_existente_previo:
+                if pago_existente_previo["autorizacion_id"] != autorizacion_id:
+                    raise ValueError("La clave de reintento pertenece a otro pago.")
+                return pago_existente_previo
+
             from modules.compras.service import ComprasService
 
             resultado_upload = await ComprasService().subir_pdf_mensual(
@@ -85,13 +97,11 @@ class FinanzasService:
                 origen_slug='comprobante_pago', user_id=registrado_por,
                 id_comprobante=id_comprobante,
             )
-            if resultado_upload:
-                comprobante_url = resultado_upload.get('url_sharepoint')
-            else:
-                logger.warning(
-                    "Fallo la subida del comprobante a SharePoint para el pago con clave %s",
-                    clave_limpia,
+            if not resultado_upload or not resultado_upload.get('url_sharepoint'):
+                raise ValueError(
+                    "No se pudo subir el comprobante a SharePoint. Intenta de nuevo."
                 )
+            comprobante_url = resultado_upload.get('url_sharepoint')
 
         async with conn.transaction():
             aut = await self.db.get_autorizacion_para_pago_for_update(
