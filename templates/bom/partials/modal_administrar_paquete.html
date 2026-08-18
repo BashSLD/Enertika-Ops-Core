@@ -40,10 +40,7 @@
                 </div>
                 <div>
                     <label class="mb-1 block text-sm font-medium text-gray-700">Nombre</label>
-                    <input name="nombre" required maxlength="160" value="{{ paquete.nombre }}"
-                        list="sugerencias-nombre-paquete-{{ paquete.id_paquete }}"
-                        class="w-full rounded-lg border-gray-300 text-sm">
-                    {{ paquete_datalist.nombre_paquete_datalist('sugerencias-nombre-paquete-' ~ paquete.id_paquete) }}
+                    {{ paquete_datalist.nombre_paquete_combobox(paquete.nombre) }}
                 </div>
                 <div>
                     <label class="mb-1 block text-sm font-medium text-gray-700">Descripción del alcance</label>

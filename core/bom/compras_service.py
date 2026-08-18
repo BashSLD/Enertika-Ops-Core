@@ -21,6 +21,16 @@ ESTATUS_COMPRA_BLOQUEA_ADENDA = {"COTIZADO", "AUTORIZADO", "PAGADO", "FACTURADO"
 ESTATUS_ADENDA_APROBADA = "APROBADA"
 
 
+def item_disponible_cotizacion(item: dict) -> bool:
+    """True si el item BOM todavia puede entrar a una cotizacion o RFQ nueva."""
+    estatus_compra = item.get("estatus_compra", "SIN_COTIZAR")
+    estatus_ejecucion = item.get("estatus_ejecucion")
+    return (
+        estatus_compra not in ESTATUS_COMPRA_BLOQUEA_ADENDA
+        and estatus_ejecucion not in ESTATUS_ITEM_CERRADO_COMPRA
+    )
+
+
 class BomComprasServiceMixin:
     """Cotizaciones, RFQ, autorizaciones Fase D, conciliacion y match."""
 
@@ -146,20 +156,19 @@ class BomComprasServiceMixin:
         nombre_proveedor: Optional[str], moneda: str,
         items_data: list, iva_pct: float, notas: Optional[str],
         creado_por: UUID,
-        es_rfq: bool = False,
-        rfq_origen_id: Optional[UUID] = None,
         subtotal_externo: Optional[float] = None,
         bom_lock_version_esperado: Optional[int] = None,
+        rfq_id: Optional[UUID] = None,
     ) -> dict:
         """
         Crea una cotización con sus ítems.
         items_data: lista de dicts con bom_item_id, precio_unitario (opcional), cantidad.
 
         Modos:
-        - RFQ (es_rfq=True): sin proveedor ni precios. Solo selecciona items.
         - Simplificado (subtotal_externo): precio se distribuye proporcionalmente.
         - Completo: cada item tiene precio_unitario individual.
         Valida sobrecosto si hay precios individuales.
+        rfq_id (opcional, doc 35): liga esta cotización real como respuesta a un RFQ del mismo BOM.
         """
         bom = await self.get_bom(conn, id_bom)
         if EstatusBOM(bom['estatus']) not in ESTATUS_COTIZABLE:
@@ -169,6 +178,10 @@ class BomComprasServiceMixin:
         moneda = (moneda or "").strip().upper()
         if moneda not in {"MXN", "USD"}:
             raise ValueError("La moneda de la cotizacion debe ser MXN o USD")
+        if rfq_id:
+            rfq = await self.db.get_rfq_by_id(conn, rfq_id)
+            if not rfq or str(rfq["bom_id"]) != str(id_bom):
+                raise ValueError("El RFQ no pertenece a este BOM")
 
         if not items_data:
             raise ValueError("Debes seleccionar al menos un item para cotizar.")
@@ -189,24 +202,14 @@ class BomComprasServiceMixin:
         if any(str(item.get("id_bom")) != str(id_bom) for item in bom_items_batch):
             raise ValueError("La cotizacion no puede mezclar items de otro paquete BOM")
         self._validar_items_cotizables(bom_items_batch, "cotizar")
-        if rfq_origen_id:
-            rfq_origen = await self.db.get_cotizacion_by_id(conn, rfq_origen_id)
-            if (
-                not rfq_origen
-                or not rfq_origen.get("es_rfq")
-                or str(rfq_origen.get("bom_id")) != str(id_bom)
-            ):
-                raise ValueError("El RFQ origen no pertenece a este BOM")
 
-        # Un RFQ puede no tener precios. Una cotización completa no puede
-        # convertir líneas desconocidas en cero.
         precios = [
             Decimal(str(i["precio_unitario"]))
             if i.get("precio_unitario") is not None else None
             for i in items_data
         ]
         tiene_precios = any(precio is not None and precio > 0 for precio in precios)
-        if not es_rfq and subtotal_externo is None and any(
+        if subtotal_externo is None and any(
             precio is None or precio <= 0 for precio in precios
         ):
             raise ValueError(
@@ -267,12 +270,6 @@ class BomComprasServiceMixin:
         iva = round(subtotal * Decimal(str(iva_pct)) / Decimal("100"), 2)
         total = round(subtotal + iva, 2)
 
-        proveedor_nombre_db = nombre_proveedor
-        proveedor_id_db = proveedor_id
-        if es_rfq:
-            proveedor_nombre_db = None
-            proveedor_id_db = None
-
         # Preparar ítems con subtotal_linea
         items_insert = []
         for i in items_data:
@@ -308,17 +305,17 @@ class BomComprasServiceMixin:
                 )
             self._validar_items_cotizables(items_bloqueados, "cotizar")
             cotizacion = await self.db.crear_cotizacion(
-                conn, id_bom, proveedor_id_db, proveedor_nombre_db, moneda,
+                conn, id_bom, proveedor_id, nombre_proveedor, moneda,
                 round(subtotal, 2), iva, total, notas, creado_por,
-                es_rfq=es_rfq, rfq_origen_id=rfq_origen_id
+                rfq_id=rfq_id,
             )
             await self.db.agregar_items_cotizacion(
                 conn, cotizacion['id'], id_bom, items_insert
             )
 
         logger.info(
-            "Cotización %s creada (rfq=%s) para BOM %s por usuario %s",
-            cotizacion['id'], es_rfq, id_bom, creado_por
+            "Cotización %s creada para BOM %s por usuario %s",
+            cotizacion['id'], id_bom, creado_por
         )
         return cotizacion
 
@@ -703,6 +700,16 @@ class BomComprasServiceMixin:
 
     # ─── APROBACIONES DE COTIZACION (post-BOM) ──────────────
 
+    async def get_cotizacion_aprobaciones_direccion(
+        self, conn, estatus: Optional[str] = None,
+        id_proyecto: Optional[UUID] = None,
+        nombre_proveedor: Optional[str] = None,
+    ) -> list:
+        """Dashboard de Direccion: pendientes/aprobadas/rechazadas de todos los proyectos."""
+        return await self.db.get_cotizacion_aprobaciones_direccion(
+            conn, estatus=estatus, id_proyecto=id_proyecto, nombre_proveedor=nombre_proveedor,
+        )
+
     async def _liberar_cotizacion_rechazada(
         self, conn, cotizacion_id: UUID,
         resetear_estatus_cotizacion: bool = True,
@@ -749,8 +756,6 @@ class BomComprasServiceMixin:
         cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
         if not cotizacion:
             raise ValueError("Cotización no encontrada.")
-        if cotizacion.get('es_rfq'):
-            raise ValueError("Las RFQ no participan del flujo de aprobación de Dirección.")
         if not cotizacion.get('pdf_url'):
             raise ValueError("La cotización no tiene PDF cargado. Sube el PDF antes de solicitar aprobación.")
         if not cotizacion.get('total') or Decimal(str(cotizacion['total'])) <= 0:
@@ -1230,6 +1235,67 @@ class BomComprasServiceMixin:
         )
         return updated
 
+    async def subir_pdf_cotizacion(
+        self, conn, cotizacion_id: UUID, file, user_id: UUID,
+        lock_version_esperado: Optional[int] = None,
+    ) -> dict:
+        """Sube el PDF de una cotizacion a SharePoint y actualiza pdf_url (estatus -> RECIBIDA)."""
+        if lock_version_esperado is None:
+            raise ValueError("La cotizacion cambio; recarga la pestaña")
+        cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
+        if not cotizacion:
+            raise ValueError("Cotización no encontrada.")
+        aprobacion = await self.db.get_cotizacion_aprobacion_activa(conn, cotizacion_id)
+        if aprobacion and aprobacion['estatus'] == 'APROBADA':
+            raise ValueError(
+                "La cotización ya fue aprobada por Dirección y no puede modificarse."
+            )
+
+        from modules.compras.service import ComprasService
+
+        upload_result = await ComprasService().subir_pdf_mensual(
+            conn, file, categoria='bom/cotizaciones',
+            origen_slug='cotizacion_bom', user_id=user_id,
+            id_bom_cotizacion=cotizacion_id,
+        )
+        if not upload_result or not upload_result.get('url_sharepoint'):
+            raise ValueError("No se pudo subir el PDF a SharePoint")
+
+        return await self.actualizar_pdf_cotizacion(
+            conn, cotizacion_id, upload_result['url_sharepoint'], lock_version_esperado
+        )
+
+    async def get_pdf_cotizacion_bytes(
+        self, conn, cotizacion_id: UUID, doc_id: Optional[UUID] = None,
+    ) -> tuple:
+        """Descarga el PDF (mas reciente o uno especifico) para preview inline.
+
+        Retorna (nombre_archivo, media_type, contenido_bytes).
+        """
+        documento = await self.db.get_pdf_attachment_cotizacion(conn, cotizacion_id, doc_id)
+        if not documento:
+            raise ValueError("La cotización no tiene PDF cargado")
+
+        nombre_archivo = documento.get('nombre_archivo') or 'cotizacion.pdf'
+        media_type = (documento.get('tipo_contenido') or 'application/pdf').split(';')[0].strip()
+        drive_item_id = documento.get('drive_item_id')
+        if not drive_item_id:
+            raise ValueError("El PDF no tiene archivo descargable asociado")
+
+        from core.integrations.sharepoint import SharePointService
+        from core.microsoft import get_ms_auth
+
+        ms_auth = get_ms_auth()
+        app_token = await ms_auth.get_application_token()
+        if not app_token:
+            raise RuntimeError("No se pudo obtener token de SharePoint")
+        sharepoint = SharePointService(access_token=app_token)
+        config = await sharepoint._resolve_config(conn)
+        sharepoint.site_id = config.get("site_id")
+        sharepoint.drive_id = config.get("drive_id")
+        contenido = await sharepoint.download_bytes_direct_by_item_id(drive_item_id)
+        return nombre_archivo, media_type, contenido
+
     # ─── TRAZABILIDAD BOM ↔ COMPRAS ──────────────────────────
 
     async def get_items_por_autorizacion(self, conn, autorizacion_id: UUID) -> list:
@@ -1445,10 +1511,150 @@ class BomComprasServiceMixin:
             conn, uuid_ids, nuevo_estatus
         )
 
+    # ─── RFQ (doc 35) ────────────────────────────────────────
+
+    async def crear_rfq(
+        self, conn, id_bom: UUID, item_ids: list, creado_por: UUID,
+        notas: Optional[str] = None,
+    ) -> dict:
+        """Crea un RFQ (sin proveedor ni precios) con los items seleccionados.
+
+        No bloquea items ni cambia su estatus_compra/estatus_ejecucion -- instruccion
+        explicita del usuario: seleccionar items para un RFQ es solo para generar el PDF,
+        nunca debe crear un candado que impida a Ingenieria/Construccion seguir editando.
+        """
+        bom = await self.get_bom(conn, id_bom)
+        if EstatusBOM(bom['estatus']) not in ESTATUS_COTIZABLE:
+            raise ValueError("Solo se pueden crear RFQ en BOMs aprobados por Construccion.")
+        if not item_ids:
+            raise ValueError("Selecciona al menos un item para el RFQ.")
+
+        item_ids_unicos = list(dict.fromkeys(item_ids))
+        items_bd = await self.db.get_items_by_ids(conn, item_ids_unicos)
+        if len(items_bd) != len(item_ids_unicos):
+            raise ValueError("El RFQ contiene items invalidos o inactivos")
+        if any(str(i.get("id_bom")) != str(id_bom) for i in items_bd):
+            raise ValueError("El RFQ no puede mezclar items de otro paquete BOM")
+
+        items_disponibles = [i for i in items_bd if item_disponible_cotizacion(i)]
+        if not items_disponibles:
+            raise ValueError(
+                "Todos los items seleccionados ya están autorizados, pagados o facturados"
+            )
+
+        items_insert = [
+            {"bom_item_id": i["id_item"], "cantidad": Decimal(str(i["cantidad"]))}
+            for i in items_disponibles
+        ]
+        async with conn.transaction():
+            rfq = await self.db.crear_rfq(conn, id_bom, creado_por, notas)
+            await self.db.agregar_items_rfq(conn, rfq['id'], items_insert)
+            await self.db.registrar_historial_rfq(
+                conn, rfq['id'], creado_por, 'CREADO',
+                {"total_items": len(items_insert)},
+            )
+        logger.info(
+            "RFQ %s creado para BOM %s con %d items por %s",
+            rfq['id'], id_bom, len(items_insert), creado_por
+        )
+        return {**rfq, "total_items": len(items_insert)}
+
+    async def agregar_item_rfq(
+        self, conn, rfq_id: UUID, bom_item_id: UUID, cantidad,
+        unidad_override: Optional[str], user_id: UUID,
+        lock_version_esperado: Optional[int] = None,
+    ) -> dict:
+        rfq = await self.db.get_rfq_by_id(conn, rfq_id)
+        if not rfq:
+            raise ValueError("RFQ no encontrado")
+        if lock_version_esperado is None:
+            raise ValueError("El RFQ cambio; recarga la pestaña")
+        items_bd = await self.db.get_items_by_ids(conn, [bom_item_id])
+        if not items_bd or str(items_bd[0].get("id_bom")) != str(rfq["bom_id"]):
+            raise ValueError("El item no pertenece a este BOM")
+        if not item_disponible_cotizacion(items_bd[0]):
+            raise ValueError(
+                "Este item ya está autorizado, pagado o facturado y no puede agregarse al RFQ"
+            )
+        async with conn.transaction():
+            actualizado = await self.db.incrementar_lock_rfq(conn, rfq_id, lock_version_esperado)
+            if not actualizado:
+                raise ValueError("El RFQ cambio; recarga la pestaña")
+            await self.db.agregar_items_rfq(conn, rfq_id, [{
+                "bom_item_id": bom_item_id,
+                "cantidad": Decimal(str(cantidad)),
+                "unidad_override": (unidad_override or "").strip() or None,
+            }])
+            await self.db.registrar_historial_rfq(
+                conn, rfq_id, user_id, 'ITEM_AGREGADO', {"bom_item_id": str(bom_item_id)},
+            )
+        return actualizado
+
+    async def quitar_item_rfq(
+        self, conn, rfq_id: UUID, bom_item_id: UUID, user_id: UUID,
+        lock_version_esperado: Optional[int] = None,
+    ) -> dict:
+        rfq = await self.db.get_rfq_by_id(conn, rfq_id)
+        if not rfq:
+            raise ValueError("RFQ no encontrado")
+        if lock_version_esperado is None:
+            raise ValueError("El RFQ cambio; recarga la pestaña")
+        async with conn.transaction():
+            actualizado = await self.db.incrementar_lock_rfq(conn, rfq_id, lock_version_esperado)
+            if not actualizado:
+                raise ValueError("El RFQ cambio; recarga la pestaña")
+            eliminados = await self.db.quitar_item_rfq(conn, rfq_id, bom_item_id)
+            if not eliminados:
+                raise ValueError("El item no esta en este RFQ")
+            await self.db.registrar_historial_rfq(
+                conn, rfq_id, user_id, 'ITEM_QUITADO', {"bom_item_id": str(bom_item_id)},
+            )
+        return actualizado
+
+    async def listar_historial_rfq(self, conn, rfq_id: UUID) -> list:
+        return await self.db.get_historial_rfq(conn, rfq_id)
+
+    async def generar_pdf_rfq(self, conn, rfq_id: UUID, user_id: UUID) -> tuple:
+        """Genera el PDF neutro del RFQ (sin datos de proveedor) con membrete de Enertika.
+        Retorna (pdf_bytes, filename).
+        """
+        rfq = await self.db.get_rfq_by_id(conn, rfq_id)
+        if not rfq:
+            raise ValueError("RFQ no encontrado")
+        items = await self.db.get_items_rfq(conn, rfq_id)
+        if not items:
+            raise ValueError("El RFQ no tiene items; agrega al menos uno antes de generar el PDF")
+        bom = await self.db.get_bom_by_id(conn, rfq["bom_id"])
+        proyecto = (
+            await self.get_proyecto_info(conn, bom["id_proyecto"])
+            if bom and bom.get("id_proyecto") else None
+        )
+        from modules.compras.db_service import get_db_service as get_compras_db_service
+        empresa = await get_compras_db_service().get_config_empresa(conn)
+
+        from core.pdf_service.service import get_pdf_service
+        pdf_service = get_pdf_service()
+        pdf_bytes = await pdf_service.generate(
+            "bom/rfq.html",
+            {
+                "rfq": rfq,
+                "items": items,
+                "proyecto": proyecto,
+                "empresa": empresa,
+            },
+        )
+        proyecto_codigo = (proyecto or {}).get("proyecto_id_estandar") or str(rfq_id)[:8]
+        filename = pdf_service.generate_filename("RFQ", proyecto_codigo)
+        await self.db.registrar_historial_rfq(conn, rfq_id, user_id, 'PDF_GENERADO')
+        return pdf_bytes, filename
+
     # ─── COMPARATIVA RFQ (Gap 7d) ───────────────────────────
 
     async def get_rfqs(self, conn, id_bom: UUID) -> list:
         return await self.db.get_rfqs_by_bom(conn, id_bom)
+
+    async def get_items_rfq(self, conn, rfq_id: UUID) -> list:
+        return await self.db.get_items_rfq(conn, rfq_id)
 
     async def get_rfq_responses(self, conn, rfq_id: UUID) -> list:
         return await self.db.get_rfq_responses(conn, rfq_id)

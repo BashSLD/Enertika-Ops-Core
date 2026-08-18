@@ -162,20 +162,22 @@ def _redirigir_a_bom(id_proyecto: UUID) -> Response:
     return hx_location_response(f"/bom/{id_proyecto}/ui")
 
 
-def _parse_grupo_ids(form) -> list[int]:
+def _parse_grupo_ids(form, *, requerido: bool = True) -> list[int]:
     try:
         grupo_ids = [int(g) for g in form.getlist("grupo_ids") if g]
     except (TypeError, ValueError):
         raise ValueError("Grupo BOM invalido") from None
-    if not grupo_ids:
+    if not grupo_ids and requerido:
         raise ValueError("Selecciona al menos un grupo BOM")
     return grupo_ids
 
 
-def _parse_distribucion_grupos(form) -> tuple[list[int], dict[int, object]]:
+def _parse_distribucion_grupos(form, *, requerido: bool = True) -> tuple[list[int], dict[int, object]]:
     from decimal import Decimal, InvalidOperation
 
-    grupo_ids = _parse_grupo_ids(form)
+    grupo_ids = _parse_grupo_ids(form, requerido=requerido)
+    if not grupo_ids:
+        return [], {}
     if len(grupo_ids) == 1:
         return grupo_ids, {grupo_ids[0]: Decimal("1")}
     porcentajes = {}
@@ -371,10 +373,10 @@ async def bom_hub_ui(
     puede_gestionar_captura = await service.puede_administrar_paquete(
         conn, id_proyecto, context.get("user_db_id"), role
     )
-    responsable_ingenieria_label = None
+    mensaje_sin_bom = None
     if not puede_crear and not paquetes:
-        responsable_ingenieria_label = await service.get_responsable_ingenieria_label(
-            conn, id_proyecto
+        mensaje_sin_bom = await service.get_mensaje_hub_sin_bom(
+            conn, id_proyecto, module_roles
         )
 
     ctx = {
@@ -391,7 +393,7 @@ async def bom_hub_ui(
         "puede_crear": puede_crear,
         "multi_habilitado": multi_habilitado,
         "puede_gestionar_captura": puede_gestionar_captura,
-        "responsable_ingenieria_label": responsable_ingenieria_label,
+        "mensaje_sin_bom": mensaje_sin_bom,
         "es_admin": role == "ADMIN",
         "clave_idempotencia_paquete": str(uuid4()),
     }
@@ -434,6 +436,39 @@ async def bom_consolidado_ui(
         else "bom/consolidado.html"
     )
     return templates.TemplateResponse(request, template, ctx)
+
+
+@router.get("/{id_proyecto}/consolidado/charts", include_in_schema=False)
+async def bom_consolidado_charts(
+    request: Request,
+    id_proyecto: UUID,
+    modo: str = Query("CURSO"),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(
+        ["ingenieria", "construccion", "compras", "finanzas"],
+        "viewer", allow_org_roles={"director"},
+    ),
+):
+    """Graficas del consolidado para la pantalla (no el PDF), cargadas via HTMX
+    despues del render inicial: get_consolidado_proyecto es el read model de mas
+    trafico del modulo BOM, y las 3 llamadas a QuickChart no deben bloquear esa
+    carga. Mismo pipeline que exportar_bom_consolidado_pdf (datos_graficas_resumen_compra
+    + generar_charts_bom_consolidado), sin generar el PDF."""
+    proyecto = await service.get_proyecto_info(conn, id_proyecto)
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    try:
+        consolidado = await service.get_consolidado_proyecto(conn, id_proyecto, modo)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    graficas_datos = datos_graficas_resumen_compra(consolidado)
+    charts = await generar_charts_bom_consolidado(graficas_datos)
+
+    return templates.TemplateResponse(
+        request, "bom/partials/consolidado_charts.html", {"charts": charts}
+    )
 
 
 @router.get("/{id_proyecto}/consolidado/export-excel", include_in_schema=False)
@@ -1268,15 +1303,16 @@ async def editar_item(
                 request, "Sin permisos para editar items del BOM", "error",
                 status_code=403,
             )
-        actualiza_grupos = (
-            (area_editor == "ingenieria" and bom_actual["estatus"] != "APROBADO_FINAL")
-            or (
-                area_editor == "construccion"
-                and bom_actual["estatus"] in {"EN_REVISION_OBRA", "EN_REVISION_CONST", "APROBADO_FINAL"}
-            )
-        )
+        actualiza_grupos = BomService.puede_editar_grupos(area_editor, bom_actual["estatus"])
         if actualiza_grupos:
-            grupo_ids, grupo_porcentajes = _parse_distribucion_grupos(form)
+            # requerido=False: este form (modal de edicion de item) puede
+            # llegar con grupo_ids vacio simplemente porque el usuario edito
+            # otro tab y nunca toco "General" -- editar_item ya distingue
+            # ese no-op de un intento real de vaciar grupos ya asignados
+            # (get_item_grupos_base). Los demas usos de _parse_distribucion_grupos
+            # (agregar item, edicion masiva, set_item_grupos) siguen exigiendo
+            # seleccion explicita.
+            grupo_ids, grupo_porcentajes = _parse_distribucion_grupos(form, requerido=False)
         else:
             grupo_ids, grupo_porcentajes = None, None
         propuesta_creada = False
@@ -1364,7 +1400,7 @@ async def editar_item(
                 conn, bom['id_proyecto'], user_id
             ),
         )
-        return templates.TemplateResponse(request, "bom/partials/row_item.html", ctx)
+        return templates.TemplateResponse(request, "bom/partials/row_item_standalone.html", ctx)
 
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -1818,6 +1854,8 @@ async def get_modal_editar_item(
         conn, bom, context.get("user_db_id"), context.get("role"),
         context.get("rol_organizacional"), context.get("module_roles"),
     )
+    area_editor_grupos = BomService.resolver_area_editor(context, bom)
+    disabled_grupos = not BomService.puede_editar_grupos(area_editor_grupos, bom["estatus"])
     catalogos = await service.get_catalogos(conn)
     grupos_visibles = (
         item["grupos_operativos"]
@@ -1849,6 +1887,7 @@ async def get_modal_editar_item(
         posicion_item=(idx + 1) if idx is not None else None,
         total_items=len(ids_ordenados),
         capacidades=capacidades,
+        disabled_grupos=disabled_grupos,
     )
     return templates.TemplateResponse(request, "bom/partials/modal_item.html", ctx)
 
@@ -2856,7 +2895,7 @@ async def set_item_grupos(
             actualizar_lock_oob=True,
             capacidades=resultado["capacidades"],
         )
-        return templates.TemplateResponse(request, "bom/partials/row_item.html", ctx)
+        return templates.TemplateResponse(request, "bom/partials/row_item_standalone.html", ctx)
 
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)

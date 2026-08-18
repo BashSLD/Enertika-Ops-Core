@@ -212,7 +212,7 @@ async def test_crear_interno_y_homologacion_encuentra_el_material_creado(real_co
         "moneda": "MXN",
         "creado_por": None,
         "actualizado_por": None,
-    })
+    }, puede_editar_costos=True)
 
     assert creado["descripcion_canonica"] == f"Abrazadera galvanizada {marca_unica}"
 
@@ -323,7 +323,7 @@ async def test_crear_catalogo_rechaza_si_ya_existe_similar_en_catalogo(real_conn
         "material": None, "tipo": None, "acabado": None,
         "marca": None, "adicional": None, "medida": None,
         "moneda": "MXN", "creado_por": None, "actualizado_por": None,
-    })
+    }, puede_editar_costos=True)
     await real_conn.execute(
         "UPDATE tb_bom_items SET descripcion = $1 WHERE id_item = $2",
         descripcion_temporal, id_item,

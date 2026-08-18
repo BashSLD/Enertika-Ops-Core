@@ -4,7 +4,7 @@ Gestión de pagos BOM y comprobantes asociados.
 """
 
 import logging
-from uuid import UUID
+from uuid import UUID, uuid4
 from typing import Optional, Dict, Any
 from datetime import date
 from decimal import Decimal
@@ -53,16 +53,19 @@ class FinanzasService:
         tipo_cambio_usado: Optional[Decimal],
         fecha_pago: date,
         referencia_bancaria: Optional[str],
-        comprobante_url: Optional[str],
         registrado_por: UUID,
         lock_version_esperado: int,
         clave_idempotencia: str,
+        archivo=None,
     ) -> Dict[str, Any]:
         """
         Registra el pago de una autorización BOM:
-        1. Valida autorización, saldo, moneda, idempotencia y revisión esperada.
-        2. Inserta en tb_bom_pagos.
-        3. Crea el comprobante en tb_comprobantes_pago (origen='BOM', estatus='PENDIENTE').
+        1. Si se adjunto un PDF, lo sube a SharePoint ANTES de la transaccion (para no mantener
+           el lock FOR UPDATE de la autorizacion abierto durante el round-trip de red).
+        2. Valida autorización, saldo, moneda, idempotencia y revisión esperada.
+        3. Inserta en tb_bom_pagos (con comprobante_url si se subio el PDF).
+        4. Crea el comprobante en tb_comprobantes_pago (origen='BOM', estatus='PENDIENTE'),
+           enlazado al mismo PDF via id_bom_cotizacion... id_comprobante generado en este metodo.
         """
         clave_limpia = (clave_idempotencia or "").strip()
         if not clave_limpia or len(clave_limpia) > 220:
@@ -71,6 +74,25 @@ class FinanzasService:
         if monto <= 0:
             raise ValueError("El monto pagado debe ser mayor a cero.")
         moneda_normalizada = (moneda or "").strip().upper()
+
+        id_comprobante = uuid4()
+        comprobante_url = None
+        if archivo is not None:
+            from modules.compras.service import ComprasService
+
+            resultado_upload = await ComprasService().subir_pdf_mensual(
+                conn, archivo, categoria='compras/comprobantes_pdf',
+                origen_slug='comprobante_pago', user_id=registrado_por,
+                id_comprobante=id_comprobante,
+            )
+            if resultado_upload:
+                comprobante_url = resultado_upload.get('url_sharepoint')
+            else:
+                logger.warning(
+                    "Fallo la subida del comprobante a SharePoint para el pago con clave %s",
+                    clave_limpia,
+                )
+
         async with conn.transaction():
             aut = await self.db.get_autorizacion_para_pago_for_update(
                 conn, autorizacion_id
@@ -174,6 +196,7 @@ class FinanzasService:
 
             await self.db.crear_comprobante_bom(
                 conn,
+                id_comprobante=id_comprobante,
                 id_bom_pago=pago["id"],
                 fecha_pago=fecha_pago,
                 beneficiario_orig=aut.get("nombre_proveedor") or "Sin proveedor",
@@ -182,7 +205,6 @@ class FinanzasService:
                 id_proveedor=aut.get("proveedor_id"),
                 id_proyecto=aut.get("proyecto_id"),
                 capturado_por=registrado_por,
-                comprobante_url=comprobante_url,
             )
             bom_db = BomDBService()
             await bom_db.registrar_evento_outbox(

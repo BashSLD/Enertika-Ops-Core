@@ -1,0 +1,26 @@
+{# templates/bom/partials/rfq_historial.html #}
+{# Bitacora de un RFQ (doc 35) — vista bajo demanda, separada del historial/timeline del BOM #}
+
+{% set accion_labels = {
+    'CREADO': 'RFQ creado',
+    'ITEM_AGREGADO': 'Item agregado',
+    'ITEM_QUITADO': 'Item quitado',
+    'PDF_GENERADO': 'PDF generado',
+} %}
+
+<div class="rounded-xl border border-gray-200 bg-white p-3">
+    <h4 class="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Bitácora del RFQ</h4>
+    {% if historial %}
+    <ul class="space-y-1.5">
+        {% for h in historial %}
+        <li class="text-xs text-gray-600">
+            <span class="font-semibold text-gray-800">{{ accion_labels.get(h.accion, h.accion) }}</span>
+            por {{ h.usuario_nombre or 'Usuario desconocido' }}
+            <span class="text-gray-400">— {{ h.fecha | time_mx if h.fecha else '' }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-xs text-gray-400">Sin movimientos registrados.</p>
+    {% endif %}
+</div>

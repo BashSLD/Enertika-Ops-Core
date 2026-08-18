@@ -13,7 +13,7 @@ import logging
 logger = logging.getLogger("Proyectos.Router")
 
 from core.security import get_current_user_context
-from core.permissions import require_module_access, user_has_module_access
+from core.permissions import require_module_access, require_any_module_access, user_has_module_access
 from core.database import get_db_connection
 from .service import ProyectosService, get_service, ROLES_EQUIPO, RESPONSABLE_POR_AREA
 from core.projects.router import check_puede_crear_proyecto
@@ -142,7 +142,7 @@ async def get_equipo_partial(
     request: Request,
     id_proyecto: UUID,
     context=Depends(get_current_user_context),
-    _=require_module_access("proyectos"),
+    _=require_any_module_access(["proyectos", "compras"], "viewer"),
     conn=Depends(get_db_connection),
     service: ProyectosService = Depends(get_service),
 ):
@@ -160,7 +160,7 @@ async def save_equipo(
     request: Request,
     id_proyecto: UUID,
     context=Depends(get_current_user_context),
-    _=require_module_access("proyectos"),
+    _=require_any_module_access(["proyectos", "compras"], "viewer"),
     conn=Depends(get_db_connection),
     service: ProyectosService = Depends(get_service),
 ):
@@ -216,7 +216,7 @@ async def reasignar_responsable(
     request: Request,
     id_proyecto: UUID,
     context=Depends(get_current_user_context),
-    _=require_module_access("proyectos"),
+    _=require_any_module_access(["proyectos", "compras"], "viewer"),
     conn=Depends(get_db_connection),
     service: ProyectosService = Depends(get_service),
 ):

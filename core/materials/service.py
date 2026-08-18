@@ -149,10 +149,44 @@ class MaterialsService:
         m = await self.db.get_interno_by_id(conn, id)
         return self._precios_referencia_a_float([m])[0] if m else None
 
-    async def crear_interno(self, conn, data: dict) -> dict:
+    async def crear_interno(self, conn, data: dict, puede_editar_costos: bool) -> dict:
+        """Ingenieria puede dar de alta materiales nuevos pero nunca fijar su costo
+        (evita que evadan la autoridad de Compras registrando un producto con un
+        precio inventado). El form deshabilita estos campos del lado del cliente;
+        esta validacion es la defensa real contra una peticion manipulada."""
+        if not puede_editar_costos:
+            if data.get('precio_referencia') is not None or (data.get('moneda') or 'MXN') != 'MXN':
+                raise ValueError(
+                    "No tienes autoridad para registrar el costo de un material "
+                    "nuevo; Compras debe capturar el precio y la moneda."
+                )
+            data['precio_referencia'] = None
+            data['moneda'] = 'MXN'
         return await self.db.crear_interno(conn, data)
 
-    async def actualizar_interno(self, conn, id: UUID, data: dict) -> Optional[dict]:
+    async def actualizar_interno(
+        self, conn, id: UUID, data: dict, puede_editar_costos: bool
+    ) -> Optional[dict]:
+        """Misma autoridad que crear_interno para precio_referencia/moneda. Ademas,
+        si el material ya tiene costo registrado, quien no tiene autoridad de costos
+        tampoco puede tocar la descripcion -- evita renombrar un producto existente
+        para camuflar uno nuevo con el costo ya validado por Compras."""
+        if not puede_editar_costos:
+            if 'precio_referencia' in data or 'moneda' in data:
+                raise ValueError(
+                    "No tienes autoridad para editar el costo de este material; "
+                    "Compras debe hacerlo."
+                )
+            if 'descripcion_canonica' in data:
+                actual = await self.db.get_interno_by_id(conn, id)
+                if not actual:
+                    return None
+                if actual.get('precio_referencia') is not None:
+                    raise ValueError(
+                        "Este material ya tiene un costo registrado; no puedes "
+                        "editar su descripcion. Contacta a Compras si necesitas "
+                        "corregirla."
+                    )
         ok = await self.db.actualizar_interno(conn, id, data)
         if not ok:
             return None
@@ -384,9 +418,14 @@ class MaterialsService:
         return unidad_map, cat_map
 
     def _parse_y_validar(self, archivo_bytes: bytes, unidad_map: dict,
-                         cat_map: dict, norms_existentes: set) -> dict:
+                         cat_map: dict, norms_existentes: set,
+                         puede_editar_costos: bool) -> dict:
         """Parsea el Excel y valida cada fila SIN escribir en BD.
-        Devuelve filas listas para insertar + detalles por fila + resumen de conteos."""
+        Devuelve filas listas para insertar + detalles por fila + resumen de conteos.
+
+        `puede_editar_costos=False` (Ingenieria sin acceso a Compras) no rechaza el
+        alta masiva -- solo ignora precio/moneda de cada fila con esa columna llena
+        (se crea sin costo, Compras lo captura despues), igual que crear_interno."""
         from openpyxl import load_workbook
         from openpyxl.utils.exceptions import InvalidFileException
         from io import BytesIO
@@ -466,6 +505,11 @@ class MaterialsService:
                 warns.append(f"moneda '{moneda}' no valida (se usa MXN)")
                 moneda = 'MXN'
 
+            if not puede_editar_costos and (precio is not None or fila.get('moneda', '').strip()):
+                warns.append("precio/moneda ignorados: no tienes autoridad para registrar costos (Compras debe capturarlo)")
+                precio = None
+                moneda = 'MXN'
+
             norm = normalizar_descripcion(concepto)
 
             if errs:
@@ -509,23 +553,31 @@ class MaterialsService:
         }
         return {'validas': validas, 'detalles': detalles, 'resumen': resumen}
 
-    async def validar_internos_excel(self, conn, archivo_bytes: bytes) -> dict:
+    async def validar_internos_excel(
+        self, conn, archivo_bytes: bytes, puede_editar_costos: bool
+    ) -> dict:
         """Fase 1: parsea y valida sin escribir. Devuelve preview."""
         unidad_map, cat_map = await self._build_resolucion(conn)
         norms_existentes = await self.db.get_norms_existentes(conn)
-        parsed = self._parse_y_validar(archivo_bytes, unidad_map, cat_map, norms_existentes)
+        parsed = self._parse_y_validar(
+            archivo_bytes, unidad_map, cat_map, norms_existentes, puede_editar_costos
+        )
         return {
             'fase': 'validacion',
             'resumen': parsed['resumen'],
             'detalles': parsed['detalles'],
         }
 
-    async def cargar_internos_excel(self, conn, archivo_bytes: bytes, creado_por=None) -> dict:
+    async def cargar_internos_excel(
+        self, conn, archivo_bytes: bytes, puede_editar_costos: bool, creado_por=None
+    ) -> dict:
         """Fase 2: re-valida e inserta solo las filas validas en una transaccion.
         Cada fila queda estampada con el usuario que ejecuta la carga."""
         unidad_map, cat_map = await self._build_resolucion(conn)
         norms_existentes = await self.db.get_norms_existentes(conn)
-        parsed = self._parse_y_validar(archivo_bytes, unidad_map, cat_map, norms_existentes)
+        parsed = self._parse_y_validar(
+            archivo_bytes, unidad_map, cat_map, norms_existentes, puede_editar_costos
+        )
         for fila in parsed['validas']:
             fila['creado_por'] = creado_por
             fila['actualizado_por'] = creado_por

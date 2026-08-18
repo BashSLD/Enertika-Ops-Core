@@ -9,12 +9,64 @@
     {% for comp in comparativas %}
     {% set rfq = comp.rfq %}
     <div class="mb-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+        <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between"
+            x-data="{ historialAbierto: false }">
             <div>
                 <span class="text-sm font-semibold text-gray-800">RFQ #{{ rfq.id.__str__()[:8] }}</span>
                 <span class="text-xs text-gray-400 ml-2">{{ rfq.total_items_cotizacion }} ítems</span>
             </div>
-            <span class="text-xs text-gray-500">{{ rfq.creado_en.strftime('%d/%m/%Y') if rfq.creado_en else '' }}</span>
+            <div class="flex items-center gap-3">
+                <span class="text-xs text-gray-500">{{ rfq.creado_en | time_mx("%d/%m/%Y") if rfq.creado_en else '' }}</span>
+                <button type="button" @click="historialAbierto = !historialAbierto"
+                    class="text-xs font-medium text-gray-500 hover:text-gray-700 underline">
+                    Historial
+                </button>
+                <a href="/bom/rfq/{{ rfq.id }}/pdf"
+                    class="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700">
+                    Descargar PDF
+                </a>
+            </div>
+        </div>
+        <div x-show="historialAbierto" x-cloak x-init="$watch('historialAbierto', v => { if (v) htmx.ajax('GET', '/bom/rfq/{{ rfq.id }}/historial', {target: $el, source: $el, swap: 'innerHTML'}) })"
+            class="px-4 py-3 border-b border-gray-100"></div>
+
+        <div class="px-4 py-3 border-b border-gray-100">
+            <span class="mb-1.5 block text-xs font-semibold uppercase text-gray-500">Items del RFQ</span>
+            {% if comp.items %}
+            <ul class="space-y-1 mb-2">
+                {% for item in comp.items %}
+                <li class="flex items-center justify-between text-sm text-gray-700">
+                    <span>{{ item.descripcion }} — {{ '{:,.2f}'.format(item.cantidad|float) }} {{ item.unidad_override or item.unidad_medida or '' }}</span>
+                    <form hx-post="/bom/rfq/{{ rfq.id }}/items/{{ item.bom_item_id }}/quitar"
+                        hx-target="#comparativa-container" hx-swap="outerHTML"
+                        hx-confirm="¿Quitar este item del RFQ?">
+                        <input type="hidden" name="lock_version" value="{{ rfq.lock_version }}">
+                        <button type="submit" class="text-xs text-red-500 hover:text-red-700">Quitar</button>
+                    </form>
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            {% set items_en_rfq = comp.items | map(attribute='bom_item_id') | list %}
+            <form hx-post="/bom/rfq/{{ rfq.id }}/items" hx-target="#comparativa-container" hx-swap="outerHTML"
+                class="flex flex-wrap items-center gap-2">
+                <input type="hidden" name="lock_version" value="{{ rfq.lock_version }}">
+                <select name="bom_item_id" required class="rounded border-gray-300 text-xs">
+                    <option value="">Agregar item...</option>
+                    {% for it in items_bom %}
+                    {% if it.id_item not in items_en_rfq %}
+                    <option value="{{ it.id_item }}">{{ it.descripcion }}</option>
+                    {% endif %}
+                    {% endfor %}
+                </select>
+                <input type="number" name="cantidad" step="0.01" min="0.01" value="1" required
+                    class="w-20 rounded border-gray-300 text-xs">
+                <input type="text" name="unidad_override" placeholder="Unidad (opcional)"
+                    class="w-32 rounded border-gray-300 text-xs">
+                <button type="submit" class="rounded bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700">
+                    Agregar
+                </button>
+            </form>
         </div>
 
         {% if comp.responses %}

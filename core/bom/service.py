@@ -214,6 +214,22 @@ class BomService(BomComprasServiceMixin):
                 return area
         return "viewer"
 
+    @staticmethod
+    def puede_editar_grupos(area_editor: str, estatus_bom: Optional[str]) -> bool:
+        """Compras nunca clasifica items en Grupos BOM (es criterio tecnico de
+        Ingenieria/Construccion): solo esas dos areas pueden tocar grupo_ids, y
+        solo en la etapa que les corresponde. Fuente unica para el modal de
+        edicion (checkboxes habilitados/deshabilitados) y el PATCH que aplica
+        el cambio -- deben coincidir o el checkbox miente sobre lo que se puede
+        guardar."""
+        return (
+            (area_editor == "ingenieria" and estatus_bom != "APROBADO_FINAL")
+            or (
+                area_editor == "construccion"
+                and estatus_bom in {"EN_REVISION_OBRA", "EN_REVISION_CONST", "APROBADO_FINAL"}
+            )
+        )
+
     async def get_capacidades_bom(
         self, conn, bom: dict, user_id: Optional[UUID],
         user_role: Optional[str] = None,
@@ -581,14 +597,28 @@ class BomService(BomComprasServiceMixin):
                 "Falta la clave de reintento del formulario; recarga la pagina"
             )
 
-        responsable = await self.db.get_responsable_proyecto_o_global(
-            conn, id_proyecto, "jefe_ingenieria"
-        )
+        try:
+            responsable = await self.db.get_responsable_proyecto_o_global(
+                conn, id_proyecto, "jefe_ingenieria", estricto=True
+            )
+        except ValueError:
+            raise ValueError(
+                "Hay más de un jefe de Ingeniería activo y el proyecto aún no tiene "
+                "Responsable asignado. Un Director debe asignarlo en 'Equipo del Proyecto' "
+                "antes de crear el BOM."
+            ) from None
         if not responsable:
             raise ValueError("No hay Responsable de Ingenieria activo configurado")
-        jefe_const = await self.db.get_responsable_proyecto_o_global(
-            conn, id_proyecto, "jefe_construccion"
-        )
+        try:
+            jefe_const = await self.db.get_responsable_proyecto_o_global(
+                conn, id_proyecto, "jefe_construccion", estricto=True
+            )
+        except ValueError:
+            raise ValueError(
+                "Hay más de un jefe de Construcción activo y el proyecto aún no tiene "
+                "Responsable asignado. Un Director debe asignarlo en 'Equipo del Proyecto' "
+                "antes de crear el BOM."
+            ) from None
         coordinador = await self.db.get_asignacion_proyecto(
             conn, id_proyecto, "coordinador_obra", "CONSTRUCCION"
         )
@@ -1222,12 +1252,15 @@ class BomService(BomComprasServiceMixin):
                     "id_categoria": actual.get("id_categoria"),
                     "clave_prod_serv": None,
                     "precio_referencia": v["precio"],
-                    "notas": f"Creado desde BOM {id_bom} por Compras, {today_mx().strftime('%d/%m/%Y')}",
+                    "notas": (
+                        f"Creado desde BOM {bom.get('proyecto_id_estandar') or id_bom} "
+                        f"por Compras, {today_mx().strftime('%d/%m/%Y')}"
+                    ),
                     "material": None, "tipo": None, "acabado": None,
                     "marca": None, "adicional": None, "medida": None,
                     "moneda": v["moneda"],
                     "creado_por": user_id, "actualizado_por": user_id,
-                })
+                }, puede_editar_costos=True)
                 id_materiales_resueltos[id_item] = nuevo_material["id"]
                 savepoints_material_nuevo[id_item] = savepoint
                 ids_creados_este_intento.append(nuevo_material["id"])
@@ -1754,12 +1787,60 @@ class BomService(BomComprasServiceMixin):
         jefe = await self.db.get_usuario_activo_por_rol_org(conn, "jefe_ingenieria")
         return jefe["nombre"] if jefe else "el jefe de Ingeniería"
 
+    async def get_jefe_construccion_label(self, conn) -> str:
+        jefe = await self.db.get_usuario_activo_por_rol_org(conn, "jefe_construccion")
+        return jefe["nombre"] if jefe else "el Jefe de Construccion"
+
     async def get_responsable_ingenieria_label(self, conn, id_proyecto: UUID) -> str:
         """Nombre del RI del proyecto (o el jefe global si aun no tiene RI asignado)."""
         responsable = await self.db.get_responsable_proyecto_o_global(
             conn, id_proyecto, "jefe_ingenieria"
         )
         return responsable["nombre"] if responsable else "el Responsable de Ingeniería"
+
+    async def get_mensaje_hub_sin_bom(self, conn, id_proyecto: UUID, module_roles: dict) -> str:
+        """Mensaje del hub cuando aun no hay paquetes BOM y el usuario no puede crearlos.
+
+        El contacto sugerido depende del departamento de quien entra: Ingenieria
+        siempre puede iniciar el BOM, asi que apunta al RI. Construccion/Compras
+        solo ven un contacto si les falta su propio rol operativo asignado
+        (Coordinador de Obra / Comprador Asignado); si ya lo tienen, no hay nada
+        que ellos puedan resolver y se les muestra un mensaje neutro.
+        """
+        mensaje_espera_inicio = (
+            "El BOM aún no ha sido iniciado. Este proyecto está a la espera de que Ingeniería lo inicie."
+        )
+
+        async def mensaje_contacta_ingenieria() -> str:
+            label = await self.get_responsable_ingenieria_label(conn, id_proyecto)
+            return f"Solicita a {label} que asigne este proyecto para poder iniciar el BOM."
+
+        if module_roles.get("ingenieria"):
+            return await mensaje_contacta_ingenieria()
+
+        if module_roles.get("construccion"):
+            coordinador = await self.db.get_asignacion_proyecto(
+                conn, id_proyecto, "coordinador_obra", "CONSTRUCCION"
+            )
+            if not coordinador:
+                responsable = await self.db.get_responsable_proyecto_o_global(
+                    conn, id_proyecto, "jefe_construccion"
+                )
+                label = responsable["nombre"] if responsable else "el Responsable de Construcción"
+                return f"Contacta a {label} para que asigne un Coordinador de Obra a este proyecto."
+            return mensaje_espera_inicio
+
+        if module_roles.get("compras"):
+            comprador = await self.db.get_asignacion_proyecto(
+                conn, id_proyecto, "comprador_asignado", "COMPRAS"
+            )
+            if not comprador:
+                jefe = await self.db.get_usuario_activo_por_rol_org(conn, "jefe_compras")
+                label = jefe["nombre"] if jefe else "el Jefe de Compras"
+                return f"Contacta a {label} para que asigne un responsable de Compras a este proyecto."
+            return mensaje_espera_inicio
+
+        return await mensaje_contacta_ingenieria()
 
     @staticmethod
     def requiere_propuesta_construccion(bom: dict, area_editor: str) -> bool:
@@ -2592,8 +2673,8 @@ class BomService(BomComprasServiceMixin):
             if k in campos_ejecucion_permitidos
         }
         entregado_manual = campos_ejecucion_entrada.get("entregado")
-        if item.get("origen_precio") == "CATALOGO":
-            for protegido in {"descripcion", "id_material_ref", "unidad_medida"}:
+        if item.get("id_material_interno"):
+            for protegido in {"descripcion", "id_material_ref"}:
                 campos_base.pop(protegido, None)
         if "cantidad" in campos_base:
             cantidad = self._decimal_o_error(
@@ -2652,7 +2733,18 @@ class BomService(BomComprasServiceMixin):
                 raise ValueError("El costo real no puede ser negativo")
             campos_ejecucion.setdefault("estatus_ejecucion", "COTIZADO")
         if grupo_ids is not None and not grupo_ids:
-            raise ValueError("Selecciona al menos un grupo BOM")
+            # El form de edicion de item manda los checkboxes de grupos aunque
+            # el usuario solo haya tocado otro tab (ej. precio en Ingenieria):
+            # si el item nunca tuvo grupos, no mandar ninguno es un no-op, no
+            # un intento de vaciarlos. Solo bloquea si SI tenia grupos antes.
+            grupos_actuales = await self.get_item_grupos_base(conn, id_item)
+            if grupos_actuales:
+                raise ValueError("Selecciona al menos un grupo BOM")
+            # No-op confirmado: tratarlo igual que "el campo no se envio" para
+            # que ni _normalizar_distribucion_grupos (que si truena en vacio)
+            # ni la escritura de grupos de mas abajo (`if grupo_ids is not None`)
+            # se disparen sobre una lista vacia legitima.
+            grupo_ids = None
         distribucion_grupos = (
             self._normalizar_distribucion_grupos(grupo_ids, grupo_porcentajes)
             if grupo_ids is not None else None
@@ -3396,9 +3488,10 @@ class BomService(BomComprasServiceMixin):
         if not bom.get("jefe_construccion"):
             problemas.append("falta Jefe de Construccion")
         if problemas:
+            jefe_label = await self.get_jefe_construccion_label(conn)
             raise ValueError(
                 "No se puede enviar a Obra: " + "; ".join(problemas)
-                + ". Solicita al Jefe de Construccion que lo asigne."
+                + f". Solicita a {jefe_label} que lo asigne."
             )
 
         bom_updated = await self._transicionar_bom(
@@ -4237,6 +4330,7 @@ class BomService(BomComprasServiceMixin):
 
             tipos_entrega = await self.db.get_tipos_entrega(conn)
             categorias = await self.db.get_categorias_compra(conn)
+            unidades_medida = await self.db.get_unidades_medida(conn)
             proveedores = await self.db.get_proveedores(conn)
             usuarios_ing_jefes = await self.db.get_usuarios_por_area(conn, 'ingenieria', solo_jefes=True)
             usuarios_ing = await self.db.get_usuarios_por_area(conn, 'ingenieria', solo_jefes=False)
@@ -4248,6 +4342,7 @@ class BomService(BomComprasServiceMixin):
             data = {
                 'tipos_entrega': tipos_entrega,
                 'categorias': categorias,
+                'unidades_medida': unidades_medida,
                 'proveedores': proveedores,
                 'usuarios_ing': usuarios_ing,           # Lista completa (por si se requiere)
                 'usuarios_ing_jefes': usuarios_ing_jefes, # Solo jefes (para Responsable de Ing)

@@ -3,6 +3,7 @@ BOM – Compras: cotizaciones, autorizaciones Fase D, trazabilidad, tipo de
 cambio, resumen de compra y RFQ. Mixin incluido en BomDBService.
 """
 
+import json
 from uuid import UUID
 from typing import Optional, List
 
@@ -16,16 +17,16 @@ class BomComprasDBMixin:
         self, conn, bom_id: UUID, proveedor_id: Optional[UUID],
         nombre_proveedor: Optional[str], moneda: str,
         subtotal, iva, total, notas: Optional[str], creado_por: UUID,
-        es_rfq: bool = False, rfq_origen_id: Optional[UUID] = None
+        rfq_id: Optional[UUID] = None,
     ) -> dict:
         row = await conn.fetchrow("""
             INSERT INTO tb_bom_cotizaciones
                 (bom_id, proveedor_id, nombre_proveedor, moneda,
-                 subtotal, iva, total, notas, creado_por, es_rfq, rfq_origen_id)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                 subtotal, iva, total, notas, creado_por, rfq_id)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
             RETURNING *
         """, bom_id, proveedor_id, nombre_proveedor, moneda,
-            subtotal, iva, total, notas, creado_por, es_rfq, rfq_origen_id)
+            subtotal, iva, total, notas, creado_por, rfq_id)
         return dict(row)
 
     async def agregar_items_cotizacion(
@@ -118,6 +119,53 @@ class BomComprasDBMixin:
             GROUP BY c.id, u.nombre, ap.id, a.id
             ORDER BY c.creado_en DESC
         """, bom_id)
+        return [dict(r) for r in rows]
+
+    async def get_cotizacion_aprobaciones_direccion(
+        self, conn, estatus: Optional[str] = None,
+        id_proyecto: Optional[UUID] = None,
+        nombre_proveedor: Optional[str] = None,
+    ) -> List[dict]:
+        """Aprobaciones de cotizacion post-BOM para el dashboard de Direccion (todos los proyectos)."""
+        condiciones = []
+        params = []
+        if estatus:
+            params.append(estatus)
+            condiciones.append(f"ap.estatus = ${len(params)}")
+        if id_proyecto:
+            params.append(id_proyecto)
+            condiciones.append(f"ap.proyecto_id = ${len(params)}")
+        if nombre_proveedor:
+            params.append(f"%{nombre_proveedor}%")
+            condiciones.append(f"c.nombre_proveedor ILIKE ${len(params)}")
+        where = f"WHERE {' AND '.join(condiciones)}" if condiciones else ""
+
+        rows = await conn.fetch(f"""
+            SELECT
+                ap.id AS aprobacion_id, ap.estatus AS aprobacion_estatus,
+                ap.lock_version AS aprobacion_lock_version,
+                ap.solicitado_en, ap.aprobado_en, ap.rechazado_en,
+                ap.comentarios_solicitud, ap.comentarios_direccion, ap.motivo_rechazo,
+                c.id AS cotizacion_id, c.lock_version AS cotizacion_lock_version,
+                c.nombre_proveedor, c.total, c.moneda, c.pdf_url,
+                b.id_bom, b.version AS bom_version,
+                paquete.codigo AS paquete_codigo, paquete.nombre AS paquete_nombre,
+                p.id_proyecto, p.proyecto_id_estandar, p.nombre_corto AS nombre_proyecto,
+                cl.nombre_fiscal AS cliente_nombre,
+                a.id AS autorizacion_id, a.estatus AS autorizacion_estatus,
+                a.lock_version AS autorizacion_lock_version
+            FROM tb_bom_cotizacion_aprobaciones ap
+            JOIN tb_bom_cotizaciones c ON c.id = ap.cotizacion_id
+            JOIN tb_bom b ON b.id_bom = ap.bom_id
+            JOIN tb_bom_paquetes paquete ON paquete.id_paquete = b.id_paquete
+            JOIN tb_proyectos_gate p ON p.id_proyecto = ap.proyecto_id
+            LEFT JOIN tb_oportunidades op ON op.id_oportunidad = p.id_oportunidad
+            LEFT JOIN tb_clientes cl ON cl.id = op.cliente_id
+            LEFT JOIN tb_bom_autorizaciones a ON a.cotizacion_id = c.id
+            {where}
+            ORDER BY COALESCE(ap.aprobado_en, ap.rechazado_en, ap.solicitado_en) DESC
+            LIMIT 200
+        """, *params)
         return [dict(r) for r in rows]
 
     async def get_cotizacion_by_id(self, conn, cotizacion_id: UUID) -> Optional[dict]:
@@ -222,6 +270,28 @@ class BomComprasDBMixin:
               AND lock_version = $3
             RETURNING *
         """, cotizacion_id, pdf_url, lock_version_esperado)
+        return dict(row) if row else None
+
+    async def get_pdf_attachment_cotizacion(
+        self, conn, cotizacion_id: UUID, doc_id: Optional[UUID] = None,
+    ) -> Optional[dict]:
+        """Un PDF de la cotizacion; sin doc_id devuelve el mas reciente."""
+        if doc_id:
+            row = await conn.fetchrow("""
+                SELECT id_documento, nombre_archivo, url_sharepoint, drive_item_id,
+                       parent_drive_id, tipo_contenido, tamano_bytes
+                FROM tb_documentos_attachments
+                WHERE id_bom_cotizacion = $1 AND id_documento = $2 AND activo = TRUE
+            """, cotizacion_id, doc_id)
+        else:
+            row = await conn.fetchrow("""
+                SELECT id_documento, nombre_archivo, url_sharepoint, drive_item_id,
+                       parent_drive_id, tipo_contenido, tamano_bytes
+                FROM tb_documentos_attachments
+                WHERE id_bom_cotizacion = $1 AND activo = TRUE
+                ORDER BY fecha_subida DESC
+                LIMIT 1
+            """, cotizacion_id)
         return dict(row) if row else None
 
     async def actualizar_estatus_compra_items(
@@ -1336,26 +1406,99 @@ class BomComprasDBMixin:
             "modulos_fv": float(row["modulos_fv"]) if row and row["modulos_fv"] is not None else None,
         }
 
+    # ─── RFQ (doc 35) ────────────────────────────────────────
+
+    async def crear_rfq(self, conn, bom_id: UUID, creado_por: UUID, notas: Optional[str]) -> dict:
+        row = await conn.fetchrow("""
+            INSERT INTO tb_bom_rfq (bom_id, creado_por, notas)
+            VALUES ($1, $2, $3)
+            RETURNING *
+        """, bom_id, creado_por, notas)
+        return dict(row)
+
+    async def agregar_items_rfq(self, conn, rfq_id: UUID, items: list) -> None:
+        """items: lista de dicts {bom_item_id, cantidad, unidad_override}."""
+        await conn.executemany("""
+            INSERT INTO tb_bom_rfq_items (rfq_id, bom_item_id, cantidad, unidad_override)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (rfq_id, bom_item_id) DO NOTHING
+        """, [
+            (rfq_id, i['bom_item_id'], i['cantidad'], i.get('unidad_override'))
+            for i in items
+        ])
+
+    async def get_rfq_by_id(self, conn, rfq_id: UUID) -> Optional[dict]:
+        row = await conn.fetchrow("SELECT * FROM tb_bom_rfq WHERE id = $1", rfq_id)
+        return dict(row) if row else None
+
+    async def quitar_item_rfq(self, conn, rfq_id: UUID, bom_item_id: UUID) -> int:
+        result = await conn.execute(
+            "DELETE FROM tb_bom_rfq_items WHERE rfq_id = $1 AND bom_item_id = $2",
+            rfq_id, bom_item_id,
+        )
+        return int(result.split()[-1]) if result else 0
+
+    async def incrementar_lock_rfq(self, conn, rfq_id: UUID, lock_version_esperado: int) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_rfq SET lock_version = lock_version + 1, updated_at = NOW()
+            WHERE id = $1 AND lock_version = $2
+            RETURNING *
+        """, rfq_id, lock_version_esperado)
+        return dict(row) if row else None
+
+    async def registrar_historial_rfq(
+        self, conn, rfq_id: UUID, usuario_id: UUID, accion: str, detalle: Optional[dict] = None,
+    ) -> None:
+        await conn.execute("""
+            INSERT INTO tb_bom_rfq_historial (rfq_id, usuario_id, accion, detalle)
+            VALUES ($1, $2, $3, $4::jsonb)
+        """, rfq_id, usuario_id, accion, json.dumps(detalle or {}))
+
+    async def get_historial_rfq(self, conn, rfq_id: UUID) -> list:
+        rows = await conn.fetch("""
+            SELECT h.*, u.nombre AS usuario_nombre
+            FROM tb_bom_rfq_historial h
+            LEFT JOIN tb_usuarios u ON u.id_usuario = h.usuario_id
+            WHERE h.rfq_id = $1
+            ORDER BY h.fecha DESC
+        """, rfq_id)
+        return [dict(r) for r in rows]
+
     # ─── COMPARATIVA RFQ (Gap 7d) ───────────────────────────
 
     async def get_rfqs_by_bom(self, conn, id_bom: UUID) -> list:
-        """RFQs activos de un BOM."""
+        """RFQs (tb_bom_rfq) de un BOM, con conteo de items."""
         rows = await conn.fetch("""
-            SELECT c.*, u.nombre AS creado_por_nombre
-            FROM tb_bom_cotizaciones c
-            LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
-            WHERE c.bom_id = $1 AND c.es_rfq = TRUE
-            ORDER BY c.creado_en DESC
+            SELECT r.*, r.created_at AS creado_en, u.nombre AS creado_por_nombre,
+                   COUNT(ri.id) AS total_items_cotizacion
+            FROM tb_bom_rfq r
+            LEFT JOIN tb_usuarios u ON u.id_usuario = r.creado_por
+            LEFT JOIN tb_bom_rfq_items ri ON ri.rfq_id = r.id
+            WHERE r.bom_id = $1
+            GROUP BY r.id, u.nombre
+            ORDER BY r.created_at DESC
         """, id_bom)
         return [dict(r) for r in rows]
 
+    async def get_items_rfq(self, conn, rfq_id: UUID) -> list:
+        """Items de un RFQ (tb_bom_rfq_items), con descripcion del item BOM."""
+        rows = await conn.fetch("""
+            SELECT ri.id, ri.bom_item_id, ri.cantidad, ri.unidad_override,
+                   bi.descripcion, bi.unidad_medida, bi.precio_unitario
+            FROM tb_bom_rfq_items ri
+            JOIN tb_bom_items bi ON bi.id_item = ri.bom_item_id
+            WHERE ri.rfq_id = $1
+            ORDER BY bi.orden ASC
+        """, rfq_id)
+        return [dict(r) for r in rows]
+
     async def get_rfq_responses(self, conn, rfq_id: UUID) -> list:
-        """Cotizaciones de proveedores que respondieron a un RFQ."""
+        """Cotizaciones reales de proveedores que respondieron a un RFQ."""
         rows = await conn.fetch("""
             SELECT c.*, u.nombre AS creado_por_nombre
             FROM tb_bom_cotizaciones c
             LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
-            WHERE c.rfq_origen_id = $1 AND c.es_rfq = FALSE
+            WHERE c.rfq_id = $1
             ORDER BY c.creado_en DESC
         """, rfq_id)
         return [dict(r) for r in rows]

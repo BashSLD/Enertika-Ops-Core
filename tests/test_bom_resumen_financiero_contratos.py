@@ -272,7 +272,6 @@ async def test_pago_completo_actualiza_ejecucion_con_lock_exacto(monkeypatch):
         None,
         date(2026, 8, 3),
         None,
-        None,
         usuario_id,
         3,
         "pago-idempotente",

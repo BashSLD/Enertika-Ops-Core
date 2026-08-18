@@ -3,13 +3,15 @@ Router de compras BOM: cotizaciones (Fase C) y autorizaciones de compra (Fase D)
 Incluido desde core/bom/router.py via router.include_router(compras_router).
 """
 
-from fastapi import APIRouter, Depends, Request, HTTPException, Form
+from fastapi import APIRouter, Depends, Request, HTTPException, Form, File, UploadFile
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from uuid import UUID
 from typing import Optional
 import asyncpg
 import html
+import httpx
+import jinja2
 import json
 import logging
 
@@ -18,15 +20,11 @@ from core.security import get_current_user_context
 from core.permissions import require_module_access, require_any_module_access
 from core.config import settings
 from core.jinja_filters import register_timezone_filters
-from .compras_service import ESTATUS_COTIZABLE
+from modules.shared.utils import content_disposition_header
+from .compras_service import ESTATUS_COTIZABLE, item_disponible_cotizacion
 from .router import _toast_response
 from .schemas import EstatusBOM
-from .service import (
-    BomService,
-    get_bom_service,
-    ESTATUS_ITEM_CERRADO_COMPRA,
-    ESTATUS_COMPRA_BLOQUEA_ADENDA,
-)
+from .service import BomService, get_bom_service
 
 logger = logging.getLogger("BOM.ComprasRouter")
 
@@ -40,15 +38,6 @@ compras_router = APIRouter()
 def _js_str(value: str) -> str:
     """Codifica un string para uso seguro como literal JS dentro de un atributo HTML con comillas dobles."""
     return html.escape(json.dumps(value), quote=True)
-
-
-def _item_disponible_cotizacion(item: dict) -> bool:
-    estatus_compra = item.get("estatus_compra", "SIN_COTIZAR")
-    estatus_ejecucion = item.get("estatus_ejecucion")
-    return (
-        estatus_compra not in ESTATUS_COMPRA_BLOQUEA_ADENDA
-        and estatus_ejecucion not in ESTATUS_ITEM_CERRADO_COMPRA
-    )
 
 
 def _item_cotizacion_json(item: dict) -> dict:
@@ -97,7 +86,7 @@ async def _render_cotizaciones_tab(
     cotizaciones = await service.listar_cotizaciones(conn, bom_id)
     items = await service.get_items(conn, bom_id)
     items_disponibles = [
-        _item_cotizacion_json(i) for i in items if _item_disponible_cotizacion(i)
+        _item_cotizacion_json(i) for i in items if item_disponible_cotizacion(i)
     ]
     role = context.get("role")
     rol_org = context.get("rol_organizacional")
@@ -179,9 +168,8 @@ async def crear_cotizacion(
     iva_pct = float(body.get("iva_pct", 16))
     notas = body.get("notas", "").strip() or None
     items_raw = body.get("items", [])
-    es_rfq = body.get("es_rfq", False)
-    rfq_origen_id_str = body.get("rfq_origen_id")
-    rfq_origen_id = UUID(rfq_origen_id_str) if rfq_origen_id_str else None
+    rfq_id_str = body.get("rfq_id")
+    rfq_id = UUID(rfq_id_str) if rfq_id_str else None
     subtotal_externo = body.get("subtotal")  # modo simplificado: el usuario ingresa subtotal
     bom_lock_version_raw = body.get("bom_lock_version")
 
@@ -198,12 +186,11 @@ async def crear_cotizacion(
         await service.crear_cotizacion(
             conn, id_bom, proveedor_id, nombre_proveedor, moneda,
             items_data, iva_pct, notas, user_id,
-            es_rfq=es_rfq,
-            rfq_origen_id=rfq_origen_id,
             subtotal_externo=float(subtotal_externo) if subtotal_externo is not None else None,
             bom_lock_version_esperado=(
                 int(bom_lock_version_raw) if bom_lock_version_raw is not None else None
             ),
+            rfq_id=rfq_id,
         )
     except (ValueError, TypeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -220,11 +207,11 @@ async def crear_rfq_rapido(
     service: BomService = Depends(get_bom_service),
     _=require_module_access("compras", "editor"),
 ):
-    """Crea un RFQ con los items seleccionados desde la tabla de items.
+    """Crea un RFQ (tb_bom_rfq, doc 35) con los items seleccionados desde la tabla de items.
 
-    Recibe item_ids como lista de form values. No requiere proveedor ni precios.
-    Usa tb_bom_items.descripcion (descripcion interna) como referencia para el proveedor.
-    Filtra automaticamente items en AUTORIZADO/PAGADO/FACTURADO.
+    Recibe item_ids como lista de form values. No bloquea items ni cambia su estatus --
+    solo selecciona items para generar despues el PDF neutro. Filtra automaticamente items
+    en AUTORIZADO/PAGADO/FACTURADO. El RFQ resultante se ve en la pestaña Comparativa.
     """
     user_id = context.get("user_db_id")
 
@@ -232,7 +219,7 @@ async def crear_rfq_rapido(
     raw_ids = form.getlist("item_ids")
     if not raw_ids:
         return _toast_response(
-            request, "Selecciona al menos un item para cotizar", "error",
+            request, "Selecciona al menos un item para el RFQ", "error",
             status_code=400,
         )
 
@@ -241,40 +228,20 @@ async def crear_rfq_rapido(
     except ValueError:
         raise HTTPException(status_code=400, detail="IDs inválidos")
 
-    items_bd = await service.get_items_by_ids(conn, item_ids)
-    items_data = [
-        {
-            "bom_item_id": i["id_item"],
-            "precio_unitario": 0,
-            "cantidad": float(i["cantidad"]),
-        }
-        for i in items_bd
-        if _item_disponible_cotizacion(i)
-    ]
-
-    if not items_data:
-        return _toast_response(
-            request, "Todos los items seleccionados ya están autorizados o facturados", "error",
-            status_code=400,
-        )
-
     try:
-        await service.crear_cotizacion(
-            conn, id_bom,
-            None, None, "MXN",
-            items_data, 16, None, user_id,
-            es_rfq=True,
-            bom_lock_version_esperado=int(form.get("lock_version", "")),
-        )
+        rfq = await service.crear_rfq(conn, id_bom, item_ids, user_id)
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
-        logger.exception("Error de BD al crear RFQ rápido")
+        logger.exception("Error de BD al crear RFQ")
         return _toast_response(request, "Error interno al crear el RFQ", "error", status_code=500)
 
-    return await _render_cotizaciones_tab(
-        request, conn, service, context, id_bom,
-        rfq_creado=True, rfq_items_count=len(items_data),
+    return _toast_response(
+        request,
+        f"RFQ creado con {rfq['total_items']} item{'s' if rfq['total_items'] != 1 else ''}. "
+        "Consúltalo en la pestaña Comparativa para generar el PDF.",
+        "success",
+        title="RFQ creado",
     )
 
 
@@ -314,26 +281,121 @@ async def get_comparativa(
     _=require_module_access("compras"),
 ):
     """Vista comparativa: items del BOM × proveedores que respondieron al RFQ."""
+    return await _render_comparativa(request, conn, service, context, id_bom)
+
+
+@compras_router.get("/rfq/{rfq_id}/pdf", include_in_schema=False)
+async def descargar_pdf_rfq(
+    rfq_id: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras"),
+):
+    """Genera y descarga el PDF neutro del RFQ (doc 35) para enviarlo a proveedores."""
+    user_id = context.get("user_db_id")
+    try:
+        pdf_bytes, filename = await service.generar_pdf_rfq(conn, rfq_id, user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except (jinja2.TemplateError, OSError, RuntimeError):
+        logger.exception("Error generando PDF de RFQ %s", rfq_id)
+        raise HTTPException(status_code=500, detail="Error generando el PDF del RFQ")
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@compras_router.get("/rfq/{rfq_id}/historial", include_in_schema=False)
+async def historial_rfq(
+    request: Request,
+    rfq_id: UUID,
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras"),
+):
+    """Bitácora de un RFQ (quién agregó/quitó items o regeneró el PDF) — vista bajo demanda."""
+    historial = await service.listar_historial_rfq(conn, rfq_id)
+    return templates.TemplateResponse(
+        request, "bom/partials/rfq_historial.html", {"historial": historial, "rfq_id": rfq_id}
+    )
+
+
+async def _render_comparativa(request, conn, service, context, id_bom: UUID):
     rfqs = await service.get_rfqs(conn, id_bom)
     comparativas = []
     for rfq in rfqs:
         responses = await service.get_rfq_responses(conn, rfq['id'])
-        rfq_items = await service.get_items_cotizacion(conn, rfq['id'])
+        rfq_items = await service.get_items_rfq(conn, rfq['id'])
         resp_items = {}
         for resp in responses:
             resp_items[str(resp['id'])] = await service.get_items_cotizacion(conn, resp['id'])
         comparativas.append({
-            'rfq': rfq,
-            'items': rfq_items,
-            'responses': responses,
-            'resp_items': resp_items,
+            'rfq': rfq, 'items': rfq_items, 'responses': responses, 'resp_items': resp_items,
         })
-
     items_bom = await service.get_items(conn, id_bom)
     return templates.TemplateResponse(
         request, "bom/partials/comparativa.html",
         {"comparativas": comparativas, "items_bom": items_bom, "id_bom": id_bom}
     )
+
+
+@compras_router.post("/rfq/{rfq_id}/items", include_in_schema=False)
+async def agregar_item_rfq(
+    request: Request,
+    rfq_id: UUID,
+    bom_item_id: UUID = Form(...),
+    cantidad: float = Form(...),
+    unidad_override: Optional[str] = Form(None),
+    lock_version: int = Form(...),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Agrega un item a un RFQ existente. No bloquea el item ni cambia su estatus."""
+    user_id = context.get("user_db_id")
+    try:
+        actualizado = await service.agregar_item_rfq(
+            conn, rfq_id, bom_item_id, cantidad, unidad_override, user_id,
+            lock_version_esperado=lock_version,
+        )
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al agregar item al RFQ %s", rfq_id)
+        return _toast_response(request, "Error interno al agregar el item", "error", status_code=500)
+
+    return await _render_comparativa(request, conn, service, context, actualizado["bom_id"])
+
+
+@compras_router.post("/rfq/{rfq_id}/items/{bom_item_id}/quitar", include_in_schema=False)
+async def quitar_item_rfq(
+    request: Request,
+    rfq_id: UUID,
+    bom_item_id: UUID,
+    lock_version: int = Form(...),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Quita un item de un RFQ existente."""
+    user_id = context.get("user_db_id")
+    try:
+        actualizado = await service.quitar_item_rfq(
+            conn, rfq_id, bom_item_id, user_id, lock_version_esperado=lock_version,
+        )
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al quitar item del RFQ %s", rfq_id)
+        return _toast_response(request, "Error interno al quitar el item", "error", status_code=500)
+
+    return await _render_comparativa(request, conn, service, context, actualizado["bom_id"])
 
 
 @compras_router.post("/cotizaciones/{cotizacion_id}/bulk-asignar", include_in_schema=False)
@@ -410,19 +472,18 @@ async def rechazar_cotizacion(
 async def subir_pdf_cotizacion(
     request: Request,
     cotizacion_id: UUID,
+    archivo: UploadFile = File(...),
+    lock_version: int = Form(...),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
     _=require_module_access("compras", "editor"),
 ):
-    """Sube PDF de cotización (URL). Actualiza estatus a RECIBIDA."""
-    form = await request.form()
-    pdf_url = form.get("pdf_url", "").strip()
-    if not pdf_url:
-        raise HTTPException(status_code=400, detail="URL del PDF es requerida")
+    """Sube el PDF real de la cotización a SharePoint. Actualiza estatus a RECIBIDA."""
+    user_id = context.get("user_db_id")
     try:
-        await service.actualizar_pdf_cotizacion(
-            conn, cotizacion_id, pdf_url, int(form.get("lock_version", ""))
+        await service.subir_pdf_cotizacion(
+            conn, cotizacion_id, archivo, user_id, lock_version
         )
     except (TypeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -433,6 +494,39 @@ async def subir_pdf_cotizacion(
     if not cotizacion:
         raise HTTPException(status_code=404, detail="Cotización no encontrada")
     return await _render_cotizaciones_tab(request, conn, service, context, cotizacion['bom_id'])
+
+
+@compras_router.get("/cotizaciones/{cotizacion_id}/preview", include_in_schema=False)
+async def preview_pdf_cotizacion(
+    cotizacion_id: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(
+        ["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}
+    ),
+):
+    """Streamea el PDF mas reciente de la cotización para verlo inline en el navegador."""
+    try:
+        nombre_archivo, media_type, contenido = await service.get_pdf_cotizacion_bytes(
+            conn, cotizacion_id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Error descargando el PDF desde SharePoint")
+
+    return Response(
+        content=contenido,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": content_disposition_header(
+                "inline", nombre_archivo or "cotizacion.pdf"
+            )
+        },
+    )
 
 
 # ========================================
@@ -531,6 +625,118 @@ async def rechazar_cotizacion_direccion(
         raise HTTPException(status_code=500, detail="Error al rechazar la cotización.")
 
     return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
+
+
+# ========================================
+# DASHBOARD DIRECCION (Fase 3, doc 33)
+# ========================================
+
+async def _dashboard_direccion_ctx(
+    conn, service: BomService, context: dict,
+    estatus: Optional[str], id_proyecto: Optional[UUID], proveedor: Optional[str],
+) -> dict:
+    aprobaciones = await service.get_cotizacion_aprobaciones_direccion(
+        conn, estatus=estatus or None, id_proyecto=id_proyecto, nombre_proveedor=proveedor,
+    )
+    user_id = context.get("user_db_id")
+    aprobador_direccion = await service.db.get_aprobador_final_id(conn)
+    representados = (
+        await service.get_titulares_que_representa(conn, user_id) if user_id else set()
+    )
+    es_aprobador_direccion = bool(aprobador_direccion and aprobador_direccion in representados)
+    return {
+        "aprobaciones": aprobaciones,
+        "estatus_filtro": estatus or "",
+        "id_proyecto_filtro": str(id_proyecto) if id_proyecto else "",
+        "proveedor_filtro": proveedor or "",
+        "es_aprobador_direccion": es_aprobador_direccion,
+    }
+
+
+@compras_router.api_route("/direccion/cotizaciones", methods=["GET", "HEAD"], include_in_schema=False)
+async def dashboard_direccion_cotizaciones(
+    request: Request,
+    estatus: str = "PENDIENTE_DIRECCION",
+    id_proyecto: Optional[UUID] = None,
+    proveedor: Optional[str] = None,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(
+        ["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}
+    ),
+):
+    """Dashboard de Dirección: cotizaciones pendientes/aprobadas/rechazadas de todos los proyectos."""
+    ctx = await _dashboard_direccion_ctx(conn, service, context, estatus, id_proyecto, proveedor)
+    is_htmx = request.headers.get("hx-request")
+    is_history_restore = request.headers.get("hx-history-restore-request")
+    if is_htmx and not is_history_restore:
+        return templates.TemplateResponse(
+            request, "bom/partials/direccion_cotizaciones.html", ctx
+        )
+    return templates.TemplateResponse(request, "bom/direccion_cotizaciones.html", ctx)
+
+
+@compras_router.post("/direccion/cotizaciones/{cotizacion_id}/aprobar", include_in_schema=False)
+async def dashboard_aprobar_cotizacion(
+    request: Request,
+    cotizacion_id: UUID,
+    comentarios: Optional[str] = Form(None),
+    aprobacion_lock_version: int = Form(...),
+    autorizacion_lock_version: int = Form(...),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
+    try:
+        await service.aprobar_cotizacion_direccion(
+            conn, cotizacion_id, user_id, user_role, rol_org, comentarios,
+            aprobacion_lock_version, autorizacion_lock_version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al aprobar cotización desde el dashboard de Dirección")
+        raise HTTPException(status_code=500, detail="Error al aprobar la cotización.")
+    ctx = await _dashboard_direccion_ctx(
+        conn, service, context, "PENDIENTE_DIRECCION", None, None
+    )
+    return templates.TemplateResponse(request, "bom/partials/direccion_cotizaciones.html", ctx)
+
+
+@compras_router.post("/direccion/cotizaciones/{cotizacion_id}/rechazar", include_in_schema=False)
+async def dashboard_rechazar_cotizacion(
+    request: Request,
+    cotizacion_id: UUID,
+    motivo: str = Form(...),
+    aprobacion_lock_version: int = Form(...),
+    autorizacion_lock_version: int = Form(...),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
+    try:
+        await service.rechazar_cotizacion_direccion(
+            conn, cotizacion_id, user_id, motivo, user_role, rol_org,
+            aprobacion_lock_version, autorizacion_lock_version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al rechazar cotización desde el dashboard de Dirección")
+        raise HTTPException(status_code=500, detail="Error al rechazar la cotización.")
+    ctx = await _dashboard_direccion_ctx(
+        conn, service, context, "PENDIENTE_DIRECCION", None, None
+    )
+    return templates.TemplateResponse(request, "bom/partials/direccion_cotizaciones.html", ctx)
 
 
 @compras_router.post("/cotizaciones/{cotizacion_id}/reemplazar", include_in_schema=False)

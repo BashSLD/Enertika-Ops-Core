@@ -234,6 +234,7 @@ class FinanzasDBService:
     async def crear_comprobante_bom(
         self,
         conn,
+        id_comprobante: UUID,
         id_bom_pago: UUID,
         fecha_pago: date,
         beneficiario_orig: str,
@@ -242,17 +243,20 @@ class FinanzasDBService:
         id_proveedor: Optional[UUID],
         id_proyecto: Optional[UUID],
         capturado_por: UUID,
-        comprobante_url: Optional[str],
     ) -> None:
-        """Inserta en tb_comprobantes_pago con origen='BOM' y enlace al pago BOM."""
+        """Inserta en tb_comprobantes_pago con origen='BOM' y enlace al pago BOM.
+
+        id_comprobante lo genera el llamador (FinanzasService.registrar_pago) ANTES de la
+        transaccion, para poder subir el PDF a SharePoint con ese mismo id de enlace.
+        """
         await conn.execute("""
             INSERT INTO tb_comprobantes_pago (
-                fecha_pago, beneficiario_orig, monto, moneda,
+                id_comprobante, fecha_pago, beneficiario_orig, monto, moneda,
                 id_proveedor, id_proyecto, estatus, capturado_por_id,
                 id_bom_pago, origen
-            ) VALUES ($1, $2, $3, $4, $5, $6, 'PENDIENTE', $7, $8, 'BOM')
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDIENTE', $8, $9, 'BOM')
         """,
-            fecha_pago, beneficiario_orig, monto, moneda,
+            id_comprobante, fecha_pago, beneficiario_orig, monto, moneda,
             id_proveedor, id_proyecto, capturado_por,
             id_bom_pago,
         )

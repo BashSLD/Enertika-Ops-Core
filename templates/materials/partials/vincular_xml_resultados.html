@@ -11,7 +11,7 @@
             </div>
             <div class="text-xs text-gray-500">
                 {{ r.proveedor_nombre or '—' }} · {{ r.unidad or '—' }}
-                {% if r.precio_unitario %} · ${{ "{:,.2f}".format(r.precio_unitario) }}{% endif %}
+                {% if r.precio_unitario %} · ${{ "{:,.2f}".format(r.precio_unitario) }} {{ r.moneda or 'MXN' }}{% endif %}
             </div>
         </div>
         {% if r.ya_vinculado %}
@@ -22,6 +22,12 @@
             hx-vals='{"id_xml": "{{ r.id }}"}'
             hx-target="#vinculos-list"
             hx-swap="innerHTML"
+            {% if origen_item_id and r.precio_unitario %}
+            data-origen-item-id="{{ origen_item_id }}"
+            data-precio="{{ r.precio_unitario }}"
+            data-moneda="{{ r.moneda or 'MXN' }}"
+            hx-on::after-request="if(event.detail.successful) usarPrecioXmlPendiente(this)"
+            {% endif %}
             {% if r.vinculado_a_otro %}
             hx-confirm="Este XML ya esta vinculado a &quot;{{ r.vinculado_a_otro }}&quot;. ¿Reasignar el vinculo a este material?"
             class="ml-3 flex-shrink-0 text-xs bg-amber-500 hover:bg-amber-600 text-white px-3 py-1 rounded-lg font-medium transition-colors"

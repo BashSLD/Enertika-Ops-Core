@@ -6,6 +6,7 @@ ROLES_ORGANIZACIONALES_VALIDOS = {
     "jefe_comercial",
     "jefe_ingenieria",
     "jefe_construccion",
+    "jefe_compras",
     "director",
 }
 

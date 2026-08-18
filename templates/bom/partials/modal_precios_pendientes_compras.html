@@ -28,7 +28,8 @@
             hx-target="#tab-proyectos-bom-pendientes-precio" hx-swap="innerHTML"
             hx-indicator="#precios-compras-overlay"
             hx-disabled-elt="#precios-compras-guardar"
-            hx-on::after-request="if(event.detail.successful) document.getElementById('compras-modal-container').innerHTML=''"
+            hx-disinherit="hx-disabled-elt"
+            hx-on::after-request="if(event.detail.successful && event.target === this) document.getElementById('compras-modal-container').innerHTML=''"
             class="flex flex-col flex-1 min-h-0">
 
             <div class="p-6 flex-1 min-h-0 overflow-y-auto space-y-3">
@@ -74,6 +75,12 @@
                                 class="rounded border-amber-400 text-amber-600 focus:ring-amber-500">
                             Tambien actualizar el precio de referencia en el catalogo interno
                         </label>
+                        <button type="button"
+                            hx-get="/materials/internos/{{ item.id_material_interno }}/vincular-xml?origen_item_id={{ item.id_item }}"
+                            hx-target="body" hx-swap="beforeend"
+                            class="mt-1.5 text-xs text-indigo-600 hover:text-indigo-800 underline">
+                            Vincular con item de XML
+                        </button>
                         {% else %}
                         <div x-data="{
                                 vinculado: null,

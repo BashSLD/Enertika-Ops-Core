@@ -9,7 +9,7 @@ Endpoints:
 - /finanzas/autorizaciones/{id}/pago        - POST: registrar pago
 """
 
-from fastapi import APIRouter, Depends, Request, Form, HTTPException
+from fastapi import APIRouter, Depends, Request, Form, File, UploadFile, HTTPException
 from fastapi.templating import Jinja2Templates
 from typing import Optional
 from uuid import UUID, uuid4
@@ -128,6 +128,7 @@ async def registrar_pago(
     referencia_bancaria: Optional[str] = Form(None),
     lock_version: int = Form(...),
     clave_idempotencia: str = Form(...),
+    archivo: Optional[UploadFile] = File(None),
     context=Depends(get_current_user_context),
     _=require_module_access("finanzas", "editor"),
     conn=Depends(get_db_connection),
@@ -143,10 +144,10 @@ async def registrar_pago(
             tipo_cambio_usado=tipo_cambio_usado,
             fecha_pago=fecha_pago,
             referencia_bancaria=referencia_bancaria,
-            comprobante_url=None,
             registrado_por=user_id,
             lock_version_esperado=lock_version,
             clave_idempotencia=clave_idempotencia,
+            archivo=archivo if archivo and archivo.filename else None,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

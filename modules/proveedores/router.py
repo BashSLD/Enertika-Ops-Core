@@ -2,7 +2,6 @@
 
 import logging
 import zipfile
-from urllib.parse import quote
 from uuid import UUID
 
 import asyncpg
@@ -12,6 +11,7 @@ from fastapi.responses import RedirectResponse, Response
 
 from core.database import get_db_connection
 from core.permissions import require_any_module_access
+from modules.shared.utils import content_disposition_header as _content_disposition
 
 from .service import (
     DocumentoArchivo,
@@ -28,13 +28,6 @@ router = APIRouter(
     prefix="/proveedores",
     tags=["Proveedores"],
 )
-
-
-def _content_disposition(disposition: str, filename: str) -> str:
-    safe_filename = filename.replace("\\", "_").replace("/", "_").replace('"', "")
-    safe_filename = safe_filename.replace("\r", "").replace("\n", "") or "documento"
-    encoded = quote(safe_filename)
-    return f'{disposition}; filename="{safe_filename}"; filename*=UTF-8\'\'{encoded}'
 
 
 def _is_inline_preview(media_type: str) -> bool:

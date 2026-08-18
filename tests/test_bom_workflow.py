@@ -77,6 +77,9 @@ class FakeWorkflowDB:
     async def get_responsable_proyecto_o_global(self, conn, id_proyecto, rol_proyecto):
         return None
 
+    async def get_usuario_activo_por_rol_org(self, conn, rol_organizacional):
+        return None
+
     async def update_bom_estatus(self, conn, id_bom, estatus, **kwargs):
         self.updates.append((estatus, kwargs))
         self.bom["estatus"] = estatus.value if hasattr(estatus, "value") else estatus

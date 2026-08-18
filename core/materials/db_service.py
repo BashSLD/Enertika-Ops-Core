@@ -30,6 +30,18 @@ def interno_similitud_where_sql(col: str, q_param: str, threshold_param: str) ->
     return f"({col} ILIKE '%' || {q_param} || '%' OR word_similarity({q_param}, {col}) >= {threshold_param})"
 
 
+# tb_materiales_historial no tiene columna moneda propia -- se deriva de la factura
+# de origen (tb_comprobante_facturas.moneda via uuid_factura). Subquery correlacionada
+# (no JOIN) porque un id_comprobante puede tener varias facturas (pagos parciales,
+# tipo I + P) y un JOIN directo duplicaria filas de tb_materiales_historial.
+# Sin match o sin uuid_factura: MXN por default (CFDI mexicano estandar).
+_MONEDA_XML_SUBQUERY_SQL = """COALESCE(
+                    (SELECT cf.moneda FROM tb_comprobante_facturas cf
+                     WHERE cf.uuid_factura = m.uuid_factura::text LIMIT 1),
+                    'MXN'
+                ) AS moneda"""
+
+
 class MaterialsDBService:
     """Queries SQL para modulo de Materiales."""
 
@@ -675,6 +687,7 @@ class MaterialsDBService:
                 m.descripcion_proveedor,
                 COALESCE(m.unidad_homologada, m.unidad) AS unidad,
                 m.precio_unitario,
+                """ + _MONEDA_XML_SUBQUERY_SQL + """,
                 p.razon_social AS proveedor_nombre,
                 m.fecha_factura,
                 EXISTS(
@@ -725,6 +738,7 @@ class MaterialsDBService:
                     m.descripcion_proveedor,
                     COALESCE(m.unidad_homologada, m.unidad) AS unidad,
                     m.precio_unitario,
+                    """ + _MONEDA_XML_SUBQUERY_SQL + """,
                     p.razon_social AS proveedor_nombre,
                     m.fecha_factura,
                     EXISTS(

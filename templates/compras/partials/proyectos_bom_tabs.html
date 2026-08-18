@@ -17,8 +17,14 @@
             {% if actualizacion_precios_habilitada %}
             <button @click="tab = 'pendientes-precio'"
                 :class="{'border-amber-600 bg-amber-50 text-amber-800': tab === 'pendientes-precio', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'pendientes-precio'}"
-                class="py-2 px-3 border-b-2 rounded-t-lg font-medium text-sm transition">
+                class="py-2 px-3 border-b-2 rounded-t-lg font-medium text-sm transition inline-flex items-center gap-1.5">
                 Actualizacion de precios
+                {% if total_pendientes_precio %}
+                <span class="relative flex h-2 w-2 flex-shrink-0" title="{{ total_pendientes_precio }} paquete(s) con items pendientes de costo">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                </span>
+                {% endif %}
             </button>
             {% endif %}
         </nav>

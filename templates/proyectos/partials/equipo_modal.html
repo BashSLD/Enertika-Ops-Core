@@ -335,6 +335,7 @@
 
             <!-- Footer -->
             {% set alguno_puede_editar = puede_asignar_ingenieria or puede_asignar_construccion or puede_asignar_compras %}
+            {% if alguno_puede_editar %}
             <div class="flex items-center justify-between gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50">
                 <div x-show="dirty && !guardando" x-cloak
                     class="flex items-center gap-1.5 text-xs text-amber-700 font-medium">
@@ -343,13 +344,6 @@
                     </svg>
                     Cambios sin guardar
                 </div>
-                {% if not alguno_puede_editar %}
-                <button type="button"
-                    @click="document.getElementById('modal-equipo').remove()"
-                    class="ml-auto px-4 py-2 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                    Cerrar
-                </button>
-                {% else %}
                 <button type="button" @click="guardar()" :disabled="guardando"
                     class="ml-auto flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed bg-[#123456] hover:bg-[#0d2d4a]">
                     <svg class="w-4 h-4" :class="{'animate-spin': guardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -357,8 +351,8 @@
                     </svg>
                     <span x-text="guardando ? 'Guardando...' : 'Guardar'"></span>
                 </button>
-                {% endif %}
             </div>
+            {% endif %}
         </form>
 
     </div>

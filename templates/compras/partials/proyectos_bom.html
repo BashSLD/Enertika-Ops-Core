@@ -54,18 +54,56 @@
                         {% endif %}
                     </td>
                     <td class="px-4 py-3 text-center">
-                        <button hx-get="/bom/paquetes/{{ p.id_paquete }}/ui"
-                            hx-target="#main-content"
-                            hx-push-url="true"
-                            hx-indicator="#bom-compras-spinner-{{ p.id_paquete }}"
-                            hx-disabled-elt="this"
-                            hx-sync="this:drop"
-                            class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-[#00BABB] hover:bg-[#009999] transition shadow-sm">
-                            <span id="bom-compras-spinner-{{ p.id_paquete }}" class="htmx-indicator">
-                                {{ spinner_icon('w-3 h-3') }}
-                            </span>
-                            Ver BOM
-                        </button>
+                        <div class="relative inline-block text-left"
+                            x-data="{
+                                openMenu: false,
+                                menuStyle: '',
+                                toggle() {
+                                    if (!this.openMenu) {
+                                        const rect = $refs.trigger.getBoundingClientRect();
+                                        this.menuStyle = `top:${rect.bottom + 4}px; left:${rect.right - 144}px;`;
+                                    }
+                                    this.openMenu = !this.openMenu;
+                                }
+                            }"
+                            @scroll.window="openMenu = false">
+                            <button type="button" x-ref="trigger" @click="toggle()"
+                                aria-haspopup="true" :aria-expanded="openMenu.toString()" aria-label="Más acciones"
+                                class="inline-flex items-center justify-center p-1.5 rounded-lg text-white bg-[#00BABB] hover:bg-[#009999] transition shadow-sm">
+                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M10 6a2 2 0 100-4 2 2 0 000 4zM10 12a2 2 0 100-4 2 2 0 000 4zM10 18a2 2 0 100-4 2 2 0 000 4z"/>
+                                </svg>
+                            </button>
+                            <template x-teleport="body">
+                                <div x-show="openMenu" x-cloak
+                                    x-init="htmx.process($el)"
+                                    @click.outside="if ($event.target !== $refs.trigger && !$refs.trigger.contains($event.target)) openMenu = false"
+                                    x-transition:enter="transition ease-out duration-100"
+                                    x-transition:enter-start="opacity-0 -translate-y-1"
+                                    x-transition:enter-end="opacity-100 translate-y-0"
+                                    x-transition:leave="transition ease-in duration-75"
+                                    x-transition:leave-start="opacity-100 translate-y-0"
+                                    x-transition:leave-end="opacity-0 -translate-y-1"
+                                    :style="menuStyle"
+                                    class="fixed z-40 bg-white border border-gray-200 rounded-lg shadow-lg p-1.5 min-w-[9rem]">
+                                    <button hx-get="/bom/paquetes/{{ p.id_paquete }}/ui"
+                                        hx-target="#main-content"
+                                        hx-push-url="true"
+                                        hx-indicator="#global-loading-overlay"
+                                        hx-disabled-elt="this" hx-sync="this:drop" @click="openMenu = false"
+                                        class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-gray-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-wait">
+                                        Ver BOM
+                                    </button>
+                                    <button hx-get="/proyectos/partials/equipo/{{ p.id_proyecto }}"
+                                        hx-target="#compras-modal-container" hx-swap="innerHTML"
+                                        hx-indicator="#global-loading-overlay"
+                                        hx-disabled-elt="this" hx-sync="this:drop" @click="openMenu = false"
+                                        class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-gray-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-wait">
+                                        Equipo
+                                    </button>
+                                </div>
+                            </template>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}

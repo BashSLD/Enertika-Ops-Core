@@ -1,0 +1,33 @@
+{# Graficas del consolidado BOM en pantalla, cargadas via HTMX (hx-trigger="load")
+   despues del render inicial de consolidado.html. Mismos 3 charts que el PDF
+   "Resumen de compra" (ver templates/pdf/bom/resumen_compra.html), generados por
+   el mismo pipeline (core/bom/pdf_resumen_compra.py + core/charts/service.py).
+   Si QuickChart no responde, generar_charts_bom_consolidado simplemente omite esa
+   clave del dict -- cada bloque se oculta solo, sin romper la pantalla. #}
+{% if charts.totales or charts.por_paquete or charts.por_grupo %}
+<h2 class="mb-3 font-semibold text-gray-800">Gráficas</h2>
+<div class="grid gap-4 lg:grid-cols-3">
+    {% if charts.totales %}
+    <div class="rounded-xl border border-gray-200 bg-white p-4">
+        <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Presupuesto vs. Cotizado vs. Autorizado vs. Facturado vs. Pagado
+        </p>
+        <img src="{{ charts.totales }}" alt="" class="mx-auto max-w-full">
+    </div>
+    {% endif %}
+    {% if charts.por_paquete %}
+    <div class="rounded-xl border border-gray-200 bg-white p-4">
+        <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Desglose por paquete</p>
+        <img src="{{ charts.por_paquete }}" alt="" class="mx-auto max-w-full">
+    </div>
+    {% endif %}
+    {% if charts.por_grupo %}
+    <div class="rounded-xl border border-gray-200 bg-white p-4">
+        <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Presupuesto vs. Facturado por grupo operativo
+        </p>
+        <img src="{{ charts.por_grupo }}" alt="" class="mx-auto max-w-full">
+    </div>
+    {% endif %}
+</div>
+{% endif %}

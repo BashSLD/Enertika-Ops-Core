@@ -31,6 +31,7 @@ async def _grafica_a_base64(
         "width": width,
         "height": height,
         "backgroundColor": "white",
+        "devicePixelRatio": 2,
     }
 
     try:

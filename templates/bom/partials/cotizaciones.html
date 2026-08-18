@@ -1,20 +1,6 @@
 {# templates/bom/partials/cotizaciones.html #}
 {# Tab de cotizaciones del BOM — cargado lazy via HTMX #}
 
-{% if rfq_creado %}
-<div hx-swap-oob="afterbegin:#toast-container">
-    <div class="toast-item bg-green-50 border border-green-200 text-green-800 rounded-lg px-4 py-3 text-sm shadow flex items-center gap-2 mb-2">
-        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-        </svg>
-        RFQ creado con {{ rfq_items_count }} item{{ 's' if rfq_items_count != 1 else '' }}
-    </div>
-</div>
-<script>
-    setTimeout(() => document.querySelector('[x-ref="tabCotizaciones"]')?.click(), 50);
-</script>
-{% endif %}
-
 <div id="tab-cotizaciones-content"
     x-data="cotizacionesBom()"
     x-init="init()"
@@ -71,8 +57,9 @@
                         <span class="px-2 py-0.5 text-xs font-bold rounded-lg border {{ style }}">
                             {{ cot.estatus }}
                         </span>
-                        {% if cot.es_rfq %}
-                        <span class="px-2 py-0.5 text-xs font-bold rounded-lg border bg-purple-100 text-purple-700 border-purple-300">
+                        {% if cot.rfq_id %}
+                        <span class="px-2 py-0.5 text-xs font-bold rounded-lg border bg-purple-100 text-purple-700 border-purple-300"
+                            title="Respuesta a un RFQ">
                             RFQ
                         </span>
                         {% endif %}
@@ -165,6 +152,17 @@
                 {% elif es_compras_editor and cot.estatus not in ('SELECCIONADA', 'RECHAZADA') %}
                 <div class="flex items-center gap-2 shrink-0">
                     {% if cot.estatus in ('BORRADOR', 'RECIBIDA') %}
+                    <form hx-post="/bom/cotizaciones/{{ cot.id }}/pdf"
+                        hx-target="#tab-cotizaciones" hx-swap="innerHTML"
+                        hx-encoding="multipart/form-data"
+                        hx-disabled-elt="this">
+                        <input type="hidden" name="lock_version" value="{{ cot.lock_version }}">
+                        <label class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-blue-700 bg-blue-50 border border-blue-300 hover:bg-blue-100 transition cursor-pointer">
+                            {{ 'Reemplazar PDF' if cot.pdf_url else 'Subir PDF' }}
+                            <input type="file" name="archivo" accept="application/pdf" class="hidden"
+                                onchange="this.closest('form').requestSubmit()">
+                        </label>
+                    </form>
                     <button
                         hx-post="/bom/cotizaciones/{{ cot.id }}/seleccionar"
                         hx-vals='{"lock_version": "{{ cot.lock_version }}"}'
@@ -219,7 +217,7 @@
             {# PDF badge #}
             {% if cot.pdf_url %}
             <div class="mt-2">
-                <a href="{{ cot.pdf_url }}" target="_blank" rel="noopener"
+                <a href="/bom/cotizaciones/{{ cot.id }}/preview" target="_blank" rel="noopener"
                     class="inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 font-medium">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"

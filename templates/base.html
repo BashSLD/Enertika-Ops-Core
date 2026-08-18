@@ -19,6 +19,22 @@
     </script>
 
     <script>
+        // Firefox no excluye del bfcache paginas con Cache-Control: no-store (a
+        // diferencia de Chrome, que si las excluye -- ver DynamicHtmlCacheHeadersMiddleware
+        // en main.py). Un Atras/Adelante en Firefox puede restaurar una instantanea
+        // congelada del documento COMPLETO (sidebar incluido) tomada en un momento en
+        // que la sesion/permisos venian mal (ej. hiccup de red, pestana suspendida por
+        // el navegador), mostrando "Sin acceso" en todos los modulos aunque el servidor
+        // ya sirva el estado correcto -- recargar (que ignora el bfcache) lo arregla.
+        // pageshow con persisted=true detecta esa restauracion y fuerza un reload real.
+        window.addEventListener('pageshow', function (event) {
+            if (event.persisted) {
+                window.location.reload();
+            }
+        });
+    </script>
+
+    <script>
         const DEBUG_MODE = {{ DEBUG_MODE | default(false) | tojson }};
         if (!DEBUG_MODE) {
             console.log = function () { };

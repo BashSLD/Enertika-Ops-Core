@@ -1,3 +1,4 @@
+{% set costo_bloqueado_expr = "modoEditar && form.precio_referencia !== '' && form.precio_referencia !== null" %}
 <div>
     <label class="block text-xs font-medium text-gray-700 mb-1">Descripción canónica <span class="text-red-500">*</span></label>
     <input type="text" name="descripcion_canonica" x-model="form.descripcion_canonica" required
@@ -6,10 +7,19 @@
         {% set similar_search_id = 'similar-search-material-form' %}
         {% include "materials/partials/_similar_internos_hx_attrs.html" %}
         {% endif %}
+        {% if not puede_editar_costos %}
+        :disabled="{{ costo_bloqueado_expr }}"
+        :class="{ 'bg-gray-100 text-gray-500': {{ costo_bloqueado_expr }} }"
+        {% endif %}
         class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent"
         placeholder="Descripción oficial de la empresa">
     {% if not modo_edicion|default(false) %}
     <div class="material-similar-results mt-1 text-xs"></div>
+    {% endif %}
+    {% if not puede_editar_costos %}
+    <span class="text-xs text-amber-600 mt-0.5" x-show="{{ costo_bloqueado_expr }}" x-cloak>
+        Este material ya tiene costo registrado; no puedes editar la descripción. Contacta a Compras si necesitas corregirla.
+    </span>
     {% endif %}
 </div>
 <div class="border-t border-gray-100 pt-3">
@@ -78,16 +88,21 @@
         <label class="block text-xs font-medium text-gray-700 mb-1">Precio referencia</label>
         <input type="number" name="precio_referencia" x-model="form.precio_referencia"
             step="0.01" min="0"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent"
+            {% if not puede_editar_costos %}disabled{% endif %}
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent {{ 'bg-gray-100 text-gray-500' if not puede_editar_costos }}"
             placeholder="0.00">
     </div>
     <div>
         <label class="block text-xs font-medium text-gray-700 mb-1">Moneda</label>
         <select name="moneda" x-model="form.moneda"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+            {% if not puede_editar_costos %}disabled{% endif %}
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent {{ 'bg-gray-100 text-gray-500' if not puede_editar_costos }}">
             <option value="MXN">MXN</option>
             <option value="USD">USD</option>
         </select>
+        {% if not puede_editar_costos %}
+        <span class="text-xs text-gray-500 mt-0.5">Solo Compras puede registrar el costo.</span>
+        {% endif %}
     </div>
 </div>
 <div>

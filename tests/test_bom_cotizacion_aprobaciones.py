@@ -41,7 +41,6 @@ def _cotizacion(cotizacion_id, bom_id, **extra):
         "id": cotizacion_id,
         "bom_id": bom_id,
         "estatus": "SELECCIONADA",
-        "es_rfq": False,
         "pdf_url": "https://sharepoint/cotizacion.pdf",
         "total": 1000.0,
         "moneda": "MXN",
@@ -436,13 +435,6 @@ async def test_solicitar_crea_aprobacion_pendiente():
     assert aprobacion["cotizacion_id"] == cotizacion_id
     assert aprobacion["comentarios_solicitud"] == "Urge para obra"
     assert len(db.aprobaciones) == 1
-
-
-@pytest.mark.asyncio
-async def test_solicitar_falla_si_es_rfq():
-    svc, db, _, cotizacion_id = build_escenario(cotizacion_extra={"es_rfq": True})
-    with pytest.raises(ValueError, match="RFQ"):
-        await _solicitar(svc, db, cotizacion_id)
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,5 @@
 <div x-data="{ abierto: true }"
-    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+    class="modal-overlay-layer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85dvh] flex flex-col">
         <div class="flex items-center justify-between px-6 py-4 border-b flex-shrink-0">
             <div class="min-w-0">
@@ -22,7 +22,7 @@
             <div>
                 <label class="block text-xs font-medium text-gray-700 mb-1">Buscar en historial XML para vincular</label>
                 <input type="text" name="q" value="{{ q }}"
-                    hx-get="/materials/internos/{{ interno_id }}/vincular-xml"
+                    hx-get="/materials/internos/{{ interno_id }}/vincular-xml{{ '?origen_item_id=' ~ origen_item_id if origen_item_id else '' }}"
                     hx-target="#vincular-modal-content"
                     hx-swap="innerHTML"
                     hx-trigger="input[target.value.length==0 || target.value.length>=3] changed delay:350ms"
@@ -45,3 +45,29 @@
         </div>
     </div>
 </div>
+
+<script>
+    // Puente entre este modal (apilado encima del modal de precios pendientes de
+    // Compras via origen_item_id) y el formulario del modal que queda detras: al
+    // vincular un XML con precio conocido, ofrece usarlo para completar
+    // precio/moneda/checkbox del item pendiente en vez de dejar que el usuario lo
+    // capture a mano dos veces.
+    window.usarPrecioXmlPendiente = function (boton) {
+        const itemId = boton.dataset.origenItemId;
+        const precio = boton.dataset.precio;
+        const moneda = boton.dataset.moneda || 'MXN';
+        if (itemId && precio) {
+            const usar = confirm('¿Usar el precio $' + precio + ' ' + moneda + ' de este XML para el item pendiente?');
+            if (usar) {
+                const precioInput = document.querySelector('[name="precio_unitario_' + itemId + '"]');
+                const monedaSelect = document.querySelector('[name="moneda_' + itemId + '"]');
+                const checkbox = document.querySelector('input[name="item_ids"][value="' + itemId + '"]');
+                if (precioInput) precioInput.value = precio;
+                if (monedaSelect) monedaSelect.value = moneda;
+                if (checkbox) checkbox.checked = true;
+            }
+        }
+        const modal = boton.closest('.modal-overlay-layer');
+        if (modal) modal.remove();
+    };
+</script>

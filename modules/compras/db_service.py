@@ -12,6 +12,14 @@ from core.timezone import now_mx
 
 logger = logging.getLogger("Compras.DBService")
 
+def _clausula_visibilidad_comprobante(prefix: str, param_idx: int) -> str:
+    """Un usuario no-ADMIN ve sus propios comprobantes + los BOM sin asignar (Fase 4 doc 33)."""
+    return (
+        f" AND ({prefix}capturado_por_id = ${param_idx}"
+        f" OR ({prefix}origen = 'BOM' AND {prefix}asignado_compras_id IS NULL))"
+    )
+
+
 _PROVEEDOR_FALLBACK_JOIN = """LEFT JOIN tb_proveedores p ON p.id_proveedor = COALESCE(
                 c.id_proveedor,
                 (SELECT bp.id_proveedor FROM tb_beneficiario_proveedor bp
@@ -191,7 +199,7 @@ class ComprasDBService:
             param_idx += 1
 
         if filtros.get('id_usuario'):
-            base_query += f" AND c.capturado_por_id = ${param_idx}"
+            base_query += _clausula_visibilidad_comprobante('c.', param_idx)
             params.append(filtros['id_usuario'])
             param_idx += 1
 
@@ -396,7 +404,7 @@ class ComprasDBService:
             param_idx += 1
 
         if filtros.get('id_usuario'):
-            base_query += f" AND capturado_por_id = ${param_idx}"
+            base_query += _clausula_visibilidad_comprobante('', param_idx)
             params.append(filtros['id_usuario'])
             param_idx += 1
 
@@ -1099,7 +1107,8 @@ class ComprasDBService:
 
     async def registrar_archivo_sharepoint(
         self, conn, id_comprobante: Optional[UUID], origen_slug: str,
-        upload_result: dict, user_id: UUID, metadata_extra: dict
+        upload_result: dict, user_id: UUID, metadata_extra: dict,
+        id_bom_cotizacion: Optional[UUID] = None,
     ):
         """Registra un archivo subido a SharePoint en tb_documentos_attachments."""
         import json
@@ -1111,8 +1120,8 @@ class ComprasDBService:
                 id_documento, nombre_archivo, url_sharepoint,
                 drive_item_id, parent_drive_id,
                 tipo_contenido, tamano_bytes,
-                subido_por_id, origen_slug, activo, metadata
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10::jsonb)
+                subido_por_id, origen_slug, activo, metadata, id_bom_cotizacion
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10::jsonb, $11)
         """,
             doc_id,
             upload_result.get('name', ''),
@@ -1123,9 +1132,15 @@ class ComprasDBService:
             upload_result.get('size', 0),
             user_id,
             origen_slug,
-            json.dumps(metadata_extra)
+            json.dumps(metadata_extra),
+            id_bom_cotizacion,
         )
         return doc_id
+
+    async def get_config_empresa(self, conn) -> Optional[dict]:
+        """Datos fiscales de Enertika (tb_config_empresa) para validar el RFC receptor del XML."""
+        row = await conn.fetchrow("SELECT * FROM tb_config_empresa WHERE id = 1")
+        return dict(row) if row else None
 
     async def get_config_valor(self, conn, clave: str) -> str:
         """
@@ -1779,6 +1794,30 @@ class ComprasDBService:
             ORDER BY p.proyecto_id_estandar, paquete.codigo, paquete.id_paquete
         """)
         return [dict(r) for r in rows]
+
+    async def get_proyectos_bom_pendientes_precio_count(self, conn) -> int:
+        """Cuenta de paquetes pendientes de precio, para el badge del shell de tabs
+        (mismo criterio que get_proyectos_bom_pendientes_precio, sin materializar filas)."""
+        total = await conn.fetchval("""
+            SELECT COUNT(*)
+            FROM tb_bom_paquetes paquete
+            JOIN tb_bom b ON b.id_bom = paquete.cabeza_trabajo_id
+            JOIN LATERAL (
+                SELECT COUNT(*) AS total_pendientes
+                FROM tb_bom_items i
+                WHERE i.id_bom = b.id_bom
+                  AND i.activo = TRUE
+                  AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
+                  AND (
+                      i.precio_unitario IS NULL OR i.precio_unitario <= 0
+                      OR i.precio_pendiente_confirmacion = TRUE
+                  )
+            ) pendientes ON TRUE
+            WHERE paquete.estado_paquete = 'ACTIVO'
+              AND b.estatus = 'BORRADOR'
+              AND pendientes.total_pendientes > 0
+        """)
+        return total or 0
 
     # ─── MINI ALMACÉN (Gap 9) ─────────────────────────────
 

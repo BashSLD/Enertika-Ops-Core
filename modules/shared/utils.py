@@ -1,6 +1,7 @@
 import json
 import re
 from io import BytesIO
+from urllib.parse import quote
 
 from fastapi import Request, Response
 from fastapi.responses import StreamingResponse
@@ -75,6 +76,14 @@ def safe_sheet_title(title: str, used_titles: set[str], fallback: str = "Hoja") 
 
     used_titles.add(candidate.casefold())
     return candidate
+
+
+def content_disposition_header(disposition: str, filename: str) -> str:
+    """Arma un header Content-Disposition seguro (sanitiza el nombre y agrega filename* UTF-8)."""
+    safe_filename = filename.replace("\\", "_").replace("/", "_").replace('"', "")
+    safe_filename = safe_filename.replace("\r", "").replace("\n", "") or "documento"
+    encoded = quote(safe_filename)
+    return f'{disposition}; filename="{safe_filename}"; filename*=UTF-8\'\'{encoded}'
 
 
 def is_htmx(request: Request) -> bool:

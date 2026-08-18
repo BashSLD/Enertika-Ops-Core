@@ -694,6 +694,14 @@ class ComprasService:
 
         result = XmlUploadResult()
 
+        # RFC de Enertika (doc 35) -- 'PENDIENTE_CONFIGURAR' es el valor sembrado hasta que un
+        # ADMIN configure el real; no bloquear mientras tanto.
+        empresa = await db_svc.get_config_empresa(conn)
+        rfc_enertika = (
+            (empresa.get('rfc') or '').strip().upper()
+            if empresa and empresa.get('rfc') != 'PENDIENTE_CONFIGURAR' else ''
+        )
+
         for file in files:
             filename = file.filename or "sin_nombre.xml"
 
@@ -722,6 +730,19 @@ class ComprasService:
             except ValueError as e:
                 result.errores.append(XmlUploadError(
                     archivo=filename, error=str(e)
+                ))
+                continue
+
+            # 3.5. Validar RFC receptor contra Enertika (doc 35) -- detecta XML mal
+            # timbrados (a nombre de otra empresa) antes de crear proveedor/match.
+            receptor_rfc = (cfdi.receptor_rfc or '').strip().upper()
+            if rfc_enertika and receptor_rfc and receptor_rfc != rfc_enertika:
+                result.errores.append(XmlUploadError(
+                    archivo=filename,
+                    error=(
+                        f"RFC receptor ({receptor_rfc}) no coincide con Enertika "
+                        f"({rfc_enertika}); factura mal timbrada"
+                    ),
                 ))
                 continue
 
@@ -1458,7 +1479,8 @@ class ComprasService:
         self, conn, file, subcarpeta: str,
         id_comprobante: Optional[UUID],
         origen_slug: str, user_id: UUID,
-        metadata_extra: Optional[dict] = None
+        metadata_extra: Optional[dict] = None,
+        id_bom_cotizacion: Optional[UUID] = None,
     ) -> Optional[dict]:
         """
         Sube un archivo a SharePoint y registra en tb_documentos_attachments.
@@ -1469,9 +1491,10 @@ class ComprasService:
             file: UploadFile de FastAPI
             subcarpeta: Ruta relativa (ej: 'compras/facturas_xml/2026-02')
             id_comprobante: UUID del comprobante asociado (puede ser None)
-            origen_slug: 'comprobante_pago' o 'factura_xml'
+            origen_slug: 'comprobante_pago', 'factura_xml' o 'cotizacion_bom'
             user_id: UUID del usuario
             metadata_extra: Datos adicionales para JSONB
+            id_bom_cotizacion: UUID de la cotizacion BOM asociada (puede ser None)
 
         Returns:
             dict con url_sharepoint y datos del upload, o None si falla
@@ -1528,7 +1551,8 @@ class ComprasService:
             # Registrar en BD
             doc_id = await db_svc.registrar_archivo_sharepoint(
                 conn, id_comprobante, origen_slug,
-                upload_result, user_id, meta
+                upload_result, user_id, meta,
+                id_bom_cotizacion=id_bom_cotizacion,
             )
 
             logger.info(
@@ -1552,6 +1576,23 @@ class ComprasService:
         except (ValueError, RuntimeError, OSError, asyncpg.PostgresError, httpx.HTTPError) as e:
             logger.error("Error subiendo archivo a SharePoint: %s", e, exc_info=True)
             return None
+
+    async def subir_pdf_mensual(
+        self, conn, file, categoria: str, origen_slug: str, user_id: UUID,
+        id_comprobante: Optional[UUID] = None,
+        id_bom_cotizacion: Optional[UUID] = None,
+    ) -> Optional[dict]:
+        """Sube un PDF a SharePoint bajo `{categoria}/{año-mes actual}`.
+
+        Wrapper de upload_archivo_sharepoint para los llamadores (Finanzas,
+        BOM) que solo necesitan la subcarpeta mensual estandar.
+        """
+        subcarpeta = f"{categoria}/{now_mx().strftime('%Y-%m')}"
+        return await self.upload_archivo_sharepoint(
+            conn, file, subcarpeta=subcarpeta, id_comprobante=id_comprobante,
+            origen_slug=origen_slug, user_id=user_id,
+            id_bom_cotizacion=id_bom_cotizacion,
+        )
 
     async def get_archivos_comprobante(
         self, conn, id_comprobante: UUID

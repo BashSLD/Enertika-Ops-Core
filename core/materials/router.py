@@ -7,7 +7,7 @@ Consulta, edicion de clasificacion, analisis de precios y exportacion Excel.
 from fastapi import APIRouter, Depends, Request, Query, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, Response
-from typing import Annotated
+from typing import Annotated, Optional
 from uuid import UUID
 import asyncpg
 import logging
@@ -88,6 +88,17 @@ def _can_edit_internos(context) -> bool:
     if context.get("role") == "ADMIN":
         return True
     return any(user_has_module_access(m, context, "editor") for m in MATERIALS_EDIT_MODULES)
+
+
+def _puede_editar_costos_internos(context) -> bool:
+    """True si el usuario tiene autoridad para fijar/editar precio_referencia y
+    moneda del catalogo interno: ADMIN global o editor+ en compras. Tener editor
+    en ingenieria (incluso ademas de otros roles) nunca es suficiente por si solo --
+    la autoridad de costos requiere compras explicito, para que Ingenieria no evada
+    el control registrando o alterando precios (ver QA 2026-08-17, seccion A)."""
+    if context.get("role") == "ADMIN":
+        return True
+    return user_has_module_access("compras", context, "editor")
 
 # ========================================
 # UI PRINCIPAL
@@ -361,6 +372,7 @@ async def get_internos_ui(
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
         "can_edit": _can_edit_internos(context),
+        "puede_editar_costos": _puede_editar_costos_internos(context),
         "internos": internos,
         "total": total,
         "page": 1,
@@ -445,7 +457,12 @@ async def crear_interno(
     uid = context.get("user_db_id")
     payload["creado_por"] = uid
     payload["actualizado_por"] = uid
-    interno = await service.crear_interno(conn, payload)
+    try:
+        interno = await service.crear_interno(
+            conn, payload, puede_editar_costos=_puede_editar_costos_internos(context)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     catalogos = await service.get_catalogos(conn)
     return templates.TemplateResponse(
         request, "materials/partials/row_interno.html",
@@ -482,7 +499,13 @@ async def actualizar_interno(
         data['precio_referencia'] = float(val) if val else None
 
     data['actualizado_por'] = context.get("user_db_id")
-    interno = await service.actualizar_interno(conn, interno_id, data)
+    try:
+        interno = await service.actualizar_interno(
+            conn, interno_id, data,
+            puede_editar_costos=_puede_editar_costos_internos(context),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not interno:
         raise HTTPException(status_code=404, detail="Material no encontrado")
     catalogos = await service.get_catalogos(conn)
@@ -542,13 +565,15 @@ async def importar_internos(
         raise HTTPException(status_code=400, detail="Archivo requerido")
     confirmar = str(form.get("confirmar", "")).lower() == "true"
     contenido = await archivo.read()
+    puede_editar_costos = _puede_editar_costos_internos(context)
     try:
         if confirmar:
             resultado = await service.cargar_internos_excel(
-                conn, contenido, creado_por=context.get("user_db_id")
+                conn, contenido, puede_editar_costos,
+                creado_por=context.get("user_db_id"),
             )
         else:
-            resultado = await service.validar_internos_excel(conn, contenido)
+            resultado = await service.validar_internos_excel(conn, contenido, puede_editar_costos)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except asyncpg.PostgresError as e:
@@ -569,7 +594,7 @@ async def importar_internos(
 async def descargar_plantilla_precios(
     conn=Depends(get_db_connection),
     service: MaterialsService = Depends(get_materials_service),
-    _=require_materials_edit_access,
+    _=require_module_access("compras", "editor"),
 ):
     """Descarga el .xlsx de actualizacion masiva de precios."""
     excel_bytes = await service.generar_plantilla_precios(conn)
@@ -586,9 +611,11 @@ async def actualizar_precios_internos(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     service: MaterialsService = Depends(get_materials_service),
-    _=require_materials_edit_access,
+    _=require_module_access("compras", "editor"),
 ):
-    """Actualizacion masiva de precios en 2 fases."""
+    """Actualizacion masiva de precios en 2 fases. Compras/ADMIN unicamente --
+    a diferencia del resto del catalogo interno, Ingenieria no tiene acceso aqui
+    ni en lote (ver _puede_editar_costos_internos)."""
     form = await request.form()
     archivo = form.get("archivo")
     if not archivo or not getattr(archivo, 'filename', None):
@@ -628,10 +655,15 @@ async def modal_vincular_xml(
     request: Request,
     interno_id: UUID,
     q: str = Query(default=""),
+    origen_item_id: Optional[UUID] = Query(default=None),
     conn=Depends(get_db_connection),
     service: MaterialsService = Depends(get_materials_service),
     _=Depends(require_materials_view_access),
 ):
+    """origen_item_id: presente solo cuando el modal se abre desde el modal de
+    precios pendientes de Compras (bom/partials/modal_precios_pendientes_compras.html)
+    para un item ya vinculado a catalogo interno -- habilita, del lado del frontend,
+    la opcion de usar el precio/moneda del XML vinculado para ese item pendiente."""
     es_partial = request.headers.get("hx-target") == "vincular-modal-content"
     interno, resultados = await service.resolver_xml_para_vincular(
         conn, interno_id, q, incluir_ancla=not es_partial
@@ -640,13 +672,16 @@ async def modal_vincular_xml(
     if es_partial:
         return templates.TemplateResponse(
             request, "materials/partials/vincular_xml_resultados.html",
-            {"interno_id": str(interno_id), "resultados": resultados, "q": q}
+            {"interno_id": str(interno_id), "resultados": resultados, "q": q, "origen_item_id": origen_item_id}
         )
 
     vinculos = await service.get_vinculos_xml(conn, interno_id)
     return templates.TemplateResponse(
         request, "materials/partials/modal_vincular_xml.html",
-        {"interno_id": str(interno_id), "resultados": resultados, "vinculos": vinculos, "q": q, "interno": interno}
+        {
+            "interno_id": str(interno_id), "resultados": resultados, "vinculos": vinculos,
+            "q": q, "interno": interno, "origen_item_id": origen_item_id,
+        }
     )
 
 

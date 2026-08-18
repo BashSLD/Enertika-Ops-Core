@@ -1,0 +1,104 @@
+{% extends "_base.html" %}
+
+{% block doc_title %}Solicitud de Cotización (RFQ){% endblock %}
+{% block doc_date %}{{ proyecto.proyecto_id_estandar if proyecto else '' }} &nbsp;|&nbsp; Generado {{ rfq.updated_at | time_mx if rfq.updated_at else '' }}{% endblock %}
+{% block footer_label %}Solicitud de cotización{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .empresa-box {
+        margin-bottom: 14px;
+        padding: 10px 14px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        font-size: 9pt;
+        color: #374151;
+    }
+
+    .empresa-box .razon-social {
+        font-weight: 700;
+        font-size: 10.5pt;
+        color: #0A2463;
+    }
+
+    .notice {
+        margin-bottom: 14px;
+        padding: 8px 12px;
+        background: #fffbeb;
+        border: 1px solid #fcd34d;
+        font-size: 8.5pt;
+        color: #92400e;
+    }
+
+    .footnote {
+        font-size: 8pt;
+        color: #6b7280;
+        margin-top: 6px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{% if empresa %}
+<div class="empresa-box">
+    <div class="razon-social">{{ empresa.razon_social }}</div>
+    {% if empresa.rfc %}<div>RFC: {{ empresa.rfc }}</div>{% endif %}
+    {% if empresa.direccion %}<div>{{ empresa.direccion }}</div>{% endif %}
+    {% if empresa.telefono or empresa.email_contacto %}
+    <div>
+        {% if empresa.telefono %}Tel: {{ empresa.telefono }}{% endif %}
+        {% if empresa.telefono and empresa.email_contacto %} &nbsp;|&nbsp; {% endif %}
+        {% if empresa.email_contacto %}{{ empresa.email_contacto }}{% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="notice">
+    Este documento es una solicitud de cotización (RFQ). No constituye una orden de compra ni
+    compromete a Enertika con ningún proveedor. Favor de responder con precio unitario, moneda
+    y tiempo de entrega para cada partida.
+</div>
+
+{% if proyecto %}
+<div class="section-title">Proyecto</div>
+<table class="data-table">
+    <tr><th>Proyecto</th><td>{{ proyecto.proyecto_id_estandar or '—' }} {{ proyecto.nombre_proyecto or '' }}</td></tr>
+</table>
+{% endif %}
+
+{% if rfq.notas %}
+<div class="section-title">Notas</div>
+<table class="data-table">
+    <tr><th>Notas</th><td>{{ rfq.notas }}</td></tr>
+</table>
+{% endif %}
+
+<div class="section-title">Partidas solicitadas</div>
+<table class="data-table">
+    <thead>
+        <tr>
+            <th style="width: 6%;">#</th>
+            <th style="width: 54%;">Descripción</th>
+            <th style="width: 20%;">Cantidad</th>
+            <th style="width: 20%;">Unidad</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in items %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ item.descripcion or '—' }}</td>
+            <td>{{ '{:,.2f}'.format(item.cantidad | float) }}</td>
+            <td>{{ item.unidad_override or item.unidad_medida or '—' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<p class="footnote">
+    La unidad de medida mostrada puede diferir del catálogo interno de Enertika; se ajusta para
+    facilitar la cotización con el proveedor.
+</p>
+
+{% endblock %}

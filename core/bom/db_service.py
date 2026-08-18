@@ -155,9 +155,11 @@ class BomDBService(BomComprasDBMixin):
                    p.cabeza_trabajo_id,
                    p.cabeza_oficial_id,
                    (p.cabeza_trabajo_id = b.id_bom) AS es_cabeza_trabajo,
-                   (p.cabeza_oficial_id = b.id_bom) AS es_cabeza_oficial
+                   (p.cabeza_oficial_id = b.id_bom) AS es_cabeza_oficial,
+                   pg.proyecto_id_estandar
             FROM tb_bom b
             JOIN paquete p ON p.id_paquete = b.id_paquete
+            LEFT JOIN tb_proyectos_gate pg ON pg.id_proyecto = b.id_proyecto
             WHERE b.id_bom = $1
             FOR UPDATE OF b
             """,
@@ -2432,6 +2434,14 @@ class BomDBService(BomComprasDBMixin):
         """)
         return [dict(r) for r in rows]
 
+    async def get_unidades_medida(self, conn) -> List[dict]:
+        """Lista unidades de medida activas."""
+        rows = await conn.fetch("""
+            SELECT codigo, nombre FROM tb_cat_unidades_medida
+            WHERE activo = TRUE ORDER BY orden ASC
+        """)
+        return [dict(r) for r in rows]
+
     async def get_proveedores(self, conn) -> List[dict]:
         """Lista proveedores activos."""
         rows = await conn.fetch("""
@@ -2704,9 +2714,13 @@ class BomDBService(BomComprasDBMixin):
         return dict(row) if row else None
 
     async def get_usuario_activo_por_rol_org(
-        self, conn, rol_organizacional: str
+        self, conn, rol_organizacional: str, estricto: bool = False
     ) -> Optional[dict]:
-        """Obtiene el usuario activo con un rol organizacional."""
+        """Obtiene el usuario activo con un rol organizacional.
+
+        estricto=True lanza ValueError si hay 2+ usuarios activos con el mismo rol,
+        en vez de loguear y usar el primero alfabeticamente (comportamiento default).
+        """
         rows = await conn.fetch("""
             SELECT id_usuario, nombre, email, rol_organizacional
             FROM tb_usuarios
@@ -2715,6 +2729,10 @@ class BomDBService(BomComprasDBMixin):
             ORDER BY nombre ASC
         """, rol_organizacional)
         if len(rows) > 1:
+            if estricto:
+                raise ValueError(
+                    f"Hay mas de un usuario activo con rol_organizacional='{rol_organizacional}'"
+                )
             logger.warning(
                 "Multiples usuarios activos con rol_organizacional='%s': %s — usando primero",
                 rol_organizacional, [r['nombre'] for r in rows]
@@ -2722,12 +2740,15 @@ class BomDBService(BomComprasDBMixin):
         return dict(rows[0]) if rows else None
 
     async def get_responsable_proyecto_o_global(
-        self, conn, id_proyecto, rol_organizacional: str
+        self, conn, id_proyecto, rol_organizacional: str, estricto: bool = False
     ) -> Optional[dict]:
         """
         Resuelve el jefe del area para un proyecto: primero el RC/RI persistido en
         tb_proyecto_usuarios; si el proyecto aun no lo tiene, cae al primer jefe
         organizacional activo (comportamiento previo).
+
+        estricto=True solo aplica al fallback: si el proyecto no tiene RC/RI persistido
+        y hay 2+ jefes activos del area, lanza ValueError en vez de autoasignar el primero.
         """
         rol_resp = {
             "jefe_construccion": "responsable_construccion",
@@ -2747,7 +2768,9 @@ class BomDBService(BomComprasDBMixin):
             )
             if row:
                 return dict(row)
-        return await self.get_usuario_activo_por_rol_org(conn, rol_organizacional)
+        return await self.get_usuario_activo_por_rol_org(
+            conn, rol_organizacional, estricto=estricto
+        )
 
     async def get_asignacion_proyecto(
         self, conn, id_proyecto: UUID, rol_proyecto: str, area: str

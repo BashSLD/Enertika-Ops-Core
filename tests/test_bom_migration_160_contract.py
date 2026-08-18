@@ -54,6 +54,18 @@ async def _indexdef(conn, indexname: str) -> str:
     return row["indexdef"]
 
 
+@pytest.mark.skip(
+    reason=(
+        "Desde la migracion 171 (doc 35, RFQ en tablas propias) se elimino "
+        "tb_bom_cotizaciones.rfq_origen_id, columna que este archivo referencia (check de "
+        "integridad RFQ/BOM en la linea 186 e indice idx_bom_cotizaciones_rfq_bom). "
+        "Re-ejecutar 160 en aislamiento contra el esquema actual ya no es posible ni "
+        "representativo: en un replay real de migraciones, 160 corre en orden antes que "
+        "171, cuando la columna todavia existe. La propiedad de idempotencia que este test "
+        "verificaba (regresion 2026-08-04, triggers diferidos) sigue siendo valida para ese "
+        "punto del historial, pero deja de poder comprobarse de forma aislada post-171."
+    )
+)
 @pytest.mark.asyncio
 async def test_migracion_es_idempotente(real_conn):
     """Regresion 2026-08-04: re-ejecutar el archivo completo sobre un esquema ya migrado no

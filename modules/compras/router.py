@@ -40,11 +40,8 @@ from .service import ComprasService, get_compras_service, parse_exceso_monto_err
 from modules.proveedores.service import ProveedoresService, get_proveedores_service
 from core.bom.service import FLAG_ACTUALIZACION_PRECIOS_COMPRAS
 from .schemas import (
-    ComprobanteUpdate,
-    ComprobanteBulkUpdate,
     ComprobanteFilter,
     ComprobanteUpdateForm,
-    CfdiData,
 )
 from typing import Annotated
 
@@ -239,9 +236,15 @@ async def get_proyectos_bom(
     actualizacion_precios_habilitada = await ConfigService.get_global_config(
         conn, FLAG_ACTUALIZACION_PRECIOS_COMPRAS, False, bool
     )
+    total_pendientes_precio = 0
+    if actualizacion_precios_habilitada:
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+        total_pendientes_precio = await db_svc.get_proyectos_bom_pendientes_precio_count(conn)
     ctx = {
         "user_name": context.get("user_name"),
         "actualizacion_precios_habilitada": actualizacion_precios_habilitada,
+        "total_pendientes_precio": total_pendientes_precio,
     }
 
     is_htmx = request.headers.get("hx-request")

@@ -43,6 +43,13 @@
                 moneda: d.moneda || 'MXN'
             };
             this.modalAbierto = true;
+            // htmx compila el path de hx-patch la primera vez que procesa el form
+            // (con editandoId todavia vacio) y no lo vuelve a leer solo porque el
+            // atributo cambio via binding reactivo de Alpine -- hay que forzar el
+            // reproceso o la peticion sale sin el ID (ver memoria QA 2026-08-17).
+            this.$nextTick(() => {
+                if (this.$refs.formEditar) htmx.process(this.$refs.formEditar);
+            });
         },
         cerrarModal() { this.modalAbierto = false; this.limpiarHomologacion(); },
         usarMaterialHomologado(material) {
@@ -78,6 +85,7 @@
             </svg>
             Carga Masiva
         </button>
+        {% if puede_editar_costos %}
         <button onclick="window.dispatchEvent(new CustomEvent('open-interno-precios'))"
             class="bg-amber-600 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -85,6 +93,7 @@
             </svg>
             Actualizar precios
         </button>
+        {% endif %}
         {% endif %}
     </div>
     <script>
@@ -136,6 +145,7 @@
                             </svg>
                             Carga Masiva
                         </button>
+                        {% if puede_editar_costos %}
                         <button type="button" @click="open = false; modalPrecios = true"
                             class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -143,6 +153,7 @@
                             </svg>
                             Actualizar precios
                         </button>
+                        {% endif %}
                     </div>
                 </div>
                 {% endif %}
@@ -221,8 +232,7 @@
 
     <!-- Modal Crear / Editar -->
     <div x-show="modalAbierto" x-cloak
-        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-        @click.self="cerrarModal()">
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90dvh] flex flex-col">
             <div class="flex items-center justify-between px-6 py-4 border-b flex-shrink-0">
                 <h3 class="text-lg font-semibold text-[#123456]"
@@ -250,7 +260,7 @@
                     </div>
                 </form>
                 <!-- Editar -->
-                <form x-show="modoEditar"
+                <form x-show="modoEditar" x-ref="formEditar"
                     :hx-patch="'/materials/internos/' + editandoId"
                     :hx-target="'#row-interno-' + editandoId"
                     hx-swap="outerHTML"
@@ -311,6 +321,7 @@
     </div>
 
     <!-- Modal Actualizar Precios -->
+    {% if puede_editar_costos %}
     <div x-show="modalPrecios" x-cloak
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
         @click.self="modalPrecios = false">
@@ -352,6 +363,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
 
     <!-- Recargar tabla tras importar -->
     <div hx-get="/materials/internos"

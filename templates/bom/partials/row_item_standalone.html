@@ -1,0 +1,26 @@
+{# Wrapper para cuando row_item.html se devuelve como respuesta STANDALONE
+   (PATCH /bom/items/{id}, POST /bom/items/{id}/grupos) con hx-target="#item-{id}"
+   hx-swap="outerHTML" hx-select="tr" en el form.
+
+   Si la respuesta empieza directo con un <tr> bare, htmx 1.9.10 la detecta como
+   "tipo tr" y envuelve TODO el texto (incluidos los hx-swap-oob de abajo, ej.
+   #bom-estadisticas-grid) en un <table><tbody> sintetico para poder parsearlo.
+   Un <div> no es hijo valido de <tbody>, asi que el parser HTML5 lo saca por
+   foster parenting -- pero htmx asume ciegamente que su <table><tbody> sigue
+   intacto e indexa por profundidad fija (body.firstChild.firstChild) para
+   ubicar el fragmento real. Con el <div> movido, ese indexado apunta a un nodo
+   cualquiera (en la practica, un nodo de texto), y el codigo de deteccion de
+   hx-swap-oob truena con "e.querySelectorAll is not a function" -- aborta el
+   swap+settle+afterRequest completo aunque el PATCH ya se haya guardado en BD
+   (ver memory/bom_htmx_swaperror_tr_table_oob.md). Un <input type="hidden">
+   SI esta exento de foster parenting por el spec HTML5 (por eso
+   lock_version_oob.html nunca dio problema solo), pero cualquier otro tag no.
+
+   Envolviendo aqui en un <table><tbody> real, la respuesta ya NO arranca en
+   "tr" -- htmx la parsea por la via default (parseHTML sin wrapping magico),
+   deja el <div>/<input> OOB intactos como hermanos normales, y hx-select="tr"
+   en el form extrae solo el <tr> para el swap. Verificado con un harness de
+   Playwright + htmx real antes de aplicar este fix. #}
+<table><tbody>
+{% include "bom/partials/row_item.html" %}
+</tbody></table>

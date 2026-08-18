@@ -76,7 +76,7 @@
                     {% endif %}
                     <p class="mt-1 text-xs text-gray-500">{{ consolidado_curso.paquetes|length }} paquete(s) activo(s)</p>
                 </div>
-                <span class="text-sm font-medium text-blue-700">Abrir</span>
+                <span class="text-sm font-medium text-blue-700">Ver Detalle</span>
             </div>
         </a>
         <a href="/bom/{{ id_proyecto }}/consolidado/ui?modo=OFICIAL"
@@ -89,7 +89,7 @@
                     <p class="mt-2 font-mono text-xl font-bold text-gray-800">${{ '{:,.2f}'.format(consolidado_oficial.totales.presupuesto_total_mxn|float) }} MXN</p>
                     <p class="mt-1 text-xs text-gray-500">{{ consolidado_oficial.pendientes_oficiales }} paquete(s) pendiente(s)</p>
                 </div>
-                <span class="text-sm font-medium text-blue-700">Abrir</span>
+                <span class="text-sm font-medium text-blue-700">Ver Detalle</span>
             </div>
         </a>
     </div>
@@ -172,7 +172,7 @@
         {% if puede_crear %}
         <p class="mt-1 text-sm text-gray-500">Crea un BOM completo o divide el alcance en paquetes parciales.</p>
         {% else %}
-        <p class="mt-1 text-sm text-gray-500">Solicita a {{ responsable_ingenieria_label }} que asigne este proyecto para poder crear el BOM.</p>
+        <p class="mt-1 text-sm text-gray-500">{{ mensaje_sin_bom }}</p>
         {% endif %}
     </div>
     {% endif %}
@@ -196,15 +196,7 @@
                 </div>
                 <div>
                     <label class="mb-1 block text-sm font-medium text-gray-700">Nombre</label>
-                    <div class="relative">
-                        <input name="nombre" required maxlength="160" list="sugerencias-nombre-paquete-nuevo"
-                            placeholder="Ej. AC, DC, o un nombre libre"
-                            class="w-full rounded-lg border-gray-300 px-3 py-2 pr-8 text-sm">
-                        <svg class="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                        </svg>
-                    </div>
-                    {{ paquete_datalist.nombre_paquete_datalist('sugerencias-nombre-paquete-nuevo') }}
+                    {{ paquete_datalist.nombre_paquete_combobox() }}
                     <p class="mt-1 text-xs text-gray-400">Escribe un nombre libre o elige uno de los grupos comunes (DC, AC, OC, CM, TE).</p>
                 </div>
                 <div>

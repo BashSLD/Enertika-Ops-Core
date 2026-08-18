@@ -19,7 +19,7 @@
     <td class="px-6 py-4 whitespace-nowrap">
         <span class="text-sm">{{ u.department or 'N/A' }}</span>
         {% if u.rol_organizacional %}
-        {% set rol_labels = {'jefe_comercial': 'Jefe Com.', 'jefe_ingenieria': 'Jefe Ing.', 'jefe_construccion': 'Jefe Const.', 'director': 'Director'} %}
+        {% set rol_labels = {'jefe_comercial': 'Jefe Com.', 'jefe_ingenieria': 'Jefe Ing.', 'jefe_construccion': 'Jefe Const.', 'jefe_compras': 'Jefe Compras', 'director': 'Director'} %}
         <span class="ml-1 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800">
             {{ rol_labels.get(u.rol_organizacional, u.rol_organizacional) }}
         </span>

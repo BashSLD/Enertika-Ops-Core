@@ -1,0 +1,123 @@
+{# templates/bom/partials/direccion_cotizaciones.html #}
+{# Dashboard de Direccion: cotizaciones post-BOM pendientes/aprobadas/rechazadas, todos los proyectos #}
+
+<div id="direccion-cotizaciones-content" class="w-full px-4 py-6 animate-fade-in-down" hx-history="false">
+    <div class="mb-4">
+        <h1 class="text-2xl font-bold text-gray-800">Aprobaciones de cotizaciones</h1>
+        <p class="mt-1 text-sm text-gray-500">Cotizaciones de compra post-BOM que requieren aprobación de Dirección.</p>
+    </div>
+
+    <form class="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-3"
+        hx-get="/bom/direccion/cotizaciones" hx-target="#direccion-cotizaciones-content"
+        hx-swap="outerHTML" hx-push-url="true">
+        <div>
+            <label class="mb-1 block text-xs font-medium text-gray-600">Estatus</label>
+            <select name="estatus" class="rounded-lg border-gray-300 text-sm" onchange="this.form.requestSubmit()">
+                <option value="PENDIENTE_DIRECCION" {{ 'selected' if estatus_filtro == 'PENDIENTE_DIRECCION' }}>Pendientes</option>
+                <option value="APROBADA" {{ 'selected' if estatus_filtro == 'APROBADA' }}>Aprobadas</option>
+                <option value="RECHAZADA" {{ 'selected' if estatus_filtro == 'RECHAZADA' }}>Rechazadas</option>
+                <option value="" {{ 'selected' if not estatus_filtro }}>Todas</option>
+            </select>
+        </div>
+        <div>
+            <label class="mb-1 block text-xs font-medium text-gray-600">Proveedor</label>
+            <input type="text" name="proveedor" value="{{ proveedor_filtro }}" placeholder="Buscar proveedor..."
+                class="rounded-lg border-gray-300 text-sm">
+        </div>
+        <button type="submit" class="rounded-lg bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700">
+            Filtrar
+        </button>
+    </form>
+
+    {% if aprobaciones %}
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <tr>
+                        <th class="px-4 py-3">Proyecto</th>
+                        <th class="px-4 py-3">Paquete</th>
+                        <th class="px-4 py-3">Proveedor</th>
+                        <th class="px-4 py-3 text-right">Total</th>
+                        <th class="px-4 py-3">Estatus</th>
+                        <th class="px-4 py-3">Fecha</th>
+                        {% if es_aprobador_direccion %}
+                        <th class="px-4 py-3 text-right">Acciones</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% set estatus_styles = {
+                        'PENDIENTE_DIRECCION': 'bg-violet-100 text-violet-700 border-violet-300',
+                        'APROBADA': 'bg-emerald-100 text-emerald-800 border-emerald-300',
+                        'RECHAZADA': 'bg-red-100 text-red-700 border-red-300',
+                    } %}
+                    {% for a in aprobaciones %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3 text-sm">
+                            <span class="font-mono font-semibold text-gray-800">{{ a.proyecto_id_estandar or '—' }}</span>
+                            <span class="block text-xs text-gray-500">{{ a.nombre_proyecto or '' }}</span>
+                            {% if a.cliente_nombre %}<span class="block text-xs text-gray-400">{{ a.cliente_nombre }}</span>{% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-sm text-gray-700">
+                            {{ a.paquete_codigo }} v{{ a.bom_version }}
+                            <span class="block text-xs text-gray-400">{{ a.paquete_nombre }}</span>
+                        </td>
+                        <td class="px-4 py-3 text-sm text-gray-800">{{ a.nombre_proveedor or 'Sin proveedor' }}</td>
+                        <td class="px-4 py-3 text-right font-mono text-sm text-gray-800">
+                            {{ a.moneda }} ${{ "{:,.2f}".format(a.total | float) if a.total else '—' }}
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="px-2 py-0.5 text-xs font-bold rounded-lg border {{ estatus_styles.get(a.aprobacion_estatus, 'bg-gray-100 text-gray-700 border-gray-300') }}">
+                                {{ a.aprobacion_estatus }}
+                            </span>
+                            {% if a.aprobacion_estatus == 'RECHAZADA' and a.motivo_rechazo %}
+                            <span class="block mt-1 text-xs text-red-600">{{ a.motivo_rechazo }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-xs text-gray-500">
+                            {% set fecha_mostrar = a.aprobado_en or a.rechazado_en or a.solicitado_en %}
+                            {{ fecha_mostrar | time_mx if fecha_mostrar else '—' }}
+                        </td>
+                        {% if es_aprobador_direccion %}
+                        <td class="px-4 py-3 text-right">
+                            {% if a.aprobacion_estatus == 'PENDIENTE_DIRECCION' %}
+                            <div class="flex justify-end gap-2">
+                                <form hx-post="/bom/direccion/cotizaciones/{{ a.cotizacion_id }}/aprobar"
+                                    hx-target="#direccion-cotizaciones-content" hx-swap="outerHTML"
+                                    hx-disabled-elt="find button[type='submit']" hx-sync="this:replace">
+                                    <input type="hidden" name="aprobacion_lock_version" value="{{ a.aprobacion_lock_version }}">
+                                    <input type="hidden" name="autorizacion_lock_version" value="{{ a.autorizacion_lock_version }}">
+                                    <button type="submit"
+                                        class="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60">
+                                        Aprobar
+                                    </button>
+                                </form>
+                                <form hx-post="/bom/direccion/cotizaciones/{{ a.cotizacion_id }}/rechazar"
+                                    hx-target="#direccion-cotizaciones-content" hx-swap="outerHTML"
+                                    hx-disabled-elt="find button[type='submit']" hx-sync="this:replace"
+                                    onsubmit="const m = prompt('Motivo de rechazo (obligatorio):'); if(!m || !m.trim()){ event.preventDefault(); return false; } this.querySelector('input[name=motivo]').value = m.trim(); return true;">
+                                    <input type="hidden" name="motivo" value="">
+                                    <input type="hidden" name="aprobacion_lock_version" value="{{ a.aprobacion_lock_version }}">
+                                    <input type="hidden" name="autorizacion_lock_version" value="{{ a.autorizacion_lock_version }}">
+                                    <button type="submit"
+                                        class="rounded-lg bg-red-500 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-red-600 disabled:cursor-wait disabled:opacity-60">
+                                        Rechazar
+                                    </button>
+                                </form>
+                            </div>
+                            {% endif %}
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="rounded-xl border border-dashed border-gray-300 bg-gray-50 py-14 text-center">
+        <p class="text-sm font-medium text-gray-500">No hay cotizaciones con este filtro.</p>
+    </div>
+    {% endif %}
+</div>
