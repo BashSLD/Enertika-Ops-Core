@@ -23,6 +23,12 @@ PLANTILLA_COLUMNAS = [
     "clave_sat", "notas",
 ]
 
+# Campos que arman el texto de 'concepto' (material+tipo+acabado+medida).
+# marca/adicional son metadatos de su propia columna, no se concatenan aqui.
+# Fuente unica: usada tanto por el fallback de _parse_y_validar como por la
+# formula de Excel en generar_plantilla_internos.
+CONCEPTO_CAMPOS = ("material", "tipo", "acabado", "medida")
+
 # Columnas de la plantilla de actualizacion masiva de precios (orden de salida).
 # id, descripcion y unidad van bloqueados; moneda y precio son editables.
 PLANTILLA_PRECIOS_COLUMNAS = [
@@ -461,10 +467,11 @@ class MaterialsService:
                     fila[h] = ('' if val is None else str(val).strip())
 
             concepto = fila.get('concepto', '').strip()
-            partes = [fila.get(k, '').strip() for k in
-                      ('material', 'tipo', 'acabado', 'marca', 'adicional', 'medida')]
+            partes = {k: fila.get(k, '').strip() for k in
+                      ('material', 'tipo', 'acabado', 'marca', 'adicional', 'medida')}
             if not concepto:
-                concepto = ' '.join(p for p in partes if p and p.upper() != 'NA').strip()
+                concepto = ' '.join(partes[k] for k in CONCEPTO_CAMPOS
+                                     if partes[k] and partes[k].upper() != 'NA').strip()
             concepto = re.sub(r'\s{2,}', ' ', concepto).strip()
             if not concepto:
                 continue  # fila totalmente vacia: se ignora en silencio
@@ -532,9 +539,9 @@ class MaterialsService:
                 'clave_prod_serv': fila.get('clave_sat', '').strip() or None,
                 'precio_referencia': precio,
                 'notas': fila.get('notas', '').strip() or None,
-                'material': partes[0] or None, 'tipo': partes[1] or None,
-                'acabado': partes[2] or None, 'marca': partes[3] or None,
-                'adicional': partes[4] or None, 'medida': partes[5] or None,
+                'material': partes['material'] or None, 'tipo': partes['tipo'] or None,
+                'acabado': partes['acabado'] or None, 'marca': partes['marca'] or None,
+                'adicional': partes['adicional'] or None, 'medida': partes['medida'] or None,
                 'moneda': moneda,
             }
             validas.append(registro)
@@ -770,12 +777,28 @@ class MaterialsService:
             cell.alignment = header_align
             ws.column_dimensions[get_column_letter(col)].width = 16
 
-        # Fila de ejemplo
-        ejemplo = ["ABRAZADERA", "CLIP", "PARED DELGADA", "", "", '(1/2")',
-                   'ABRAZADERA CLIP PARED DELGADA (1/2")', "pza", "Accesorios electricos",
-                   "5.24", "MXN", "", "Ejemplo: borrar esta fila"]
-        for col, val in enumerate(ejemplo, 1):
-            ws.cell(row=2, column=col, value=val)
+        ultima_fila = 1000
+
+        # Fila de ejemplo (concepto se llena con formula, ver mas abajo)
+        ejemplo = {
+            "material": "ABRAZADERA", "tipo": "CLIP", "acabado": "PARED DELGADA",
+            "medida": '(1/2")', "unidad": "pza", "categoria": "Accesorios electricos",
+            "precio_referencia": "5.24", "moneda": "MXN",
+            "notas": "Ejemplo: borrar esta fila",
+        }
+        for col, name in enumerate(PLANTILLA_COLUMNAS, 1):
+            if name in ejemplo:
+                ws.cell(row=2, column=col, value=ejemplo[name])
+
+        # Formula de concatenado para 'concepto', derivada de CONCEPTO_CAMPOS (misma
+        # fuente que el fallback de _parse_y_validar). TEXTJOIN con ignore_empty=TRUE
+        # salta las columnas vacias.
+        cols_concepto = [get_column_letter(PLANTILLA_COLUMNAS.index(campo) + 1)
+                          for campo in CONCEPTO_CAMPOS]
+        col_concepto_idx = PLANTILLA_COLUMNAS.index('concepto') + 1
+        for row in range(2, ultima_fila + 1):
+            refs = ",".join(f"{c}{row}" for c in cols_concepto)
+            ws.cell(row=row, column=col_concepto_idx, value=f'=TEXTJOIN(" ",TRUE,{refs})')
 
         # Hoja de catalogos (referencia + origen de las listas desplegables)
         cat_ws = wb.create_sheet("Catalogos")
@@ -803,9 +826,9 @@ class MaterialsService:
         col_unidad = get_column_letter(PLANTILLA_COLUMNAS.index('unidad') + 1)
         col_cat = get_column_letter(PLANTILLA_COLUMNAS.index('categoria') + 1)
         col_mon = get_column_letter(PLANTILLA_COLUMNAS.index('moneda') + 1)
-        dv_unidad.add(f"{col_unidad}2:{col_unidad}1000")
-        dv_cat.add(f"{col_cat}2:{col_cat}1000")
-        dv_moneda.add(f"{col_mon}2:{col_mon}1000")
+        dv_unidad.add(f"{col_unidad}2:{col_unidad}{ultima_fila}")
+        dv_cat.add(f"{col_cat}2:{col_cat}{ultima_fila}")
+        dv_moneda.add(f"{col_mon}2:{col_mon}{ultima_fila}")
 
         ws.freeze_panes = "A2"
 
