@@ -40,7 +40,7 @@
             {% endif %}
 
             <form id="filtros-form" hx-get="/compras/comprobantes" hx-target="#tabla-comprobantes" hx-swap="innerHTML"
-                hx-trigger="submit, change delay:500ms, reloadComprobantes from:body" class="relative" @click.outside="showFilters = false"
+                hx-trigger="submit, reloadComprobantes from:body" class="relative" @click.outside="showFilters = false"
                 data-default-usuario="{{ default_usuario }}"
                 data-max-dias-zip="{{ max_dias_zip if max_dias_zip is defined else 31 }}">
                 <button type="button" @click="showFilters = !showFilters"
