@@ -102,7 +102,8 @@
                 {% set disabled_fecha_requerida = base_bloqueada or base_construccion_bloqueada %}
                 {% set disabled_compras = area_editor != 'compras' or ejecucion_bloqueada %}
                 {% set grupos_operativos_editables = bom.estatus == 'APROBADO_FINAL' and area_editor == 'construccion' and not bloqueado %}
-                {% set disabled_grupos = area_editor not in ['ingenieria', 'construccion'] or (base_bloqueada and not grupos_operativos_editables) or (area_editor == 'construccion' and base_construccion_bloqueada) %}
+                {# disabled_grupos viene del ctx (BomService.puede_editar_grupos): fuente unica
+                   compartida con el PATCH que aplica el cambio, no recalcular aqui. #}
                 {% set grupos_actuales = item.grupos_operativos if grupos_operativos_editables and item.grupos_operativos else item.grupos %}
 
                 {# Tab: Ingenieria #}
