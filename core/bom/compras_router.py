@@ -508,7 +508,7 @@ async def preview_pdf_cotizacion(
 ):
     """Streamea el PDF mas reciente de la cotización para verlo inline en el navegador."""
     try:
-        nombre_archivo, media_type, contenido = await service.get_pdf_cotizacion_bytes(
+        nombre_archivo, _media_type, contenido = await service.get_pdf_cotizacion_bytes(
             conn, cotizacion_id
         )
     except ValueError as e:
@@ -518,9 +518,12 @@ async def preview_pdf_cotizacion(
     except httpx.HTTPError:
         raise HTTPException(status_code=502, detail="Error descargando el PDF desde SharePoint")
 
+    # media_type fijo: este endpoint solo sirve PDFs. Nunca confiar en el tipo
+    # de contenido guardado en BD (viene del content-type que mandó el cliente
+    # al subir el archivo) para evitar servir HTML/SVG inline (XSS almacenado).
     return Response(
         content=contenido,
-        media_type=media_type,
+        media_type="application/pdf",
         headers={
             "Content-Disposition": content_disposition_header(
                 "inline", nombre_archivo or "cotizacion.pdf"

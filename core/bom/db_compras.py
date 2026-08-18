@@ -272,6 +272,13 @@ class BomComprasDBMixin:
         """, cotizacion_id, pdf_url, lock_version_esperado)
         return dict(row) if row else None
 
+    async def eliminar_attachment_huerfano(self, conn, doc_id: UUID) -> None:
+        """Borra un attachment recien subido a SharePoint cuando el CAS que lo
+        iba a referenciar (actualizar_pdf_cotizacion) fallo por lock_version o
+        estatus obsoletos. Evita que get_pdf_attachment_cotizacion lo sirva por
+        error en el preview al ser el mas reciente sin estar realmente vigente."""
+        await conn.execute("DELETE FROM tb_documentos_attachments WHERE id_documento = $1", doc_id)
+
     async def get_pdf_attachment_cotizacion(
         self, conn, cotizacion_id: UUID, doc_id: Optional[UUID] = None,
     ) -> Optional[dict]:

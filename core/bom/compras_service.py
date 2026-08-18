@@ -1250,9 +1250,17 @@ class BomComprasServiceMixin:
             raise ValueError(
                 "La cotización ya fue aprobada por Dirección y no puede modificarse."
             )
+        content_type = (getattr(file, "content_type", None) or "").split(";")[0].strip().lower()
+        if content_type != "application/pdf":
+            raise ValueError("El archivo debe ser un PDF")
 
         from modules.compras.service import ComprasService
 
+        # El upload a SharePoint (round-trip de red) se hace fuera de la
+        # transaccion para no mantener una conexion del pool abierta durante
+        # esa llamada externa (mismo criterio que FinanzasService.registrar_pago).
+        # Si el CAS de abajo falla, se borra el attachment recien creado para
+        # que no quede huerfano y termine sirviendose por error en el preview.
         upload_result = await ComprasService().subir_pdf_mensual(
             conn, file, categoria='bom/cotizaciones',
             origen_slug='cotizacion_bom', user_id=user_id,
@@ -1261,9 +1269,15 @@ class BomComprasServiceMixin:
         if not upload_result or not upload_result.get('url_sharepoint'):
             raise ValueError("No se pudo subir el PDF a SharePoint")
 
-        return await self.actualizar_pdf_cotizacion(
-            conn, cotizacion_id, upload_result['url_sharepoint'], lock_version_esperado
-        )
+        try:
+            return await self.actualizar_pdf_cotizacion(
+                conn, cotizacion_id, upload_result['url_sharepoint'], lock_version_esperado
+            )
+        except ValueError:
+            doc_id = upload_result.get('id_documento_attachment')
+            if doc_id:
+                await self.db.eliminar_attachment_huerfano(conn, doc_id)
+            raise
 
     async def get_pdf_cotizacion_bytes(
         self, conn, cotizacion_id: UUID, doc_id: Optional[UUID] = None,
