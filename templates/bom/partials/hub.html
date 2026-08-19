@@ -124,10 +124,18 @@
                                 </span>
                                 {{ paquete.codigo }} - {{ paquete.nombre }}
                             </a>
-                            <div class="mt-1 flex gap-1 text-xs">
+                            <div class="mt-1 flex flex-wrap items-center gap-1 text-xs">
                                 <span class="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600">{{ paquete.tipo_alcance }}</span>
                                 {% if paquete.estado_paquete != 'ACTIVO' %}
                                 <span class="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">{{ paquete.estado_paquete }}</span>
+                                {% endif %}
+                                {% if paquete.estatus_trabajo in estatus_fase_compras %}
+                                <a href="/bom/paquetes/{{ paquete.id_paquete }}/compras"
+                                    hx-get="/bom/paquetes/{{ paquete.id_paquete }}/compras"
+                                    hx-target="#main-content" hx-push-url="true"
+                                    class="rounded bg-blue-50 px-1.5 py-0.5 font-medium text-blue-700 hover:bg-blue-100">
+                                    Ver compras
+                                </a>
                                 {% endif %}
                             </div>
                         </td>

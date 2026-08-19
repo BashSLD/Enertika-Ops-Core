@@ -20,7 +20,7 @@ from core.security import get_current_user_context
 from core.permissions import require_module_access, require_any_module_access
 from core.config import settings
 from core.jinja_filters import register_timezone_filters
-from modules.shared.utils import content_disposition_header
+from modules.shared.utils import content_disposition_header, is_htmx
 from .compras_service import ESTATUS_COTIZABLE, item_disponible_cotizacion
 from .router import _toast_response
 from .schemas import EstatusBOM
@@ -124,6 +124,52 @@ async def _render_cotizaciones_tab(
             **extra,
         }
     )
+
+
+# ========================================
+# PAGINA "COMPRAS DEL PAQUETE" (Resumen de compra + Cotizaciones + Autorizaciones)
+# ========================================
+
+@compras_router.get("/paquetes/{id_paquete}/compras", include_in_schema=False)
+async def compras_paquete_ui(
+    request: Request,
+    id_paquete: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(
+        ["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}
+    ),
+):
+    """Pagina dedicada de Compras para un paquete: resuelve server-side el BOM
+    cotizable vigente (cabeza de trabajo, u oficial si hay retrabajo en curso) y
+    embebe Resumen de compra/Cotizaciones/Autorizaciones sin depender de un modal."""
+    try:
+        paquete = await service.get_paquete(conn, id_paquete)
+        bom = await service.resolver_bom_cotizable(conn, id_paquete)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    proyecto = await service.get_proyecto_info(conn, paquete["id_proyecto"])
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    ctx = {
+        # Guarda obligatoria (doc plan seccion 1.ter): toda pagina completa que
+        # extienda base.html debe traer estos 4 campos, o el sidebar desaparece
+        # en F5/URL directa (bug ya visto en /bom/direccion/cotizaciones).
+        "user_name": context.get("user_name"),
+        "role": context.get("role"),
+        "module_roles": context.get("module_roles", {}),
+        "user_id": context.get("user_db_id"),
+        "paquete": paquete,
+        "proyecto": proyecto,
+        "bom": bom,
+        "solo_lectura": not bom.get("es_cabeza_trabajo") and not bom.get("es_cabeza_oficial"),
+    }
+    template = (
+        "bom/partials/compras_paquete.html" if is_htmx(request) else "bom/compras_paquete.html"
+    )
+    return templates.TemplateResponse(request, template, ctx)
 
 
 @compras_router.get("/{id_bom:uuid}/cotizaciones", include_in_schema=False)
@@ -230,6 +276,7 @@ async def crear_rfq_rapido(
 
     try:
         rfq = await service.crear_rfq(conn, id_bom, item_ids, user_id)
+        bom = await service.get_bom(conn, id_bom)
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
@@ -239,9 +286,10 @@ async def crear_rfq_rapido(
     return _toast_response(
         request,
         f"RFQ creado con {rfq['total_items']} item{'s' if rfq['total_items'] != 1 else ''}. "
-        "Consúltalo en la pestaña Comparativa para generar el PDF.",
+        "Consúltalo en Compras del paquete, sección Cotizaciones, para generar el PDF.",
         "success",
         title="RFQ creado",
+        redirect_url=f"/bom/paquetes/{bom['id_paquete']}/compras",
     )
 
 

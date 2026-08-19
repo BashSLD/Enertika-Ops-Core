@@ -114,6 +114,7 @@
         </div>
         <div class="flex items-center gap-2">
             {% if bom %}
+            {% set muestra_propuestas = area_editor in ['ingenieria', 'construccion'] and bom.estatus in ['EN_REVISION_ING', 'APROBADO_ING', 'EN_REVISION_OBRA', 'EN_REVISION_CONST', 'EN_REVISION_FINAL'] %}
             {% if paquete or es_rol_bom %}
             <div class="relative" x-data="{ open: false }" @click.outside="open = false" @keydown.escape.window="open = false">
                 <button type="button" @click="open = !open"
@@ -134,6 +135,68 @@
                         </svg>
                         Excel
                     </a>
+                    <div class="border-t border-gray-100 my-1"></div>
+                    <button type="button" @click="open = false"
+                        hx-get="/bom/{{ bom.id_bom }}/aprobaciones/modal"
+                        hx-target="#bom-modal-container" hx-swap="innerHTML"
+                        class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        Aprobaciones
+                    </button>
+                    {% if muestra_propuestas %}
+                    <button type="button" @click="open = false"
+                        hx-get="/bom/{{ bom.id_bom }}/propuestas-cambio/modal"
+                        hx-target="#bom-modal-container" hx-swap="innerHTML"
+                        class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h8m-8 4h8m-8 4h5M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/>
+                        </svg>
+                        Propuestas de cambio
+                    </button>
+                    {% endif %}
+                    <button type="button" @click="open = false"
+                        hx-get="/bom/{{ bom.id_bom }}/historial/modal"
+                        hx-target="#bom-modal-container" hx-swap="innerHTML"
+                        class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        Historial de Cambios
+                    </button>
+                    {% if versiones|length > 1 %}
+                    <button type="button" @click="open = false"
+                        hx-get="/bom/{{ bom.id_bom }}/versiones/modal"
+                        hx-target="#bom-modal-container" hx-swap="innerHTML"
+                        class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h10M7 12h10M7 17h5M3 3h18v18H3V3z"/>
+                        </svg>
+                        Versiones ({{ versiones|length }})
+                    </button>
+                    {% endif %}
+                    {% if bom.estatus == 'APROBADO_FINAL' %}
+                    <button type="button" @click="open = false"
+                        hx-get="/bom/{{ bom.id_bom }}/adendas/modal"
+                        hx-target="#bom-modal-container" hx-swap="innerHTML"
+                        class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 4H8a2 2 0 01-2-2V6a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        Adendas
+                    </button>
+                    {% endif %}
+                    {% if fase_compras and paquete %}
+                    <button type="button" @click="open = false"
+                        hx-get="/bom/paquetes/{{ paquete.id_paquete }}/compras" hx-target="#main-content" hx-push-url="true"
+                        class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                        </svg>
+                        Ver compras
+                    </button>
+                    {% endif %}
                     {% if (puede_administrar_paquete and paquete) or es_rol_bom %}
                     <div class="border-t border-gray-100 my-1"></div>
                     {% endif %}
@@ -600,149 +663,6 @@
         <div id="tabla-bom-items">
             {% include "bom/partials/tabla_items.html" %}
         </div>
-    </div>
-
-    {# Tabs: Historial / Aprobaciones / Cotizaciones #}
-    <div class="mt-6" x-data="{ tab: 'aprobaciones' }">
-        <div class="border-b border-gray-200 mb-4">
-            <nav class="flex -mb-px space-x-4 flex-wrap gap-y-1">
-                {% set muestra_propuestas = area_editor in ['ingenieria', 'construccion'] and bom.estatus in ['EN_REVISION_ING', 'APROBADO_ING', 'EN_REVISION_OBRA', 'EN_REVISION_CONST', 'APROBADO_CONST', 'EN_REVISION_FINAL'] %}
-                <button @click="tab = 'aprobaciones'"
-                    :class="{'border-blue-500 text-blue-600': tab === 'aprobaciones', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'aprobaciones'}"
-                    class="py-2 px-3 border-b-2 font-medium text-sm transition">
-                    Aprobaciones
-                </button>
-                {% if muestra_propuestas %}
-                <button @click="tab = 'propuestas-cambio'"
-                    :class="{'border-cyan-500 text-cyan-600': tab === 'propuestas-cambio', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'propuestas-cambio'}"
-                    class="py-2 px-3 border-b-2 font-medium text-sm transition">
-                    Propuestas de cambio
-                </button>
-                {% endif %}
-                <button @click="tab = 'historial'"
-                    :class="{'border-blue-500 text-blue-600': tab === 'historial', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'historial'}"
-                    class="py-2 px-3 border-b-2 font-medium text-sm transition">
-                    Historial de Cambios
-                </button>
-                {% if fase_compras %}
-                <button @click="tab = 'resumen-compra'"
-                    :class="{'border-indigo-500 text-indigo-600': tab === 'resumen-compra', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'resumen-compra'}"
-                    class="py-2 px-3 border-b-2 font-medium text-sm transition">
-                    Resumen de compra
-                </button>
-                {% endif %}
-                {% if bom.estatus == 'APROBADO_FINAL' %}
-                <button @click="tab = 'adendas'"
-                    :class="{'border-emerald-500 text-emerald-600': tab === 'adendas', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'adendas'}"
-                    class="py-2 px-3 border-b-2 font-medium text-sm transition">
-                    Adendas
-                </button>
-                {% endif %}
-                {% if fase_compras %}
-                <button x-ref="tabCotizaciones" @click="tab = 'cotizaciones'"
-                    :class="{'border-emerald-500 text-emerald-600': tab === 'cotizaciones', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'cotizaciones'}"
-                    class="py-2 px-3 border-b-2 font-medium text-sm transition">
-                    Cotizaciones
-                </button>
-                {% endif %}
-                {% if fase_compras %}
-                <button @click="tab = 'autorizaciones'"
-                    :class="{'border-amber-500 text-amber-600': tab === 'autorizaciones', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'autorizaciones'}"
-                    class="py-2 px-3 border-b-2 font-medium text-sm transition">
-                    Autorizaciones
-                </button>
-                {% endif %}
-                {% if versiones|length > 1 %}
-                <button @click="tab = 'versiones'"
-                    :class="{'border-blue-500 text-blue-600': tab === 'versiones', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'versiones'}"
-                    class="py-2 px-3 border-b-2 font-medium text-sm transition">
-                    Versiones ({{ versiones|length }})
-                </button>
-                {% endif %}
-            </nav>
-        </div>
-
-        <div x-show="tab === 'aprobaciones'" id="tab-aprobaciones" hx-get="/bom/{{ bom.id_bom }}/aprobaciones"
-            hx-trigger="intersect once" hx-swap="innerHTML">
-            <div class="text-center py-4 text-gray-400 text-sm">Cargando aprobaciones...</div>
-        </div>
-
-        {% if muestra_propuestas %}
-        <div x-show="tab === 'propuestas-cambio'" id="tab-propuestas-cambio"
-            hx-get="/bom/{{ bom.id_bom }}/propuestas-cambio"
-            hx-trigger="intersect once" hx-swap="innerHTML">
-            <div class="text-center py-4 text-gray-400 text-sm">Cargando propuestas...</div>
-        </div>
-        {% endif %}
-
-        <div x-show="tab === 'historial'" id="tab-historial" hx-get="/bom/{{ bom.id_bom }}/historial"
-            hx-trigger="intersect once" hx-swap="innerHTML">
-            <div class="text-center py-4 text-gray-400 text-sm">Cargando historial...</div>
-        </div>
-
-        {% if fase_compras %}
-        <div x-show="tab === 'resumen-compra'" id="tab-resumen-compra"
-            hx-get="/bom/{{ bom.id_bom }}/resumen-compra"
-            hx-trigger="intersect once" hx-swap="innerHTML">
-            <div class="text-center py-4 text-gray-400 text-sm">Cargando resumen de compra...</div>
-        </div>
-        {% endif %}
-
-        {% if bom.estatus == 'APROBADO_FINAL' %}
-        <div x-show="tab === 'adendas'" id="tab-adendas"
-            hx-get="/bom/{{ bom.id_bom }}/adendas"
-            hx-trigger="intersect once" hx-swap="innerHTML">
-            <div class="text-center py-4 text-gray-400 text-sm">Cargando adendas...</div>
-        </div>
-        {% endif %}
-
-        {% if fase_compras %}
-        <div x-show="tab === 'cotizaciones'" id="tab-cotizaciones"
-            hx-get="/bom/{{ bom.id_bom }}/cotizaciones"
-            hx-trigger="intersect once" hx-swap="innerHTML">
-            <div class="text-center py-4 text-gray-400 text-sm">Cargando cotizaciones...</div>
-        </div>
-        {% endif %}
-
-        {% if fase_compras %}
-        <div x-show="tab === 'autorizaciones'" id="tab-autorizaciones"
-            hx-get="/bom/{{ bom.id_bom }}/autorizaciones"
-            hx-trigger="intersect once" hx-swap="innerHTML">
-            <div class="text-center py-4 text-gray-400 text-sm">Cargando autorizaciones...</div>
-        </div>
-        {% endif %}
-
-        {% if versiones|length > 1 %}
-        <div x-show="tab === 'versiones'">
-            <div class="bg-white rounded-lg border divide-y">
-                {% for v in versiones %}
-                <div class="flex items-center justify-between px-4 py-3 {{ 'bg-blue-50' if v.id_bom == bom.id_bom }}">
-                    <div>
-                        <span class="font-mono font-bold text-sm">v{{ v.version }}</span>
-                        <span class="ml-2 text-xs px-2 py-0.5 rounded-full
-                            {% if v.estatus == 'APROBADO' %}bg-green-100 text-green-800
-                            {% elif v.estatus == 'CANCELADO' %}bg-red-100 text-red-800
-                            {% elif v.estatus == 'BORRADOR' %}bg-gray-100 text-gray-800
-                            {% elif 'REVISION' in v.estatus %}bg-amber-100 text-amber-800
-                            {% else %}bg-blue-100 text-blue-800{% endif %}">
-                            {{ v.estatus }}
-                        </span>
-                    </div>
-                    <div class="text-xs text-gray-500">
-                        {{ v.elaborado_por_nombre or '' }}
-                        {% if v.created_at %} - {{ v.created_at.strftime('%d/%m/%Y') }}{% endif %}
-                        {% if v.id_bom != bom.id_bom %}
-                        <a href="/bom/versiones/{{ v.id_bom }}/ui"
-                            hx-get="/bom/versiones/{{ v.id_bom }}/ui"
-                            hx-target="#main-content" hx-push-url="true"
-                            class="ml-3 font-medium text-blue-600 hover:underline">Abrir</a>
-                        {% endif %}
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
     </div>
 
     {# Modal agregar item con busqueda en catalogo + entrada manual #}
@@ -1339,12 +1259,6 @@
                     script.textContent = s.textContent;
                     document.body.appendChild(script).remove();
                 });
-
-                const tabContainer = document.getElementById('tab-cotizaciones');
-                if (tabContainer) {
-                    tabContainer.innerHTML = doc.body.innerHTML;
-                    htmx.process(tabContainer);
-                }
             });
         })
         .catch(() => alert('Error al crear el RFQ. Intenta de nuevo.'));

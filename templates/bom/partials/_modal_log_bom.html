@@ -1,0 +1,31 @@
+{# Shell generico de modal para secciones de solo consulta/log del BOM (Historial,
+   Aprobaciones, Versiones, Propuestas de cambio, Adendas). El body hace su propio
+   hx-get al endpoint real de cada seccion (sin cambios de firma ni de template interno);
+   body_id debe coincidir exacto con el id que la seccion ya auto-referencia internamente
+   (ej. "tab-adendas", "tab-propuestas-cambio") para no romper sus forms ni sus llamadas HTMX inline. #}
+{% macro modal_log_bom(modal_id, titulo, hx_get_url, body_id, subtitulo=None) %}
+<div id="{{ modal_id }}" class="modal-overlay-layer fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+    x-data="{}" @click.self="$el.remove()">
+    <div class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-xl">
+        <div class="flex items-start justify-between border-b border-gray-200 px-6 py-4">
+            <div>
+                <h2 class="text-lg font-bold text-gray-800">{{ titulo }}</h2>
+                {% if subtitulo %}
+                <p class="mt-1 text-sm text-gray-500">{{ subtitulo }}</p>
+                {% endif %}
+            </div>
+            <button type="button" onclick="document.getElementById('{{ modal_id }}').remove()"
+                class="text-gray-400 hover:text-gray-700" aria-label="Cerrar">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div class="p-6">
+            <div id="{{ body_id }}" hx-get="{{ hx_get_url }}" hx-trigger="load" hx-swap="innerHTML">
+                <div class="text-center py-6 text-gray-400 text-sm">Cargando...</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endmacro %}

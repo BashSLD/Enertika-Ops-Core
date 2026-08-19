@@ -1,0 +1,31 @@
+{# Lista de versiones del paquete al que pertenece este BOM. #}
+<div class="bg-white rounded-lg border divide-y">
+    {% for v in versiones %}
+    <div class="flex items-center justify-between px-4 py-3 {{ 'bg-blue-50' if v.id_bom == bom.id_bom }}">
+        <div>
+            <span class="font-mono font-bold text-sm">v{{ v.version }}</span>
+            <span class="ml-2 text-xs px-2 py-0.5 rounded-full
+                {% if v.estatus == 'APROBADO' %}bg-green-100 text-green-800
+                {% elif v.estatus == 'CANCELADO' %}bg-red-100 text-red-800
+                {% elif v.estatus == 'BORRADOR' %}bg-gray-100 text-gray-800
+                {% elif 'REVISION' in v.estatus %}bg-amber-100 text-amber-800
+                {% else %}bg-blue-100 text-blue-800{% endif %}">
+                {{ v.estatus }}
+            </span>
+        </div>
+        <div class="text-xs text-gray-500">
+            {{ v.elaborado_por_nombre or '' }}
+            {% if v.created_at %} - {{ v.created_at.strftime('%d/%m/%Y') }}{% endif %}
+            {% if v.id_bom != bom.id_bom %}
+            <a href="/bom/versiones/{{ v.id_bom }}/ui"
+                hx-get="/bom/versiones/{{ v.id_bom }}/ui"
+                hx-target="#main-content" hx-push-url="true"
+                class="ml-3 font-medium text-blue-600 hover:underline">Abrir</a>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+    {% if not versiones %}
+    <p class="px-4 py-6 text-center text-sm text-gray-400">Sin versiones registradas.</p>
+    {% endif %}
+</div>

@@ -5,7 +5,7 @@ Endpoints HTMX para CRUD de items, workflow de aprobaciones y exportacion Excel.
 
 from fastapi import APIRouter, Depends, Request, HTTPException, Form, Query
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import RedirectResponse, Response, HTMLResponse
 from uuid import UUID, uuid4
 from typing import Callable, Optional
 import json
@@ -396,6 +396,7 @@ async def bom_hub_ui(
         "mensaje_sin_bom": mensaje_sin_bom,
         "es_admin": role == "ADMIN",
         "clave_idempotencia_paquete": str(uuid4()),
+        "estatus_fase_compras": _ESTATUS_FASE_COMPRAS,
     }
     template = "bom/partials/hub.html" if is_htmx(request) else "bom/hub.html"
     return templates.TemplateResponse(request, template, ctx)
@@ -429,6 +430,10 @@ async def bom_consolidado_ui(
         "proyecto": proyecto,
         "id_proyecto": id_proyecto,
         "consolidado": consolidado,
+        "puede_gestionar_tc_manual": (
+            context.get("role") == "ADMIN"
+            or context.get("rol_organizacional") == "director"
+        ),
     }
     template = (
         "bom/partials/consolidado.html"
@@ -1085,6 +1090,64 @@ async def cambiar_captura_paquetes(
     except asyncpg.PostgresError:
         logger.exception("Error de BD al cambiar captura de paquetes BOM")
         return _toast_response(request, "Error interno al actualizar la captura", "error", status_code=500)
+
+
+@router.post("/proyecto/{id_proyecto}/tipo-cambio-manual", include_in_schema=False)
+async def fijar_tipo_cambio_manual(
+    request: Request,
+    id_proyecto: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["bom"], "admin", allow_org_roles={"director"}),
+):
+    """Fija (o reemplaza) el TC manual del proyecto (CEO/ADMIN)."""
+    form = await request.form()
+    from decimal import Decimal, InvalidOperation
+    try:
+        tasa = Decimal(form.get("tipo_cambio_manual", ""))
+    except InvalidOperation:
+        return _toast_response(request, "Tipo de cambio invalido", "error", status_code=400)
+    try:
+        await service.fijar_tipo_cambio_manual(
+            conn, id_proyecto, tasa, context.get("user_db_id"),
+            int(form.get("lock_version", "0")),
+        )
+        return _toast_response(
+            request, "Tipo de cambio manual fijado", "success",
+            redirect_url=f"/bom/{id_proyecto}/consolidado/ui",
+        )
+    except (TypeError, ValueError) as exc:
+        return _toast_response(request, str(exc), "error", status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al fijar tipo de cambio manual del proyecto %s", id_proyecto)
+        return _toast_response(request, "Error interno al fijar el tipo de cambio", "error", status_code=500)
+
+
+@router.delete("/proyecto/{id_proyecto}/tipo-cambio-manual", include_in_schema=False)
+async def quitar_tipo_cambio_manual(
+    request: Request,
+    id_proyecto: UUID,
+    lock_version: int = Query(0),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["bom"], "admin", allow_org_roles={"director"}),
+):
+    """Quita el TC manual del proyecto; vuelve a Banxico/promedio (CEO/ADMIN)."""
+    try:
+        await service.quitar_tipo_cambio_manual(
+            conn, id_proyecto, context.get("user_db_id"), lock_version,
+        )
+        return _toast_response(
+            request, "Tipo de cambio manual retirado", "success",
+            redirect_url=f"/bom/{id_proyecto}/consolidado/ui",
+        )
+    except (TypeError, ValueError) as exc:
+        return _toast_response(request, str(exc), "error", status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al quitar tipo de cambio manual del proyecto %s", id_proyecto)
+        return _toast_response(request, "Error interno al quitar el tipo de cambio", "error", status_code=500)
 
 
 # ========================================
@@ -2080,6 +2143,137 @@ async def agregar_fuera_scope(
         return _toast_response(request, "Error interno al registrar la adenda", "error", "Error", status_code=500)
 
 
+# ========================================
+# MODALES DE CONSULTA/LOG (Historial, Aprobaciones, Versiones, Propuestas, Adendas)
+# ========================================
+# Shell generico (backdrop + header + boton cerrar); el body dispara su propio hx-get
+# hacia el endpoint real de cada seccion en hx-trigger="load" (sin tocar esos endpoints
+# ni sus templates internos). Reemplaza el tab strip horizontal de content.html.
+
+def _modal_log_response(
+    request: Request, modal_id: str, titulo: str, hx_get_url: str,
+    body_id: str, subtitulo: Optional[str] = None,
+) -> Response:
+    return templates.TemplateResponse(
+        request, "bom/partials/modal_log_wrapper.html",
+        {
+            "modal_id": modal_id, "titulo": titulo, "hx_get_url": hx_get_url,
+            "body_id": body_id, "subtitulo": subtitulo,
+        },
+    )
+
+
+async def _get_modal_log_or_toast(
+    request: Request, id_bom: UUID, service: BomService, conn,
+    modal_id: str, titulo: str, hx_get_path: str, body_id: str,
+) -> Response:
+    """Resuelve el BOM y arma el shell de modal-log; comparte el try/except+lookup
+    entre los 5 endpoints /modal (Historial, Aprobaciones, Propuestas, Adendas, Versiones)."""
+    try:
+        bom = await service.get_bom(conn, id_bom)
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", "Error", status_code=404)
+    return _modal_log_response(
+        request, modal_id, titulo, f"/bom/{id_bom}/{hx_get_path}", body_id,
+        subtitulo=f"{bom.get('paquete_codigo', '')} v{bom.get('version', '')}",
+    )
+
+
+@router.get("/{id_bom}/historial/modal", include_in_schema=False)
+async def get_historial_modal(
+    request: Request,
+    id_bom: UUID,
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    return await _get_modal_log_or_toast(
+        request, id_bom, service, conn,
+        "modal-log-historial", "Historial de Cambios", "historial", "tab-historial-modal",
+    )
+
+
+@router.get("/{id_bom}/aprobaciones/modal", include_in_schema=False)
+async def get_aprobaciones_modal(
+    request: Request,
+    id_bom: UUID,
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    return await _get_modal_log_or_toast(
+        request, id_bom, service, conn,
+        "modal-log-aprobaciones", "Aprobaciones", "aprobaciones", "tab-aprobaciones-modal",
+    )
+
+
+@router.get("/{id_bom}/propuestas-cambio/modal", include_in_schema=False)
+async def get_propuestas_cambio_modal(
+    request: Request,
+    id_bom: UUID,
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "construccion"], "viewer"),
+):
+    return await _get_modal_log_or_toast(
+        request, id_bom, service, conn,
+        "modal-log-propuestas", "Propuestas de cambio", "propuestas-cambio", "tab-propuestas-cambio",
+    )
+
+
+@router.get("/{id_bom}/adendas/modal", include_in_schema=False)
+async def get_adendas_modal(
+    request: Request,
+    id_bom: UUID,
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    return await _get_modal_log_or_toast(
+        request, id_bom, service, conn,
+        "modal-log-adendas", "Adendas", "adendas", "tab-adendas",
+    )
+
+
+@router.get("/{id_bom}/versiones/modal", include_in_schema=False)
+async def get_versiones_modal(
+    request: Request,
+    id_bom: UUID,
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    return await _get_modal_log_or_toast(
+        request, id_bom, service, conn,
+        "modal-log-versiones", "Versiones", "versiones", "tab-versiones-modal",
+    )
+
+
+@router.get("/{id_bom}/versiones", include_in_schema=False)
+async def get_versiones(
+    request: Request,
+    id_bom: UUID,
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    """Lista de versiones del paquete al que pertenece este BOM."""
+    try:
+        bom = await service.get_bom(conn, id_bom)
+        versiones = await service.get_versiones_paquete(conn, bom["id_paquete"])
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", "Error", status_code=404)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al obtener versiones del paquete del BOM %s", id_bom)
+        return HTMLResponse(
+            '<p class="text-sm text-red-600 py-4">Error de base de datos al cargar versiones.</p>',
+            status_code=500,
+        )
+    return templates.TemplateResponse(
+        request, "bom/partials/versiones.html", {"bom": bom, "versiones": versiones},
+    )
+
+
 @router.get("/{id_bom}/adendas", include_in_schema=False)
 async def get_adendas_tab(
     request: Request,
@@ -2090,7 +2284,16 @@ async def get_adendas_tab(
     _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
 ):
     """Tab de adendas registradas en el BOM."""
-    return await _adendas_tab_response(request, context, conn, service, id_bom)
+    try:
+        return await _adendas_tab_response(request, context, conn, service, id_bom)
+    except ValueError as e:
+        return HTMLResponse(f'<p class="text-sm text-red-600 py-4">{e}</p>', status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al obtener adendas del BOM %s", id_bom)
+        return HTMLResponse(
+            '<p class="text-sm text-red-600 py-4">Error de base de datos al cargar las adendas.</p>',
+            status_code=500,
+        )
 
 
 async def _adendas_tab_response(
@@ -2276,7 +2479,16 @@ async def get_propuestas_cambio_tab(
     _=require_any_module_access(["ingenieria", "construccion"], "viewer"),
 ):
     """Tab de propuestas de cambio pre-final del BOM."""
-    return await _propuestas_tab_response(request, context, conn, service, id_bom)
+    try:
+        return await _propuestas_tab_response(request, context, conn, service, id_bom)
+    except ValueError as e:
+        return HTMLResponse(f'<p class="text-sm text-red-600 py-4">{e}</p>', status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al obtener propuestas de cambio del BOM %s", id_bom)
+        return HTMLResponse(
+            '<p class="text-sm text-red-600 py-4">Error de base de datos al cargar las propuestas de cambio.</p>',
+            status_code=500,
+        )
 
 
 async def _propuestas_tab_response(
@@ -2716,8 +2928,17 @@ async def get_historial(
     _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
 ):
     """Historial de cambios del BOM."""
-    historial = await service.get_historial(conn, id_bom)
-    bom = await service.get_bom(conn, id_bom)
+    try:
+        historial = await service.get_historial(conn, id_bom)
+        bom = await service.get_bom(conn, id_bom)
+    except ValueError as e:
+        return HTMLResponse(f'<p class="text-sm text-red-600 py-4">{e}</p>', status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al obtener historial del BOM %s", id_bom)
+        return HTMLResponse(
+            '<p class="text-sm text-red-600 py-4">Error de base de datos al cargar el historial.</p>',
+            status_code=500,
+        )
 
     return templates.TemplateResponse(request, "bom/partials/historial.html", {"historial": historial,
         "bom": bom,
@@ -2734,8 +2955,17 @@ async def get_aprobaciones(
     _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
 ):
     """Timeline de aprobaciones del BOM."""
-    aprobaciones = await service.get_aprobaciones(conn, id_bom)
-    bom = await service.get_bom(conn, id_bom)
+    try:
+        aprobaciones = await service.get_aprobaciones(conn, id_bom)
+        bom = await service.get_bom(conn, id_bom)
+    except ValueError as e:
+        return HTMLResponse(f'<p class="text-sm text-red-600 py-4">{e}</p>', status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al obtener aprobaciones del BOM %s", id_bom)
+        return HTMLResponse(
+            '<p class="text-sm text-red-600 py-4">Error de base de datos al cargar las aprobaciones.</p>',
+            status_code=500,
+        )
 
     return templates.TemplateResponse(request, "bom/partials/aprobaciones.html", {"aprobaciones": aprobaciones,
         "bom": bom,

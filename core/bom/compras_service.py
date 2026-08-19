@@ -42,6 +42,18 @@ class BomComprasServiceMixin:
             return bool(bom.get("es_cabeza_oficial"))
         return bool(bom.get("es_cabeza_trabajo", True))
 
+    async def resolver_bom_cotizable(self, conn, id_paquete: UUID) -> dict:
+        """Resuelve, a partir del paquete, el BOM relevante para Compras hoy: la
+        cabeza de trabajo, salvo que haya retrabajo en curso tras APROBADO_FINAL
+        (una nueva version en BORRADOR/revision), en cuyo caso Compras se queda
+        en la cabeza oficial — misma regla que valida `_es_cabeza_cotizable`."""
+        bom = await self.get_bom_cabeza_trabajo(conn, id_paquete)
+        if EstatusBOM(bom["estatus"]) != EstatusBOM.APROBADO_FINAL:
+            oficial = await self.get_bom_cabeza_oficial(conn, id_paquete)
+            if oficial:
+                return oficial
+        return bom
+
     @staticmethod
     def _raise_si_items(items: list, mensaje: str) -> None:
         if not items:
@@ -435,12 +447,12 @@ class BomComprasServiceMixin:
                 bom = await self.db.get_bom_by_id(conn, cotizacion['bom_id'])
                 tc_valor = None
                 if cotizacion['moneda'] == 'USD':
-                    tc = await self.db.get_tipo_cambio_vigente(conn)
-                    if not tc:
+                    resuelto = await self.resolver_tipo_cambio(conn, bom['id_proyecto'])
+                    if not resuelto["tasa"]:
                         raise ValueError(
                             "No hay tipo de cambio vigente para autorizar la cotizacion"
                         )
-                    tc_valor = tc['tasa_mxn']
+                    tc_valor = resuelto["tasa"]
                 if existente:
                     await self.db.reabrir_autorizacion_db(
                         conn, existente['id'], cotizacion['total'],
