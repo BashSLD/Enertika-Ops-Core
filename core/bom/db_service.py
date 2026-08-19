@@ -281,8 +281,6 @@ class BomDBService(BomComprasDBMixin):
             SET tipo_cambio_manual = $3,
                 tipo_cambio_manual_fijado_por = $4,
                 tipo_cambio_manual_fijado_en = NOW(),
-                actualizado_por = $4,
-                cambio_estado_en = NOW(),
                 lock_version = lock_version + 1,
                 updated_at = NOW()
             WHERE id_proyecto = $1
@@ -294,7 +292,7 @@ class BomDBService(BomComprasDBMixin):
         return dict(row) if row else None
 
     async def limpiar_tipo_cambio_manual_cas(
-        self, conn, id_proyecto: UUID, lock_version_esperado: int, actor_id: UUID,
+        self, conn, id_proyecto: UUID, lock_version_esperado: int,
     ) -> Optional[dict]:
         """Quita el TC manual del proyecto (vuelve a Banxico/promedio) con CAS."""
         row = await conn.fetchrow(
@@ -303,15 +301,13 @@ class BomDBService(BomComprasDBMixin):
             SET tipo_cambio_manual = NULL,
                 tipo_cambio_manual_fijado_por = NULL,
                 tipo_cambio_manual_fijado_en = NULL,
-                actualizado_por = $3,
-                cambio_estado_en = NOW(),
                 lock_version = lock_version + 1,
                 updated_at = NOW()
             WHERE id_proyecto = $1
               AND lock_version = $2
             RETURNING *
             """,
-            id_proyecto, lock_version_esperado, actor_id,
+            id_proyecto, lock_version_esperado,
         )
         return dict(row) if row else None
 

@@ -1,33 +1,29 @@
 {# Grid de estadisticas del BOM. Se incluye normal en content.html y como fragmento
    OOB (con oob=True) desde tabla_items.html para refrescarlo tras operaciones que
    solo targetean #tabla-bom-items (ej. refrescar costos del catalogo). #}
+{% from "shared/partials/_chip_kpi.html" import chip_info %}
 <div id="bom-estadisticas-grid" {% if oob %}hx-swap-oob="true"{% endif %}
-    class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
-    <div class="bg-white rounded-lg border p-3 text-center">
-        <div class="text-2xl font-bold text-gray-800">{{ estadisticas.total_items or 0 }}</div>
-        <div class="text-xs text-gray-500">Total Items</div>
+    class="flex flex-wrap items-stretch gap-2 mb-4">
+    <div class="flex-1 min-w-[80px] max-w-[120px]">
+        {{ chip_info(estadisticas.total_items or 0, 'Total Items', 'border-gray-300', 'text-gray-800') }}
     </div>
-    <div class="bg-white rounded-lg border p-3 text-center">
-        <div class="text-2xl font-bold text-green-600">{{ estadisticas.entregados or 0 }}</div>
-        <div class="text-xs text-gray-500">Entregados</div>
+    <div class="flex-1 min-w-[80px] max-w-[120px]">
+        {{ chip_info(estadisticas.entregados or 0, 'Entregados', 'border-green-500', 'text-green-600') }}
     </div>
-    <div class="bg-white rounded-lg border p-3 text-center">
-        <div class="text-2xl font-bold text-amber-600">{{ estadisticas.pendientes or 0 }}</div>
-        <div class="text-xs text-gray-500">Pendientes</div>
+    <div class="flex-1 min-w-[80px] max-w-[120px]">
+        {{ chip_info(estadisticas.pendientes or 0, 'Pendientes', 'border-amber-500', 'text-amber-600') }}
     </div>
-    <div class="bg-white rounded-lg border p-3 text-center">
-        <div class="text-2xl font-bold text-blue-600">{{ estadisticas.con_proveedor or 0 }}</div>
-        <div class="text-xs text-gray-500">Con Proveedor</div>
+    <div class="flex-1 min-w-[80px] max-w-[120px]">
+        {{ chip_info(estadisticas.con_proveedor or 0, 'Con Proveedor', 'border-blue-500', 'text-blue-600') }}
     </div>
-    <div class="bg-white rounded-lg border p-3 text-center">
-        <div class="text-2xl font-bold text-purple-600">{{ estadisticas.con_fecha_requerida or 0 }}</div>
-        <div class="text-xs text-gray-500">Con Fecha Req.</div>
+    <div class="flex-1 min-w-[80px] max-w-[120px]">
+        {{ chip_info(estadisticas.con_fecha_requerida or 0, 'Con Fecha Req.', 'border-purple-500', 'text-purple-600') }}
     </div>
-    <div class="bg-white rounded-lg border p-3 text-center">
-        <div class="text-2xl font-bold text-red-600">{{ estadisticas.atrasados or 0 }}</div>
-        <div class="text-xs text-gray-500">Atrasados</div>
+    <div class="flex-1 min-w-[80px] max-w-[120px]">
+        {{ chip_info(estadisticas.atrasados or 0, 'Atrasados', 'border-red-500', 'text-red-600') }}
     </div>
-    <div class="bg-white rounded-lg border p-3 text-center border-emerald-200 bg-emerald-50">
+
+    <div class="flex-[2.5] min-w-[260px] glass-card rounded-lg px-3 py-2 text-center border-b-2 border-emerald-400 bg-emerald-50/40">
         <div class="text-lg font-bold text-emerald-700">
             <span id="stat-costo-estimado-monto" {{ 'hidden' if estadisticas.costo_total_estimado is none }}>
                 $<span id="stat-costo-estimado-valor">{{ "{:,.2f}".format(estadisticas.costo_total_estimado|float) if estadisticas.costo_total_estimado is not none else '0.00' }}</span> MXN

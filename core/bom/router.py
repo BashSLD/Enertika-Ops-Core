@@ -3144,7 +3144,7 @@ async def get_modal_suplencia(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria"),
+    _=require_any_module_access(["ingenieria", "construccion"], "viewer"),
 ):
     """Modal para configurar suplente del usuario actual."""
     user_id = context.get("user_db_id")
@@ -3164,7 +3164,7 @@ async def configurar_suplencia(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria"),
+    _=require_any_module_access(["ingenieria", "construccion"], "viewer"),
 ):
     """Configura suplente para el usuario actual."""
     form = await request.form()
@@ -3198,7 +3198,7 @@ async def eliminar_suplencia(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria"),
+    _=require_any_module_access(["ingenieria", "construccion"], "viewer"),
 ):
     """Elimina la suplencia activa del usuario actual."""
     user_id = context.get("user_db_id")

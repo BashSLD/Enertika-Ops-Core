@@ -837,7 +837,7 @@ class BomService(BomComprasServiceMixin):
                     "El estado del conjunto BOM cambio; actualiza la pagina e intenta de nuevo"
                 )
             actualizado = await self.db.limpiar_tipo_cambio_manual_cas(
-                conn, id_proyecto, lock_version_esperado, actor_id,
+                conn, id_proyecto, lock_version_esperado,
             )
             if not actualizado:
                 raise ValueError(
