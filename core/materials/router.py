@@ -22,6 +22,7 @@ from core.permissions import (
 )
 from core.config import settings
 from core.timezone import now_mx
+from modules.shared.utils import toast_error
 from .service import MaterialsService, get_materials_service
 from .schemas import MaterialFilter, MaterialInternoCreate, MaterialInternoFilter
 
@@ -462,7 +463,7 @@ async def crear_interno(
             conn, payload, puede_editar_costos=_puede_editar_costos_internos(context)
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return toast_error(request, str(e))
     catalogos = await service.get_catalogos(conn)
     return templates.TemplateResponse(
         request, "materials/partials/row_interno.html",
@@ -505,7 +506,7 @@ async def actualizar_interno(
             puede_editar_costos=_puede_editar_costos_internos(context),
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return toast_error(request, str(e))
     if not interno:
         raise HTTPException(status_code=404, detail="Material no encontrado")
     catalogos = await service.get_catalogos(conn)

@@ -179,8 +179,7 @@ class MaterialsService:
         if not puede_editar_costos:
             if data.get('precio_referencia') is not None or (data.get('moneda') or 'MXN') != 'MXN':
                 raise ValueError(
-                    "No tienes autoridad para registrar el costo de un material "
-                    "nuevo; Compras debe capturar el precio y la moneda."
+                    "El precio y la moneda de un material nuevo debe capturarlos Compras."
                 )
             data['precio_referencia'] = None
             data['moneda'] = 'MXN'
@@ -196,8 +195,7 @@ class MaterialsService:
         if not puede_editar_costos:
             if 'precio_referencia' in data or 'moneda' in data:
                 raise ValueError(
-                    "No tienes autoridad para editar el costo de este material; "
-                    "Compras debe hacerlo."
+                    "El costo de este material debe editarlo Compras."
                 )
             if 'descripcion_canonica' in data:
                 actual = await self.db.get_interno_by_id(conn, id)
@@ -558,7 +556,7 @@ class MaterialsService:
                 moneda = 'MXN'
 
             if not puede_editar_costos and (precio is not None or fila.get('moneda', '').strip()):
-                warns.append("precio/moneda ignorados: no tienes autoridad para registrar costos (Compras debe capturarlo)")
+                warns.append("precio/moneda ignorados: Compras debe capturarlo")
                 precio = None
                 moneda = 'MXN'
 
