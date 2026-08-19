@@ -56,7 +56,12 @@ async def get_proyectos_ui(
     puede_crear_proyecto = check_puede_crear_proyecto(context)
     puede_editar_ingenieria = user_has_module_access("ingenieria", context, min_role="editor")
     rol_org = (context.get("rol_organizacional") or "").strip().lower()
-    puede_ver_aprobaciones_direccion = context.get("role") == "ADMIN" or rol_org == "director"
+    puede_ver_aprobaciones_direccion = (
+        rol_org == "director"
+        or user_has_module_access("construccion", context)
+        or user_has_module_access("compras", context)
+        or user_has_module_access("finanzas", context)
+    )
 
     template_data = {
         "user_name": context.get("user_name"),
