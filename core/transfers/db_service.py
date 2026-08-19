@@ -140,6 +140,8 @@ class TransferDBService:
         if area_filter:
             params.append(area_filter)
             query += f" AND p.area_actual = ${len(params)}"
+        else:
+            query += " AND p.area_actual != 'OYM'"
 
         if status_filter == "EN_TRANSITO":
             query += """ AND EXISTS (

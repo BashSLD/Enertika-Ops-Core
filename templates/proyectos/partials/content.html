@@ -139,7 +139,7 @@
             <div class="flex flex-col lg:flex-row lg:items-stretch gap-2">
                 {# Chips-filtro por area #}
                 {% set chips = [
-                    {'val': '', 'label': 'Total', 'num': kpis.total_proyectos, 'ring': 'ring-2 ring-blue-400 bg-blue-50/50', 'border': 'border-blue-300', 'text': 'text-blue-700'},
+                    {'val': '', 'label': 'Activos', 'num': kpis.total_proyectos - kpis.por_area.get('OYM', 0), 'ring': 'ring-2 ring-blue-400 bg-blue-50/50', 'border': 'border-blue-300', 'text': 'text-blue-700'},
                     {'val': 'INGENIERIA', 'label': 'Ingeniería', 'num': kpis.por_area.get('INGENIERIA', 0), 'ring': 'ring-2 ring-indigo-400 bg-indigo-50/50', 'border': 'border-indigo-300', 'text': 'text-indigo-700'},
                     {'val': 'CONSTRUCCION', 'label': 'Construcción', 'num': kpis.por_area.get('CONSTRUCCION', 0), 'ring': 'ring-2 ring-amber-400 bg-amber-50/50', 'border': 'border-amber-300', 'text': 'text-amber-700'},
                     {'val': 'OYM', 'label': 'O&M', 'num': kpis.por_area.get('OYM', 0), 'ring': 'ring-2 ring-emerald-400 bg-emerald-50/50', 'border': 'border-emerald-300', 'text': 'text-emerald-700'}
