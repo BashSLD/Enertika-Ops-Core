@@ -1517,6 +1517,49 @@
             }
         });
 
+        // === ORDENAMIENTO DE TABLAS ".proyectos-table" (delegado) ===
+        // Los headers <th data-sort> antes tenian su listener en un <script> inline
+        // dentro de lista_proyectos.html, que se auto-ataba en cada render. Al volver
+        // con "Atras" desde una pagina con hx-history="false" (ej. BOM) hacia Proyectos,
+        // htmx:historyRestore reinserta el HTML cacheado via innerHTML directo y NO
+        // ejecuta los <script> embebidos (limitacion documentada de htmx) - el click en
+        // la columna "Dias" quedaba muerto hasta recargar. Fix: un solo listener
+        // delegado en body (nunca se pierde) + htmx:load (si dispara tras historyRestore)
+        // para aplicar el orden por defecto en cada tabla que aparece.
+        function sortProyectosTable(table, key, dir) {
+            var tbody = table.querySelector('tbody');
+            if (!tbody) return;
+            var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr.proyecto-row'));
+            rows.sort(function (a, b) {
+                var va = a.dataset[key] || '', vb = b.dataset[key] || '';
+                var cmp = key === 'dias' ? (parseFloat(va) || 0) - (parseFloat(vb) || 0) : va.localeCompare(vb);
+                return dir === 'asc' ? cmp : -cmp;
+            });
+            rows.forEach(function (r) { tbody.appendChild(r); });
+            table.querySelectorAll('th[data-sort] .sort-arrow').forEach(function (s) { s.textContent = ''; });
+            var arrowEl = table.querySelector('th[data-sort="' + key + '"] .sort-arrow');
+            if (arrowEl) arrowEl.textContent = dir === 'asc' ? ' ↑' : ' ↓';
+        }
+        document.body.addEventListener('click', function (evt) {
+            var th = evt.target.closest('th[data-sort]');
+            if (!th) return;
+            var table = th.closest('.proyectos-table');
+            if (!table) return;
+            var dir = th.dataset.dir === 'desc' ? 'asc' : 'desc';
+            th.dataset.dir = dir;
+            sortProyectosTable(table, th.dataset.sort, dir);
+        });
+        document.body.addEventListener('htmx:load', function (evt) {
+            var root = evt.detail && evt.detail.elt;
+            if (!root || !root.querySelectorAll) return;
+            var tables = Array.prototype.slice.call(root.querySelectorAll('.proyectos-table'));
+            if (root.matches && root.matches('.proyectos-table')) tables.push(root);
+            tables.forEach(function (table) {
+                var diasTh = table.querySelector('th[data-sort="dias"]');
+                if (diasTh) { diasTh.dataset.dir = 'desc'; sortProyectosTable(table, 'dias', 'desc'); }
+            });
+        });
+
         // === INTERCEPTOR DE ERRORES HTMX ===
         document.body.addEventListener('htmx:responseError', function (evt) {
             if (evt.detail.xhr.status === 401 && evt.detail.xhr.getResponseHeader('X-Auth-Reason') === 'SESSION_EXPIRED') {

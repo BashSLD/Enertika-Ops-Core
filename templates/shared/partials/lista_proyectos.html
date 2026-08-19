@@ -159,38 +159,7 @@
 {% endif %}
 {% endif %}
 
-{# Ordenamiento client-side de las tablas de proyectos (se re-aplica tras cada swap HTMX) #}
-<script>
-(function() {
-    document.querySelectorAll('.proyectos-table').forEach(function(table) {
-        if (table.dataset.sortReady) return;
-        table.dataset.sortReady = '1';
-        var tbody = table.querySelector('tbody');
-        function sortBy(key, dir) {
-            var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr.proyecto-row'));
-            rows.sort(function(a, b) {
-                var va = a.dataset[key] || '', vb = b.dataset[key] || '';
-                var cmp;
-                if (key === 'dias') { cmp = (parseFloat(va) || 0) - (parseFloat(vb) || 0); }
-                else { cmp = va.localeCompare(vb); }
-                return dir === 'asc' ? cmp : -cmp;
-            });
-            rows.forEach(function(r) { tbody.appendChild(r); });
-            table.querySelectorAll('th[data-sort] .sort-arrow').forEach(function(s) { s.textContent = ''; });
-            var th = table.querySelector('th[data-sort="' + key + '"] .sort-arrow');
-            if (th) th.textContent = dir === 'asc' ? ' ↑' : ' ↓';
-        }
-        table.querySelectorAll('th[data-sort]').forEach(function(th) {
-            th.addEventListener('click', function() {
-                var key = th.dataset.sort;
-                var dir = th.dataset.dir === 'desc' ? 'asc' : 'desc';
-                th.dataset.dir = dir;
-                sortBy(key, dir);
-            });
-        });
-        // Orden por defecto: dias descendente (los estancados arriba)
-        var diasTh = table.querySelector('th[data-sort="dias"]');
-        if (diasTh) { diasTh.dataset.dir = 'desc'; sortBy('dias', 'desc'); }
-    });
-})();
-</script>
+{# Ordenamiento client-side de las tablas de proyectos: la logica vive en base.html
+   (delegada en document.body + htmx:load) porque un <script> inline aqui no se
+   re-ejecuta cuando htmx restaura este partial desde su cache de historial
+   (Atras/Adelante) - ver comentario en base.html. #}
