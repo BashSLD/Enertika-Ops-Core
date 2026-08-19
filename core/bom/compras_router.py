@@ -126,7 +126,7 @@ async def _render_cotizaciones_tab(
     )
 
 
-@compras_router.get("/{id_bom}/cotizaciones", include_in_schema=False)
+@compras_router.get("/{id_bom:uuid}/cotizaciones", include_in_schema=False)
 async def get_cotizaciones_tab(
     request: Request,
     id_bom: UUID,
@@ -148,7 +148,7 @@ async def get_cotizaciones_tab(
     return await _render_cotizaciones_tab(request, conn, service, context, id_bom, es_aprobador=es_aprobador)
 
 
-@compras_router.post("/{id_bom}/cotizaciones", include_in_schema=False)
+@compras_router.post("/{id_bom:uuid}/cotizaciones", include_in_schema=False)
 async def crear_cotizacion(
     request: Request,
     id_bom: UUID,
@@ -671,6 +671,11 @@ async def dashboard_direccion_cotizaciones(
 ):
     """Dashboard de Dirección: cotizaciones pendientes/aprobadas/rechazadas de todos los proyectos."""
     ctx = await _dashboard_direccion_ctx(conn, service, context, estatus, id_proyecto, proveedor)
+    ctx.update({
+        "user_name": context.get("user_name"),
+        "role": context.get("role"),
+        "module_roles": context.get("module_roles", {}),
+    })
     is_htmx = request.headers.get("hx-request")
     is_history_restore = request.headers.get("hx-history-restore-request")
     if is_htmx and not is_history_restore:

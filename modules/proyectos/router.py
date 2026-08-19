@@ -55,6 +55,8 @@ async def get_proyectos_ui(
     proyectos_split = _separar_proyectos_globales(proyectos, area)
     puede_crear_proyecto = check_puede_crear_proyecto(context)
     puede_editar_ingenieria = user_has_module_access("ingenieria", context, min_role="editor")
+    rol_org = (context.get("rol_organizacional") or "").strip().lower()
+    puede_ver_aprobaciones_direccion = context.get("role") == "ADMIN" or rol_org == "director"
 
     template_data = {
         "user_name": context.get("user_name"),
@@ -70,6 +72,7 @@ async def get_proyectos_ui(
         "vista_global": True,
         "puede_crear_proyecto": puede_crear_proyecto,
         "puede_editar_ingenieria": puede_editar_ingenieria,
+        "puede_ver_aprobaciones_direccion": puede_ver_aprobaciones_direccion,
     }
 
     # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
