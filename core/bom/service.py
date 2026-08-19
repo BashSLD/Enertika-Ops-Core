@@ -1143,8 +1143,8 @@ class BomService(BomComprasServiceMixin):
     @staticmethod
     def mensaje_item_sin_costo() -> str:
         return (
-            "Item guardado sin costo estimado. Ingenieria debe capturar el costo "
-            "antes de avanzar el BOM."
+            "No puede haber items sin costo. Revisa con Compras para "
+            "actualizar el costo antes de avanzar el BOM."
         )
 
     @staticmethod
@@ -1155,7 +1155,7 @@ class BomService(BomComprasServiceMixin):
     def mensaje_advertencia_costo_item(cls, item: dict) -> str:
         """Elige el mensaje segun el motivo real de item_sin_costo(): si ya se
         capturo un precio y solo falta la confirmacion de Compras, avisar eso
-        en vez del mensaje generico de 'Ingenieria debe capturar el costo'
+        en vez del mensaje generico de 'No puede haber items sin costo'
         (confuso cuando Ingenieria acaba de capturarlo)."""
         if item.get("precio_pendiente_confirmacion"):
             return cls.mensaje_item_costo_pendiente_confirmacion()
