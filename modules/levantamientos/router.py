@@ -1,5 +1,4 @@
-from fastapi import APIRouter, Depends, Request, Form, HTTPException, status
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Request, Form, HTTPException
 from fastapi.templating import Jinja2Templates
 from typing import Optional
 from uuid import UUID
@@ -24,6 +23,9 @@ logger = logging.getLogger("Levantamientos.Router")
 
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
+
+from core.jinja_filters import register_timezone_filters
+register_timezone_filters(templates.env)
 
 # Custom Filters
 def clean_status_filter(value):

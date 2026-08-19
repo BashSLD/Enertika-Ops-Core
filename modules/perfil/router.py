@@ -44,6 +44,9 @@ router = APIRouter(prefix="/perfil", tags=["perfil"])
 logger = logging.getLogger("perfil.router")
 templates = Jinja2Templates(directory="templates")
 
+from core.jinja_filters import register_timezone_filters
+register_timezone_filters(templates.env)
+
 PERFIL_TAB_ENDPOINTS = {
     "asistencia": "/perfil/asistencia",
     "vacaciones": "/vacaciones/balance",
