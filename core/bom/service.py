@@ -3532,13 +3532,25 @@ class BomService(BomComprasServiceMixin):
             raise ValueError("El BOM debe estar APROBADO_ING para enviar a obra")
         await self.validar_sin_costos_pendientes(conn, id_bom)
 
+        # Resueltos en vivo (no la foto de tb_bom tomada al crear el paquete): si el
+        # proyecto asigno o cambio Coordinador de Obra/Jefe de Construccion despues,
+        # este es el ultimo punto donde se puede recapturar antes de que se necesiten.
+        coordinador_obra = await self.db.get_asignacion_proyecto(
+            conn, bom["id_proyecto"], "coordinador_obra", "CONSTRUCCION"
+        )
+        jefe_construccion = await self.db.get_responsable_proyecto_o_global(
+            conn, bom["id_proyecto"], "jefe_construccion"
+        )
         problemas = []
-        if not bom.get("coordinador_obra"):
+        if not coordinador_obra:
             problemas.append("falta Coordinador de Obra")
-        if not bom.get("jefe_construccion"):
+        if not jefe_construccion:
             problemas.append("falta Jefe de Construccion")
         if problemas:
-            jefe_label = await self.get_jefe_construccion_label(conn)
+            jefe_label = (
+                jefe_construccion["nombre"] if jefe_construccion
+                else "el Jefe de Construccion"
+            )
             raise ValueError(
                 "No se puede enviar a Obra: " + "; ".join(problemas)
                 + f". Solicita a {jefe_label} que lo asigne."
@@ -3550,6 +3562,8 @@ class BomService(BomComprasServiceMixin):
             TipoAprobacion.ENVIO_REVISION_OBRA,
             lock_version_esperado=lock_version_esperado,
             fecha_envio_obra=now_mx(),
+            coordinador_obra=coordinador_obra["id_usuario"],
+            jefe_construccion=jefe_construccion["id_usuario"],
         )
         logger.info("BOM %s enviado a revision obra por %s", id_bom, user_id)
         return bom_updated

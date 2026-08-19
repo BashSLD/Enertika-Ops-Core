@@ -25,17 +25,17 @@
                     {{ cfg.label }}
                 </span>
             </div>
-            <div class="text-sm text-gray-600 space-y-0.5">
-                <div><span class="font-medium">Version:</span> v{{ bom.version }}</div>
-                <div><span class="font-medium">Elaborado por:</span> {{ bom.elaborado_por_nombre or 'N/A' }}</div>
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-sm text-gray-600">
+                <span><span class="font-medium">Version:</span> v{{ bom.version }}</span>
+                <span><span class="font-medium">Elaborado por:</span> {{ bom.elaborado_por_nombre or 'N/A' }}</span>
                 {% if bom.responsable_ing_nombre %}
-                <div><span class="font-medium">Resp. Ing:</span> {{ bom.responsable_ing_nombre }}</div>
+                <span><span class="font-medium">Resp. Ing:</span> {{ bom.responsable_ing_nombre }}</span>
                 {% endif %}
                 {% if bom.jefe_construccion_nombre %}
-                <div><span class="font-medium">Jefe Const:</span> {{ bom.jefe_construccion_nombre }}</div>
+                <span><span class="font-medium">Jefe Const:</span> {{ bom.jefe_construccion_nombre }}</span>
                 {% endif %}
                 {% if bom.coordinador_obra_nombre %}
-                <div><span class="font-medium">Coord. Obra:</span> {{ bom.coordinador_obra_nombre }}</div>
+                <span><span class="font-medium">Coord. Obra:</span> {{ bom.coordinador_obra_nombre }}</span>
                 {% endif %}
             </div>
         </div>
@@ -93,22 +93,22 @@
             {% if bom.estatus == 'EN_REVISION_OBRA' and puede_aprobar %}
             <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/aprobar-obra" hx-target="#bom-modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition">
-                Aprobar Obra
+                Aprobar BOM
             </button>
             <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/rechazar-obra" hx-target="#bom-modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-600 hover:bg-red-700 transition">
-                Rechazar Obra
+                Rechazar BOM
             </button>
             {% endif %}
 
             {% if bom.estatus == 'EN_REVISION_CONST' and puede_aprobar %}
             <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/aprobar-const" hx-target="#bom-modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition">
-                Aprobar Const.
+                Aprobar BOM
             </button>
             <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/rechazar-const" hx-target="#bom-modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-600 hover:bg-red-700 transition">
-                Rechazar
+                Rechazar BOM
             </button>
             {% endif %}
 
@@ -130,7 +130,7 @@
             {% if bom.estatus == 'EN_REVISION_FINAL' and es_aprobador_final %}
             <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/aprobar-final" hx-target="#bom-modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition">
-                Aprobar Final
+                Confirmar Aprobación Final
             </button>
             <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/rechazar-final" hx-target="#bom-modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-600 hover:bg-red-700 transition">

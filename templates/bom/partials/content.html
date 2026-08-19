@@ -114,33 +114,52 @@
         </div>
         <div class="flex items-center gap-2">
             {% if bom %}
-            {# Export Excel #}
-            <a href="/bom/versiones/{{ bom.id_bom }}/export-excel"
-                class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition">
-                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Excel
-            </a>
-            {% if puede_administrar_paquete and paquete %}
-            <button type="button"
-                hx-get="/bom/paquetes/{{ paquete.id_paquete }}/administrar-modal"
-                hx-target="#bom-modal-container" hx-swap="innerHTML"
-                class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition">
-                Administrar paquete
-            </button>
-            {% endif %}
-            {# Suplencia #}
-            {% if es_rol_bom %}
-            <button hx-get="/bom/suplencia/modal" hx-target="#bom-modal-container" hx-swap="innerHTML"
-                class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition"
-                title="Configurar suplente">
-                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
-                </svg>
-                Suplencia
-            </button>
+            {% if paquete or es_rol_bom %}
+            <div class="relative" x-data="{ open: false }" @click.outside="open = false" @keydown.escape.window="open = false">
+                <button type="button" @click="open = !open"
+                    class="action-btn action-btn-ghost"
+                    aria-haspopup="true" :aria-expanded="open.toString()" aria-label="Más opciones">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                    </svg>
+                    <span class="action-label">Menú</span>
+                </button>
+                <div x-show="open" x-transition x-cloak
+                    class="absolute right-0 z-20 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1">
+                    <a href="/bom/versiones/{{ bom.id_bom }}/export-excel" @click="open = false"
+                        class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Excel
+                    </a>
+                    {% if (puede_administrar_paquete and paquete) or es_rol_bom %}
+                    <div class="border-t border-gray-100 my-1"></div>
+                    {% endif %}
+                    {% if puede_administrar_paquete and paquete %}
+                    <button type="button" @click="open = false"
+                        hx-get="/bom/paquetes/{{ paquete.id_paquete }}/administrar-modal"
+                        hx-target="#bom-modal-container" hx-swap="innerHTML"
+                        class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" />
+                        </svg>
+                        Reasignación BOM
+                    </button>
+                    {% endif %}
+                    {% if es_rol_bom %}
+                    <button type="button" @click="open = false"
+                        hx-get="/bom/suplencia/modal" hx-target="#bom-modal-container" hx-swap="innerHTML"
+                        class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+                        </svg>
+                        Suplencia
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
             {% endif %}
             {% endif %}
 
