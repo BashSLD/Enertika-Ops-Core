@@ -289,7 +289,7 @@
        Se renderiza junto al filtro de tipo de partida, mas abajo. #}
     {% set puede_agregar_item = capacidades.agregar_items|default(false) %}
     {% set muestra_agregar_item = bom and puede_agregar_item and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] %}
-    {% set puede_cotizar_seleccionados = not solo_lectura|default(false) and es_compras_editor and bom.estatus == 'APROBADO_CONST' %}
+    {% set puede_cotizar_seleccionados = not solo_lectura|default(false) and es_compras_editor and fase_compras %}
     {% set puede_agregar_fuera_scope = not solo_lectura|default(false) and (area_editor == 'construccion' or es_compras_editor) and bom.estatus == 'APROBADO_FINAL' %}
     {% set puede_refrescar_costos = capacidades.refrescar_costos|default(false) and estadisticas.items_sin_costo %}
     {% if bom and (puede_cotizar_seleccionados or puede_agregar_fuera_scope) %}
