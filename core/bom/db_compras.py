@@ -94,7 +94,7 @@ class BomComprasDBMixin:
         rows = await conn.fetch("""
             SELECT c.*,
                    u.nombre AS creado_por_nombre,
-                   COUNT(ci.id) AS total_items_cotizacion,
+                   item_count.total AS total_items_cotizacion,
                    ap.id AS aprobacion_id,
                    ap.estatus AS aprobacion_estatus,
                    ap.lock_version AS aprobacion_lock_version,
@@ -106,7 +106,11 @@ class BomComprasDBMixin:
                    a.lock_version AS autorizacion_lock_version
             FROM tb_bom_cotizaciones c
             LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
-            LEFT JOIN tb_bom_cotizacion_items ci ON ci.cotizacion_id = c.id
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS total
+                FROM tb_bom_cotizacion_items ci
+                WHERE ci.cotizacion_id = c.id
+            ) item_count ON TRUE
             LEFT JOIN LATERAL (
                 SELECT aprobacion.*
                 FROM tb_bom_cotizacion_aprobaciones aprobacion
@@ -116,7 +120,6 @@ class BomComprasDBMixin:
             ) ap ON TRUE
             LEFT JOIN tb_bom_autorizaciones a ON a.cotizacion_id = c.id
             WHERE c.bom_id = $1
-            GROUP BY c.id, u.nombre, ap.id, a.id
             ORDER BY c.creado_en DESC
         """, bom_id)
         return [dict(r) for r in rows]
