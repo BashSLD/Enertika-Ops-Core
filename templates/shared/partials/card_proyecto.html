@@ -130,27 +130,31 @@
     Enviar a {{ {'CONSTRUCCION': 'Construccion', 'OYM': 'O&M'}.get(area_destino, area_destino) }}
 </button>
 {% endif %}
-{# Mas: menu con acciones secundarias #}
+{# Mas: menu con acciones secundarias (teleport a body: evita que el overflow-x-auto de la tabla recorte el dropdown) #}
 <div class="relative shrink-0"
     x-data="{
         openMore: false,
-        openUp: false,
+        menuStyle: '',
         toggleMore() {
+            if (!this.openMore) {
+                const rect = this.$refs.trigger.getBoundingClientRect();
+                this.menuStyle = `top:${rect.bottom + 4}px; right:${window.innerWidth - rect.right}px;`;
+            }
             this.openMore = !this.openMore;
             if (!this.openMore) return;
             this.$nextTick(() => {
-                const menuRect = this.$refs.menuMore.getBoundingClientRect();
-                const scrollParent = this.$el.closest('.overflow-y-auto');
-                const limit = Math.min(
-                    scrollParent ? scrollParent.getBoundingClientRect().bottom : window.innerHeight,
-                    window.innerHeight
-                );
-                this.openUp = menuRect.bottom > limit;
+                const rect = this.$refs.trigger.getBoundingClientRect();
+                const menuHeight = this.$refs.menuMore.getBoundingClientRect().height;
+                const right = window.innerWidth - rect.right;
+                const top = (rect.bottom + 4 + menuHeight > window.innerHeight)
+                    ? Math.max(4, rect.top - menuHeight - 4)
+                    : rect.bottom + 4;
+                this.menuStyle = `top:${top}px; right:${right}px;`;
             });
         }
     }"
-    @click.outside="openMore = false" @keydown.escape.window="openMore = false">
-    <button type="button" @click="toggleMore()"
+    @scroll.window="openMore = false" @keydown.escape.window="openMore = false">
+    <button type="button" x-ref="trigger" @click="toggleMore()"
         :class="{ 'ring-2 ring-[#00BABB]/40': openMore }"
         class="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-[#123456] text-white hover:bg-[#0d2640] transition-colors font-medium">
         Mas
@@ -158,15 +162,18 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
         </svg>
     </button>
+    <template x-teleport="body">
     <div x-ref="menuMore" x-show="openMore" x-cloak
+        x-init="htmx.process($el)"
+        @click.outside="if ($event.target !== $refs.trigger && !$refs.trigger.contains($event.target)) openMore = false"
         x-transition:enter="transition ease-out duration-100"
         x-transition:enter-start="opacity-0 -translate-y-1"
         x-transition:enter-end="opacity-100 translate-y-0"
         x-transition:leave="transition ease-in duration-75"
         x-transition:leave-start="opacity-100 translate-y-0"
         x-transition:leave-end="opacity-0 -translate-y-1"
-        :class="openUp ? 'bottom-full mb-1' : 'mt-1'"
-        class="absolute right-0 z-30 bg-white border border-gray-200 rounded-lg shadow-lg p-1.5 min-w-[13rem] whitespace-nowrap">
+        :style="menuStyle"
+        class="fixed z-30 bg-white border border-gray-200 rounded-lg shadow-lg p-1.5 min-w-[13rem] whitespace-nowrap">
         {% if mostrar_mfv %}
         <button hx-get="/bom/{{ p.id_proyecto }}/paneles-modal"
             hx-target="#modal-action-container" hx-swap="innerHTML"
@@ -211,6 +218,7 @@
             Timeline
         </button>
     </div>
+    </template>
 </div>
 {% endmacro %}
 
