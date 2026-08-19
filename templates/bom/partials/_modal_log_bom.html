@@ -1,8 +1,8 @@
 {# Shell generico de modal para secciones de solo consulta/log del BOM (Historial,
-   Aprobaciones, Versiones, Propuestas de cambio, Adendas). El body hace su propio
+   Aprobaciones, Versiones, Adendas). El body hace su propio
    hx-get al endpoint real de cada seccion (sin cambios de firma ni de template interno);
    body_id debe coincidir exacto con el id que la seccion ya auto-referencia internamente
-   (ej. "tab-adendas", "tab-propuestas-cambio") para no romper sus forms ni sus llamadas HTMX inline. #}
+   (ej. "tab-adendas") para no romper sus forms ni sus llamadas HTMX inline. #}
 {% macro modal_log_bom(modal_id, titulo, hx_get_url, body_id, subtitulo=None) %}
 <div id="{{ modal_id }}" class="modal-overlay-layer fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
     x-data="{}" @click.self="$el.remove()">

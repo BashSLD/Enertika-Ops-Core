@@ -8,7 +8,6 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse, Response, HTMLResponse
 from uuid import UUID, uuid4
 from typing import Callable, Optional
-import json
 import asyncpg
 import logging
 
@@ -28,11 +27,9 @@ from .compras_service import ESTATUS_COTIZABLE
 from .service import (
     BomService,
     get_bom_service,
-    CAMPOS_CONSTRUCCION_BASE,
     CAMPOS_AFECTAN_COSTO_ESTIMADO,
     MONEDAS_VALIDAS,
     FLAG_ACTUALIZACION_PRECIOS_COMPRAS,
-    CAMPO_LABELS,
 )
 
 _ESTATUS_FASE_COMPRAS = {e.value for e in ESTATUS_COTIZABLE}
@@ -1230,35 +1227,6 @@ async def agregar_item(
             "moneda": form.get("moneda", "MXN").strip() or "MXN",
         }
 
-        if service.requiere_propuesta_construccion(bom, area_editor):
-            descripcion = item_data["descripcion"] or "item"
-            motivo = (
-                form.get("motivo")
-                or item_data.get("comentarios")
-                or f"Solicitud de Construccion para agregar {descripcion}"
-            )
-            await service.registrar_propuesta_auto(
-                conn,
-                bom["id_bom"],
-                user_id,
-                context,
-                motivo,
-                [{"accion": "AGREGAR", "datos": item_data, "grupo_ids": grupo_ids}],
-            )
-            return _toast_response(
-                request,
-                "Propuesta enviada a revision de Ingenieria",
-                "success",
-                "Propuesta registrada",
-            )
-        if service.base_construccion_bloqueada(bom, area_editor):
-            return _toast_response(
-                request,
-                "Los cambios de alcance deben regresar por el flujo de aprobacion",
-                "error",
-                "Cambio bloqueado",
-            )
-
         resultado = await service.agregar_item(
             conn, id_bom, user_id,
             **item_data,
@@ -1378,31 +1346,6 @@ async def editar_item(
             grupo_ids, grupo_porcentajes = _parse_distribucion_grupos(form, requerido=False)
         else:
             grupo_ids, grupo_porcentajes = None, None
-        propuesta_creada = False
-        if service.requiere_propuesta_construccion(bom_actual, area_editor):
-            campos_propuesta = {
-                key: campos.pop(key)
-                for key in list(campos.keys())
-                if key in CAMPOS_CONSTRUCCION_BASE
-            }
-            if campos_propuesta or grupo_ids is not None:
-                await service.registrar_propuesta_auto(
-                    conn,
-                    bom_actual["id_bom"],
-                    user_id,
-                    context,
-                    form.get("motivo")
-                    or form.get("comentarios")
-                    or "Solicitud de Construccion para ajustar item",
-                    [{
-                        "accion": "EDITAR",
-                        "id_item": id_item,
-                        "datos": campos_propuesta,
-                        "grupo_ids": grupo_ids or [],
-                    }],
-                )
-                propuesta_creada = True
-                grupo_ids = None
         resultado = None
         if campos or grupo_ids is not None:
             resultado = await service.editar_item(
@@ -1419,14 +1362,6 @@ async def editar_item(
                 grupo_ids=grupo_ids,
                 grupo_porcentajes=grupo_porcentajes,
                 **campos,
-            )
-
-        if propuesta_creada and not campos:
-            return _toast_response(
-                request,
-                "Propuesta enviada a revision de Ingenieria",
-                "success",
-                "Propuesta registrada",
             )
 
         # Retornar fila actualizada
@@ -1502,46 +1437,6 @@ async def bulk_editar_items(
             return _toast_response(
                 request, "Sin permisos para editar items del BOM", "error", "Error"
             )
-        if service.requiere_propuesta_construccion(bom, area_editor) and (
-            campo == "grupos" or campo in CAMPOS_CONSTRUCCION_BASE
-        ):
-            if campo == "grupos":
-                grupo_ids = _parse_grupo_ids(form)
-                lineas = [
-                    {
-                        "accion": "EDITAR",
-                        "id_item": item_id,
-                        "datos": {},
-                        "grupo_ids": grupo_ids,
-                    }
-                    for item_id in item_ids
-                ]
-            else:
-                valor = _parse_bulk_valor(campo, form.get("valor"))
-                lineas = [
-                    {
-                        "accion": "EDITAR",
-                        "id_item": item_id,
-                        "datos": {campo: valor},
-                        "grupo_ids": [],
-                    }
-                    for item_id in item_ids
-                ]
-            await service.registrar_propuesta_auto(
-                conn,
-                id_bom,
-                user_id,
-                context,
-                form.get("motivo") or "Solicitud masiva de Construccion",
-                lineas,
-            )
-            return _toast_response(
-                request,
-                "Propuesta enviada a revision de Ingenieria",
-                "success",
-                "Propuesta registrada",
-            )
-
         if campo == "grupos":
             resultado = await service.editar_items_bulk(
                 conn, id_bom, item_ids, user_id, area_editor, campo,
@@ -1623,21 +1518,6 @@ async def eliminar_item(
         area_editor = BomService.resolver_area_editor(context, bom)
         if area_editor not in ("ingenieria", "construccion"):
             return _toast_response(request, "No tienes permisos para eliminar items", "error")
-        if service.requiere_propuesta_construccion(bom, area_editor):
-            await service.registrar_propuesta_auto(
-                conn,
-                bom["id_bom"],
-                user_id,
-                context,
-                f"Solicitud de Construccion para eliminar {item.get('descripcion') or 'item'}",
-                [{"accion": "ELIMINAR", "id_item": id_item, "datos": {}, "grupo_ids": []}],
-            )
-            return _toast_response(
-                request,
-                "Propuesta enviada a revision de Ingenieria",
-                "success",
-                "Propuesta registrada",
-            )
         resultado = await service.eliminar_item(
             conn, id_item, user_id, area_editor=area_editor,
             lock_version_esperado=_parse_lock_version(form),
@@ -2207,20 +2087,6 @@ async def get_aprobaciones_modal(
     )
 
 
-@router.get("/{id_bom}/propuestas-cambio/modal", include_in_schema=False)
-async def get_propuestas_cambio_modal(
-    request: Request,
-    id_bom: UUID,
-    conn=Depends(get_db_connection),
-    service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "construccion"], "viewer"),
-):
-    return await _get_modal_log_or_toast(
-        request, id_bom, service, conn,
-        "modal-log-propuestas", "Propuestas de cambio", "propuestas-cambio", "tab-propuestas-cambio",
-    )
-
-
 @router.get("/{id_bom}/adendas/modal", include_in_schema=False)
 async def get_adendas_modal(
     request: Request,
@@ -2467,150 +2333,6 @@ async def comentar_adenda(
     except asyncpg.PostgresError:
         logger.exception("Error de BD al comentar adenda")
         return _toast_response(request, "Error interno al comentar la adenda", "error", "Error", status_code=500)
-
-
-@router.get("/{id_bom}/propuestas-cambio", include_in_schema=False)
-async def get_propuestas_cambio_tab(
-    request: Request,
-    id_bom: UUID,
-    context=Depends(get_current_user_context),
-    conn=Depends(get_db_connection),
-    service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "construccion"], "viewer"),
-):
-    """Tab de propuestas de cambio pre-final del BOM."""
-    try:
-        return await _propuestas_tab_response(request, context, conn, service, id_bom)
-    except ValueError as e:
-        return HTMLResponse(f'<p class="text-sm text-red-600 py-4">{e}</p>', status_code=400)
-    except asyncpg.PostgresError:
-        logger.exception("Error de BD al obtener propuestas de cambio del BOM %s", id_bom)
-        return HTMLResponse(
-            '<p class="text-sm text-red-600 py-4">Error de base de datos al cargar las propuestas de cambio.</p>',
-            status_code=500,
-        )
-
-
-async def _propuestas_tab_response(
-    request: Request,
-    context: dict,
-    conn,
-    service: BomService,
-    id_bom: UUID,
-):
-    bom = await service.get_bom(conn, id_bom)
-    propuestas = await service.get_propuestas_cambio(conn, id_bom)
-    return templates.TemplateResponse(
-        request,
-        "bom/partials/propuestas_cambio.html",
-        _build_bom_context(
-            request, context, bom, propuestas=propuestas, campo_labels=CAMPO_LABELS
-        ),
-    )
-
-
-@router.post("/{id_bom}/propuestas-cambio", include_in_schema=False)
-async def crear_propuesta_cambio(
-    request: Request,
-    id_bom: UUID,
-    context=Depends(get_current_user_context),
-    conn=Depends(get_db_connection),
-    service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["construccion"], "editor"),
-):
-    """Crea una propuesta pre-final para revision de Ingenieria."""
-    form = await request.form()
-    user_id = context.get("user_db_id")
-    try:
-        await service.crear_propuesta_cambio(
-            conn,
-            id_bom,
-            user_id,
-            form.get("tipo_solicitante", "CONSTRUCCION"),
-            form.get("motivo", ""),
-            form.get("lineas_json", "[]"),
-            context.get("role"),
-            context.get("rol_organizacional"),
-        )
-        return await _propuestas_tab_response(request, context, conn, service, id_bom)
-    except (ValueError, json.JSONDecodeError) as e:
-        return _toast_response(request, str(e), "error", "Error")
-    except asyncpg.PostgresError:
-        logger.exception("Error de BD al crear propuesta de cambio BOM")
-        return _toast_response(request, "Error interno al crear la propuesta", "error", "Error", status_code=500)
-
-
-@router.post("/propuestas-cambio/{id_propuesta}/aprobar", include_in_schema=False)
-async def aprobar_propuesta_cambio(
-    request: Request,
-    id_propuesta: UUID,
-    context=Depends(get_current_user_context),
-    conn=Depends(get_db_connection),
-    service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria", "editor"),
-):
-    """Aprueba y aplica una propuesta pre-final."""
-    form = await request.form()
-    user_id = context.get("user_db_id")
-    lineas_revision = form.get("lineas_json") or None
-    ingenieria_modifico = form.get("ingenieria_modifico") in ("on", "true", "1", "True")
-    try:
-        propuesta = await service.aprobar_propuesta_cambio(
-            conn,
-            id_propuesta,
-            user_id,
-            context.get("role"),
-            context.get("rol_organizacional"),
-            lineas_revision=lineas_revision,
-            ingenieria_modifico=ingenieria_modifico,
-            comentario_revision=form.get("comentario_revision"),
-            lock_version_esperado=_parse_lock_version(form),
-            bom_lock_version_esperado=(
-                int(form.get("bom_lock_version"))
-                if form.get("bom_lock_version") not in (None, "")
-                else None
-            ),
-        )
-        return await _propuestas_tab_response(
-            request, context, conn, service, propuesta["id_bom"]
-        )
-    except (ValueError, json.JSONDecodeError) as e:
-        return _toast_response(request, str(e), "error", "Error")
-    except asyncpg.PostgresError:
-        logger.exception("Error de BD al aprobar propuesta de cambio BOM")
-        return _toast_response(request, "Error interno al aprobar la propuesta", "error", "Error", status_code=500)
-
-
-@router.post("/propuestas-cambio/{id_propuesta}/rechazar", include_in_schema=False)
-async def rechazar_propuesta_cambio(
-    request: Request,
-    id_propuesta: UUID,
-    context=Depends(get_current_user_context),
-    conn=Depends(get_db_connection),
-    service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria", "editor"),
-):
-    """Rechaza una propuesta pre-final."""
-    form = await request.form()
-    user_id = context.get("user_db_id")
-    try:
-        propuesta = await service.rechazar_propuesta_cambio(
-            conn,
-            id_propuesta,
-            user_id,
-            context.get("role"),
-            context.get("rol_organizacional"),
-            form.get("comentario_revision", ""),
-            _parse_lock_version(form),
-        )
-        return await _propuestas_tab_response(
-            request, context, conn, service, propuesta["id_bom"]
-        )
-    except ValueError as e:
-        return _toast_response(request, str(e), "error", "Error")
-    except asyncpg.PostgresError:
-        logger.exception("Error de BD al rechazar propuesta de cambio BOM")
-        return _toast_response(request, "Error interno al rechazar la propuesta", "error", "Error", status_code=500)
 
 
 # ========================================
@@ -3090,26 +2812,6 @@ async def set_item_grupos(
         item = await service.get_item(conn, id_item)
         bom = await service.get_bom(conn, item['id_bom'])
         area_editor = BomService.resolver_area_editor(context, bom)
-        if service.requiere_propuesta_construccion(bom, area_editor):
-            await service.registrar_propuesta_auto(
-                conn,
-                bom["id_bom"],
-                user_id,
-                context,
-                "Solicitud de Construccion para ajustar grupos",
-                [{
-                    "accion": "EDITAR",
-                    "id_item": id_item,
-                    "datos": {},
-                    "grupo_ids": grupo_ids,
-                }],
-            )
-            return _toast_response(
-                request,
-                "Propuesta enviada a revision de Ingenieria",
-                "success",
-                "Propuesta registrada",
-            )
         resultado = await service.set_item_grupos(
             conn, id_item, user_id, grupo_ids, area_editor,
             lock_version_esperado=_parse_lock_version(form),

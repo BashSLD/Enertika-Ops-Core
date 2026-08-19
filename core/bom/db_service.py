@@ -810,11 +810,6 @@ class BomDBService(BomComprasDBMixin):
                 FROM tb_bom_adendas adenda
                 WHERE adenda.id_adenda = $8
                   AND $7 IN ('ADENDA_APROBADA', 'ADENDA_RECHAZADA')
-                UNION
-                SELECT propuesta.creado_por
-                FROM tb_bom_propuestas_cambio propuesta
-                WHERE propuesta.id_propuesta = $8
-                  AND $7 IN ('PROPUESTA_APLICADA', 'PROPUESTA_RECHAZADA')
             ), destinos AS (
                 SELECT DISTINCT ON (COALESCE(s.suplente_id, t.titular_id))
                     COALESCE(s.suplente_id, t.titular_id) AS destinatario_id,
@@ -2166,112 +2161,6 @@ class BomDBService(BomComprasDBMixin):
             "tiene_cotizacion_seleccionada": False,
             "tiene_autorizacion_activa": False,
         }
-
-    async def crear_propuesta_cambio(
-        self, conn, id_bom: UUID, tipo_solicitante: str,
-        motivo: str, lineas: list, creado_por: UUID
-    ) -> dict:
-        """Crea una propuesta de cambio pre-final pendiente de Ingenieria."""
-        row = await conn.fetchrow("""
-            INSERT INTO tb_bom_propuestas_cambio
-                (id_bom, id_paquete, tipo_solicitante, motivo, lineas, creado_por)
-            SELECT $1, bom.id_paquete, $2, $3, $4::jsonb, $5
-            FROM tb_bom bom
-            WHERE bom.id_bom = $1
-            RETURNING *
-        """, id_bom, tipo_solicitante, motivo, json.dumps(lineas or []), creado_por)
-        return dict(row)
-
-    async def get_propuesta_cambio_by_id(
-        self, conn, id_propuesta: UUID
-    ) -> Optional[dict]:
-        """Obtiene una propuesta con contexto del BOM."""
-        row = await conn.fetchrow("""
-            SELECT p.*,
-                   b.id_proyecto,
-                   b.version AS bom_version,
-                   b.estatus AS bom_estatus,
-                   b.elaborado_por,
-                   b.responsable_ing,
-                   b.coordinador_obra,
-                   b.jefe_construccion
-            FROM tb_bom_propuestas_cambio p
-            JOIN tb_bom b ON b.id_bom = p.id_bom
-            WHERE p.id_propuesta = $1
-        """, id_propuesta)
-        if not row:
-            return None
-        data = dict(row)
-        if isinstance(data.get("lineas"), str):
-            data["lineas"] = json.loads(data["lineas"] or "[]")
-        return data
-
-    async def get_propuesta_cambio_for_update(
-        self, conn, id_propuesta: UUID,
-    ) -> Optional[dict]:
-        """Bloquea una propuesta y devuelve el contexto de su version."""
-        row = await conn.fetchrow("""
-            SELECT p.*,
-                   b.id_proyecto,
-                   b.id_paquete,
-                   b.version AS bom_version,
-                   b.estatus AS bom_estatus,
-                   b.elaborado_por,
-                   b.responsable_ing,
-                   b.coordinador_obra,
-                   b.jefe_construccion
-            FROM tb_bom_propuestas_cambio p
-            JOIN tb_bom b ON b.id_bom = p.id_bom
-            WHERE p.id_propuesta = $1
-            FOR UPDATE OF p
-        """, id_propuesta)
-        if not row:
-            return None
-        data = dict(row)
-        if isinstance(data.get("lineas"), str):
-            data["lineas"] = json.loads(data["lineas"] or "[]")
-        return data
-
-    async def get_propuestas_cambio_by_bom(self, conn, id_bom: UUID) -> List[dict]:
-        """Lista propuestas de cambio pre-final de un BOM."""
-        rows = await conn.fetch("""
-            SELECT p.*,
-                   u.nombre AS creado_por_nombre,
-                   r.nombre AS revisado_por_nombre
-            FROM tb_bom_propuestas_cambio p
-            LEFT JOIN tb_usuarios u ON u.id_usuario = p.creado_por
-            LEFT JOIN tb_usuarios r ON r.id_usuario = p.revisado_por
-            WHERE p.id_bom = $1
-            ORDER BY p.created_at DESC
-        """, id_bom)
-        result = []
-        for row in rows:
-            data = dict(row)
-            if isinstance(data.get("lineas"), str):
-                data["lineas"] = json.loads(data["lineas"] or "[]")
-            result.append(data)
-        return result
-
-    async def actualizar_propuesta_cambio_revision(
-        self, conn, id_propuesta: UUID, estatus: str, revisado_por: UUID,
-        comentario_revision: Optional[str], lock_version_esperado: int,
-    ) -> Optional[dict]:
-        """Marca una propuesta como revisada mediante CAS."""
-        row = await conn.fetchrow("""
-            UPDATE tb_bom_propuestas_cambio
-            SET estatus = $2,
-                revisado_por = $3,
-                fecha_revision = NOW(),
-                comentario_revision = $4,
-                updated_at = NOW(),
-                lock_version = lock_version + 1
-            WHERE id_propuesta = $1
-              AND estatus = 'PENDIENTE_INGENIERIA'
-              AND lock_version = $5
-            RETURNING *
-        """, id_propuesta, estatus, revisado_por, comentario_revision,
-             lock_version_esperado)
-        return dict(row) if row else None
 
     async def get_adendas_by_bom(self, conn, id_bom: UUID) -> List[dict]:
         """Lista adendas del BOM con resumen de lineas afectadas."""

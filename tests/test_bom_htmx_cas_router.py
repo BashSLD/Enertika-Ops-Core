@@ -46,14 +46,6 @@ class FakeMutationService:
             "estado_paquete": "ACTIVO",
         }
 
-    @staticmethod
-    def requiere_propuesta_construccion(bom, area_editor):
-        return False
-
-    @staticmethod
-    def base_construccion_bloqueada(bom, area_editor):
-        return False
-
     async def agregar_item(
         self, conn, id_bom, user_id, *, lock_version_esperado=None, **campos
     ):
