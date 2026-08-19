@@ -259,7 +259,7 @@
        compartido: antes eran dos x-data independientes que se pisaban entre si
        (el ultimo filtro clickeado ganaba y resetaba el display del otro). #}
     {% if bom %}
-    <div x-data="{ grupoActivo: 'TODOS', tipoActivo: 'TODOS' }"
+    <div id="bom-filtro-grupo" x-data="{ grupoActivo: 'TODOS', tipoActivo: 'TODOS' }"
          @htmx:after-swap.window="if ($event.detail.target && $event.detail.target.id === 'tabla-bom-items') aplicarFiltrosBom(grupoActivo, tipoActivo)">
         {# Filtro por grupo BOM #}
         <div class="mb-3 flex flex-wrap gap-1.5">
@@ -583,6 +583,7 @@
                         hx-patch="/bom/{{ bom.id_bom }}/items/bulk-edit"
                         hx-target="#tabla-bom-items" hx-swap="innerHTML"
                         hx-include="#bom-bulk-bar, #bom-items-body input[name='item_ids']:checked"
+                        hx-indicator="#global-loading-overlay" hx-disabled-elt="this" hx-sync="this:drop"
                         :disabled="campo === '' || (campo === 'precio_unitario' && !monedaBulk)"
                         class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
                     Aplicar
@@ -1041,7 +1042,7 @@
                     hx-post="/bom/{{ bom.id_bom }}/items" hx-target="#tabla-bom-items" hx-swap="innerHTML"
                     hx-indicator="#modal-agregar-item-overlay"
                     hx-disabled-elt="#bom-agregar-item-submit"
-                    @htmx:after-request="if ($event.detail.successful && $event.detail.elt === $el) { abrir(); }"
+                    @htmx:after-request="if ($event.detail.successful && $event.detail.elt === $el) { const selGrupo = $refs.formAgregarItem.querySelector('[name=grupo_ids]'); const opcionActual = selGrupo && selGrupo.options[selGrupo.selectedIndex]; abrir(opcionActual && opcionActual.dataset.codigo); const filtroEl = document.getElementById('bom-filtro-grupo'); const filtroData = filtroEl && window.Alpine && window.Alpine.$data(filtroEl); if (filtroData) aplicarFiltrosBom(filtroData.grupoActivo, filtroData.tipoActivo); }"
                     @submit.capture="validarSubmit($event)"
                     autocomplete="off">
 
