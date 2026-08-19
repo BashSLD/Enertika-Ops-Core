@@ -439,6 +439,21 @@
         updateZipLinks(form);
     });
 
+    // Feedback visual al descargar ZIP: es un <a href> plano (descarga nativa
+    // del navegador), no hay evento de "completado" que escuchar -- se muestra
+    // un estado temporal para que el click no se sienta como que no hizo nada.
+    document.body.addEventListener('click', function (event) {
+        const link = event.target && event.target.closest && event.target.closest('.export-zip-link');
+        if (!link || link.classList.contains('cursor-not-allowed')) return;
+        const textoOriginal = link.textContent;
+        link.textContent = 'Generando ZIP...';
+        link.classList.add('pointer-events-none', 'opacity-60');
+        setTimeout(() => {
+            link.textContent = textoOriginal;
+            link.classList.remove('pointer-events-none', 'opacity-60');
+        }, 2500);
+    });
+
     // Limpiar filtros manualmente
     function limpiarFiltros() {
         const form = document.getElementById('filtros-form');
