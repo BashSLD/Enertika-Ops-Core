@@ -200,6 +200,26 @@ class BomDBService(BomComprasDBMixin):
         )
         return dict(row) if row else None
 
+    async def get_tipo_cambio_manual_info(self, conn, id_proyecto: UUID) -> Optional[dict]:
+        """Detalle del TC manual activo del proyecto (para el indicador del consolidado)."""
+        row = await conn.fetchrow(
+            """
+            SELECT e.tipo_cambio_manual, e.tipo_cambio_manual_fijado_en,
+                   u.nombre AS tipo_cambio_manual_fijado_por_nombre
+            FROM tb_bom_proyecto_estado e
+            LEFT JOIN tb_usuarios u ON u.id_usuario = e.tipo_cambio_manual_fijado_por
+            WHERE e.id_proyecto = $1 AND e.tipo_cambio_manual IS NOT NULL
+            """,
+            id_proyecto,
+        )
+        return dict(row) if row else None
+
+    async def get_id_proyecto_by_bom(self, conn, id_bom: UUID) -> Optional[UUID]:
+        """Lookup liviano de id_proyecto por BOM, sin los joins pesados de get_bom_by_id."""
+        return await conn.fetchval(
+            "SELECT id_proyecto FROM tb_bom WHERE id_bom = $1", id_bom
+        )
+
     async def get_estado_proyecto_for_update(self, conn, id_proyecto: UUID) -> dict:
         await conn.execute(
             """
@@ -247,6 +267,51 @@ class BomDBService(BomComprasDBMixin):
             """,
             id_proyecto, lock_version_esperado, captura_cerrada, actor_id, motivo,
             modulos_fv_snapshot, potencia_pico_kwp_snapshot,
+        )
+        return dict(row) if row else None
+
+    async def set_tipo_cambio_manual_cas(
+        self, conn, id_proyecto: UUID, lock_version_esperado: int,
+        tipo_cambio_manual: Decimal, actor_id: UUID,
+    ) -> Optional[dict]:
+        """Fija (o reemplaza) el TC manual del proyecto con CAS sobre lock_version."""
+        row = await conn.fetchrow(
+            """
+            UPDATE tb_bom_proyecto_estado
+            SET tipo_cambio_manual = $3,
+                tipo_cambio_manual_fijado_por = $4,
+                tipo_cambio_manual_fijado_en = NOW(),
+                actualizado_por = $4,
+                cambio_estado_en = NOW(),
+                lock_version = lock_version + 1,
+                updated_at = NOW()
+            WHERE id_proyecto = $1
+              AND lock_version = $2
+            RETURNING *
+            """,
+            id_proyecto, lock_version_esperado, tipo_cambio_manual, actor_id,
+        )
+        return dict(row) if row else None
+
+    async def limpiar_tipo_cambio_manual_cas(
+        self, conn, id_proyecto: UUID, lock_version_esperado: int, actor_id: UUID,
+    ) -> Optional[dict]:
+        """Quita el TC manual del proyecto (vuelve a Banxico/promedio) con CAS."""
+        row = await conn.fetchrow(
+            """
+            UPDATE tb_bom_proyecto_estado
+            SET tipo_cambio_manual = NULL,
+                tipo_cambio_manual_fijado_por = NULL,
+                tipo_cambio_manual_fijado_en = NULL,
+                actualizado_por = $3,
+                cambio_estado_en = NOW(),
+                lock_version = lock_version + 1,
+                updated_at = NOW()
+            WHERE id_proyecto = $1
+              AND lock_version = $2
+            RETURNING *
+            """,
+            id_proyecto, lock_version_esperado, actor_id,
         )
         return dict(row) if row else None
 

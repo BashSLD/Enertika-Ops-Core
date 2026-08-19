@@ -411,13 +411,6 @@ class BomComprasDBMixin:
         """, bom_id)
         return [dict(r) for r in rows]
 
-    async def get_tipo_cambio_vigente(self, conn) -> Optional[dict]:
-        row = await conn.fetchrow("""
-            SELECT tasa_mxn, fecha FROM tb_tipo_cambio
-            ORDER BY fecha DESC LIMIT 1
-        """)
-        return dict(row) if row else None
-
     async def update_autorizacion_paso_obra(
         self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
         lock_version_esperado: int,

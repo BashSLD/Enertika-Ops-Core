@@ -407,10 +407,11 @@ class FakeConsolidadoOficialDB:
         return []
 
     async def get_estado_proyecto(self, conn, id_proyecto):
-        return {"captura_cerrada": True}
-
-    async def get_tipo_cambio_vigente(self, conn):
-        return {"tasa_mxn": Decimal("99")}
+        return {
+            "captura_cerrada": True,
+            "tipo_cambio_manual": Decimal("99"),
+            "tipo_cambio_manual_fijado_en": None,
+        }
 
     async def get_divisor_oficial_consolidado(self, conn, id_proyecto):
         return {

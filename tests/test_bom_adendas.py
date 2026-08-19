@@ -218,8 +218,14 @@ class FakeAdendaDB:
     async def lock_items_context_by_ids(self, conn, item_ids):
         return [dict(self.items[item_id]) for item_id in item_ids if item_id in self.items]
 
-    async def get_tipo_cambio_vigente(self, conn):
-        return {"tasa_mxn": 18, "fecha": "2026-07-31"}
+    async def get_id_proyecto_by_bom(self, conn, id_bom):
+        return self.bom["id_proyecto"] if id_bom == self.bom["id_bom"] else None
+
+    async def get_estado_proyecto(self, conn, id_proyecto):
+        return {
+            "tipo_cambio_manual": Decimal("18"),
+            "tipo_cambio_manual_fijado_en": None,
+        }
 
     async def registrar_evento_outbox(self, *args, **kwargs):
         return {}

@@ -758,6 +758,94 @@ class BomService(BomComprasServiceMixin):
             "motivo": None,
         }
 
+    async def resolver_tipo_cambio(
+        self, conn, id_proyecto: UUID, estado_proyecto: Optional[dict] = None,
+    ) -> dict:
+        """Punto unico de resolucion del TC "vigente" a nivel proyecto.
+
+        Cadena: TC manual del proyecto (si esta fijado) > Banxico mas reciente >
+        promedio 7 dias. NO considera el TC del XML de factura por item — esa prioridad
+        superior la resuelve el caller (get_items/get_item) antes de caer aqui.
+
+        Args:
+            estado_proyecto: fila ya leida de tb_bom_proyecto_estado (evita una query
+                duplicada en callers que ya la obtuvieron, ej. _get_consolidado_proyecto_snapshot).
+
+        Returns:
+            {"tasa": Decimal | None, "origen": "manual" | "banxico" | "promedio" | None,
+             "fecha": date | None}
+        """
+        if estado_proyecto is None:
+            estado_proyecto = await self.db.get_estado_proyecto(conn, id_proyecto)
+
+        tc_manual = estado_proyecto.get("tipo_cambio_manual") if estado_proyecto else None
+        if tc_manual:
+            fijado_en = estado_proyecto.get("tipo_cambio_manual_fijado_en")
+            return {
+                "tasa": Decimal(str(tc_manual)), "origen": "manual",
+                "fecha": fijado_en.date() if fijado_en else today_mx(),
+            }
+
+        from core.tipo_cambio.db_service import TipoCambioDBService
+        tc_svc = TipoCambioDBService()
+        tasa = await tc_svc.get_tasa_mas_reciente(conn)
+        if tasa:
+            return {
+                "tasa": Decimal(str(tasa["tasa_mxn"])), "origen": "banxico",
+                "fecha": tasa.get("fecha"),
+            }
+
+        promedio = await self.db.get_tasa_promedio(conn)
+        if promedio:
+            return {"tasa": promedio, "origen": "promedio", "fecha": today_mx()}
+
+        return {"tasa": None, "origen": None, "fecha": None}
+
+    async def fijar_tipo_cambio_manual(
+        self, conn, id_proyecto: UUID, tasa: Decimal, actor_id: UUID,
+        lock_version_esperado: int,
+    ) -> dict:
+        """Fija el TC manual del proyecto (CEO/ADMIN). RBAC se valida en el router."""
+        if tasa <= 0:
+            raise ValueError("El tipo de cambio manual debe ser mayor a 0")
+        async with conn.transaction():
+            estado = await self.db.get_estado_proyecto_for_update(conn, id_proyecto)
+            if estado["lock_version"] != lock_version_esperado:
+                raise ValueError(
+                    "El estado del conjunto BOM cambio; actualiza la pagina e intenta de nuevo"
+                )
+            actualizado = await self.db.set_tipo_cambio_manual_cas(
+                conn, id_proyecto, lock_version_esperado, tasa, actor_id,
+            )
+            if not actualizado:
+                raise ValueError(
+                    "El estado del conjunto BOM cambio; actualiza la pagina e intenta de nuevo"
+                )
+        logger.info(
+            "TC manual fijado: proyecto=%s tasa=%s actor=%s", id_proyecto, tasa, actor_id,
+        )
+        return actualizado
+
+    async def quitar_tipo_cambio_manual(
+        self, conn, id_proyecto: UUID, actor_id: UUID, lock_version_esperado: int,
+    ) -> dict:
+        """Quita el TC manual del proyecto; vuelve a Banxico/promedio. RBAC en el router."""
+        async with conn.transaction():
+            estado = await self.db.get_estado_proyecto_for_update(conn, id_proyecto)
+            if estado["lock_version"] != lock_version_esperado:
+                raise ValueError(
+                    "El estado del conjunto BOM cambio; actualiza la pagina e intenta de nuevo"
+                )
+            actualizado = await self.db.limpiar_tipo_cambio_manual_cas(
+                conn, id_proyecto, lock_version_esperado, actor_id,
+            )
+            if not actualizado:
+                raise ValueError(
+                    "El estado del conjunto BOM cambio; actualiza la pagina e intenta de nuevo"
+                )
+        logger.info("TC manual quitado: proyecto=%s actor=%s", id_proyecto, actor_id)
+        return actualizado
+
     async def get_metricas_paneles(self, conn, id_proyecto: UUID) -> dict:
         return await self.db.get_metricas_paneles_proyecto(conn, id_proyecto)
 
@@ -1963,8 +2051,9 @@ class BomService(BomComprasServiceMixin):
                 precio = Decimal(str(datos["precio_unitario"]))
                 acumular(datos.get("moneda"), cantidad * precio)
 
-        tipo_cambio = await self.db.get_tipo_cambio_vigente(conn)
-        tasa = Decimal(str(tipo_cambio["tasa_mxn"])) if tipo_cambio else None
+        id_proyecto_adenda = await self.db.get_id_proyecto_by_bom(conn, adenda["id_bom_base"])
+        resuelto = await self.resolver_tipo_cambio(conn, id_proyecto_adenda)
+        tasa = resuelto["tasa"]
         if impacto_usd and not tasa:
             raise ValueError(
                 "No hay tipo de cambio vigente para congelar el impacto de la adenda"
@@ -1972,9 +2061,7 @@ class BomService(BomComprasServiceMixin):
         impacto_total = impacto_mxn + (impacto_usd * tasa if tasa else 0)
         return {
             "tipo_cambio_aprobacion": tasa,
-            "fecha_tipo_cambio_aprobacion": (
-                tipo_cambio.get("fecha") if tipo_cambio else None
-            ),
+            "fecha_tipo_cambio_aprobacion": resuelto["fecha"] if tasa else None,
             "impacto_base_mxn_snapshot": impacto_mxn,
             "impacto_base_usd_snapshot": impacto_usd,
             "impacto_aprobado_mxn": impacto_total,
@@ -3112,8 +3199,9 @@ class BomService(BomComprasServiceMixin):
 
         Para items USD, el tipo de cambio se obtiene en este orden:
         1. TC del XML de la factura asociada (tb_materiales_historial.tipo_cambio_xml)
-        2. Ultima tasa Banxico registrada (tb_tipo_cambio)
-        3. Promedio 7 dias Banxico (fallback final)
+        2. TC manual del proyecto (si esta fijado)
+        3. Ultima tasa Banxico registrada (tb_tipo_cambio)
+        4. Promedio 7 dias Banxico (fallback final)
         """
         items = await self.db.get_items_by_bom(conn, id_bom)
         if not items:
@@ -3130,21 +3218,16 @@ class BomService(BomComprasServiceMixin):
         ]
 
         tc_from_xml = {}
-        tc_banxico = None
-        tc_promedio = None
+        tc_resuelto = None
 
         if usd_ids:
             tc_from_xml = await self.db.get_tc_from_linked_materials(conn, usd_ids)
 
             still_need = [iid for iid in usd_ids if str(iid) not in tc_from_xml]
             if still_need:
-                from core.tipo_cambio.db_service import TipoCambioDBService
-                tc_svc = TipoCambioDBService()
-                tasa = await tc_svc.get_tasa_mas_reciente(conn)
-                tc_banxico = Decimal(str(tasa['tasa_mxn'])) if tasa else None
-
-                if not tc_banxico:
-                    tc_promedio = await self.db.get_tasa_promedio(conn)
+                id_proyecto = await self.db.get_id_proyecto_by_bom(conn, id_bom)
+                resuelto = await self.resolver_tipo_cambio(conn, id_proyecto)
+                tc_resuelto = resuelto["tasa"]
 
         for item in items:
             item['grupos'] = grupos_map.get(str(item['id_item']), [])
@@ -3153,26 +3236,12 @@ class BomService(BomComprasServiceMixin):
             moneda_real = item.get('moneda_real')
             if moneda == 'USD' and item.get('precio_unitario'):
                 iid = str(item['id_item'])
-                if iid in tc_from_xml:
-                    tc = tc_from_xml[iid]
-                elif tc_banxico:
-                    tc = tc_banxico
-                elif tc_promedio:
-                    tc = tc_promedio
-                else:
-                    tc = None
+                tc = tc_from_xml.get(iid) or tc_resuelto
                 if tc:
                     item['costo_mxn'] = round(Decimal(str(item['precio_unitario'])) * tc, 2)
             if moneda_real == 'USD' and item.get('precio_real'):
                 iid = str(item['id_item'])
-                if iid in tc_from_xml:
-                    tc = tc_from_xml[iid]
-                elif tc_banxico:
-                    tc = tc_banxico
-                elif tc_promedio:
-                    tc = tc_promedio
-                else:
-                    tc = None
+                tc = tc_from_xml.get(iid) or tc_resuelto
                 if tc:
                     item['costo_real_mxn'] = round(Decimal(str(item['precio_real'])) * tc, 2)
 
@@ -3192,20 +3261,18 @@ class BomService(BomComprasServiceMixin):
         if not item:
             raise ValueError("Item no encontrado")
         # Enriquecer costo_mxn para items USD
-        if item.get('moneda') == 'USD' and item.get('precio_unitario'):
-            from core.tipo_cambio.db_service import TipoCambioDBService
-            tc_svc = TipoCambioDBService()
-            tasa = await tc_svc.get_tasa_mas_reciente(conn)
-            tc = Decimal(str(tasa['tasa_mxn'])) if tasa else None
-            if tc:
-                item['costo_mxn'] = round(Decimal(str(item['precio_unitario'])) * tc, 2)
-        if item.get('moneda_real') == 'USD' and item.get('precio_real'):
-            from core.tipo_cambio.db_service import TipoCambioDBService
-            tc_svc = TipoCambioDBService()
-            tasa = await tc_svc.get_tasa_mas_reciente(conn)
-            tc = Decimal(str(tasa['tasa_mxn'])) if tasa else None
-            if tc:
-                item['costo_real_mxn'] = round(Decimal(str(item['precio_real'])) * tc, 2)
+        necesita_tc = (
+            (item.get('moneda') == 'USD' and item.get('precio_unitario'))
+            or (item.get('moneda_real') == 'USD' and item.get('precio_real'))
+        )
+        tc = None
+        if necesita_tc:
+            resuelto = await self.resolver_tipo_cambio(conn, item['id_proyecto'])
+            tc = resuelto["tasa"]
+        if item.get('moneda') == 'USD' and item.get('precio_unitario') and tc:
+            item['costo_mxn'] = round(Decimal(str(item['precio_unitario'])) * tc, 2)
+        if item.get('moneda_real') == 'USD' and item.get('precio_real') and tc:
+            item['costo_real_mxn'] = round(Decimal(str(item['precio_real'])) * tc, 2)
         # Enriquecer gasto_real
         gasto_map = await self.db.get_gasto_real_por_item(conn, [id_item])
         gasto = gasto_map.get(str(id_item))
@@ -4053,6 +4120,7 @@ class BomService(BomComprasServiceMixin):
             if EstatusBOM(bloqueado["estatus"]) != EstatusBOM.EN_REVISION_FINAL:
                 raise ValueError("El BOM ya no esta en revision final")
             await self.db.lock_configuracion_proyecto(conn, bom["id_proyecto"])
+            estado_proyecto = await self.db.get_estado_proyecto_for_update(conn, bom["id_proyecto"])
             metricas_fv = await self.db.get_metricas_paneles_proyecto(
                 conn, bom["id_proyecto"]
             )
@@ -4061,9 +4129,9 @@ class BomService(BomComprasServiceMixin):
                 raise ValueError(
                     "No se puede congelar el presupuesto: hay costos o monedas desconocidos"
                 )
-            tipo_cambio = await self.db.get_tipo_cambio_vigente(conn)
+            resuelto = await self.resolver_tipo_cambio(conn, bom["id_proyecto"], estado_proyecto)
             total_usd = Decimal(str(totales["total_usd"]))
-            tasa = Decimal(str(tipo_cambio["tasa_mxn"])) if tipo_cambio else None
+            tasa = resuelto["tasa"]
             if total_usd and not tasa:
                 raise ValueError(
                     "No hay tipo de cambio vigente para congelar el total oficial en MXN"
@@ -4078,9 +4146,7 @@ class BomService(BomComprasServiceMixin):
                 modulos_fv_snapshot=metricas_fv.get("modulos_fv"),
                 potencia_pico_kwp_snapshot=metricas_fv.get("potencia_pico_kwp"),
                 tipo_cambio_aprobacion=tasa,
-                fecha_tipo_cambio_aprobacion=(
-                    tipo_cambio.get("fecha") if tipo_cambio else None
-                ),
+                fecha_tipo_cambio_aprobacion=resuelto["fecha"] if tasa else None,
                 subtotal_base_mxn_snapshot=totales["total_mxn"],
                 subtotal_base_usd_snapshot=totales["total_usd"],
                 total_aprobado_mxn=total_aprobado,
@@ -4486,8 +4552,8 @@ class BomService(BomComprasServiceMixin):
         )
         todos_paquetes = await self.db.listar_paquetes_proyecto(conn, id_proyecto)
         estado = await self.get_estado_conjunto(conn, id_proyecto)
-        tipo_cambio = await self.db.get_tipo_cambio_vigente(conn)
-        tasa_curso = Decimal(str(tipo_cambio["tasa_mxn"])) if tipo_cambio else None
+        resuelto_curso = await self.resolver_tipo_cambio(conn, id_proyecto, estado)
+        tasa_curso = resuelto_curso["tasa"]
 
         if modo_normalizado == "CURSO":
             for paquete in paquetes:
@@ -4638,14 +4704,20 @@ class BomService(BomComprasServiceMixin):
             "desglose_grupos": desglose_grupos,
             "solapamientos": solapamientos,
             "captura_cerrada": bool(estado.get("captura_cerrada")),
+            "estado_lock_version": estado.get("lock_version", 0),
             "pendientes_oficiales": pendientes_oficiales,
             "divisor_fv": {
                 "modulos_fv": modulos,
                 "potencia_pico_kwp": potencia,
                 "origen": divisor,
             },
-            "tipo_cambio_curso": tipo_cambio if modo_normalizado == "CURSO" else None,
+            "tipo_cambio_curso": resuelto_curso if modo_normalizado == "CURSO" else None,
             "conversion_pendiente": conversion_pendiente,
+            "tipo_cambio_manual_info": (
+                await self.db.get_tipo_cambio_manual_info(conn, id_proyecto)
+                if modo_normalizado == "CURSO" and resuelto_curso["origen"] == "manual"
+                else None
+            ),
         }
 
     async def export_consolidado_excel(
