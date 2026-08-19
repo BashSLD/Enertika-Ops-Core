@@ -1,4 +1,11 @@
 {% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+{% set estatus_bom_config = {
+    'BORRADOR':          {'bg': 'bg-gray-100',   'text': 'text-gray-800',   'label': 'Borrador'},
+    'EN_REVISION_ING':   {'bg': 'bg-amber-100',  'text': 'text-amber-800',  'label': 'En Revision Ing.'},
+    'APROBADO_ING':      {'bg': 'bg-blue-100',   'text': 'text-blue-800',   'label': 'Aprobado Ing.'},
+    'EN_REVISION_OBRA':  {'bg': 'bg-yellow-100', 'text': 'text-yellow-800', 'label': 'En Revision Obra'},
+    'EN_REVISION_CONST': {'bg': 'bg-orange-100', 'text': 'text-orange-800', 'label': 'En Revision Const.'},
+} %}
 {% if bulk_toast %}
 {% with message=bulk_toast.message, type=bulk_toast.type, title=bulk_toast.title %}
 {% include "shared/toast.html" %}
@@ -18,6 +25,7 @@
                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID Proyecto</th>
                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre</th>
                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paquete</th>
+                    <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Estatus BOM</th>
                     <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16">Version</th>
                     <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-36 whitespace-nowrap">Items sin costo</th>
                     <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-40">Accion</th>
@@ -31,6 +39,12 @@
                     <td class="px-4 py-3 text-sm text-gray-800">
                         <span class="font-semibold">{{ p.paquete_codigo }} - {{ p.paquete_nombre }}</span>
                         <span class="block text-xs text-gray-500">{{ p.tipo_alcance }}</span>
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        {% set cfg_estatus = estatus_bom_config.get(p.bom_estatus, {'bg': 'bg-gray-100', 'text': 'text-gray-800', 'label': p.bom_estatus}) %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{ cfg_estatus.bg }} {{ cfg_estatus.text }}">
+                            {{ cfg_estatus.label }}
+                        </span>
                     </td>
                     <td class="px-4 py-3 text-sm text-center text-gray-600">v{{ p.bom_version }}</td>
                     <td class="px-4 py-3 text-center">
@@ -77,7 +91,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                 d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
         </svg>
-        <p class="text-sm text-gray-500">No hay BOM en borrador con items pendientes de costo.</p>
+        <p class="text-sm text-gray-500">No hay BOM con items pendientes de costo.</p>
     </div>
     {% endif %}
 </div>

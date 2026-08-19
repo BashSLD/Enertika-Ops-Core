@@ -1799,14 +1799,20 @@ class ComprasDBService:
         return [dict(r) for r in rows]
 
     async def get_proyectos_bom_pendientes_precio(self, conn) -> list:
-        """Una fila por paquete con BOM en BORRADOR que tiene items base sin costo
-        oficial: sin precio, o con un precio capturado por Ingenieria que Compras
-        aun no confirma (precio_pendiente_confirmacion).
+        """Una fila por paquete con BOM en cualquier etapa activa previa a
+        APROBADO_CONST que tiene items base sin costo oficial: sin precio, o con
+        un precio capturado por Ingenieria que Compras aun no confirma
+        (precio_pendiente_confirmacion). No se limita a BORRADOR: un item sin
+        costo puede agregarse en cualquier turno (ej. Obra/Construccion agregando
+        durante su revision), y debe seguir siendo visible/editable para Compras
+        hasta que el BOM llegue a APROBADO_CONST (ahi lo cubre la pestaña "Activos").
 
         Mismo JOIN por cabeza_trabajo_id/estado_paquete='ACTIVO' que get_proyectos_con_bom
         (evita traer versiones historicas del paquete), y el mismo predicado que
         core.bom.db_service.get_items_sin_costo_bom (excluye items de adenda) — mantener
-        ambos sincronizados si cambia el criterio de "sin costo"."""
+        ambos sincronizados si cambia el criterio de "sin costo". El estatus excluido debe
+        coincidir con el de get_proyectos_con_bom (misma frontera, sin hueco ni traslape) y
+        con el gate de core.bom.service.resolver_costos_pendientes_compras."""
         rows = await conn.fetch("""
             SELECT
                 p.id_proyecto,
@@ -1836,7 +1842,7 @@ class ComprasDBService:
                   )
             ) pendientes ON TRUE
             WHERE paquete.estado_paquete = 'ACTIVO'
-              AND b.estatus = 'BORRADOR'
+              AND b.estatus NOT IN ('APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL', 'CANCELADO')
               AND pendientes.total_pendientes > 0
             ORDER BY p.proyecto_id_estandar, paquete.codigo, paquete.id_paquete
         """)
@@ -1861,7 +1867,7 @@ class ComprasDBService:
                   )
             ) pendientes ON TRUE
             WHERE paquete.estado_paquete = 'ACTIVO'
-              AND b.estatus = 'BORRADOR'
+              AND b.estatus NOT IN ('APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL', 'CANCELADO')
               AND pendientes.total_pendientes > 0
         """)
         return total or 0

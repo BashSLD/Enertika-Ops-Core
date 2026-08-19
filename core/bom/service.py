@@ -144,6 +144,18 @@ BOM_COSTOS_DEFAULT_TEMPLATE = (
     "del proyecto {proyecto_id} sin costo estimado. Ingresa para actualizarlos."
 )
 
+# Estatus donde el BOM ya no admite el flujo de precios pendientes de Compras: a
+# partir de APROBADO_CONST lo cubre la pestaña "Activos" de Compras (frontera
+# compartida con modules.compras.db_service.get_proyectos_bom_pendientes_precio,
+# que excluye el mismo set). Antes de eso (BORRADOR..EN_REVISION_CONST) un item
+# sin costo puede haberse agregado en cualquier turno, no solo en BORRADOR.
+ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS = {
+    EstatusBOM.APROBADO_CONST.value,
+    EstatusBOM.EN_REVISION_FINAL.value,
+    EstatusBOM.APROBADO_FINAL.value,
+    EstatusBOM.CANCELADO.value,
+}
+
 
 class BomService(BomComprasServiceMixin):
     """Logica de negocio para BOM."""
@@ -1202,8 +1214,9 @@ class BomService(BomComprasServiceMixin):
         self, conn, id_bom: UUID, user_id: UUID, items_payload: List[dict],
     ) -> dict:
         """Compras captura precio_unitario/moneda (presupuesto) sobre items BASE sin
-        costo de un BOM en BORRADOR — un flujo nuevo y explicito, no una variante de
-        `editar_item(area_editor='compras')`: ese metodo redirige precio_unitario/moneda
+        costo de un BOM en cualquier etapa activa previa a APROBADO_CONST (ver
+        ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS) — un flujo nuevo y explicito, no
+        una variante de `editar_item(area_editor='compras')`: ese metodo redirige precio_unitario/moneda
         a precio_real/moneda_real (costo real, no presupuesto), asi que reusarlo
         escribiria en la columna equivocada sin error visible. La misma trampa aplica
         a `id_material_interno`: `update_item` (BomDBService) lo excluye a proposito de
@@ -1232,10 +1245,10 @@ class BomService(BomComprasServiceMixin):
             bom = await self.db.get_bom_for_update(conn, id_bom)
             if not bom:
                 raise ValueError("BOM no encontrado")
-            if bom["estatus"] != EstatusBOM.BORRADOR.value:
+            if bom["estatus"] in ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS:
                 raise ValueError(
-                    "El BOM ya avanzo de etapa; tus cambios no se aplicaron. "
-                    "Contacta a Ingenieria."
+                    "El BOM ya llego a Construccion aprobada; tus cambios no se "
+                    "aplicaron. Contacta a Ingenieria."
                 )
             if bom.get("estado_paquete") != "ACTIVO":
                 raise ValueError(

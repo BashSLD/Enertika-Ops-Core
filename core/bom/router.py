@@ -30,6 +30,7 @@ from .service import (
     CAMPOS_AFECTAN_COSTO_ESTIMADO,
     MONEDAS_VALIDAS,
     FLAG_ACTUALIZACION_PRECIOS_COMPRAS,
+    ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS,
 )
 
 _ESTATUS_FASE_COMPRAS = {e.value for e in ESTATUS_COTIZABLE}
@@ -1691,8 +1692,9 @@ async def get_modal_precios_pendientes_compras(
     _=_requiere_compras_editor_precios_pendientes(),
 ):
     """Modal de Compras para capturar precio_unitario/moneda de items BASE sin costo
-    de un BOM en BORRADOR — lugar propio, ya que Compras no es actor de ningun turno
-    antes de APROBADO_FINAL y no puede usar el editor de items normal en esta etapa."""
+    de un BOM en cualquier etapa activa previa a APROBADO_CONST — lugar propio, ya
+    que Compras no es actor de ningun turno antes de APROBADO_FINAL y no puede usar
+    el editor de items normal en esta etapa."""
     habilitada = await ConfigService.get_global_config(
         conn, FLAG_ACTUALIZACION_PRECIOS_COMPRAS, False, bool
     )
@@ -1702,8 +1704,8 @@ async def get_modal_precios_pendientes_compras(
         bom = await service.get_bom(conn, id_bom)
     except ValueError as exc:
         return _toast_response(request, str(exc), "error", status_code=404)
-    if bom["estatus"] != "BORRADOR":
-        return _toast_response(request, "Este BOM ya no esta en borrador.", "error")
+    if bom["estatus"] in ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS:
+        return _toast_response(request, "Este BOM ya llego a Construccion aprobada.", "error")
     if bom.get("estado_paquete") != "ACTIVO":
         return _toast_response(request, "Este paquete BOM ya no esta activo.", "error")
     items = await service.get_items_sin_costo(conn, id_bom)

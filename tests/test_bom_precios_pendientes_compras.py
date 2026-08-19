@@ -44,6 +44,29 @@ async def _bom_borrador_con_item_sin_costo(conn):
     return row
 
 
+async def _bom_en_revision_obra_con_item_sin_costo(conn):
+    """Mismo criterio que _bom_borrador_con_item_sin_costo pero en EN_REVISION_OBRA:
+    cubre el caso real donde Obra/Construccion agrega un item sin costo durante su
+    turno (agregar_items=True fuera de BORRADOR) -- la 'Actualizacion de precios'
+    de Compras debe verlo igual que en BORRADOR, no solo ahi."""
+    row = await conn.fetchrow("""
+        SELECT b.id_bom, i.id_item, i.lock_version AS item_lock_version,
+               i.precio_unitario, i.moneda
+        FROM tb_bom b
+        JOIN tb_bom_paquetes p ON p.id_paquete = b.id_paquete
+        JOIN tb_bom_items i ON i.id_bom = b.id_bom
+        WHERE p.cabeza_trabajo_id = b.id_bom AND p.estado_paquete = 'ACTIVO'
+          AND b.estatus = 'EN_REVISION_OBRA'
+          AND i.activo = TRUE
+          AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
+          AND (i.precio_unitario IS NULL OR i.precio_unitario <= 0)
+        LIMIT 1
+    """)
+    if row is None:
+        pytest.skip("No hay un BOM en EN_REVISION_OBRA con items sin costo real en DEV")
+    return row
+
+
 async def _bom_borrador_item_manual_sin_costo(conn):
     """Item BASE sin costo Y sin material vinculado -- entrada manual real de DEV,
     el caso que 6.1 (doc 42) resuelve."""
@@ -109,6 +132,49 @@ async def test_activos_excluye_borrador_y_pendientes_lo_incluye(real_conn):
     assert activo["id_bom"] not in ids_pendientes
     assert borrador["id_bom"] in ids_pendientes
     assert borrador["id_bom"] not in ids_activos
+
+
+@pytest.mark.asyncio
+async def test_pendientes_precio_incluye_en_revision_obra(real_conn):
+    """Regresion: un item sin costo agregado mientras el BOM ya esta en
+    EN_REVISION_OBRA debe seguir apareciendo en 'Actualizacion de precios' de
+    Compras -- antes del fix, la query solo miraba BORRADOR y este caso quedaba
+    invisible tanto para Compras (Activos exige APROBADO_CONST+) como para esta
+    pestaña."""
+    en_obra = await _bom_en_revision_obra_con_item_sin_costo(real_conn)
+
+    db = ComprasDBService()
+    pendientes = await db.get_proyectos_bom_pendientes_precio(real_conn)
+    ids_pendientes = {p["id_bom"] for p in pendientes}
+
+    assert en_obra["id_bom"] in ids_pendientes
+
+
+@pytest.mark.asyncio
+async def test_resolver_costos_pendientes_compras_funciona_en_revision_obra(real_conn):
+    """El endpoint que aplica el precio (no solo la query que lo lista) tambien
+    debia rechazar cualquier estatus distinto de BORRADOR -- confirma que ahora
+    acepta EN_REVISION_OBRA."""
+    fila = await _bom_en_revision_obra_con_item_sin_costo(real_conn)
+    id_item = fila["id_item"]
+    user_id = await _usuario_id(real_conn)
+
+    service = BomService()
+    try:
+        resultado = await service.resolver_costos_pendientes_compras(
+            real_conn, fila["id_bom"], user_id,
+            [{
+                "id_item": id_item, "precio_unitario": Decimal("42.00"), "moneda": "MXN",
+                "lock_version": fila["item_lock_version"], "actualizar_catalogo": False,
+                "crear_catalogo": False, "id_material_vinculado": None,
+            }],
+        )
+        assert id_item in resultado["aplicados"], resultado["rechazados"]
+    finally:
+        await real_conn.execute(
+            "UPDATE tb_bom_items SET precio_unitario = $1, moneda = $2 WHERE id_item = $3",
+            fila["precio_unitario"], fila["moneda"], id_item,
+        )
 
 
 @pytest.mark.asyncio

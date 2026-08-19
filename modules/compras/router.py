@@ -291,7 +291,7 @@ async def get_proyectos_bom_pendientes_precio(
     context = Depends(get_current_user_context),
     _ = require_module_access("compras"),
 ):
-    """Partial: tab 'Actualizacion de precios' (BOM en BORRADOR con items base sin costo)."""
+    """Partial: tab 'Actualizacion de precios' (BOM activo previo a APROBADO_CONST con items base sin costo)."""
     habilitada = await ConfigService.get_global_config(
         conn, FLAG_ACTUALIZACION_PRECIOS_COMPRAS, False, bool
     )
