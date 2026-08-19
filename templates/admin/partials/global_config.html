@@ -1,8 +1,79 @@
 {# templates/admin/partials/global_config.html #}
 <div class="space-y-4 animate-fade-in-down">
 
-    {# ── 1. Reglas de Negocio ─────────────────────────────── #}
-    <section x-data="{ open: true }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
+    {# ── 1. Empresa ─────────────────────────────────────────── #}
+    <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
+        <div class="px-5 py-3 border-b border-gray-100">
+            <button type="button" @click="open = !open" :aria-expanded="open.toString()"
+                class="flex w-full items-center gap-3 text-left">
+                <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-gray-600 flex-shrink-0">
+                    <svg class="h-4 w-4 transition-transform duration-200" :class="open ? 'rotate-90' : ''"
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </span>
+                <span class="flex-1 min-w-0">
+                    <span class="block text-sm font-semibold text-gray-800">Empresa</span>
+                    <span class="block text-xs text-gray-400">Datos fiscales de Enertika para validación de CFDI y membrete de RFQ</span>
+                </span>
+            </button>
+        </div>
+        <div x-show="open" x-cloak x-transition class="p-6">
+            <div class="border border-gray-200 rounded-lg p-4 space-y-3">
+                <div id="empresa-fields" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Razón social</label>
+                        <input type="text" name="razon_social" value="{{ config_empresa.razon_social if config_empresa else '' }}"
+                            class="w-full rounded-lg border-gray-300 bg-gray-50 px-3 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">RFC</label>
+                        <input type="text" name="rfc" value="{{ config_empresa.rfc if config_empresa else '' }}"
+                            class="w-full rounded-lg border-gray-300 bg-gray-50 px-3 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Código postal</label>
+                        <input type="text" name="codigo_postal" value="{{ config_empresa.codigo_postal if config_empresa else '' }}"
+                            class="w-full rounded-lg border-gray-300 bg-gray-50 px-3 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Régimen fiscal</label>
+                        <input type="text" name="regimen_fiscal" value="{{ config_empresa.regimen_fiscal if config_empresa else '' }}"
+                            placeholder="601"
+                            class="w-full rounded-lg border-gray-300 bg-gray-50 px-3 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Dirección</label>
+                        <input type="text" name="direccion" value="{{ config_empresa.direccion if config_empresa else '' }}"
+                            class="w-full rounded-lg border-gray-300 bg-gray-50 px-3 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Teléfono</label>
+                        <input type="text" name="telefono" value="{{ config_empresa.telefono if config_empresa else '' }}"
+                            class="w-full rounded-lg border-gray-300 bg-gray-50 px-3 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Email de contacto</label>
+                        <input type="email" name="email_contacto" value="{{ config_empresa.email_contacto if config_empresa else '' }}"
+                            class="w-full rounded-lg border-gray-300 bg-gray-50 px-3 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                    </div>
+                </div>
+                <div class="flex justify-end pt-1">
+                    <button type="button"
+                        hx-post="/admin/config/empresa"
+                        hx-include="#empresa-fields"
+                        hx-target="#global-toast-container"
+                        hx-swap="afterbegin"
+                        class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors">
+                        Guardar Empresa
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {# ── 2. Reglas de Negocio ─────────────────────────────── #}
+    <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
         <div class="px-5 py-3 border-b border-gray-100">
             <button type="button" @click="open = !open" :aria-expanded="open.toString()"
                 class="flex w-full items-center gap-3 text-left">
@@ -65,7 +136,7 @@
         </div>
     </section>
 
-    {# ── 2. SharePoint ──────────────────────────────────────── #}
+    {# ── 3. SharePoint ──────────────────────────────────────── #}
     <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
         <div class="px-5 py-3 border-b border-gray-100">
             <div class="flex w-full items-center gap-3">
@@ -257,7 +328,7 @@
         </div>
     </section>
 
-    {# ── 3. BioTime ──────────────────────────────────────────── #}
+    {# ── 4. BioTime ──────────────────────────────────────────── #}
     <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
         <div class="px-5 py-3 border-b border-gray-100">
             <button type="button" @click="open = !open" :aria-expanded="open.toString()"
@@ -376,7 +447,7 @@
         </div>
     </section>
 
-    {# ── 4. KPIs de Simulación ────────────────────────────────── #}
+    {# ── 5. KPIs de Simulación ────────────────────────────────── #}
     <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
         <div class="px-5 py-3 border-b border-gray-100">
             <button type="button" @click="open = !open" :aria-expanded="open.toString()"
@@ -489,7 +560,7 @@
         </div>
     </section>
 
-    {# ── 5. Vacaciones — Anticipos y Expiración ──────────────── #}
+    {# ── 6. Vacaciones — Anticipos y Expiración ──────────────── #}
     <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
         <div class="px-5 py-3 border-b border-gray-100">
             <button type="button" @click="open = !open" :aria-expanded="open.toString()"
@@ -578,7 +649,7 @@
         </div>
     </section>
 
-    {# ── 6. Recibos CFE — MiEspacio ──────────────────────────── #}
+    {# ── 7. Recibos CFE — MiEspacio ──────────────────────────── #}
     <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
         <div class="px-5 py-3 border-b border-gray-100">
             <button type="button" @click="open = !open" :aria-expanded="open.toString()"
