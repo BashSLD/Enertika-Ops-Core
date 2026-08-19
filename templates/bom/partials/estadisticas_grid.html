@@ -3,7 +3,7 @@
    solo targetean #tabla-bom-items (ej. refrescar costos del catalogo). #}
 {% from "shared/partials/_chip_kpi.html" import chip_info %}
 <div id="bom-estadisticas-grid" {% if oob %}hx-swap-oob="true"{% endif %}
-    class="flex flex-wrap items-stretch gap-2 mb-4">
+    class="flex flex-wrap items-stretch justify-between gap-2 mb-4">
     <div class="flex-1 min-w-[80px] max-w-[120px]">
         {{ chip_info(estadisticas.total_items or 0, 'Total Items', 'border-gray-300', 'text-gray-800') }}
     </div>
@@ -23,29 +23,30 @@
         {{ chip_info(estadisticas.atrasados or 0, 'Atrasados', 'border-red-500', 'text-red-600') }}
     </div>
 
-    <div class="flex-[2.5] min-w-[260px] glass-card rounded-lg px-3 py-2 text-center border-b-2 border-emerald-400 bg-emerald-50/40">
+    <div class="flex-[1.2] min-w-[170px] max-w-[210px] glass-card rounded-lg px-3 py-2 text-center border-b-2 border-emerald-400 bg-emerald-50/40">
+        <div id="stat-costo-estimado-label" class="text-xs text-emerald-600" {{ 'hidden' if estadisticas.costo_total_estimado is none }}>
+            Costo Estimado
+            <span id="stat-costo-filtrado-wrap" class="text-emerald-500" hidden>(filtrado)</span>
+        </div>
         <div class="text-lg font-bold text-emerald-700">
             <span id="stat-costo-estimado-monto" {{ 'hidden' if estadisticas.costo_total_estimado is none }}>
                 $<span id="stat-costo-estimado-valor">{{ "{:,.2f}".format(estadisticas.costo_total_estimado|float) if estadisticas.costo_total_estimado is not none else '0.00' }}</span> MXN
             </span>
             <span id="stat-costo-estimado-pendiente" class="text-sm text-amber-700" {{ 'hidden' if estadisticas.costo_total_estimado is not none }}>Importe pendiente</span>
         </div>
-        <div class="text-xs text-emerald-600">
-            Costo Estimado
-            <span id="stat-costo-filtrado-wrap" class="text-emerald-500" hidden>(filtrado)</span>
-            <span class="text-gray-400">(<span id="stat-items-con-precio">{{ estadisticas.items_con_precio or 0 }}</span>/<span id="stat-total-items-costo">{{ estadisticas.total_items or 0 }}</span>)</span>
-            <span id="stat-items-sin-costo-wrap" class="ml-1 text-amber-600" {{ 'hidden' if not estadisticas.items_sin_costo }}>
+        <div class="text-xs text-amber-600">
+            <span id="stat-items-sin-costo-wrap" {{ 'hidden' if not estadisticas.items_sin_costo }}>
                 <span id="stat-items-sin-costo">{{ estadisticas.items_sin_costo or 0 }}</span> sin costo estimado
             </span>
-            <span id="stat-items-sin-tc-wrap" class="ml-1 text-amber-600" {{ 'hidden' if not estadisticas.items_sin_tc }}>
+            <span id="stat-items-sin-tc-wrap" class="ml-1" {{ 'hidden' if not estadisticas.items_sin_tc }}>
                 <span id="stat-items-sin-tc">{{ estadisticas.items_sin_tc or 0 }}</span> en USD sin tipo de cambio
             </span>
         </div>
-        {% if estadisticas.tc_promedio %}
-        <div class="text-[10px] text-emerald-500 mt-0.5"
-            title="Tipo de cambio ponderado USD-MXN sobre el total de items en dolares del BOM completo (no cambia con los filtros)">
-            TC prom. USD: {{ "{:,.4f}".format(estadisticas.tc_promedio|float) }}
-        </div>
-        {% endif %}
     </div>
+
+    {% if estadisticas.tc_promedio %}
+    <div class="flex-1 min-w-[80px] max-w-[120px]">
+        {{ chip_info("{:,.4f}".format(estadisticas.tc_promedio|float), 'TC Prom. USD', 'border-emerald-400', 'text-emerald-600', 'Tipo de cambio ponderado USD-MXN sobre el total de items en dolares del BOM completo (no cambia con los filtros)') }}
+    </div>
+    {% endif %}
 </div>

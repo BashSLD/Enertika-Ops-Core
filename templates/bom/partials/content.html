@@ -380,7 +380,7 @@
     <script>
     function aplicarFiltrosBom(grupo, tipo) {
         const filas = document.querySelectorAll('#tabla-bom-items tbody tr[data-grupos]');
-        let totalBase = 0, conPrecio = 0, sinCosto = 0, sinTc = 0, totalMxn = 0, totalResuelto = true;
+        let sinCosto = 0, sinTc = 0, totalMxn = 0, totalResuelto = true;
         filas.forEach(tr => {
             const grupos = tr.dataset.grupos ? tr.dataset.grupos.split(',') : [];
             const pasaGrupo = grupo === 'TODOS' || grupos.includes(grupo);
@@ -388,12 +388,10 @@
             const visible = pasaGrupo && pasaTipo;
             tr.style.display = visible ? '' : 'none';
             if (!visible || tr.dataset.tipoOrigenItem !== 'BASE') return;
-            totalBase++;
             if (tr.dataset.tienePrecio !== '1') {
                 sinCosto++;
                 totalResuelto = false;
             } else {
-                conPrecio++;
                 if (tr.dataset.costoMxn) {
                     totalMxn += parseFloat(tr.dataset.costoMxn);
                 } else {
@@ -406,6 +404,8 @@
         if (filtradoEl) filtradoEl.hidden = grupo === 'TODOS' && tipo === 'TODOS';
         const montoEl = document.getElementById('stat-costo-estimado-monto');
         const pendienteEl = document.getElementById('stat-costo-estimado-pendiente');
+        const labelEl = document.getElementById('stat-costo-estimado-label');
+        if (labelEl) labelEl.hidden = !totalResuelto;
         if (montoEl && pendienteEl) {
             montoEl.hidden = !totalResuelto;
             pendienteEl.hidden = totalResuelto;
@@ -415,8 +415,6 @@
             }
         }
         const setTexto = (id, valor) => { const el = document.getElementById(id); if (el) el.textContent = valor; };
-        setTexto('stat-items-con-precio', conPrecio);
-        setTexto('stat-total-items-costo', totalBase);
         setTexto('stat-items-sin-costo', sinCosto);
         setTexto('stat-items-sin-tc', sinTc);
         const sinCostoWrap = document.getElementById('stat-items-sin-costo-wrap');
