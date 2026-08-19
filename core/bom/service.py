@@ -57,9 +57,12 @@ CAMPOS_COMPRAS = {
 # item. Derivado de los sets por area para que el bulk sea siempre un subconjunto
 # del individual (evita drift al agregar/quitar campos).
 _CAMPOS_BULK_EXCLUIDOS = {'descripcion', 'cantidad', 'cantidad_recibida'}
+# Construccion no tiene autoridad de costos (precio_unitario/moneda son de
+# Ingenieria o Compras) aunque controle el turno y tenga editar_base=True.
+_CAMPOS_BULK_EXCLUIDOS_CONSTRUCCION = _CAMPOS_BULK_EXCLUIDOS | {'precio_unitario', 'moneda'}
 CAMPOS_BULK = {
     'ingenieria': CAMPOS_BASE_BOM - _CAMPOS_BULK_EXCLUIDOS,
-    'construccion': (CAMPOS_BASE_BOM | CAMPOS_CONSTRUCCION_EJECUCION) - _CAMPOS_BULK_EXCLUIDOS,
+    'construccion': (CAMPOS_BASE_BOM | CAMPOS_CONSTRUCCION_EJECUCION) - _CAMPOS_BULK_EXCLUIDOS_CONSTRUCCION,
     'compras': CAMPOS_COMPRAS - _CAMPOS_BULK_EXCLUIDOS,
 }
 CAMPOS_BULK_BASE = CAMPOS_BASE_BOM - _CAMPOS_BULK_EXCLUIDOS
@@ -1063,6 +1066,28 @@ class BomService(BomComprasServiceMixin):
         return (
             "Item guardado sin costo estimado. Ingenieria debe capturar el costo "
             "antes de avanzar el BOM."
+        )
+
+    @staticmethod
+    def mensaje_item_costo_pendiente_confirmacion() -> str:
+        return "Costo capturado; queda pendiente de que Compras lo confirme."
+
+    @classmethod
+    def mensaje_advertencia_costo_item(cls, item: dict) -> str:
+        """Elige el mensaje segun el motivo real de item_sin_costo(): si ya se
+        capturo un precio y solo falta la confirmacion de Compras, avisar eso
+        en vez del mensaje generico de 'Ingenieria debe capturar el costo'
+        (confuso cuando Ingenieria acaba de capturarlo)."""
+        if item.get("precio_pendiente_confirmacion"):
+            return cls.mensaje_item_costo_pendiente_confirmacion()
+        return cls.mensaje_item_sin_costo()
+
+    @staticmethod
+    def mensaje_costo_ya_configurado() -> str:
+        return (
+            "Este item ya tiene un costo configurado. Si necesitas "
+            "corregirlo, dejalo en cero para reabrirlo y que Compras "
+            "lo capture de nuevo."
         )
 
     @staticmethod
@@ -2267,6 +2292,21 @@ class BomService(BomComprasServiceMixin):
         return lineas
 
     @staticmethod
+    def _fecha_requerida_solo_ejecucion(area_editor: str, campos: set) -> bool:
+        """fecha_requerida es autoridad de ejecucion para Construccion (no de
+        turno/base como el resto de CAMPOS_BASE_BOM): se sigue escribiendo en
+        tb_bom_items via update_item (unica tabla que la tiene, la de ejecucion
+        no), pero no exige el lock completo del BOM cuando es lo unico que se
+        esta tocando -- asi sigue disponible en APROBADO_FINAL (operacion
+        downstream), igual que fecha estimada/llegada real.
+        """
+        return bool(
+            area_editor == "construccion"
+            and campos
+            and campos <= CAMPOS_CONSTRUCCION_BASE
+        )
+
+    @staticmethod
     def _tipo_propuesta_desde_estatus(estatus: EstatusBOM) -> tuple[str, str, str]:
         if estatus == EstatusBOM.EN_REVISION_OBRA:
             return "OBRA", "coordinador_obra", "Coordinador de Obra"
@@ -2431,11 +2471,7 @@ class BomService(BomComprasServiceMixin):
                     except (InvalidOperation, TypeError, ValueError):
                         tiene_costo_configurado = False
                     if tiene_costo_configurado and precio_nuevo != 0:
-                        raise ValueError(
-                            "Este item ya tiene un costo configurado; Ingenieria no "
-                            "puede modificarlo. Si necesitas corregirlo, dejalo en "
-                            "cero para reabrirlo y que Compras lo capture de nuevo."
-                        )
+                        raise ValueError(self.mensaje_costo_ya_configurado())
                     campos_base["precio_pendiente_confirmacion"] = precio_nuevo > 0
                 if "id_categoria" in campos_base:
                     id_categoria = campos_base["id_categoria"]
@@ -2663,6 +2699,12 @@ class BomService(BomComprasServiceMixin):
         if area_editor == "compras":
             for campo_real in {"precio_unitario", "moneda", "comentarios"}:
                 campos_base.pop(campo_real, None)
+        elif area_editor == "construccion":
+            # Autoridad de costos (doc 38): precio_unitario/moneda son de
+            # Ingenieria o Compras, nunca de Construccion, aunque controle el
+            # turno (editar_base=True) en EN_REVISION_OBRA/EN_REVISION_CONST.
+            for campo_real in {"precio_unitario", "moneda"}:
+                campos_base.pop(campo_real, None)
         campos_ejecucion_permitidos = (
             CAMPOS_CONSTRUCCION_EJECUCION
             if area_editor == "construccion"
@@ -2768,7 +2810,14 @@ class BomService(BomComprasServiceMixin):
                 raise ValueError(
                     "Falta la revisión de ejecución; recarga el paquete e intenta de nuevo"
                 )
-            reservara_base = (campos_base or grupos_base) and reservar_bom
+            fecha_requerida_solo_ejecucion = self._fecha_requerida_solo_ejecucion(
+                area_editor, campos_base.keys()
+            )
+            reservara_base = (
+                (campos_base or grupos_base)
+                and reservar_bom
+                and not fecha_requerida_solo_ejecucion
+            )
             if reservara_base:
                 # capacidades se calcula aqui adentro, contra la fila recien
                 # bloqueada (FOR UPDATE) — no hace falta calcularla antes.
@@ -2781,7 +2830,12 @@ class BomService(BomComprasServiceMixin):
                     capacidades = await self.get_capacidades_bom(
                         conn, bom, user_id, user_role, rol_org, module_roles
                     )
-                if (campos_base or grupos_base) and not capacidades["editar_base"]:
+                if fecha_requerida_solo_ejecucion:
+                    if not capacidades["editar_ejecucion"]:
+                        raise ValueError(
+                            "Solo Construccion o Compras pueden actualizar la ejecucion"
+                        )
+                elif (campos_base or grupos_base) and not capacidades["editar_base"]:
                     turno = capacidades.get("actor_turno") or "el actor asignado"
                     raise ValueError(f"Solo {turno} puede modificar el BOM en esta etapa")
             if campos_ejecucion and not capacidades["editar_ejecucion"]:
@@ -2813,11 +2867,7 @@ class BomService(BomComprasServiceMixin):
                 except (InvalidOperation, TypeError, ValueError):
                     tiene_costo_configurado = False
                 if tiene_costo_configurado and precio_nuevo != 0:
-                    raise ValueError(
-                        "Este item ya tiene un costo configurado; Ingenieria no "
-                        "puede modificarlo. Si necesitas corregirlo, dejalo en "
-                        "cero para reabrirlo y que Compras lo capture de nuevo."
-                    )
+                    raise ValueError(self.mensaje_costo_ya_configurado())
                 campos_base["precio_pendiente_confirmacion"] = precio_nuevo > 0
 
             cambios = []
@@ -2977,7 +3027,7 @@ class BomService(BomComprasServiceMixin):
             redirigido_a_ejecucion = (
                 area_editor == "compras"
                 and campo in {"precio_unitario", "moneda", "comentarios"}
-            )
+            ) or self._fecha_requerida_solo_ejecucion(area_editor, {campo})
             muta_base = (
                 campo in CAMPOS_BASE_BOM and not redirigido_a_ejecucion
             ) or grupos_base

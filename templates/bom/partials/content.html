@@ -419,16 +419,16 @@
                     {% if capacidades.editar_base|default(false) %}
                     <option value="id_categoria">Categoria</option>
                     <option value="unidad_medida">Unidad de medida</option>
+                    {% if area_editor == 'ingenieria' %}
                     <option value="precio_unitario">Presupuesto unitario</option>
                     <option value="moneda">Moneda</option>
+                    {% endif %}
                     <option value="origen_precio">Origen de precio</option>
                     <option value="tipo_partida">Tipo de partida</option>
                     <option value="grupos">Grupos BOM</option>
                     {% endif %}
                     {% if area_editor == 'construccion' and capacidades.editar_ejecucion|default(false) %}
-                    {% if bom.estatus in ['EN_REVISION_OBRA', 'EN_REVISION_CONST'] %}
                     <option value="fecha_requerida">Fecha requerida</option>
-                    {% endif %}
                     <option value="fecha_estimada_entrega">Fecha est. entrega</option>
                     <option value="fecha_llegada_real">Fecha llegada real</option>
                     <option value="entregado">Entregado</option>

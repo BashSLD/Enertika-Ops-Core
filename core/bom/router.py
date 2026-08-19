@@ -1219,7 +1219,7 @@ async def agregar_item(
 
         if service.item_sin_costo(item):
             bulk_toast = {
-                "message": service.mensaje_item_sin_costo(),
+                "message": service.mensaje_advertencia_costo_item(item),
                 "type": "warning",
                 "title": "Costo estimado pendiente",
             }
@@ -1393,7 +1393,7 @@ async def editar_item(
             request, context, bom,
             item=item,
             estadisticas_oob=estadisticas_oob,
-            warning_message=service.mensaje_item_sin_costo() if service.item_sin_costo(item) else None,
+            warning_message=service.mensaje_advertencia_costo_item(item) if service.item_sin_costo(item) else None,
             actualizar_lock_oob=True,
             capacidades=capacidades,
             puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
