@@ -184,6 +184,20 @@ class FakeAprobacionesDB:
         })
         return dict(aut)
 
+    async def update_autorizacion_paso_finanzas(
+        self, conn, autorizacion_id, user_id, nota, lock_version_esperado
+    ):
+        aut = self.autorizaciones[autorizacion_id]
+        if aut["lock_version"] != lock_version_esperado:
+            return None
+        aut.update({
+            "estatus": "AUTORIZADO_FINANZAS",
+            "aprobador_finanzas_id": user_id,
+            "nota_finanzas": nota,
+            "lock_version": lock_version_esperado + 1,
+        })
+        return dict(aut)
+
     async def rechazar_autorizacion_db(
         self, conn, autorizacion_id, user_id, motivo, paso,
         estatus_esperado, lock_version_esperado,
@@ -518,10 +532,18 @@ async def test_aprobar_auto_avanza_fase_d_via_service():
     assert updated["estatus"] == "APROBADA"
     assert updated["aprobado_por"] == director_id
     aut = list(db.autorizaciones.values())[0]
-    assert aut["estatus"] == "AUTORIZADO_DIRECCION"
+    # Direccion autoavanza tambien el paso de Finanzas (decision 2026-08-19:
+    # Finanzas ya no aprueba manualmente, solo paga) — ver
+    # memory/bom_gate_finanzas_deshabilitado.md
+    assert aut["estatus"] == "AUTORIZADO_FINANZAS"
     assert aut["aprobador_direccion_id"] == director_id
+    assert aut["aprobador_finanzas_id"] == director_id
     assert any(
         evento["tipo_evento"] == "COTIZACION_APROBACION_APROBADA"
+        for evento in eventos_outbox
+    )
+    assert any(
+        evento["tipo_evento"] == "AUTORIZACION_FINANZAS"
         for evento in eventos_outbox
     )
 

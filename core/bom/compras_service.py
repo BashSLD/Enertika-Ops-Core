@@ -557,21 +557,26 @@ class BomComprasServiceMixin:
                 or bloqueada["lock_version"] != lock_version_esperado
             ):
                 raise ValueError("La autorizacion ya cambio; recarga la pestaña")
-            updated = await self.db.update_autorizacion_paso_direccion(
+            updated_direccion = await self.db.update_autorizacion_paso_direccion(
                 conn, autorizacion_id, user_id, nota, lock_version_esperado
             )
-            if not updated:
+            if not updated_direccion:
                 raise ValueError("La autorizacion ya cambio; recarga la pestaña")
             await self.db.registrar_evento_outbox(
                 conn,
-                f"AUTORIZACION:{autorizacion_id}:{updated['lock_version']}:DIRECCION",
+                f"AUTORIZACION:{autorizacion_id}:{updated_direccion['lock_version']}:DIRECCION",
                 "AUTORIZACION_DIRECCION", aut["proyecto_id"], user_id,
-                {"id_autorizacion": str(autorizacion_id), "estatus": updated["estatus"]},
+                {"id_autorizacion": str(autorizacion_id), "estatus": updated_direccion["estatus"]},
                 id_paquete=bom.get("id_paquete"), id_bom=aut["bom_id"],
                 id_documento=autorizacion_id,
             )
+            updated = await self._avanzar_paso_finanzas(
+                conn, autorizacion_id, aut["cotizacion_id"], user_id, nota,
+                updated_direccion["lock_version"], aut["proyecto_id"], bom.get("id_paquete"),
+                aut["bom_id"], auto_avance=True,
+            )
 
-        logger.info("Autorización %s aprobada (dirección) por usuario %s", autorizacion_id, user_id)
+        logger.info("Autorización %s aprobada (dirección→finanzas) por usuario %s", autorizacion_id, user_id)
         return updated
 
     async def aprobar_finanzas(
@@ -600,23 +605,47 @@ class BomComprasServiceMixin:
                 or bloqueada["lock_version"] != lock_version_esperado
             ):
                 raise ValueError("La autorizacion ya cambio; recarga la pestaña")
-            updated = await self.db.update_autorizacion_paso_finanzas(
-                conn, autorizacion_id, user_id, nota, lock_version_esperado
-            )
-            if not updated:
-                raise ValueError("La autorizacion ya cambio; recarga la pestaña")
-            await self._actualizar_estatus_items_cotizacion(
-                conn, aut['cotizacion_id'], 'AUTORIZADO'
-            )
-            await self.db.registrar_evento_outbox(
-                conn,
-                f"AUTORIZACION:{autorizacion_id}:{updated['lock_version']}:FINANZAS",
-                "AUTORIZACION_FINANZAS", aut["proyecto_id"], user_id,
-                {"id_autorizacion": str(autorizacion_id), "estatus": updated["estatus"]},
-                id_paquete=bom.get("id_paquete"), id_bom=aut["bom_id"],
-                id_documento=autorizacion_id,
+            updated = await self._avanzar_paso_finanzas(
+                conn, autorizacion_id, aut['cotizacion_id'], user_id, nota,
+                lock_version_esperado, aut["proyecto_id"], bom.get("id_paquete"),
+                aut["bom_id"],
             )
         logger.info("Autorización %s aprobada (finanzas) por usuario %s", autorizacion_id, user_id)
+        return updated
+
+    async def _avanzar_paso_finanzas(
+        self, conn, autorizacion_id: UUID, cotizacion_id: UUID,
+        user_id: UUID, nota: Optional[str], lock_version_actual: int,
+        proyecto_id: UUID, id_paquete: Optional[UUID], id_bom: UUID,
+        auto_avance: bool = False,
+    ) -> dict:
+        """
+        Avanza AUTORIZADO_DIRECCION -> AUTORIZADO_FINANZAS: actualiza la
+        autorizacion, marca los items de la cotizacion AUTORIZADO y registra el
+        evento outbox. Paso compartido por `aprobar_finanzas()` (clic manual,
+        sigue disponible sin usarse) y por el autoavance desde Direccion
+        (decision de negocio 2026-08-19: Finanzas ya no aprueba, solo paga y
+        adjunta comprobante — ver memory/bom_gate_finanzas_deshabilitado.md).
+        `auto_avance=True` marca en el payload del evento outbox que el actor
+        (`user_id`) es quien aprobo Direccion, no un usuario de Finanzas real
+        — evita que un futuro consumidor del evento atribuya mal la accion.
+        """
+        updated = await self.db.update_autorizacion_paso_finanzas(
+            conn, autorizacion_id, user_id, nota, lock_version_actual,
+        )
+        if not updated:
+            raise ValueError("La autorizacion ya cambio; recarga la pestaña")
+        await self._actualizar_estatus_items_cotizacion(conn, cotizacion_id, 'AUTORIZADO')
+        await self.db.registrar_evento_outbox(
+            conn, f"AUTORIZACION:{autorizacion_id}:{updated['lock_version']}:FINANZAS",
+            "AUTORIZACION_FINANZAS", proyecto_id, user_id,
+            {
+                "id_autorizacion": str(autorizacion_id),
+                "estatus": updated["estatus"],
+                "auto_avance": auto_avance,
+            },
+            id_paquete=id_paquete, id_bom=id_bom, id_documento=autorizacion_id,
+        )
         return updated
 
     async def rechazar_autorizacion(
@@ -926,6 +955,11 @@ class BomComprasServiceMixin:
                 },
                 id_paquete=bom["id_paquete"], id_bom=updated["bom_id"],
                 id_documento=updated["id"],
+            )
+            await self._avanzar_paso_finanzas(
+                conn, autorizacion["id"], cotizacion_id, user_id, comentarios,
+                aut_updated["lock_version"], updated["proyecto_id"],
+                bom["id_paquete"], updated["bom_id"], auto_avance=True,
             )
 
         logger.info("Cotización %s aprobada por Dirección (usuario %s)", cotizacion_id, user_id)
