@@ -1490,6 +1490,33 @@
             }
         });
 
+        // === RESTAURACION DE HISTORIAL ("ATRAS") EN PAGINAS CON hx-history="false" ===
+        // hub.html, content.html (BOM), empleados_lista.html (RRHH) y el modal de sesion
+        // de CFE usan hx-history="false" a proposito (datos sensibles/dinamicos: costos,
+        // RH, sesion) para que htmx NUNCA restaure esas paginas desde su cache local.
+        // Efecto colateral: cada "atras" entre ellas dispara un fetch al servidor
+        // (loadHistoryFromServer) sin NINGUN indicador visible, asi que un primer clic
+        // "atras" parece no hacer nada. Si el usuario da un segundo clic antes de que la
+        // primera peticion responda, quedan dos fetches de restauracion en vuelo: htmx
+        // 1.9.10 no los cancela ni respeta el orden de llegada, asi que el que responde
+        // despues pisa el contenido de #main-content sin tocar la URL -> URL y contenido
+        // quedan desincronizados (ej. URL en /proyectos/ui pero contenido de "Conjunto
+        // BOM del proyecto", reproducido 2026-08-19).
+        document.body.addEventListener('htmx:historyCacheMiss', function () {
+            document.getElementById('global-loading-overlay')?.classList.add('htmx-request');
+        });
+        document.body.addEventListener('htmx:historyRestore', function (evt) {
+            document.getElementById('global-loading-overlay')?.classList.remove('htmx-request');
+            var restoredPath = evt.detail && evt.detail.path;
+            if (!restoredPath) return;
+            var currentPath = window.location.pathname + window.location.search;
+            // Auto-correccion: esta respuesta de restauracion llego tarde (un "atras" ya
+            // superado por otro mas reciente) - vuelve a pedir lo que corresponde a la URL vigente.
+            if (restoredPath !== currentPath) {
+                htmx.ajax('GET', currentPath, { target: '#main-content', source: '#main-content', swap: 'innerHTML' });
+            }
+        });
+
         // === INTERCEPTOR DE ERRORES HTMX ===
         document.body.addEventListener('htmx:responseError', function (evt) {
             if (evt.detail.xhr.status === 401 && evt.detail.xhr.getResponseHeader('X-Auth-Reason') === 'SESSION_EXPIRED') {
