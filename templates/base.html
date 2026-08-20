@@ -381,45 +381,48 @@
                     }
                 },
 
-                abrirModal(rfqId = null, rfqNombre = '') {
+                _resetModal({
+                    moneda = 'MXN', ivaPct = 16, busquedaProveedor = '',
+                    proveedorSeleccionado = { id: null, nombre: '' },
+                    rfqId = null, rfqNombre = '',
+                    editandoCotizacionId = null, editandoLockVersion = null,
+                } = {}) {
                     this.itemsSeleccionados = [];
                     this.precios = {};
                     this.notas = '';
                     this.modoSimplificado = false;
                     this.subtotalSimplificado = null;
-                    this.moneda = 'MXN';
-                    this.ivaPct = 16;
-                    this.busquedaProveedor = '';
-                    this.proveedorSeleccionado = { id: null, nombre: '' };
+                    this.moneda = moneda;
+                    this.ivaPct = ivaPct;
+                    this.busquedaProveedor = busquedaProveedor;
+                    this.proveedorSeleccionado = proveedorSeleccionado;
                     this.errorMsg = '';
                     this.rfqIdActivo = rfqId;
                     this.rfqNombreActivo = rfqNombre;
-                    this.editandoCotizacionId = null;
-                    this.editandoLockVersion = null;
+                    this.editandoCotizacionId = editandoCotizacionId;
+                    this.editandoLockVersion = editandoLockVersion;
                     this.modalAbierto = true;
                 },
 
+                abrirModal(rfqId = null, rfqNombre = '') {
+                    this._resetModal({ rfqId, rfqNombre });
+                },
+
                 abrirModalEditar(cot) {
-                    this.itemsSeleccionados = [];
-                    this.precios = {};
+                    this._resetModal({
+                        moneda: cot.moneda || 'MXN',
+                        ivaPct: cot.iva_pct || 16,
+                        busquedaProveedor: cot.nombre_proveedor || '',
+                        proveedorSeleccionado: { id: cot.proveedor_id || null, nombre: cot.nombre_proveedor || '' },
+                        editandoCotizacionId: cot.id,
+                        editandoLockVersion: cot.lock_version,
+                    });
+                    this.notas = cot.notas || '';
                     (cot.items || []).forEach(it => {
                         const disponible = this.itemsDisponibles.find(d => d.id_item === it.id_item);
                         this.itemsSeleccionados.push(disponible ? { ...disponible } : { ...it });
                         this.precios[it.id_item] = it.precio_unitario || 0;
                     });
-                    this.notas = cot.notas || '';
-                    this.modoSimplificado = false;
-                    this.subtotalSimplificado = null;
-                    this.moneda = cot.moneda || 'MXN';
-                    this.ivaPct = cot.iva_pct || 16;
-                    this.busquedaProveedor = cot.nombre_proveedor || '';
-                    this.proveedorSeleccionado = { id: cot.proveedor_id || null, nombre: cot.nombre_proveedor || '' };
-                    this.errorMsg = '';
-                    this.rfqIdActivo = null;
-                    this.rfqNombreActivo = '';
-                    this.editandoCotizacionId = cot.id;
-                    this.editandoLockVersion = cot.lock_version;
-                    this.modalAbierto = true;
                 },
 
                 cerrarModal() { this.modalAbierto = false; },

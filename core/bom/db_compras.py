@@ -206,7 +206,7 @@ class BomComprasDBMixin:
 
     async def get_items_by_cotizacion_ids(self, conn, cotizacion_ids: list) -> List[dict]:
         rows = await conn.fetch("""
-            SELECT ci.*,
+            SELECT ci.*, ci.bom_item_id AS id_item,
                    bi.descripcion, bi.unidad_medida, bi.id_categoria,
                    cat.nombre AS categoria_nombre
             FROM tb_bom_cotizacion_items ci

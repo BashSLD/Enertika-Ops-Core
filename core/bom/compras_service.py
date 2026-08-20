@@ -278,6 +278,21 @@ class BomComprasServiceMixin:
             })
         return items_insert, item_ids, round(subtotal, 2), iva, total
 
+    @staticmethod
+    def _validar_proveedor_moneda(
+        proveedor_id: Optional[UUID], nombre_proveedor: Optional[str], moneda: str,
+    ) -> str:
+        """Valida proveedor y moneda, compartido por crear_cotizacion y editar_cotizacion.
+
+        Retorna la moneda normalizada (strip + uppercase).
+        """
+        if not proveedor_id and not (nombre_proveedor or "").strip():
+            raise ValueError("Indica el proveedor que cotizó.")
+        moneda = (moneda or "").strip().upper()
+        if moneda not in {"MXN", "USD"}:
+            raise ValueError("La moneda de la cotizacion debe ser MXN o USD")
+        return moneda
+
     async def crear_cotizacion(
         self, conn, id_bom: UUID, proveedor_id: Optional[UUID],
         nombre_proveedor: Optional[str], moneda: str,
@@ -302,11 +317,7 @@ class BomComprasServiceMixin:
             raise ValueError("Solo se pueden crear cotizaciones en BOMs aprobados por Construccion.")
         if bom_lock_version_esperado is None:
             raise ValueError("El BOM cambio; recarga el paquete antes de cotizar")
-        if not proveedor_id and not (nombre_proveedor or "").strip():
-            raise ValueError("Indica el proveedor que cotizó.")
-        moneda = (moneda or "").strip().upper()
-        if moneda not in {"MXN", "USD"}:
-            raise ValueError("La moneda de la cotizacion debe ser MXN o USD")
+        moneda = self._validar_proveedor_moneda(proveedor_id, nombre_proveedor, moneda)
         if rfq_id:
             rfq = await self.db.get_rfq_by_id(conn, rfq_id)
             if not rfq or str(rfq["bom_id"]) != str(id_bom):
@@ -374,11 +385,7 @@ class BomComprasServiceMixin:
             raise ValueError("Solo se pueden editar cotizaciones en BORRADOR o RECIBIDA")
         if lock_version_esperado is None:
             raise ValueError("La cotizacion cambio; recarga la pestaña")
-        if not proveedor_id and not (nombre_proveedor or "").strip():
-            raise ValueError("Indica el proveedor que cotizó.")
-        moneda = (moneda or "").strip().upper()
-        if moneda not in {"MXN", "USD"}:
-            raise ValueError("La moneda de la cotizacion debe ser MXN o USD")
+        moneda = self._validar_proveedor_moneda(proveedor_id, nombre_proveedor, moneda)
 
         id_bom = cotizacion["bom_id"]
         items_insert, item_ids, subtotal, iva, total = await self._calcular_items_cotizacion(

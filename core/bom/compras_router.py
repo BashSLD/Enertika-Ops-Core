@@ -17,7 +17,7 @@ import logging
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
-from core.permissions import require_module_access, require_any_module_access
+from core.permissions import require_module_access, require_any_module_access, user_has_module_access
 from core.config import settings
 from core.jinja_filters import register_timezone_filters
 from modules.shared.utils import content_disposition_header, is_htmx
@@ -63,6 +63,29 @@ def _item_cotizacion_json(item: dict) -> dict:
 # COTIZACIONES (Fase C)
 # ========================================
 
+def _parse_cotizacion_payload(body: dict) -> dict:
+    """Parsea los campos comunes de crear/editar cotización desde el body JSON."""
+    proveedor_id_str = body.get("proveedor_id")
+    subtotal_externo = body.get("subtotal")
+    items_data = []
+    for it in body.get("items", []):
+        pu = it.get("precio_unitario")
+        items_data.append({
+            "bom_item_id": UUID(it["bom_item_id"]),
+            "precio_unitario": float(pu) if pu else 0,
+            "cantidad": float(it.get("cantidad", 1)),
+        })
+    return {
+        "proveedor_id": UUID(proveedor_id_str) if proveedor_id_str else None,
+        "nombre_proveedor": (body.get("nombre_proveedor") or "").strip() or None,
+        "moneda": body.get("moneda", "MXN"),
+        "iva_pct": float(body.get("iva_pct", 16)),
+        "notas": (body.get("notas") or "").strip() or None,
+        "items_data": items_data,
+        "subtotal_externo": float(subtotal_externo) if subtotal_externo is not None else None,
+    }
+
+
 def _cotizacion_ctx(request, cotizaciones, bom, es_compras_editor: bool) -> dict:
     return {
         "cotizaciones": cotizaciones,
@@ -89,14 +112,7 @@ async def _render_cotizaciones_tab(
     cot_items_json: dict = {}
     for it in cot_items_raw:
         key = str(it["cotizacion_id"])
-        cot_items_json.setdefault(key, []).append({
-            "id_item": str(it["bom_item_id"]),
-            "descripcion": it.get("descripcion") or "",
-            "categoria_nombre": it.get("categoria_nombre"),
-            "unidad_medida": it.get("unidad_medida"),
-            "cantidad": float(it["cantidad"]) if it.get("cantidad") is not None else None,
-            "precio_unitario": float(it["precio_unitario"]) if it.get("precio_unitario") is not None else None,
-        })
+        cot_items_json.setdefault(key, []).append(_item_cotizacion_json(it))
     for cot in cotizaciones:
         cot["items_json"] = cot_items_json.get(str(cot["id"]), [])
         subtotal = cot.get("subtotal")
@@ -238,32 +254,16 @@ async def crear_cotizacion(
     user_id = context.get("user_db_id")
 
     body = await request.json()
-    proveedor_id_str = body.get("proveedor_id")
-    proveedor_id = UUID(proveedor_id_str) if proveedor_id_str else None
-    nombre_proveedor = (body.get("nombre_proveedor") or "").strip() or None
-    moneda = body.get("moneda", "MXN")
-    iva_pct = float(body.get("iva_pct", 16))
-    notas = (body.get("notas") or "").strip() or None
-    items_raw = body.get("items", [])
+    parsed = _parse_cotizacion_payload(body)
     rfq_id_str = body.get("rfq_id")
     rfq_id = UUID(rfq_id_str) if rfq_id_str else None
-    subtotal_externo = body.get("subtotal")  # modo simplificado: el usuario ingresa subtotal
     bom_lock_version_raw = body.get("bom_lock_version")
-
-    items_data = []
-    for it in items_raw:
-        pu = it.get("precio_unitario")
-        items_data.append({
-            "bom_item_id": UUID(it["bom_item_id"]),
-            "precio_unitario": float(pu) if pu else 0,
-            "cantidad": float(it.get("cantidad", 1)),
-        })
 
     try:
         await service.crear_cotizacion(
-            conn, id_bom, proveedor_id, nombre_proveedor, moneda,
-            items_data, iva_pct, notas, user_id,
-            subtotal_externo=float(subtotal_externo) if subtotal_externo is not None else None,
+            conn, id_bom, parsed["proveedor_id"], parsed["nombre_proveedor"], parsed["moneda"],
+            parsed["items_data"], parsed["iva_pct"], parsed["notas"], user_id,
+            subtotal_externo=parsed["subtotal_externo"],
             bom_lock_version_esperado=(
                 int(bom_lock_version_raw) if bom_lock_version_raw is not None else None
             ),
@@ -288,30 +288,14 @@ async def editar_cotizacion(
     user_id = context.get("user_db_id")
 
     body = await request.json()
-    proveedor_id_str = body.get("proveedor_id")
-    proveedor_id = UUID(proveedor_id_str) if proveedor_id_str else None
-    nombre_proveedor = (body.get("nombre_proveedor") or "").strip() or None
-    moneda = body.get("moneda", "MXN")
-    iva_pct = float(body.get("iva_pct", 16))
-    notas = (body.get("notas") or "").strip() or None
-    items_raw = body.get("items", [])
-    subtotal_externo = body.get("subtotal")
+    parsed = _parse_cotizacion_payload(body)
     lock_version_raw = body.get("lock_version")
-
-    items_data = []
-    for it in items_raw:
-        pu = it.get("precio_unitario")
-        items_data.append({
-            "bom_item_id": UUID(it["bom_item_id"]),
-            "precio_unitario": float(pu) if pu else 0,
-            "cantidad": float(it.get("cantidad", 1)),
-        })
 
     try:
         actualizado = await service.editar_cotizacion(
-            conn, cotizacion_id, proveedor_id, nombre_proveedor, moneda,
-            items_data, iva_pct, notas, user_id,
-            subtotal_externo=float(subtotal_externo) if subtotal_externo is not None else None,
+            conn, cotizacion_id, parsed["proveedor_id"], parsed["nombre_proveedor"], parsed["moneda"],
+            parsed["items_data"], parsed["iva_pct"], parsed["notas"], user_id,
+            subtotal_externo=parsed["subtotal_externo"],
             lock_version_esperado=(
                 int(lock_version_raw) if lock_version_raw is not None else None
             ),
@@ -473,9 +457,7 @@ async def _render_comparativa(request, conn, service, context, id_bom: UUID):
             'rfq': rfq, 'items': rfq_items, 'responses': responses, 'resp_items': resp_items,
             'items_disponibles_json': [it for it in items_bom_json if it["id_item"] not in ids_en_rfq],
         })
-    role = context.get("role")
-    module_roles = context.get("module_roles", {})
-    es_compras_editor = role == "ADMIN" or module_roles.get("compras") in ("editor", "admin")
+    es_compras_editor = user_has_module_access("compras", context, "editor")
     catalogos = await service.get_catalogos(conn)
     return templates.TemplateResponse(
         request, "bom/partials/comparativa.html",
