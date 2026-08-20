@@ -10,9 +10,23 @@
     {% set rfq = comp.rfq %}
     <div class="mb-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between"
-            x-data="{ historialAbierto: false }">
-            <div>
-                <span class="text-sm font-semibold text-gray-800">RFQ #{{ rfq.id.__str__()[:8] }}</span>
+            x-data="{ historialAbierto: false, editandoNombre: false }">
+            <div class="flex items-center gap-2">
+                <span x-show="!editandoNombre" class="flex items-center gap-2">
+                    <span class="text-sm font-semibold text-gray-800">{{ rfq.nombre or ('RFQ #' + rfq.id.__str__()[:8]) }}</span>
+                    <button type="button" @click="editandoNombre = !editandoNombre"
+                        class="text-xs text-gray-400 hover:text-gray-600 underline">Editar nombre</button>
+                </span>
+                <form x-show="editandoNombre" x-cloak
+                    hx-post="/bom/rfq/{{ rfq.id }}/nombre" hx-target="#comparativa-container" hx-swap="outerHTML"
+                    class="flex items-center gap-1.5">
+                    <input type="hidden" name="lock_version" value="{{ rfq.lock_version }}">
+                    <input type="text" name="nombre" value="{{ rfq.nombre or '' }}" required
+                        placeholder="Nombre del RFQ" class="w-40 rounded border-gray-300 text-xs">
+                    <button type="submit" class="text-xs font-medium text-indigo-600 hover:text-indigo-800">Guardar</button>
+                    <button type="button" @click="editandoNombre = false"
+                        class="text-xs text-gray-400 hover:text-gray-600">Cancelar</button>
+                </form>
                 <span class="text-xs text-gray-400 ml-2">{{ rfq.total_items_cotizacion }} ítems</span>
             </div>
             <div class="flex items-center gap-3">
@@ -139,38 +153,40 @@
 </div>
 
 <script>
-const asignacionesPendientes = {};
+(function() {
+    const asignacionesPendientes = {};
 
-function toggleAsignacion(cb, respId, itemId) {
-    if (!asignacionesPendientes[respId]) asignacionesPendientes[respId] = new Set();
-    if (cb.checked) {
-        asignacionesPendientes[respId].add(itemId);
-    } else {
-        asignacionesPendientes[respId].delete(itemId);
-    }
-}
-
-async function guardarAsignaciones(rfqId) {
-    for (const [respId, items] of Object.entries(asignacionesPendientes)) {
-        const checkboxes = document.querySelectorAll(`[data-resp-id="${respId}"]`);
-        const checkedIds = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.dataset.itemId);
-
-        const lockVersion = Number(checkboxes[0]?.dataset.lockVersion);
-        const response = await fetch(`/bom/cotizaciones/${respId}/bulk-asignar`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({item_ids: checkedIds, lock_version: lockVersion})
-        });
-        if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
-            alert(error.detail || 'La cotización cambió; recarga la comparativa.');
-            return;
+    window.toggleAsignacion = function(cb, respId, itemId) {
+        if (!asignacionesPendientes[respId]) asignacionesPendientes[respId] = new Set();
+        if (cb.checked) {
+            asignacionesPendientes[respId].add(itemId);
+        } else {
+            asignacionesPendientes[respId].delete(itemId);
         }
-    }
-    // Recargar
-    htmx.ajax('GET', window.location.pathname.replace('/ui', '/cotizaciones/comparativa'), {
-        target: '#comparativa-container', source: '#comparativa-container', swap: 'innerHTML',
-        indicator: '#global-loading-overlay'
-    });
-}
+    };
+
+    window.guardarAsignaciones = async function(rfqId) {
+        for (const [respId, items] of Object.entries(asignacionesPendientes)) {
+            const checkboxes = document.querySelectorAll(`[data-resp-id="${respId}"]`);
+            const checkedIds = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.dataset.itemId);
+
+            const lockVersion = Number(checkboxes[0]?.dataset.lockVersion);
+            const response = await fetch(`/bom/cotizaciones/${respId}/bulk-asignar`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({item_ids: checkedIds, lock_version: lockVersion})
+            });
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                alert(error.detail || 'La cotización cambió; recarga la comparativa.');
+                return;
+            }
+        }
+        // Recargar
+        htmx.ajax('GET', window.location.pathname.replace('/ui', '/cotizaciones/comparativa'), {
+            target: '#comparativa-container', source: '#comparativa-container', swap: 'innerHTML',
+            indicator: '#global-loading-overlay'
+        });
+    };
+})();
 </script>

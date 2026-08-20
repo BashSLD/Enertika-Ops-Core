@@ -263,6 +263,7 @@ async def crear_rfq_rapido(
 
     form = await request.form()
     raw_ids = form.getlist("item_ids")
+    nombre = (form.get("nombre") or "").strip() or None
     if not raw_ids:
         return _toast_response(
             request, "Selecciona al menos un item para el RFQ", "error",
@@ -275,7 +276,7 @@ async def crear_rfq_rapido(
         raise HTTPException(status_code=400, detail="IDs inválidos")
 
     try:
-        rfq = await service.crear_rfq(conn, id_bom, item_ids, user_id)
+        rfq = await service.crear_rfq(conn, id_bom, item_ids, user_id, nombre=nombre)
         bom = await service.get_bom(conn, id_bom)
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -442,6 +443,31 @@ async def quitar_item_rfq(
     except asyncpg.PostgresError:
         logger.exception("Error de BD al quitar item del RFQ %s", rfq_id)
         return _toast_response(request, "Error interno al quitar el item", "error", status_code=500)
+
+    return await _render_comparativa(request, conn, service, context, actualizado["bom_id"])
+
+
+@compras_router.post("/rfq/{rfq_id}/nombre", include_in_schema=False)
+async def renombrar_rfq(
+    request: Request,
+    rfq_id: UUID,
+    nombre: str = Form(...),
+    lock_version: int = Form(...),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Renombra un RFQ existente (Compras)."""
+    try:
+        actualizado = await service.renombrar_rfq(
+            conn, rfq_id, nombre, lock_version_esperado=lock_version,
+        )
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al renombrar RFQ %s", rfq_id)
+        return _toast_response(request, "Error interno al renombrar el RFQ", "error", status_code=500)
 
     return await _render_comparativa(request, conn, service, context, actualizado["bom_id"])
 

@@ -1411,13 +1411,24 @@ class BomComprasDBMixin:
 
     # ─── RFQ (doc 35) ────────────────────────────────────────
 
-    async def crear_rfq(self, conn, bom_id: UUID, creado_por: UUID, notas: Optional[str]) -> dict:
+    async def crear_rfq(
+        self, conn, bom_id: UUID, creado_por: UUID, notas: Optional[str],
+        nombre: Optional[str] = None,
+    ) -> dict:
         row = await conn.fetchrow("""
-            INSERT INTO tb_bom_rfq (bom_id, creado_por, notas)
-            VALUES ($1, $2, $3)
+            INSERT INTO tb_bom_rfq (bom_id, creado_por, notas, nombre)
+            VALUES ($1, $2, $3, $4)
             RETURNING *
-        """, bom_id, creado_por, notas)
+        """, bom_id, creado_por, notas, nombre)
         return dict(row)
+
+    async def renombrar_rfq(self, conn, rfq_id: UUID, nombre: str, lock_version_esperado: int) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_rfq SET nombre = $1, lock_version = lock_version + 1, updated_at = NOW()
+            WHERE id = $2 AND lock_version = $3
+            RETURNING *
+        """, nombre, rfq_id, lock_version_esperado)
+        return dict(row) if row else None
 
     async def agregar_items_rfq(self, conn, rfq_id: UUID, items: list) -> int:
         """items: lista de dicts {bom_item_id, cantidad, unidad_override}.
@@ -1494,6 +1505,34 @@ class BomComprasDBMixin:
             GROUP BY r.id, u.nombre
             ORDER BY r.created_at DESC
         """, id_bom)
+        return [dict(r) for r in rows]
+
+    async def get_rfqs_cross_proyecto(self, conn) -> list:
+        """RFQs de todos los proyectos, para la vista de solo lectura de Finanzas.
+
+        LIMIT 200 se aplica antes de contar items (CTE + LATERAL) para no expandir
+        tb_bom_rfq_items completa por cada fila de RFQ antes de agrupar.
+        """
+        rows = await conn.fetch("""
+            WITH recientes AS (
+                SELECT * FROM tb_bom_rfq ORDER BY created_at DESC LIMIT 200
+            )
+            SELECT r.id, r.nombre, r.created_at AS creado_en,
+                   u.nombre AS creado_por_nombre,
+                   COALESCE(ic.total_items, 0) AS total_items,
+                   b.id_bom, b.version AS bom_version,
+                   paquete.codigo AS paquete_codigo, paquete.nombre AS paquete_nombre,
+                   p.proyecto_id_estandar, p.nombre_corto AS nombre_proyecto
+            FROM recientes r
+            JOIN tb_bom b ON b.id_bom = r.bom_id
+            JOIN tb_bom_paquetes paquete ON paquete.id_paquete = b.id_paquete
+            JOIN tb_proyectos_gate p ON p.id_proyecto = paquete.id_proyecto
+            LEFT JOIN tb_usuarios u ON u.id_usuario = r.creado_por
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS total_items FROM tb_bom_rfq_items ri WHERE ri.rfq_id = r.id
+            ) ic ON true
+            ORDER BY r.created_at DESC
+        """)
         return [dict(r) for r in rows]
 
     async def get_items_rfq(self, conn, rfq_id: UUID) -> list:

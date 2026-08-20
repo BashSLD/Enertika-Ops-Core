@@ -7,6 +7,7 @@ Endpoints:
 - /finanzas/partials/historial              - Historial de pagos registrados
 - /finanzas/autorizaciones/{id}/modal-pago  - Modal para registrar pago
 - /finanzas/autorizaciones/{id}/pago        - POST: registrar pago
+- /finanzas/rfq                             - Lista de RFQ, solo lectura
 """
 
 from fastapi import APIRouter, Depends, Request, Form, File, UploadFile, HTTPException
@@ -26,6 +27,7 @@ from core.jinja_filters import register_timezone_filters
 
 from .service import FinanzasService, get_finanzas_service
 from modules.proveedores.service import ProveedoresService, get_proveedores_service
+from core.bom.service import BomService, get_bom_service
 
 logger = logging.getLogger("FinanzasModule")
 templates = Jinja2Templates(directory="templates")
@@ -199,4 +201,22 @@ async def get_proveedor_docs_finanzas(
     docs = await proveedores_service.get_documentos_vigentes_proveedor(conn, id_proveedor)
     return templates.TemplateResponse(request, "finanzas/partials/proveedor_docs.html", {
         "documentos": docs, "id_proveedor": id_proveedor
+    })
+
+
+# ========================================
+# RFQ (solo consulta — doc guia post-BOM 2026-08-19)
+# ========================================
+
+@router.get("/rfq", include_in_schema=False)
+async def get_rfq_finanzas(
+    request: Request,
+    conn=Depends(get_db_connection),
+    bom_service: BomService = Depends(get_bom_service),
+    _=require_module_access("finanzas"),
+):
+    """Lista de RFQ de todos los proyectos, solo lectura (nombre + descarga de PDF)."""
+    rfqs = await bom_service.get_rfqs_cross_proyecto(conn)
+    return templates.TemplateResponse(request, "finanzas/partials/lista_rfq.html", {
+        "rfqs": rfqs,
     })

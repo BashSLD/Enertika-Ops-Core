@@ -12,6 +12,7 @@ from typing import Optional, List
 import asyncpg
 
 from core.bom.schemas import EstatusBOM, EstatusCotizacionAprobacion
+from core.timezone import today_mx
 
 logger = logging.getLogger("BOM.Service")
 
@@ -1575,7 +1576,7 @@ class BomComprasServiceMixin:
 
     async def crear_rfq(
         self, conn, id_bom: UUID, item_ids: list, creado_por: UUID,
-        notas: Optional[str] = None,
+        notas: Optional[str] = None, nombre: Optional[str] = None,
     ) -> dict:
         """Crea un RFQ (sin proveedor ni precios) con los items seleccionados.
 
@@ -1588,6 +1589,10 @@ class BomComprasServiceMixin:
             raise ValueError("Solo se pueden crear RFQ en BOMs aprobados por Construccion.")
         if not item_ids:
             raise ValueError("Selecciona al menos un item para el RFQ.")
+
+        if not nombre:
+            proyecto_id_estandar = bom.get('proyecto_id_estandar') or 'SIN-ID'
+            nombre = f"RFQ_{proyecto_id_estandar}_{today_mx().strftime('%y%m%d')}"
 
         item_ids_unicos = list(dict.fromkeys(item_ids))
         items_bd = await self.db.get_items_by_ids(conn, item_ids_unicos)
@@ -1607,7 +1612,7 @@ class BomComprasServiceMixin:
             for i in items_disponibles
         ]
         async with conn.transaction():
-            rfq = await self.db.crear_rfq(conn, id_bom, creado_por, notas)
+            rfq = await self.db.crear_rfq(conn, id_bom, creado_por, notas, nombre)
             await self.db.agregar_items_rfq(conn, rfq['id'], items_insert)
             await self.db.registrar_historial_rfq(
                 conn, rfq['id'], creado_por, 'CREADO',
@@ -1618,6 +1623,21 @@ class BomComprasServiceMixin:
             rfq['id'], id_bom, len(items_insert), creado_por
         )
         return {**rfq, "total_items": len(items_insert)}
+
+    async def renombrar_rfq(
+        self, conn, rfq_id: UUID, nombre: str, lock_version_esperado: Optional[int] = None,
+    ) -> dict:
+        rfq = await self.db.get_rfq_by_id(conn, rfq_id)
+        if not rfq:
+            raise ValueError("RFQ no encontrado")
+        if not nombre or not nombre.strip():
+            raise ValueError("El nombre no puede estar vacío")
+        if lock_version_esperado is None:
+            raise ValueError("El RFQ cambio; recarga la pestaña")
+        actualizado = await self.db.renombrar_rfq(conn, rfq_id, nombre.strip(), lock_version_esperado)
+        if not actualizado:
+            raise ValueError("El RFQ cambio; recarga la pestaña")
+        return actualizado
 
     async def agregar_item_rfq(
         self, conn, rfq_id: UUID, bom_item_id: UUID, cantidad,
@@ -1714,6 +1734,9 @@ class BomComprasServiceMixin:
 
     async def get_rfqs(self, conn, id_bom: UUID) -> list:
         return await self.db.get_rfqs_by_bom(conn, id_bom)
+
+    async def get_rfqs_cross_proyecto(self, conn) -> list:
+        return await self.db.get_rfqs_cross_proyecto(conn)
 
     async def get_items_rfq(self, conn, rfq_id: UUID) -> list:
         return await self.db.get_items_rfq(conn, rfq_id)

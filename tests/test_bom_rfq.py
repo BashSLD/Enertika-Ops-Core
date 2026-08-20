@@ -21,8 +21,11 @@ class FakeConn:
         return False
 
 
-def _bom(bom_id, estatus="APROBADO_CONST"):
-    return {"id_bom": bom_id, "id_proyecto": uuid4(), "estatus": estatus}
+def _bom(bom_id, estatus="APROBADO_CONST", proyecto_id_estandar="MX-99180-FV"):
+    return {
+        "id_bom": bom_id, "id_proyecto": uuid4(), "estatus": estatus,
+        "proyecto_id_estandar": proyecto_id_estandar,
+    }
 
 
 def _bom_item(item_id, id_bom, cantidad=3, **extra):
@@ -46,11 +49,11 @@ class FakeDB:
     async def get_items_by_ids(self, conn, item_ids):
         return [self.items_bd[str(i)] for i in item_ids if str(i) in self.items_bd]
 
-    async def crear_rfq(self, conn, bom_id, creado_por, notas):
+    async def crear_rfq(self, conn, bom_id, creado_por, notas, nombre=None):
         rfq_id = uuid4()
         rfq = {
             "id": rfq_id, "bom_id": bom_id, "creado_por": creado_por,
-            "notas": notas, "lock_version": 0,
+            "notas": notas, "nombre": nombre, "lock_version": 0,
         }
         self.rfqs[rfq_id] = rfq
         self.rfq_items[rfq_id] = []
@@ -107,6 +110,28 @@ async def test_crear_rfq_no_requiere_lock_de_bom_ni_bloquea_items():
     assert rfq["total_items"] == 1
     assert svc.db.rfq_items[rfq["id"]][0]["bom_item_id"] == item_id
     assert svc.db.historial[0][2] == "CREADO"
+
+
+@pytest.mark.asyncio
+async def test_crear_rfq_autogenera_nombre_con_proyecto_si_no_se_captura():
+    bom_id = uuid4()
+    item_id = uuid4()
+    svc = make_service(_bom(bom_id, proyecto_id_estandar="MX-50158-FV"), [_bom_item(item_id, bom_id)])
+
+    rfq = await svc.crear_rfq(FakeConn(), bom_id, [item_id], uuid4())
+
+    assert rfq["nombre"].startswith("RFQ_MX-50158-FV_")
+
+
+@pytest.mark.asyncio
+async def test_crear_rfq_respeta_nombre_capturado():
+    bom_id = uuid4()
+    item_id = uuid4()
+    svc = make_service(_bom(bom_id), [_bom_item(item_id, bom_id)])
+
+    rfq = await svc.crear_rfq(FakeConn(), bom_id, [item_id], uuid4(), nombre="Cotización aires acondicionados")
+
+    assert rfq["nombre"] == "Cotización aires acondicionados"
 
 
 @pytest.mark.asyncio
