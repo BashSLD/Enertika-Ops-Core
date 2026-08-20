@@ -339,7 +339,7 @@ async def descargar_pdf_rfq(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("compras"),
+    _=require_any_module_access(["compras", "finanzas"], allow_org_roles={"director"}),
 ):
     """Genera y descarga el PDF neutro del RFQ (doc 35) para enviarlo a proveedores."""
     user_id = context.get("user_db_id")
