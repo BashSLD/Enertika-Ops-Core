@@ -51,7 +51,7 @@ class BomComprasDBMixin:
                        WHERE d.id_bom_item = $3
                        HAVING ABS(SUM(d.porcentaje) - 1) <= 0.000001
                    ), grupos.distribucion_unica, '[]'::JSONB)
-            CROSS JOIN LATERAL (
+            FROM (
                 WITH efectivos AS (
                     SELECT operativo.id_grupo
                     FROM tb_bom_item_grupos_operativos operativo
@@ -273,6 +273,23 @@ class BomComprasDBMixin:
               AND lock_version = $3
             RETURNING *
         """, cotizacion_id, pdf_url, lock_version_esperado)
+        return dict(row) if row else None
+
+    async def actualizar_cotizacion(
+        self, conn, cotizacion_id: UUID, proveedor_id: Optional[UUID],
+        nombre_proveedor: Optional[str], moneda: str,
+        subtotal, iva, total, notas: Optional[str],
+        lock_version_esperado: int,
+    ) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_cotizaciones
+            SET proveedor_id = $2, nombre_proveedor = $3, moneda = $4,
+                subtotal = $5, iva = $6, total = $7, notas = $8,
+                actualizado_en = NOW(), lock_version = lock_version + 1
+            WHERE id = $1 AND estatus IN ('BORRADOR', 'RECIBIDA') AND lock_version = $9
+            RETURNING *
+        """, cotizacion_id, proveedor_id, nombre_proveedor, moneda,
+            subtotal, iva, total, notas, lock_version_esperado)
         return dict(row) if row else None
 
     async def eliminar_attachment_huerfano(self, conn, doc_id: UUID) -> None:
@@ -1471,6 +1488,15 @@ class BomComprasDBMixin:
         result = await conn.execute(
             "DELETE FROM tb_bom_rfq_items WHERE rfq_id = $1 AND bom_item_id = $2",
             rfq_id, bom_item_id,
+        )
+        return int(result.split()[-1]) if result else 0
+
+    async def actualizar_unidad_item_rfq(
+        self, conn, rfq_id: UUID, bom_item_id: UUID, unidad_override: Optional[str],
+    ) -> int:
+        result = await conn.execute(
+            "UPDATE tb_bom_rfq_items SET unidad_override = $3 WHERE rfq_id = $1 AND bom_item_id = $2",
+            rfq_id, bom_item_id, unidad_override,
         )
         return int(result.split()[-1]) if result else 0
 

@@ -84,6 +84,28 @@ async def _render_cotizaciones_tab(
     if not bom:
         raise HTTPException(status_code=404, detail="BOM no encontrado")
     cotizaciones = await service.listar_cotizaciones(conn, bom_id)
+    cot_ids = [c["id"] for c in cotizaciones]
+    cot_items_raw = await service.db.get_items_by_cotizacion_ids(conn, cot_ids) if cot_ids else []
+    cot_items_json: dict = {}
+    for it in cot_items_raw:
+        key = str(it["cotizacion_id"])
+        cot_items_json.setdefault(key, []).append({
+            "id_item": str(it["bom_item_id"]),
+            "descripcion": it.get("descripcion") or "",
+            "categoria_nombre": it.get("categoria_nombre"),
+            "unidad_medida": it.get("unidad_medida"),
+            "cantidad": float(it["cantidad"]) if it.get("cantidad") is not None else None,
+            "precio_unitario": float(it["precio_unitario"]) if it.get("precio_unitario") is not None else None,
+        })
+    for cot in cotizaciones:
+        cot["items_json"] = cot_items_json.get(str(cot["id"]), [])
+        subtotal = cot.get("subtotal")
+        iva = cot.get("iva")
+        cot["iva_pct"] = (
+            round(float(iva) / float(subtotal) * 100, 2)
+            if subtotal and float(subtotal) > 0 and iva is not None
+            else 16
+        )
     items = await service.get_items(conn, bom_id)
     items_disponibles = [
         _item_cotizacion_json(i) for i in items if item_disponible_cotizacion(i)
@@ -176,6 +198,7 @@ async def compras_paquete_ui(
 async def get_cotizaciones_tab(
     request: Request,
     id_bom: UUID,
+    rfq_id: Optional[UUID] = None,
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -183,7 +206,11 @@ async def get_cotizaciones_tab(
         ["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}
     ),
 ):
-    """Tab de cotizaciones — cargado lazy con HTMX intersect."""
+    """Tab de cotizaciones — cargado lazy con HTMX intersect.
+
+    rfq_id (opcional): al llegar desde el boton "Nueva Cotizacion" de una tarjeta
+    RFQ, precarga el modal ya ligado a ese RFQ (ver x-init en cotizaciones.html).
+    """
     role = context.get("role")
     module_roles = context.get("module_roles", {})
     es_aprobador = (
@@ -191,7 +218,11 @@ async def get_cotizaciones_tab(
         or module_roles.get("ingenieria") in ("editor", "admin")
         or module_roles.get("construccion") in ("editor", "admin")
     )
-    return await _render_cotizaciones_tab(request, conn, service, context, id_bom, es_aprobador=es_aprobador)
+    preset_rfq = await service.db.get_rfq_by_id(conn, rfq_id) if rfq_id else None
+    return await _render_cotizaciones_tab(
+        request, conn, service, context, id_bom,
+        es_aprobador=es_aprobador, preset_rfq=preset_rfq,
+    )
 
 
 @compras_router.post("/{id_bom:uuid}/cotizaciones", include_in_schema=False)
@@ -209,10 +240,10 @@ async def crear_cotizacion(
     body = await request.json()
     proveedor_id_str = body.get("proveedor_id")
     proveedor_id = UUID(proveedor_id_str) if proveedor_id_str else None
-    nombre_proveedor = body.get("nombre_proveedor", "").strip() or None
+    nombre_proveedor = (body.get("nombre_proveedor") or "").strip() or None
     moneda = body.get("moneda", "MXN")
     iva_pct = float(body.get("iva_pct", 16))
-    notas = body.get("notas", "").strip() or None
+    notas = (body.get("notas") or "").strip() or None
     items_raw = body.get("items", [])
     rfq_id_str = body.get("rfq_id")
     rfq_id = UUID(rfq_id_str) if rfq_id_str else None
@@ -242,6 +273,53 @@ async def crear_cotizacion(
         raise HTTPException(status_code=400, detail=str(e))
 
     return await _render_cotizaciones_tab(request, conn, service, context, id_bom)
+
+
+@compras_router.post("/cotizaciones/{cotizacion_id}/editar", include_in_schema=False)
+async def editar_cotizacion(
+    request: Request,
+    cotizacion_id: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Edita una cotización existente (BORRADOR/RECIBIDA). Recibe JSON en el body."""
+    user_id = context.get("user_db_id")
+
+    body = await request.json()
+    proveedor_id_str = body.get("proveedor_id")
+    proveedor_id = UUID(proveedor_id_str) if proveedor_id_str else None
+    nombre_proveedor = (body.get("nombre_proveedor") or "").strip() or None
+    moneda = body.get("moneda", "MXN")
+    iva_pct = float(body.get("iva_pct", 16))
+    notas = (body.get("notas") or "").strip() or None
+    items_raw = body.get("items", [])
+    subtotal_externo = body.get("subtotal")
+    lock_version_raw = body.get("lock_version")
+
+    items_data = []
+    for it in items_raw:
+        pu = it.get("precio_unitario")
+        items_data.append({
+            "bom_item_id": UUID(it["bom_item_id"]),
+            "precio_unitario": float(pu) if pu else 0,
+            "cantidad": float(it.get("cantidad", 1)),
+        })
+
+    try:
+        actualizado = await service.editar_cotizacion(
+            conn, cotizacion_id, proveedor_id, nombre_proveedor, moneda,
+            items_data, iva_pct, notas, user_id,
+            subtotal_externo=float(subtotal_externo) if subtotal_externo is not None else None,
+            lock_version_esperado=(
+                int(lock_version_raw) if lock_version_raw is not None else None
+            ),
+        )
+    except (ValueError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return await _render_cotizaciones_tab(request, conn, service, context, actualizado["bom_id"])
 
 
 @compras_router.post("/{id_bom}/rfq-rapido", include_in_schema=False)
@@ -277,7 +355,6 @@ async def crear_rfq_rapido(
 
     try:
         rfq = await service.crear_rfq(conn, id_bom, item_ids, user_id, nombre=nombre)
-        id_paquete = await service.db.get_id_paquete_by_bom(conn, id_bom)
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
@@ -290,7 +367,6 @@ async def crear_rfq_rapido(
         "Consúltalo en Compras del paquete, sección Cotizaciones, para generar el PDF.",
         "success",
         title="RFQ creado",
-        redirect_url=f"/bom/paquetes/{id_paquete}/compras",
     )
 
 
@@ -375,6 +451,16 @@ async def historial_rfq(
 
 async def _render_comparativa(request, conn, service, context, id_bom: UUID):
     rfqs = await service.get_rfqs(conn, id_bom)
+    items_bom = await service.get_items(conn, id_bom)
+    items_bom_json = [
+        {
+            "id_item": str(i["id_item"]),
+            "descripcion": i.get("descripcion") or "",
+            "cantidad": float(i["cantidad"]) if i.get("cantidad") is not None else None,
+            "unidad_medida": i.get("unidad_medida") or "",
+        }
+        for i in items_bom
+    ]
     comparativas = []
     for rfq in rfqs:
         responses = await service.get_rfq_responses(conn, rfq['id'])
@@ -382,13 +468,21 @@ async def _render_comparativa(request, conn, service, context, id_bom: UUID):
         resp_items = {}
         for resp in responses:
             resp_items[str(resp['id'])] = await service.get_items_cotizacion(conn, resp['id'])
+        ids_en_rfq = {str(i["bom_item_id"]) for i in rfq_items}
         comparativas.append({
             'rfq': rfq, 'items': rfq_items, 'responses': responses, 'resp_items': resp_items,
+            'items_disponibles_json': [it for it in items_bom_json if it["id_item"] not in ids_en_rfq],
         })
-    items_bom = await service.get_items(conn, id_bom)
+    role = context.get("role")
+    module_roles = context.get("module_roles", {})
+    es_compras_editor = role == "ADMIN" or module_roles.get("compras") in ("editor", "admin")
+    catalogos = await service.get_catalogos(conn)
     return templates.TemplateResponse(
         request, "bom/partials/comparativa.html",
-        {"comparativas": comparativas, "items_bom": items_bom, "id_bom": id_bom}
+        {
+            "comparativas": comparativas, "items_bom": items_bom, "id_bom": id_bom,
+            "es_compras_editor": es_compras_editor, "catalogos": catalogos,
+        }
     )
 
 
@@ -443,6 +537,33 @@ async def quitar_item_rfq(
     except asyncpg.PostgresError:
         logger.exception("Error de BD al quitar item del RFQ %s", rfq_id)
         return _toast_response(request, "Error interno al quitar el item", "error", status_code=500)
+
+    return await _render_comparativa(request, conn, service, context, actualizado["bom_id"])
+
+
+@compras_router.post("/rfq/{rfq_id}/items/{bom_item_id}/unidad", include_in_schema=False)
+async def actualizar_unidad_item_rfq(
+    request: Request,
+    rfq_id: UUID,
+    bom_item_id: UUID,
+    lock_version: int = Form(...),
+    unidad_override: str = Form(""),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Actualiza la unidad mostrada al proveedor para un item ya agregado al RFQ."""
+    user_id = context.get("user_db_id")
+    try:
+        actualizado = await service.actualizar_unidad_item_rfq(
+            conn, rfq_id, bom_item_id, unidad_override, user_id, lock_version_esperado=lock_version,
+        )
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al actualizar unidad del item del RFQ %s", rfq_id)
+        return _toast_response(request, "Error interno al actualizar la unidad", "error", status_code=500)
 
     return await _render_comparativa(request, conn, service, context, actualizado["bom_id"])
 
@@ -514,9 +635,9 @@ async def seleccionar_cotizacion(
             int(form.get("lock_version", "")),
         )
     except (TypeError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return _toast_response(request, str(e), "error", status_code=400)
     if not cotizacion:
-        raise HTTPException(status_code=404, detail="Cotización no encontrada")
+        return _toast_response(request, "Cotización no encontrada", "error", status_code=404)
     return await _render_cotizaciones_tab(request, conn, service, context, cotizacion['bom_id'])
 
 

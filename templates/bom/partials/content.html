@@ -280,9 +280,8 @@
     {% set puede_cotizar_seleccionados = not solo_lectura|default(false) and es_compras_editor and fase_compras %}
     {% set puede_agregar_fuera_scope = not solo_lectura|default(false) and (area_editor == 'construccion' or es_compras_editor) and bom.estatus == 'APROBADO_FINAL' %}
     {% set puede_refrescar_costos = capacidades.refrescar_costos|default(false) and estadisticas.items_sin_costo %}
-    {% if bom and (puede_cotizar_seleccionados or puede_agregar_fuera_scope) %}
+    {% if bom and puede_agregar_fuera_scope %}
     <div class="mb-4 flex gap-2">
-        {% if puede_agregar_fuera_scope %}
         <button type="button"
             hx-get="/bom/{{ bom.id_bom }}/adenda-modal?accion=fuera_scope"
             hx-target="#bom-modal-container" hx-swap="innerHTML"
@@ -292,19 +291,6 @@
             </svg>
             Agregar fuera de alcance
         </button>
-        {% endif %}
-        {% if puede_cotizar_seleccionados %}
-        <input type="text" id="rfq-nombre-input" placeholder="Nombre del RFQ (se autogenera si se deja vacío)"
-            class="ml-auto w-56 rounded-lg border border-gray-300 px-3 py-2 text-sm">
-        <button onclick="abrirCotizacionSeleccionados()"
-            class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition shadow-sm"
-            title="Cotizar items seleccionados">
-            <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-            </svg>
-            Cotizar seleccionados
-        </button>
-        {% endif %}
     </div>
     {% endif %}
 
@@ -342,8 +328,20 @@
                     class="px-3 py-0.5 text-xs font-medium rounded-full transition">{{ tipo_labels_filtro[t] }}</button>
                 {% endfor %}
             </div>
-            {% if muestra_agregar_item or puede_refrescar_costos %}
-            <div class="flex gap-2 shrink-0">
+            {% if muestra_agregar_item or puede_refrescar_costos or puede_cotizar_seleccionados %}
+            <div class="flex items-center gap-2 shrink-0">
+                {% if puede_cotizar_seleccionados %}
+                <button type="button" id="rfq-crear-btn" onclick="abrirCotizacionSeleccionados()" disabled
+                    class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-green-600"
+                    title="Selecciona al menos un item para crear el RFQ">
+                    <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                    </svg>
+                    Crear RFQ
+                </button>
+                <input type="text" id="rfq-nombre-input" placeholder="Nombre del RFQ"
+                    class="w-56 rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                {% endif %}
                 {% if puede_refrescar_costos %}
                 <button type="button"
                     hx-post="/bom/{{ bom.id_bom }}/refrescar-costos"
@@ -462,10 +460,12 @@
                 this.itemSeleccionados = e.target.checked
                     ? Array.from(document.querySelectorAll('#bom-items-body input[name=item_ids]')).map(c => c.value)
                     : [];
+                if (window.actualizarBotonCrearRfq) window.actualizarBotonCrearRfq();
             },
             reset() { this.itemSeleccionados = []; this.campo = ''; this.monedaBulk = ''; }
          }"
-         @htmx:after-swap="if ($event.detail.target && $event.detail.target.id === 'tabla-bom-items') reset()">
+         @htmx:after-swap="if ($event.detail.target && $event.detail.target.id === 'tabla-bom-items') { reset(); if (window.actualizarBotonCrearRfq) window.actualizarBotonCrearRfq(); }"
+         @bom-rfq-creado.window="reset()">
 
         {% set es_aprobado_final = bom and bom.estatus == 'APROBADO_FINAL' %}
         {% set puede_bulk = bom and bom.estatus != 'CANCELADO' and (capacidades.editar_base|default(false) or capacidades.editar_ejecucion|default(false)) %}
@@ -1202,6 +1202,35 @@
     <div id="bom-modal-container"></div>
 
     <script>
+    function actualizarBotonCrearRfq() {
+        const btn = document.getElementById('rfq-crear-btn');
+        if (!btn) return;
+        btn.disabled = document.querySelectorAll('#bom-items-body input[name=item_ids]:checked').length === 0;
+    }
+    window.actualizarBotonCrearRfq = actualizarBotonCrearRfq;
+
+    function actualizarNombreRfqDefault() {
+        const input = document.getElementById('rfq-nombre-input');
+        if (!input) return;
+        const hoy = new Date();
+        const yy = String(hoy.getFullYear()).slice(-2);
+        const mm = String(hoy.getMonth() + 1).padStart(2, '0');
+        const dd = String(hoy.getDate()).padStart(2, '0');
+        input.value = 'RFQ_{{ proyecto.proyecto_id_estandar or "SIN-ID" }}_' + yy + mm + dd;
+    }
+    window.actualizarNombreRfqDefault = actualizarNombreRfqDefault;
+
+    if (!window.__bomRfqBtnListenerInstalled) {
+        document.body.addEventListener('change', function(e) {
+            if (e.target.matches('#bom-items-body input[name=item_ids]')) {
+                actualizarBotonCrearRfq();
+            }
+        });
+        window.__bomRfqBtnListenerInstalled = true;
+    }
+    actualizarBotonCrearRfq();
+    actualizarNombreRfqDefault();
+
     function abrirCotizacionSeleccionados() {
         const cbs = document.querySelectorAll('#bom-items-body input[name=item_ids]:checked');
         if (cbs.length === 0) {
@@ -1220,6 +1249,7 @@
             headers: {'HX-Request': 'true'},
         })
         .then(res => {
+            const exito = res.ok;
             if (!res.ok && res.headers.get('HX-Reswap') === 'none') {
                 return res.text().then(html => {
                     const parser = new DOMParser();
@@ -1243,11 +1273,15 @@
                     if (container) container.insertAdjacentHTML('afterbegin', el.innerHTML);
                     el.remove();
                 });
-                doc.querySelectorAll('script').forEach(s => {
-                    const script = document.createElement('script');
-                    script.textContent = s.textContent;
-                    document.body.appendChild(script).remove();
-                });
+
+                if (exito) {
+                    document.querySelectorAll('#bom-items-body input[name=item_ids]').forEach(cb => { cb.checked = false; });
+                    const selectAll = document.querySelector('#tabla-bom-items thead input[type=checkbox]');
+                    if (selectAll) selectAll.checked = false;
+                    window.dispatchEvent(new CustomEvent('bom-rfq-creado'));
+                    actualizarBotonCrearRfq();
+                    actualizarNombreRfqDefault();
+                }
             });
         })
         .catch(() => alert('Error al crear el RFQ. Intenta de nuevo.'));

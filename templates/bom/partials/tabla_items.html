@@ -24,6 +24,9 @@
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">#</th>
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Grupo</th>
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[200px]">Descripcion</th>
+                    {% if fase_compras %}
+                    <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-40">Comentarios</th>
+                    {% endif %}
                     <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cantidad</th>
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unidad</th>
                     <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -44,8 +47,9 @@
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">F. Est. Entrega</th>
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">F. Llegada Real</th>
                     <th class="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Recepcion</th>
-                    {% endif %}
+                    {% else %}
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-40">Comentarios</th>
+                    {% endif %}
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100" id="bom-items-body">

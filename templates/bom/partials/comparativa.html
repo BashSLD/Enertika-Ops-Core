@@ -2,22 +2,35 @@
 {# Vista comparativa RFQ: items BOM × proveedores (Gap 7d) #}
 <div id="comparativa-container">
     <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide">Comparativa de Cotizaciones</h3>
+        <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide">RFQ</h3>
+        <button type="button" hx-get="/bom/{{ id_bom }}/cotizaciones"
+            hx-target="#tab-cotizaciones" hx-swap="innerHTML"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg text-gray-600 bg-gray-50 border border-gray-200 hover:bg-gray-100 transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+            </svg>
+            Atrás
+        </button>
     </div>
 
     {% if comparativas %}
     {% for comp in comparativas %}
     {% set rfq = comp.rfq %}
-    <div class="mb-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between"
-            x-data="{ historialAbierto: false, editandoNombre: false }">
+    <div class="mb-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
+        x-data="{ historialAbierto: false, editandoNombre: false, expandido: false }">
+        <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between cursor-pointer"
+            @click="expandido = !expandido">
             <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform" :class="{'rotate-90': expandido}"
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
                 <span x-show="!editandoNombre" class="flex items-center gap-2">
                     <span class="text-sm font-semibold text-gray-800">{{ rfq.nombre or ('RFQ #' + rfq.id.__str__()[:8]) }}</span>
-                    <button type="button" @click="editandoNombre = !editandoNombre"
+                    <button type="button" @click.stop="editandoNombre = !editandoNombre"
                         class="text-xs text-gray-400 hover:text-gray-600 underline">Editar nombre</button>
                 </span>
-                <form x-show="editandoNombre" x-cloak
+                <form x-show="editandoNombre" x-cloak @click.stop
                     hx-post="/bom/rfq/{{ rfq.id }}/nombre" hx-target="#comparativa-container" hx-swap="outerHTML"
                     class="flex items-center gap-1.5">
                     <input type="hidden" name="lock_version" value="{{ rfq.lock_version }}">
@@ -28,32 +41,73 @@
                         class="text-xs text-gray-400 hover:text-gray-600">Cancelar</button>
                 </form>
                 <span class="text-xs text-gray-400 ml-2">{{ rfq.total_items_cotizacion }} ítems</span>
+                <span class="text-xs text-gray-400">&bull; {{ comp.responses | length }} respuesta{{ 's' if comp.responses | length != 1 else '' }}</span>
             </div>
             <div class="flex items-center gap-3">
                 <span class="text-xs text-gray-500">{{ rfq.creado_en | time_mx("%d/%m/%Y") if rfq.creado_en else '' }}</span>
-                <button type="button" @click="historialAbierto = !historialAbierto"
+                <button type="button" @click.stop="historialAbierto = !historialAbierto"
                     class="text-xs font-medium text-gray-500 hover:text-gray-700 underline">
                     Historial
                 </button>
-                <a href="/bom/rfq/{{ rfq.id }}/pdf"
+                <a href="/bom/rfq/{{ rfq.id }}/pdf" @click.stop
                     class="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700">
                     Descargar PDF
                 </a>
+                {% if es_compras_editor %}
+                <button type="button" @click.stop
+                    hx-get="/bom/{{ id_bom }}/cotizaciones?rfq_id={{ rfq.id }}"
+                    hx-target="#tab-cotizaciones" hx-swap="innerHTML"
+                    class="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">
+                    Nueva Cotización
+                </button>
+                {% endif %}
             </div>
         </div>
-        <div x-show="historialAbierto" x-cloak x-init="$watch('historialAbierto', v => { if (v) htmx.ajax('GET', '/bom/rfq/{{ rfq.id }}/historial', {target: $el, source: $el, swap: 'innerHTML'}) })"
-            class="px-4 py-3 border-b border-gray-100"></div>
+        <div x-show="historialAbierto" x-cloak
+            class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm modal-overlay-layer"
+            @keydown.escape.window="historialAbierto = false" @click.self="historialAbierto = false">
+            <div class="bg-white rounded-xl shadow-xl w-full max-w-md mx-3 max-h-[90dvh] flex flex-col">
+                <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200 shrink-0">
+                    <h2 class="text-sm font-semibold text-gray-800">Bitácora del RFQ</h2>
+                    <button type="button" @click="historialAbierto = false" class="text-gray-400 hover:text-gray-600 p-1">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="overflow-y-auto flex-1 min-h-0 px-4 py-3"
+                    x-init="$watch('historialAbierto', v => { if (v) htmx.ajax('GET', '/bom/rfq/{{ rfq.id }}/historial', {target: $el, source: $el, swap: 'innerHTML'}) })"></div>
+            </div>
+        </div>
 
-        <div class="px-4 py-3 border-b border-gray-100">
+        <div x-show="expandido" x-cloak class="px-4 py-3 border-b border-gray-100">
             <span class="mb-1.5 block text-xs font-semibold uppercase text-gray-500">Items del RFQ</span>
-            {% if comp.items %}
-            <ul class="space-y-1 mb-2">
-                {% for item in comp.items %}
-                <li class="flex items-center justify-between text-sm text-gray-700">
-                    <span>{{ item.descripcion }} — {{ '{:,.2f}'.format(item.cantidad|float) }} {{ item.unidad_override or item.unidad_medida or '' }}</span>
+            {% if comp['items'] %}
+            <ul class="mb-3 divide-y divide-gray-100 rounded-lg border border-gray-200 overflow-hidden">
+                {% for item in comp['items'] %}
+                <li class="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                    <span class="flex-1 min-w-0 truncate" title="{{ item.descripcion }}">{{ item.descripcion }}</span>
+                    <span class="shrink-0 w-16 text-right text-xs text-gray-400 font-mono">{{ '{:,.2f}'.format(item.cantidad|float) }}</span>
+                    <form hx-post="/bom/rfq/{{ rfq.id }}/items/{{ item.bom_item_id }}/unidad"
+                        hx-target="#comparativa-container" hx-swap="outerHTML" class="shrink-0">
+                        <input type="hidden" name="lock_version" value="{{ rfq.lock_version }}">
+                        <select name="unidad_override" @change="$el.form.requestSubmit()"
+                            title="Unidad mostrada al proveedor en el PDF del RFQ; puede diferir del catálogo interno de Enertika"
+                            class="w-28 rounded border-gray-300 text-xs">
+                            <option value="" {{ 'selected' if not item.unidad_override else '' }}>
+                                Unidad de medida
+                            </option>
+                            {% for u in catalogos.unidades_medida %}
+                            <option value="{{ u.codigo }}" {{ 'selected' if item.unidad_override == u.codigo else '' }}>{{ u.nombre }}</option>
+                            {% endfor %}
+                            {% if item.unidad_override and item.unidad_override not in (catalogos.unidades_medida | map(attribute='codigo') | list) %}
+                            <option value="{{ item.unidad_override }}" selected>{{ item.unidad_override }} (personalizado)</option>
+                            {% endif %}
+                        </select>
+                    </form>
                     <form hx-post="/bom/rfq/{{ rfq.id }}/items/{{ item.bom_item_id }}/quitar"
                         hx-target="#comparativa-container" hx-swap="outerHTML"
-                        hx-confirm="¿Quitar este item del RFQ?">
+                        hx-confirm="¿Quitar este item del RFQ?" class="shrink-0">
                         <input type="hidden" name="lock_version" value="{{ rfq.lock_version }}">
                         <button type="submit" class="text-xs text-red-500 hover:text-red-700">Quitar</button>
                     </form>
@@ -61,28 +115,59 @@
                 {% endfor %}
             </ul>
             {% endif %}
-            {% set items_en_rfq = comp.items | map(attribute='bom_item_id') | list %}
             <form hx-post="/bom/rfq/{{ rfq.id }}/items" hx-target="#comparativa-container" hx-swap="outerHTML"
-                class="flex flex-wrap items-center gap-2">
+                class="flex flex-wrap items-center gap-2 rounded-lg border border-gray-100 bg-gray-50/60 p-2"
+                x-data="{
+                    busqueda: '', mostrarResultados: false, seleccionado: null, unidad: '',
+                    items: JSON.parse($el.dataset.items || '[]'),
+                    get filtrados() {
+                        const q = this.busqueda.trim().toLowerCase();
+                        const base = q.length === 0 ? this.items : this.items.filter(it => it.descripcion.toLowerCase().includes(q));
+                        return base.slice(0, 30);
+                    },
+                    elegir(it) { this.seleccionado = it; this.busqueda = it.descripcion; this.mostrarResultados = false; this.unidad = it.unidad_medida || ''; }
+                }"
+                data-items='{{ comp.items_disponibles_json | tojson | replace("'", "&#39;") }}'
+                @submit="if (!seleccionado) $event.preventDefault()">
                 <input type="hidden" name="lock_version" value="{{ rfq.lock_version }}">
-                <select name="bom_item_id" required class="rounded border-gray-300 text-xs">
-                    <option value="">Agregar item...</option>
-                    {% for it in items_bom %}
-                    {% if it.id_item not in items_en_rfq %}
-                    <option value="{{ it.id_item }}">{{ it.descripcion }}</option>
-                    {% endif %}
+                <input type="hidden" name="bom_item_id" :value="seleccionado ? seleccionado.id_item : ''">
+                <div class="relative">
+                    <input type="text" x-model="busqueda" @input="seleccionado = null"
+                        @focus="mostrarResultados = true" @click.outside="mostrarResultados = false"
+                        placeholder="Buscar o elegir item..." autocomplete="off"
+                        class="w-64 rounded border-gray-300 text-xs"
+                        :class="{'border-emerald-400 bg-emerald-50': seleccionado}">
+                    <div x-show="mostrarResultados && filtrados.length > 0" x-cloak
+                        class="absolute z-20 mt-1 w-72 max-h-72 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                        <template x-for="it in filtrados" :key="it.id_item">
+                            <button type="button" @click="elegir(it)"
+                                class="block w-full truncate px-3 py-1.5 text-left text-xs hover:bg-indigo-50" x-text="it.descripcion"></button>
+                        </template>
+                    </div>
+                    <div x-show="mostrarResultados && filtrados.length === 0" x-cloak
+                        class="absolute z-20 mt-1 w-72 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500 shadow-lg">
+                        Sin items disponibles para agregar
+                    </div>
+                </div>
+                <input type="number" name="cantidad" step="0.01" min="0.01" required
+                    :value="seleccionado ? seleccionado.cantidad : ''"
+                    :max="seleccionado ? seleccionado.cantidad : null"
+                    :title="seleccionado && seleccionado.cantidad !== null ? 'Máx: ' + seleccionado.cantidad + ' (cantidad en el BOM)' : ''"
+                    class="w-20 rounded border border-gray-300 bg-white text-xs">
+                <select name="unidad_override" x-model="unidad" class="w-28 rounded border-gray-300 text-xs">
+                    <option value="">Unidad de medida</option>
+                    {% for u in catalogos.unidades_medida %}
+                    <option value="{{ u.codigo }}">{{ u.nombre }}</option>
                     {% endfor %}
                 </select>
-                <input type="number" name="cantidad" step="0.01" min="0.01" value="1" required
-                    class="w-20 rounded border-gray-300 text-xs">
-                <input type="text" name="unidad_override" placeholder="Unidad (opcional)"
-                    class="w-32 rounded border-gray-300 text-xs">
-                <button type="submit" class="rounded bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700">
+                <button type="submit" :disabled="!seleccionado"
+                    class="rounded bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">
                     Agregar
                 </button>
             </form>
         </div>
 
+        <div x-show="expandido" x-cloak>
         {% if comp.responses %}
         <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200">
@@ -96,12 +181,23 @@
                             <div class="text-[10px] text-gray-400">
                                 {% if resp.subtotal %}${{ "{:,.0f}".format(resp.subtotal|float) }}{% else %}—{% endif %}
                             </div>
+                            {% if es_compras_editor and resp.estatus in ('BORRADOR', 'RECIBIDA') %}
+                            <button type="button"
+                                hx-post="/bom/cotizaciones/{{ resp.id }}/seleccionar"
+                                hx-vals='{"lock_version": "{{ resp.lock_version }}"}'
+                                hx-target="#tab-cotizaciones" hx-swap="innerHTML"
+                                hx-confirm="¿Adjudicar la cotización de {{ resp.nombre_proveedor or 'este proveedor' }}? Se generará la autorización de compra."
+                                title="Marca esta cotización como la elegida, actualiza los ítems cubiertos y genera la autorización de compra para el coordinador de obra."
+                                class="mt-1.5 w-full rounded-lg bg-emerald-600 px-2 py-1 text-[10px] font-medium normal-case text-white hover:bg-emerald-700">
+                                Adjudicar
+                            </button>
+                            {% endif %}
                         </th>
                         {% endfor %}
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
-                    {% for item in comp.items %}
+                    {% for item in comp['items'] %}
                     {% set bom_info = items_bom | selectattr('id_item', 'equalto', item.bom_item_id) | list %}
                     <tr class="hover:bg-blue-50/30 transition-colors">
                         <td class="px-3 py-2 text-xs text-gray-400 font-mono">{{ loop.index }}</td>
@@ -142,6 +238,7 @@
             Sin respuestas de proveedores. Crea cotizaciones con proveedor desde la pestaña Cotizaciones.
         </div>
         {% endif %}
+        </div>
     </div>
     {% endfor %}
     {% else %}

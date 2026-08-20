@@ -7,6 +7,8 @@
     data-bom-id="{{ bom.id_bom }}"
     data-bom-lock-version="{{ bom.lock_version }}"
     data-bom-lock-version-container
+    data-preset-rfq-id="{{ preset_rfq.id if preset_rfq else '' }}"
+    data-preset-rfq-nombre="{{ preset_rfq.nombre if preset_rfq else '' }}"
     data-items='{{ items_disponibles | tojson | replace("'", "&#39;") }}'>
 
     {# Header #}
@@ -18,12 +20,12 @@
         {% if es_compras_editor and bom_cotizable %}
         <div class="flex items-center gap-2">
         <button hx-get="/bom/{{ bom.id_bom }}/cotizaciones/comparativa"
-            hx-target="#tab-cotizaciones-content" hx-swap="innerHTML"
+            hx-target="#tab-cotizaciones" hx-swap="innerHTML"
             class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 transition">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
             </svg>
-            Comparativa
+            RFQ
         </button>
         <button @click="abrirModal()"
             class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition shadow-sm">
@@ -152,6 +154,21 @@
                 {% elif es_compras_editor and cot.estatus not in ('SELECCIONADA', 'RECHAZADA') %}
                 <div class="flex items-center gap-2 shrink-0">
                     {% if cot.estatus in ('BORRADOR', 'RECIBIDA') %}
+                    {% set cot_payload = {
+                        'id': cot.id | string,
+                        'lock_version': cot.lock_version,
+                        'proveedor_id': cot.proveedor_id | string if cot.proveedor_id else none,
+                        'nombre_proveedor': cot.nombre_proveedor,
+                        'moneda': cot.moneda,
+                        'iva_pct': cot.iva_pct,
+                        'notas': cot.notas,
+                        'items': cot.items_json,
+                    } %}
+                    <button type="button" @click="abrirModalEditar(JSON.parse($el.dataset.cot))"
+                        data-cot='{{ cot_payload | tojson | replace("'", "&#39;") }}'
+                        class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-gray-700 bg-gray-100 border border-gray-300 hover:bg-gray-200 transition">
+                        Editar
+                    </button>
                     <form hx-post="/bom/cotizaciones/{{ cot.id }}/pdf"
                         hx-target="#tab-cotizaciones" hx-swap="innerHTML"
                         hx-encoding="multipart/form-data"
@@ -168,9 +185,10 @@
                         hx-vals='{"lock_version": "{{ cot.lock_version }}"}'
                         hx-target="#tab-cotizaciones"
                         hx-swap="innerHTML"
-                        hx-confirm="¿Marcar esta cotización como SELECCIONADA? Esto actualizará el estado de los ítems cubiertos."
+                        hx-confirm="¿Adjudicar esta cotización? Se generará la autorización de compra."
+                        title="Marca esta cotización como la elegida, actualiza los ítems cubiertos y genera la autorización de compra para el coordinador de obra."
                         class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition">
-                        Seleccionar
+                        Adjudicar
                     </button>
                     <button
                         hx-post="/bom/cotizaciones/{{ cot.id }}/rechazar"
@@ -260,7 +278,7 @@
                     </svg>
                 </div>
                 <div>
-                    <h2 class="text-base font-semibold text-white">Nueva Cotización</h2>
+                    <h2 class="text-base font-semibold text-white" x-text="editandoCotizacionId ? 'Editar Cotización' : 'Nueva Cotización'"></h2>
                     <p class="text-xs text-emerald-200">Selecciona ítems y captura el precio del proveedor</p>
                 </div>
             </div>
@@ -274,9 +292,17 @@
         {# Body modal — scrollable #}
         <div class="overflow-y-auto flex-1 px-5 py-4 space-y-4">
 
+            <div x-show="rfqIdActivo" x-cloak
+                class="flex items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-700">
+                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <span>Respondiendo al RFQ: <span class="font-semibold" x-text="rfqNombreActivo"></span></span>
+            </div>
+
             {# Proveedor #}
             <div>
-                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Proveedor</label>
+                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Proveedor *</label>
                 <div class="relative">
                     <input type="text" x-model="busquedaProveedor"
                         @input.debounce.400ms="buscarProveedores()"
@@ -322,10 +348,17 @@
 
             {# Ítems #}
             <div>
-                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">
-                    Ítems a cotizar
-                    <span class="text-gray-400 font-normal normal-case ml-1">(<span x-text="itemsSeleccionados.length"></span> seleccionados)</span>
-                </label>
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide">
+                        Ítems a cotizar
+                        <span class="text-gray-400 font-normal normal-case ml-1">(<span x-text="itemsSeleccionados.length"></span> seleccionados)</span>
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                        <input type="checkbox" x-model="modoSimplificado"
+                            class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
+                        Capturar solo el total
+                    </label>
+                </div>
                 <template x-if="itemsDisponibles.length === 0">
                     <p class="text-sm text-gray-400 italic text-center py-4">Todos los ítems ya están en proceso de cotización o pago.</p>
                 </template>
@@ -346,7 +379,7 @@
                                     <span x-text="item.unidad_medida || ''"></span>
                                 </div>
                             </div>
-                            <div x-show="isSelected(item.id_item)" class="shrink-0">
+                            <div x-show="isSelected(item.id_item) && !modoSimplificado" class="shrink-0">
                                 <input type="number"
                                     :value="getPrecio(item.id_item)"
                                     @input="setPrecio(item.id_item, $event.target.value)"
@@ -356,6 +389,12 @@
                             </div>
                         </div>
                     </template>
+                </div>
+                <div x-show="modoSimplificado" x-cloak class="mt-2">
+                    <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Subtotal total cotizado</label>
+                    <input type="number" x-model.number="subtotalSimplificado" min="0" step="0.01"
+                        placeholder="Subtotal que dio el proveedor (se reparte entre los ítems)"
+                        class="w-full text-sm border border-emerald-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500">
                 </div>
             </div>
 
@@ -398,7 +437,7 @@
                     <svg class="w-4 h-4" :class="{'animate-spin': guardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                     </svg>
-                    <span x-text="guardando ? 'Guardando...' : 'Crear Cotización'"></span>
+                    <span x-text="guardando ? 'Guardando...' : (editandoCotizacionId ? 'Guardar Cambios' : 'Crear Cotización')"></span>
                 </button>
             </div>
         </div>

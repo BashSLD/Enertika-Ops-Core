@@ -165,38 +165,18 @@ class BomComprasServiceMixin:
 
         return cotizaciones
 
-    async def crear_cotizacion(
-        self, conn, id_bom: UUID, proveedor_id: Optional[UUID],
-        nombre_proveedor: Optional[str], moneda: str,
-        items_data: list, iva_pct: float, notas: Optional[str],
-        creado_por: UUID,
+    async def _calcular_items_cotizacion(
+        self, conn, id_bom: UUID, items_data: list, moneda: str,
+        iva_pct: float, notas: Optional[str],
         subtotal_externo: Optional[float] = None,
-        bom_lock_version_esperado: Optional[int] = None,
-        rfq_id: Optional[UUID] = None,
-    ) -> dict:
-        """
-        Crea una cotización con sus ítems.
-        items_data: lista de dicts con bom_item_id, precio_unitario (opcional), cantidad.
+    ) -> tuple:
+        """Valida items_data contra el BOM y calcula items_insert/subtotal/iva/total.
 
-        Modos:
-        - Simplificado (subtotal_externo): precio se distribuye proporcionalmente.
-        - Completo: cada item tiene precio_unitario individual.
-        Valida sobrecosto si hay precios individuales.
-        rfq_id (opcional, doc 35): liga esta cotización real como respuesta a un RFQ del mismo BOM.
+        Compartido por crear_cotizacion y editar_cotizacion: misma validacion de
+        sobrecosto/cotizabilidad y mismo calculo de subtotal (precios individuales
+        o distribucion proporcional en modo simplificado).
+        Retorna (items_insert, item_ids, subtotal, iva, total).
         """
-        bom = await self.get_bom(conn, id_bom)
-        if EstatusBOM(bom['estatus']) not in ESTATUS_COTIZABLE:
-            raise ValueError("Solo se pueden crear cotizaciones en BOMs aprobados por Construccion.")
-        if bom_lock_version_esperado is None:
-            raise ValueError("El BOM cambio; recarga el paquete antes de cotizar")
-        moneda = (moneda or "").strip().upper()
-        if moneda not in {"MXN", "USD"}:
-            raise ValueError("La moneda de la cotizacion debe ser MXN o USD")
-        if rfq_id:
-            rfq = await self.db.get_rfq_by_id(conn, rfq_id)
-            if not rfq or str(rfq["bom_id"]) != str(id_bom):
-                raise ValueError("El RFQ no pertenece a este BOM")
-
         if not items_data:
             raise ValueError("Debes seleccionar al menos un item para cotizar.")
         try:
@@ -296,6 +276,46 @@ class BomComprasServiceMixin:
                 'moneda': moneda,
                 'subtotal_linea': round(pu * cant, 2) if pu > 0 else None,
             })
+        return items_insert, item_ids, round(subtotal, 2), iva, total
+
+    async def crear_cotizacion(
+        self, conn, id_bom: UUID, proveedor_id: Optional[UUID],
+        nombre_proveedor: Optional[str], moneda: str,
+        items_data: list, iva_pct: float, notas: Optional[str],
+        creado_por: UUID,
+        subtotal_externo: Optional[float] = None,
+        bom_lock_version_esperado: Optional[int] = None,
+        rfq_id: Optional[UUID] = None,
+    ) -> dict:
+        """
+        Crea una cotización con sus ítems.
+        items_data: lista de dicts con bom_item_id, precio_unitario (opcional), cantidad.
+
+        Modos:
+        - Simplificado (subtotal_externo): precio se distribuye proporcionalmente.
+        - Completo: cada item tiene precio_unitario individual.
+        Valida sobrecosto si hay precios individuales.
+        rfq_id (opcional, doc 35): liga esta cotización real como respuesta a un RFQ del mismo BOM.
+        """
+        bom = await self.get_bom(conn, id_bom)
+        if EstatusBOM(bom['estatus']) not in ESTATUS_COTIZABLE:
+            raise ValueError("Solo se pueden crear cotizaciones en BOMs aprobados por Construccion.")
+        if bom_lock_version_esperado is None:
+            raise ValueError("El BOM cambio; recarga el paquete antes de cotizar")
+        if not proveedor_id and not (nombre_proveedor or "").strip():
+            raise ValueError("Indica el proveedor que cotizó.")
+        moneda = (moneda or "").strip().upper()
+        if moneda not in {"MXN", "USD"}:
+            raise ValueError("La moneda de la cotizacion debe ser MXN o USD")
+        if rfq_id:
+            rfq = await self.db.get_rfq_by_id(conn, rfq_id)
+            if not rfq or str(rfq["bom_id"]) != str(id_bom):
+                raise ValueError("El RFQ no pertenece a este BOM")
+
+        items_insert, item_ids, subtotal, iva, total = await self._calcular_items_cotizacion(
+            conn, id_bom, items_data, moneda, iva_pct, notas, subtotal_externo,
+        )
+
         async with conn.transaction():
             bom_bloqueado = await self.db.get_bom_for_update(conn, id_bom)
             if (
@@ -320,7 +340,7 @@ class BomComprasServiceMixin:
             self._validar_items_cotizables(items_bloqueados, "cotizar")
             cotizacion = await self.db.crear_cotizacion(
                 conn, id_bom, proveedor_id, nombre_proveedor, moneda,
-                round(subtotal, 2), iva, total, notas, creado_por,
+                subtotal, iva, total, notas, creado_por,
                 rfq_id=rfq_id,
             )
             await self.db.agregar_items_cotizacion(
@@ -332,6 +352,65 @@ class BomComprasServiceMixin:
             cotizacion['id'], id_bom, creado_por
         )
         return cotizacion
+
+    async def editar_cotizacion(
+        self, conn, cotizacion_id: UUID, proveedor_id: Optional[UUID],
+        nombre_proveedor: Optional[str], moneda: str,
+        items_data: list, iva_pct: float, notas: Optional[str],
+        editado_por: UUID,
+        subtotal_externo: Optional[float] = None,
+        lock_version_esperado: Optional[int] = None,
+    ) -> dict:
+        """Edita una cotización existente (proveedor, moneda, items, notas).
+
+        Solo permitido en BORRADOR/RECIBIDA -- una vez SELECCIONADA ya disparó
+        autorizacion de compra y/o aprobacion de Direccion, y RECHAZADA es terminal.
+        Reemplaza los items por completo (mismo calculo/validacion que crear_cotizacion).
+        """
+        cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
+        if not cotizacion:
+            raise ValueError("Cotización no encontrada")
+        if cotizacion["estatus"] not in ("BORRADOR", "RECIBIDA"):
+            raise ValueError("Solo se pueden editar cotizaciones en BORRADOR o RECIBIDA")
+        if lock_version_esperado is None:
+            raise ValueError("La cotizacion cambio; recarga la pestaña")
+        if not proveedor_id and not (nombre_proveedor or "").strip():
+            raise ValueError("Indica el proveedor que cotizó.")
+        moneda = (moneda or "").strip().upper()
+        if moneda not in {"MXN", "USD"}:
+            raise ValueError("La moneda de la cotizacion debe ser MXN o USD")
+
+        id_bom = cotizacion["bom_id"]
+        items_insert, item_ids, subtotal, iva, total = await self._calcular_items_cotizacion(
+            conn, id_bom, items_data, moneda, iva_pct, notas, subtotal_externo,
+        )
+
+        async with conn.transaction():
+            items_bloqueados = await self.db.lock_items_context_by_ids(
+                conn, sorted(item_ids, key=str)
+            )
+            if len(items_bloqueados) != len(item_ids) or any(
+                str(item.get("id_bom")) != str(id_bom)
+                for item in items_bloqueados
+            ):
+                raise ValueError(
+                    "La cotizacion contiene items invalidos o de otro paquete BOM"
+                )
+            self._validar_items_cotizables(items_bloqueados, "cotizar")
+            actualizado = await self.db.actualizar_cotizacion(
+                conn, cotizacion_id, proveedor_id, nombre_proveedor, moneda,
+                subtotal, iva, total, notas, lock_version_esperado,
+            )
+            if not actualizado:
+                raise ValueError("La cotizacion cambio; recarga la pestaña")
+            await self.db.bulk_replace_cotizacion_items(
+                conn, cotizacion_id, id_bom, items_insert
+            )
+
+        logger.info(
+            "Cotización %s editada por usuario %s", cotizacion_id, editado_por
+        )
+        return actualizado
 
     async def seleccionar_cotizacion(
         self, conn, cotizacion_id: UUID, user_id: UUID,
@@ -348,6 +427,8 @@ class BomComprasServiceMixin:
             raise ValueError(f"La cotización está en estatus {cotizacion['estatus']} y no puede seleccionarse.")
         if not cotizacion.get('pdf_url'):
             raise ValueError("La cotización no tiene PDF cargado. Sube el PDF antes de seleccionarla.")
+        if not cotizacion.get('proveedor_id') and not (cotizacion.get('nombre_proveedor') or '').strip():
+            raise ValueError("La cotización no tiene proveedor capturado. Captura el proveedor antes de adjudicarla.")
         if not cotizacion.get('total') or Decimal(str(cotizacion['total'])) <= 0:
             raise ValueError("La cotización no tiene un total válido.")
 
@@ -1676,13 +1757,19 @@ class BomComprasServiceMixin:
             raise ValueError(
                 "Este item ya está autorizado, pagado o facturado y no puede agregarse al RFQ"
             )
+        cantidad_decimal = Decimal(str(cantidad))
+        cantidad_bom = items_bd[0].get("cantidad")
+        if cantidad_bom is not None and cantidad_decimal > Decimal(str(cantidad_bom)):
+            raise ValueError(
+                f"La cantidad no puede superar la cantidad del item en el BOM ({cantidad_bom})"
+            )
         async with conn.transaction():
             actualizado = await self.db.incrementar_lock_rfq(conn, rfq_id, lock_version_esperado)
             if not actualizado:
                 raise ValueError("El RFQ cambio; recarga la pestaña")
             insertados = await self.db.agregar_items_rfq(conn, rfq_id, [{
                 "bom_item_id": bom_item_id,
-                "cantidad": Decimal(str(cantidad)),
+                "cantidad": cantidad_decimal,
                 "unidad_override": (unidad_override or "").strip() or None,
             }])
             if not insertados:
@@ -1710,6 +1797,31 @@ class BomComprasServiceMixin:
                 raise ValueError("El item no esta en este RFQ")
             await self.db.registrar_historial_rfq(
                 conn, rfq_id, user_id, 'ITEM_QUITADO', {"bom_item_id": str(bom_item_id)},
+            )
+        return actualizado
+
+    async def actualizar_unidad_item_rfq(
+        self, conn, rfq_id: UUID, bom_item_id: UUID, unidad_override: Optional[str],
+        user_id: UUID, lock_version_esperado: Optional[int] = None,
+    ) -> dict:
+        rfq = await self.db.get_rfq_by_id(conn, rfq_id)
+        if not rfq:
+            raise ValueError("RFQ no encontrado")
+        if lock_version_esperado is None:
+            raise ValueError("El RFQ cambio; recarga la pestaña")
+        unidad_override = (unidad_override or "").strip() or None
+        async with conn.transaction():
+            actualizado = await self.db.incrementar_lock_rfq(conn, rfq_id, lock_version_esperado)
+            if not actualizado:
+                raise ValueError("El RFQ cambio; recarga la pestaña")
+            afectados = await self.db.actualizar_unidad_item_rfq(
+                conn, rfq_id, bom_item_id, unidad_override,
+            )
+            if not afectados:
+                raise ValueError("El item no esta en este RFQ")
+            await self.db.registrar_historial_rfq(
+                conn, rfq_id, user_id, 'ITEM_UNIDAD_ACTUALIZADA',
+                {"bom_item_id": str(bom_item_id), "unidad_override": unidad_override},
             )
         return actualizado
 

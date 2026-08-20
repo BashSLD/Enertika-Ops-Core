@@ -3,6 +3,15 @@
    htmx parsea el resto en modo "in body" y el <tr> pierde su estructura de tabla
    (fila renderizada como bloques sueltos, no columnas). Los OOB van despues del
    </tr> de cierre, igual que ya hace lock_version_oob.html mas abajo. #}
+{% macro comentarios_td(item) %}
+<td class="px-3 py-2 text-xs text-gray-500 max-w-[180px]">
+    {% if item.comentarios %}
+    <div class="truncate" title="{{ item.comentarios }}">{{ item.comentarios }}</div>
+    {% else %}
+    <span class="text-gray-300">--</span>
+    {% endif %}
+</td>
+{% endmacro %}
 {% set tipo_origen_item = item.tipo_origen_item or 'BASE' %}
 {% set item_cerrado_compra = item.estatus_ejecucion in ['NO_ADQUIRIDO', 'REEMPLAZADO', 'CERRADO'] %}
 {% set item_compra_bloquea_adenda = item.estatus_compra in ['COTIZADO', 'AUTORIZADO', 'PAGADO', 'FACTURADO'] %}
@@ -184,6 +193,9 @@
         </div>
         {% endif %}
     </td>
+    {% if fase_compras %}
+    {{ comentarios_td(item) }}
+    {% endif %}
     <td class="px-3 py-2 text-sm text-gray-800 text-right font-mono">{{ item.cantidad }}</td>
     <td class="px-3 py-2 text-xs text-gray-600">{{ item.unidad_medida or '--' }}</td>
     <td class="px-3 py-2 text-sm text-right font-mono">
@@ -307,14 +319,9 @@
         <span class="text-gray-300">-</span>
         {% endif %}
     </td>
+    {% else %}
+    {{ comentarios_td(item) }}
     {% endif %}
-    <td class="px-3 py-2 text-xs text-gray-500 max-w-[180px]">
-        {% if item.comentarios %}
-        <div class="truncate" title="{{ item.comentarios }}">{{ item.comentarios }}</div>
-        {% else %}
-        <span class="text-gray-300">--</span>
-        {% endif %}
-    </td>
 </tr>
 {% with stats=estadisticas_oob %}
 {% include "bom/partials/_estadisticas_oob.html" %}

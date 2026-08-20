@@ -351,11 +351,17 @@
                 moneda: 'MXN',
                 ivaPct: 16,
                 notas: '',
+                modoSimplificado: false,
+                subtotalSimplificado: null,
                 busquedaProveedor: '',
                 mostrarResultadosProveedor: false,
                 proveedorSeleccionado: { id: null, nombre: '' },
                 guardando: false,
                 errorMsg: '',
+                rfqIdActivo: null,
+                rfqNombreActivo: '',
+                editandoCotizacionId: null,
+                editandoLockVersion: null,
 
                 modalReemplazoAbierto: false,
                 reemplazo: { cotizacionId: null, aprobacionLockVersion: null, autorizacionLockVersion: null, proveedor: '' },
@@ -369,17 +375,50 @@
                     try {
                         this.itemsDisponibles = JSON.parse(this.$el.dataset.items || '[]');
                     } catch(e) { this.itemsDisponibles = []; }
+                    const presetRfqId = this.$el.dataset.presetRfqId;
+                    if (presetRfqId) {
+                        this.abrirModal(presetRfqId, this.$el.dataset.presetRfqNombre || '');
+                    }
                 },
 
-                abrirModal() {
+                abrirModal(rfqId = null, rfqNombre = '') {
                     this.itemsSeleccionados = [];
                     this.precios = {};
                     this.notas = '';
+                    this.modoSimplificado = false;
+                    this.subtotalSimplificado = null;
                     this.moneda = 'MXN';
                     this.ivaPct = 16;
                     this.busquedaProveedor = '';
                     this.proveedorSeleccionado = { id: null, nombre: '' };
                     this.errorMsg = '';
+                    this.rfqIdActivo = rfqId;
+                    this.rfqNombreActivo = rfqNombre;
+                    this.editandoCotizacionId = null;
+                    this.editandoLockVersion = null;
+                    this.modalAbierto = true;
+                },
+
+                abrirModalEditar(cot) {
+                    this.itemsSeleccionados = [];
+                    this.precios = {};
+                    (cot.items || []).forEach(it => {
+                        const disponible = this.itemsDisponibles.find(d => d.id_item === it.id_item);
+                        this.itemsSeleccionados.push(disponible ? { ...disponible } : { ...it });
+                        this.precios[it.id_item] = it.precio_unitario || 0;
+                    });
+                    this.notas = cot.notas || '';
+                    this.modoSimplificado = false;
+                    this.subtotalSimplificado = null;
+                    this.moneda = cot.moneda || 'MXN';
+                    this.ivaPct = cot.iva_pct || 16;
+                    this.busquedaProveedor = cot.nombre_proveedor || '';
+                    this.proveedorSeleccionado = { id: cot.proveedor_id || null, nombre: cot.nombre_proveedor || '' };
+                    this.errorMsg = '';
+                    this.rfqIdActivo = null;
+                    this.rfqNombreActivo = '';
+                    this.editandoCotizacionId = cot.id;
+                    this.editandoLockVersion = cot.lock_version;
                     this.modalAbierto = true;
                 },
 
@@ -408,6 +447,9 @@
                 },
 
                 get subtotal() {
+                    if (this.modoSimplificado) {
+                        return parseFloat(this.subtotalSimplificado) || 0;
+                    }
                     return this.itemsSeleccionados.reduce((acc, item) => {
                         const p = parseFloat(this.precios[item.id_item]) || 0;
                         const c = parseFloat(item.cantidad) || 0;
@@ -437,35 +479,54 @@
                 },
 
                 async guardar() {
+                    if (!(this.proveedorSeleccionado.nombre || this.busquedaProveedor).trim()) {
+                        this.errorMsg = 'Indica el proveedor que cotizó.';
+                        return;
+                    }
                     if (this.itemsSeleccionados.length === 0) {
                         this.errorMsg = 'Selecciona al menos un ítem.';
+                        return;
+                    }
+                    if (this.modoSimplificado && !(parseFloat(this.subtotalSimplificado) > 0)) {
+                        this.errorMsg = 'Captura el subtotal total de la cotización.';
                         return;
                     }
                     this.guardando = true;
                     this.errorMsg = '';
                     try {
+                        const rootEl = document.getElementById('tab-cotizaciones-content');
                         const body = {
                             proveedor_id: this.proveedorSeleccionado.id || null,
                             nombre_proveedor: this.proveedorSeleccionado.nombre || this.busquedaProveedor || null,
                             moneda: this.moneda,
                             iva_pct: this.ivaPct,
                             notas: this.notas || null,
-                            bom_lock_version: Number(this.$el.dataset.bomLockVersion),
                             items: this.itemsSeleccionados.map(item => ({
                                 bom_item_id: item.id_item,
-                                precio_unitario: parseFloat(this.precios[item.id_item]) || 0,
+                                precio_unitario: this.modoSimplificado ? 0 : (parseFloat(this.precios[item.id_item]) || 0),
                                 cantidad: parseFloat(item.cantidad),
                             })),
                         };
-                        const bomId = document.getElementById('tab-cotizaciones-content').dataset.bomId;
-                        const resp = await fetch(`/bom/${bomId}/cotizaciones`, {
+                        if (this.modoSimplificado) {
+                            body.subtotal = parseFloat(this.subtotalSimplificado) || 0;
+                        }
+                        let url;
+                        if (this.editandoCotizacionId) {
+                            body.lock_version = this.editandoLockVersion;
+                            url = `/bom/cotizaciones/${this.editandoCotizacionId}/editar`;
+                        } else {
+                            body.rfq_id = this.rfqIdActivo || null;
+                            body.bom_lock_version = Number(rootEl.dataset.bomLockVersion);
+                            url = `/bom/${rootEl.dataset.bomId}/cotizaciones`;
+                        }
+                        const resp = await fetch(url, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json', 'HX-Request': 'true' },
                             body: JSON.stringify(body),
                         });
                         if (!resp.ok) {
                             const err = await resp.json().catch(() => ({}));
-                            throw new Error(err.detail || 'Error al crear cotización');
+                            throw new Error(err.detail || (this.editandoCotizacionId ? 'Error al editar cotización' : 'Error al crear cotización'));
                         }
                         const html = await resp.text();
                         document.getElementById('tab-cotizaciones').innerHTML = html;
