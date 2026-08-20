@@ -37,6 +37,16 @@ _ESTATUS_FASE_COMPRAS = {e.value for e in ESTATUS_COTIZABLE}
 
 logger = logging.getLogger("BOM.Router")
 
+
+def _puede_gestionar_tc_manual(context: dict) -> bool:
+    """CEO/ADMIN -- misma condicion que protege los endpoints de escritura del
+    tipo de cambio manual (ver require_any_module_access([], "admin", ...) en
+    fijar_tipo_cambio_manual/quitar_tipo_cambio_manual)."""
+    return (
+        context.get("role") == "ADMIN"
+        or context.get("rol_organizacional") == "director"
+    )
+
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
 
@@ -428,10 +438,7 @@ async def bom_consolidado_ui(
         "proyecto": proyecto,
         "id_proyecto": id_proyecto,
         "consolidado": consolidado,
-        "puede_gestionar_tc_manual": (
-            context.get("role") == "ADMIN"
-            or context.get("rol_organizacional") == "director"
-        ),
+        "puede_gestionar_tc_manual": _puede_gestionar_tc_manual(context),
     }
     template = (
         "bom/partials/consolidado.html"
@@ -1097,7 +1104,10 @@ async def fijar_tipo_cambio_manual(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["bom"], "admin", allow_org_roles={"director"}),
+    # Sin slug de modulo: "bom" no existe en tb_cat_modulos -- CEO/ADMIN
+    # unicamente, via el bypass ADMIN global y allow_org_roles (ver
+    # _puede_gestionar_tc_manual, que refleja esta misma condicion en la UI).
+    _=require_any_module_access([], "admin", allow_org_roles={"director"}),
 ):
     """Fija (o reemplaza) el TC manual del proyecto (CEO/ADMIN)."""
     form = await request.form()
@@ -1130,7 +1140,10 @@ async def quitar_tipo_cambio_manual(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["bom"], "admin", allow_org_roles={"director"}),
+    # Sin slug de modulo: "bom" no existe en tb_cat_modulos -- CEO/ADMIN
+    # unicamente, via el bypass ADMIN global y allow_org_roles (ver
+    # _puede_gestionar_tc_manual, que refleja esta misma condicion en la UI).
+    _=require_any_module_access([], "admin", allow_org_roles={"director"}),
 ):
     """Quita el TC manual del proyecto; vuelve a Banxico/promedio (CEO/ADMIN)."""
     try:
@@ -2052,7 +2065,7 @@ async def _get_modal_log_or_toast(
     """Resuelve el BOM y arma el shell de modal-log; comparte el try/except+lookup
     entre los 5 endpoints /modal (Historial, Aprobaciones, Propuestas, Adendas, Versiones)."""
     try:
-        bom = await service.get_bom(conn, id_bom)
+        bom = await service.get_bom_subtitulo(conn, id_bom)
     except ValueError as e:
         return _toast_response(request, str(e), "error", "Error", status_code=404)
     return _modal_log_response(
@@ -2646,7 +2659,7 @@ async def solicitar_modificacion(
 async def get_historial(
     request: Request,
     id_bom: UUID,
-    usuario_id: Optional[UUID] = None,
+    usuario_id: Optional[str] = None,
     q: Optional[str] = None,
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
@@ -2656,7 +2669,11 @@ async def get_historial(
     """Historial de cambios del BOM, con filtro opcional por usuario y texto."""
     q = (q or "").strip() or None
     try:
-        historial = await service.get_historial(conn, id_bom, usuario_id, q)
+        usuario_id_uuid = UUID(usuario_id) if usuario_id else None
+    except ValueError:
+        return HTMLResponse('<p class="text-sm text-red-600 py-4">Usuario invalido</p>', status_code=400)
+    try:
+        historial = await service.get_historial(conn, id_bom, usuario_id_uuid, q)
         usuarios = await service.get_historial_usuarios(conn, id_bom)
         bom = await service.get_bom(conn, id_bom)
     except ValueError as e:

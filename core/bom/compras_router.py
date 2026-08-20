@@ -277,7 +277,7 @@ async def crear_rfq_rapido(
 
     try:
         rfq = await service.crear_rfq(conn, id_bom, item_ids, user_id, nombre=nombre)
-        bom = await service.get_bom(conn, id_bom)
+        id_paquete = await service.db.get_id_paquete_by_bom(conn, id_bom)
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
@@ -290,7 +290,7 @@ async def crear_rfq_rapido(
         "Consúltalo en Compras del paquete, sección Cotizaciones, para generar el PDF.",
         "success",
         title="RFQ creado",
-        redirect_url=f"/bom/paquetes/{bom['id_paquete']}/compras",
+        redirect_url=f"/bom/paquetes/{id_paquete}/compras",
     )
 
 

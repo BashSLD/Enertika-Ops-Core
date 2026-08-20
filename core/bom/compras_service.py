@@ -45,11 +45,12 @@ class BomComprasServiceMixin:
 
     async def resolver_bom_cotizable(self, conn, id_paquete: UUID) -> dict:
         """Resuelve, a partir del paquete, el BOM relevante para Compras hoy: la
-        cabeza de trabajo, salvo que haya retrabajo en curso tras APROBADO_FINAL
-        (una nueva version en BORRADOR/revision), en cuyo caso Compras se queda
-        en la cabeza oficial — misma regla que valida `_es_cabeza_cotizable`."""
+        cabeza de trabajo, salvo que haya retrabajo en curso y la nueva version
+        aun no llegue a un estatus cotizable (BORRADOR/EN_REVISION_*), en cuyo
+        caso Compras se queda en la cabeza oficial — misma regla que valida
+        `_es_cabeza_cotizable`."""
         bom = await self.get_bom_cabeza_trabajo(conn, id_paquete)
-        if EstatusBOM(bom["estatus"]) != EstatusBOM.APROBADO_FINAL:
+        if EstatusBOM(bom["estatus"]) not in ESTATUS_COTIZABLE:
             oficial = await self.get_bom_cabeza_oficial(conn, id_paquete)
             if oficial:
                 return oficial
@@ -1608,11 +1609,6 @@ class BomComprasServiceMixin:
         if not item_ids:
             raise ValueError("Selecciona al menos un item para el RFQ.")
 
-        if not nombre:
-            proyecto_id_estandar = bom.get('proyecto_id_estandar') or 'SIN-ID'
-            base_nombre = f"RFQ_{proyecto_id_estandar}_{today_mx().strftime('%y%m%d')}"
-            nombre = await self._siguiente_nombre_rfq_disponible(conn, base_nombre)
-
         item_ids_unicos = list(dict.fromkeys(item_ids))
         items_bd = await self.db.get_items_by_ids(conn, item_ids_unicos)
         if len(items_bd) != len(item_ids_unicos):
@@ -1631,6 +1627,11 @@ class BomComprasServiceMixin:
             for i in items_disponibles
         ]
         async with conn.transaction():
+            if not nombre:
+                proyecto_id_estandar = bom.get('proyecto_id_estandar') or 'SIN-ID'
+                base_nombre = f"RFQ_{proyecto_id_estandar}_{today_mx().strftime('%y%m%d')}"
+                await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", base_nombre)
+                nombre = await self._siguiente_nombre_rfq_disponible(conn, base_nombre)
             rfq = await self.db.crear_rfq(conn, id_bom, creado_por, notas, nombre)
             await self.db.agregar_items_rfq(conn, rfq['id'], items_insert)
             await self.db.registrar_historial_rfq(

@@ -220,6 +220,27 @@ class BomDBService(BomComprasDBMixin):
             "SELECT id_proyecto FROM tb_bom WHERE id_bom = $1", id_bom
         )
 
+    async def get_id_paquete_by_bom(self, conn, id_bom: UUID) -> Optional[UUID]:
+        """Lookup liviano de id_paquete por BOM, sin los joins pesados de get_bom_by_id."""
+        return await conn.fetchval(
+            "SELECT id_paquete FROM tb_bom WHERE id_bom = $1", id_bom
+        )
+
+    async def get_bom_subtitulo(self, conn, id_bom: UUID) -> Optional[dict]:
+        """Lookup liviano de version + codigo de paquete por BOM, para el subtitulo
+        de los modales de log (Historial/Aprobaciones/Adendas/Versiones) -- sin los
+        joins pesados de get_bom_by_id."""
+        row = await conn.fetchrow(
+            """
+            SELECT b.version, paquete.codigo AS paquete_codigo
+            FROM tb_bom b
+            JOIN tb_bom_paquetes paquete ON paquete.id_paquete = b.id_paquete
+            WHERE b.id_bom = $1
+            """,
+            id_bom,
+        )
+        return dict(row) if row else None
+
     async def get_estado_proyecto_for_update(self, conn, id_proyecto: UUID) -> dict:
         await conn.execute(
             """

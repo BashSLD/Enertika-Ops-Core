@@ -1,16 +1,23 @@
 {# Lista de versiones del paquete al que pertenece este BOM. #}
+{% set estatus_config = {
+    'BORRADOR':          {'bg': 'bg-gray-100',   'text': 'text-gray-800',   'label': 'Borrador'},
+    'EN_REVISION_ING':   {'bg': 'bg-amber-100',  'text': 'text-amber-800',  'label': 'En Revision Ing.'},
+    'APROBADO_ING':      {'bg': 'bg-blue-100',   'text': 'text-blue-800',   'label': 'Aprobado Ing.'},
+    'EN_REVISION_OBRA':  {'bg': 'bg-yellow-100', 'text': 'text-yellow-800', 'label': 'En Revision Obra'},
+    'EN_REVISION_CONST': {'bg': 'bg-orange-100', 'text': 'text-orange-800', 'label': 'En Revision Const.'},
+    'APROBADO_CONST':    {'bg': 'bg-green-100',  'text': 'text-green-800',  'label': 'Aprobado Const.'},
+    'EN_REVISION_FINAL': {'bg': 'bg-violet-100', 'text': 'text-violet-800', 'label': 'En Revision Final'},
+    'APROBADO_FINAL':    {'bg': 'bg-emerald-100','text': 'text-emerald-800','label': 'Aprobado Final'},
+    'CANCELADO':         {'bg': 'bg-red-100',    'text': 'text-red-800',    'label': 'Cancelado'},
+} %}
 <div class="bg-white rounded-lg border divide-y">
     {% for v in versiones %}
+    {% set cfg = estatus_config.get(v.estatus, estatus_config['BORRADOR']) %}
     <div class="flex items-center justify-between px-4 py-3 {{ 'bg-blue-50' if v.id_bom == bom.id_bom }}">
         <div>
             <span class="font-mono font-bold text-sm">v{{ v.version }}</span>
-            <span class="ml-2 text-xs px-2 py-0.5 rounded-full
-                {% if v.estatus == 'APROBADO' %}bg-green-100 text-green-800
-                {% elif v.estatus == 'CANCELADO' %}bg-red-100 text-red-800
-                {% elif v.estatus == 'BORRADOR' %}bg-gray-100 text-gray-800
-                {% elif 'REVISION' in v.estatus %}bg-amber-100 text-amber-800
-                {% else %}bg-blue-100 text-blue-800{% endif %}">
-                {{ v.estatus }}
+            <span class="ml-2 text-xs px-2 py-0.5 rounded-full {{ cfg.bg }} {{ cfg.text }}">
+                {{ cfg.label }}
             </span>
         </div>
         <div class="text-xs text-gray-500">

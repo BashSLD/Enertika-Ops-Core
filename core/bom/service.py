@@ -1133,6 +1133,14 @@ class BomService(BomComprasServiceMixin):
             raise ValueError("BOM no encontrado")
         return bom
 
+    async def get_bom_subtitulo(self, conn, id_bom: UUID) -> dict:
+        """Lookup liviano (version + codigo de paquete) para el subtitulo de los
+        modales de log. Lanza error si no existe."""
+        bom = await self.db.get_bom_subtitulo(conn, id_bom)
+        if not bom:
+            raise ValueError("BOM no encontrado")
+        return bom
+
     @staticmethod
     def item_sin_costo(item: dict) -> bool:
         """True si el item activo no tiene costo util (oficial) para presupuesto:

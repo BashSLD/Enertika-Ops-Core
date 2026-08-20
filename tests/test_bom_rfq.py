@@ -20,6 +20,9 @@ class FakeConn:
     async def __aexit__(self, *exc):
         return False
 
+    async def execute(self, *args, **kwargs):
+        return None
+
 
 def _bom(bom_id, estatus="APROBADO_CONST", proyecto_id_estandar="MX-99180-FV"):
     return {
