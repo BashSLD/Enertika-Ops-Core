@@ -101,6 +101,14 @@
                                         class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-gray-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-wait">
                                         Equipo
                                     </button>
+                                    <button hx-get="/bom/paquetes/{{ p.id_paquete }}/compras"
+                                        hx-target="#main-content"
+                                        hx-push-url="true"
+                                        hx-indicator="#global-loading-overlay"
+                                        hx-disabled-elt="this" hx-sync="this:drop" @click="openMenu = false"
+                                        class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-gray-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-wait">
+                                        Compras
+                                    </button>
                                 </div>
                             </template>
                         </div>
