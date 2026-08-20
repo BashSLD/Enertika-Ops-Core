@@ -336,6 +336,192 @@
                     }
                 }
             }));
+
+            // Modal "Nueva Cotización" + modal de reemplazo de proveedor incumplido, en
+            // templates/bom/partials/cotizaciones.html (partial cargado lazy por HTMX).
+            // Registrado aqui (no en el propio partial) para evitar la carrera Alpine-vs-HTMX
+            // documentada arriba en sharepointFolderButton: si el <script> que define el
+            // componente vive dentro del HTML que HTMX intercambia, Alpine puede inicializar
+            // x-data antes de que HTMX ejecute ese <script> en su fase de "settle".
+            Alpine.data('cotizacionesBom', () => ({
+                modalAbierto: false,
+                itemsDisponibles: [],
+                itemsSeleccionados: [],    // [{id_item, precio_unitario, cantidad, ...}]
+                precios: {},               // { id_item: precio_unitario }
+                moneda: 'MXN',
+                ivaPct: 16,
+                notas: '',
+                busquedaProveedor: '',
+                mostrarResultadosProveedor: false,
+                proveedorSeleccionado: { id: null, nombre: '' },
+                guardando: false,
+                errorMsg: '',
+
+                modalReemplazoAbierto: false,
+                reemplazo: { cotizacionId: null, aprobacionLockVersion: null, autorizacionLockVersion: null, proveedor: '' },
+                reemplazoMotivo: '',
+                reemplazoCancelarDefinitivo: false,
+                reemplazoOverride: false,
+                reemplazoGuardando: false,
+                reemplazoError: '',
+
+                init() {
+                    try {
+                        this.itemsDisponibles = JSON.parse(this.$el.dataset.items || '[]');
+                    } catch(e) { this.itemsDisponibles = []; }
+                },
+
+                abrirModal() {
+                    this.itemsSeleccionados = [];
+                    this.precios = {};
+                    this.notas = '';
+                    this.moneda = 'MXN';
+                    this.ivaPct = 16;
+                    this.busquedaProveedor = '';
+                    this.proveedorSeleccionado = { id: null, nombre: '' };
+                    this.errorMsg = '';
+                    this.modalAbierto = true;
+                },
+
+                cerrarModal() { this.modalAbierto = false; },
+
+                isSelected(id_item) {
+                    return this.itemsSeleccionados.some(i => i.id_item === id_item);
+                },
+
+                toggleItem(item) {
+                    if (this.isSelected(item.id_item)) {
+                        this.itemsSeleccionados = this.itemsSeleccionados.filter(i => i.id_item !== item.id_item);
+                        delete this.precios[item.id_item];
+                    } else {
+                        this.itemsSeleccionados.push({ ...item });
+                        this.precios[item.id_item] = item.precio_unitario || 0;
+                    }
+                },
+
+                getPrecio(id_item) {
+                    return this.precios[id_item] || 0;
+                },
+
+                setPrecio(id_item, val) {
+                    this.precios[id_item] = parseFloat(val) || 0;
+                },
+
+                get subtotal() {
+                    return this.itemsSeleccionados.reduce((acc, item) => {
+                        const p = parseFloat(this.precios[item.id_item]) || 0;
+                        const c = parseFloat(item.cantidad) || 0;
+                        return acc + p * c;
+                    }, 0);
+                },
+
+                get iva() {
+                    return Math.round(this.subtotal * this.ivaPct / 100 * 100) / 100;
+                },
+
+                get total() {
+                    return Math.round((this.subtotal + this.iva) * 100) / 100;
+                },
+
+                async buscarProveedores() {
+                    if (this.busquedaProveedor.length < 2) return;
+                    const resp = await fetch(`/bom/proveedores/buscar?q=${encodeURIComponent(this.busquedaProveedor)}`);
+                    const html = await resp.text();
+                    document.getElementById('resultados-proveedores-bom').innerHTML = html;
+                    this.mostrarResultadosProveedor = true;
+                },
+
+                limpiarProveedor() {
+                    this.proveedorSeleccionado = { id: null, nombre: '' };
+                    this.busquedaProveedor = '';
+                },
+
+                async guardar() {
+                    if (this.itemsSeleccionados.length === 0) {
+                        this.errorMsg = 'Selecciona al menos un ítem.';
+                        return;
+                    }
+                    this.guardando = true;
+                    this.errorMsg = '';
+                    try {
+                        const body = {
+                            proveedor_id: this.proveedorSeleccionado.id || null,
+                            nombre_proveedor: this.proveedorSeleccionado.nombre || this.busquedaProveedor || null,
+                            moneda: this.moneda,
+                            iva_pct: this.ivaPct,
+                            notas: this.notas || null,
+                            bom_lock_version: Number(this.$el.dataset.bomLockVersion),
+                            items: this.itemsSeleccionados.map(item => ({
+                                bom_item_id: item.id_item,
+                                precio_unitario: parseFloat(this.precios[item.id_item]) || 0,
+                                cantidad: parseFloat(item.cantidad),
+                            })),
+                        };
+                        const bomId = document.getElementById('tab-cotizaciones-content').dataset.bomId;
+                        const resp = await fetch(`/bom/${bomId}/cotizaciones`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'HX-Request': 'true' },
+                            body: JSON.stringify(body),
+                        });
+                        if (!resp.ok) {
+                            const err = await resp.json().catch(() => ({}));
+                            throw new Error(err.detail || 'Error al crear cotización');
+                        }
+                        const html = await resp.text();
+                        document.getElementById('tab-cotizaciones').innerHTML = html;
+                        this.cerrarModal();
+                    } catch(e) {
+                        this.errorMsg = e.message;
+                    } finally {
+                        this.guardando = false;
+                    }
+                },
+
+                abrirModalReemplazo(cotizacionId, aprobacionLockVersion, autorizacionLockVersion, proveedor) {
+                    this.reemplazo = { cotizacionId, aprobacionLockVersion, autorizacionLockVersion, proveedor };
+                    this.reemplazoMotivo = '';
+                    this.reemplazoCancelarDefinitivo = false;
+                    this.reemplazoOverride = false;
+                    this.reemplazoError = '';
+                    this.modalReemplazoAbierto = true;
+                },
+
+                cerrarModalReemplazo() { this.modalReemplazoAbierto = false; },
+
+                async guardarReemplazo() {
+                    if (!this.reemplazoMotivo.trim()) {
+                        this.reemplazoError = 'El motivo es obligatorio.';
+                        return;
+                    }
+                    this.reemplazoGuardando = true;
+                    this.reemplazoError = '';
+                    try {
+                        const body = new URLSearchParams({
+                            motivo: this.reemplazoMotivo,
+                            aprobacion_lock_version: this.reemplazo.aprobacionLockVersion,
+                            autorizacion_lock_version: this.reemplazo.autorizacionLockVersion,
+                            es_override: this.reemplazoOverride ? 'true' : 'false',
+                            cancelar_definitivo: this.reemplazoCancelarDefinitivo ? 'true' : 'false',
+                        });
+                        const resp = await fetch(`/bom/cotizaciones/${this.reemplazo.cotizacionId}/reemplazar`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'HX-Request': 'true' },
+                            body: body.toString(),
+                        });
+                        if (!resp.ok) {
+                            const err = await resp.json().catch(() => ({}));
+                            throw new Error(err.detail || 'Error al reemplazar la cotización');
+                        }
+                        const html = await resp.text();
+                        document.getElementById('tab-cotizaciones').innerHTML = html;
+                        this.cerrarModalReemplazo();
+                    } catch(e) {
+                        this.reemplazoError = e.message;
+                    } finally {
+                        this.reemplazoGuardando = false;
+                    }
+                }
+            }));
         });
     </script>
 
