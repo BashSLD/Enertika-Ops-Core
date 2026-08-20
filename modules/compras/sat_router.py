@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from core.cfdi.db_service import get_cfdi_db_service
 from core.database import get_db_connection
 from core.permissions import require_module_access
 from core.security import get_current_user_context
@@ -332,20 +333,40 @@ async def _procesar_match_unico(
     inbox_id: UUID,
     comprobante_id: UUID,
     user_id: UUID,
+    empresa: Optional[dict],
     forzar_match: bool = False,
     monto_aplicado: str | None = None,
 ):
+    """`empresa` (fila de `tb_config_empresa`) se recibe ya resuelta por el
+    caller -- se lee una sola vez antes del loop de match (auto-match o
+    match-candidatos), no por cada CFDI, mismo patron que `procesar_xmls`
+    (ver `_Planes_Activos/2026-08-19-cfdi-servicio-compartido.md`, decision 8)."""
     from modules.compras.sat_service import descargar_xml_de_inbox
-    from modules.compras.xml_extractor import parse_cfdi_xml
+    from core.cfdi.extractor import parse_cfdi_xml
+    from core.cfdi.service import validar_y_auditar_xml
     from modules.compras.service import ComprasService
 
     xml_bytes, uuid_cfdi = await descargar_xml_de_inbox(conn, inbox_id)
     cfdi = parse_cfdi_xml(xml_bytes, f"{uuid_cfdi}.xml")
 
+    fallos = await validar_y_auditar_xml(
+        conn, cfdi, empresa,
+        modulo_slug="compras", canal="BUZON_SAT",
+        uploaded_by_id=user_id,
+    )
+    if fallos:
+        detalle = "; ".join(msg for _, msg in fallos)
+        raise ValueError(f"Datos fiscales del receptor invalidos: {detalle}")
+
     cfdi_data = {
         "uuid": cfdi.uuid,
         "emisor_rfc": cfdi.emisor_rfc,
         "emisor_nombre": cfdi.emisor_nombre,
+        "receptor_rfc": cfdi.receptor_rfc,
+        "receptor_nombre": cfdi.receptor_nombre,
+        "receptor_cp": cfdi.receptor_cp,
+        "receptor_regimen_fiscal": cfdi.receptor_regimen_fiscal,
+        "uso_cfdi": cfdi.uso_cfdi,
         "total": str(cfdi.total) if cfdi.total else "0",
         "subtotal": str(cfdi.subtotal) if cfdi.subtotal else "0",
         "moneda": cfdi.moneda,
@@ -428,12 +449,14 @@ async def confirmar_match(
             status_code=400,
         )
 
+    empresa = await get_cfdi_db_service().get_config_empresa(conn)
     try:
         await _procesar_match_unico(
             conn,
             inbox_id,
             comprobante_id,
             user["user_db_id"],
+            empresa,
             forzar_match=forzar_match,
             monto_aplicado=monto_aplicado,
         )
@@ -583,6 +606,7 @@ async def confirm_auto_match(
         )
 
     user_id = user["user_db_id"]
+    empresa = await get_cfdi_db_service().get_config_empresa(conn)
     procesados = 0
     errores = 0
 
@@ -592,7 +616,7 @@ async def confirm_auto_match(
             inbox_id_str, comprobante_id_str = match_str.split("|")
             inbox_id = UUID(inbox_id_str)
             comprobante_id = UUID(comprobante_id_str)
-            await _procesar_match_unico(conn, inbox_id, comprobante_id, user_id)
+            await _procesar_match_unico(conn, inbox_id, comprobante_id, user_id, empresa)
             logger.info("Auto-match OK: inbox=%s comprobante=%s", inbox_id_str, comprobante_id_str)
             procesados += 1
         except (ValueError, asyncpg.PostgresError) as e:
@@ -720,6 +744,7 @@ async def match_candidatos_desde_comprobante(
         )
 
     user_id = user["user_db_id"]
+    empresa = await get_cfdi_db_service().get_config_empresa(conn)
     try:
         await sat_service.validar_candidatos_para_match(
             conn,
@@ -737,6 +762,7 @@ async def match_candidatos_desde_comprobante(
                     inbox_id,
                     id_comprobante,
                     user_id,
+                    empresa,
                     forzar_match=forzar_match,
                     monto_aplicado=monto_aplicado_match,
                 )
@@ -811,12 +837,14 @@ async def match_desde_comprobante(
     forzar_match = forzar_match_raw.lower() == "true"
     monto_aplicado = (monto_aplicado or "").strip() or None
     user_id = user["user_db_id"]
+    empresa = await get_cfdi_db_service().get_config_empresa(conn)
     try:
         await _procesar_match_unico(
             conn,
             inbox_id,
             comprobante_id,
             user_id,
+            empresa,
             forzar_match=forzar_match,
             monto_aplicado=monto_aplicado,
         )

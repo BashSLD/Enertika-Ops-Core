@@ -42,7 +42,7 @@ from .service import (
     ComprasService, get_compras_service, parse_exceso_monto_error,
     rango_valido_para_zip, MAX_DIAS_EXPORT_ZIP,
 )
-from modules.shared.utils import content_disposition_header
+from modules.shared.utils import content_disposition_header, is_htmx
 from modules.proveedores.service import ProveedoresService, get_proveedores_service, SharePointProveedorError
 from modules.proveedores.router import _handle_sharepoint_error
 from core.bom.service import FLAG_ACTUALIZACION_PRECIOS_COMPRAS
@@ -309,6 +309,51 @@ async def get_proyectos_bom_pendientes_precio(
         request, "compras/partials/precios_pendientes.html",
         {"proyectos": proyectos, "deshabilitada": False, "user_name": context.get("user_name")}
     )
+
+
+# ========================================
+# FACTURAS CON ERRORES (validacion fiscal XML CFDI)
+# ========================================
+
+@router.get("/xml-errores", include_in_schema=False)
+async def get_xml_errores(
+    request: Request,
+    page: int = Query(1, ge=1),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_module_access("compras", "viewer"),
+):
+    """Auditoria de XML CFDI que fallaron la validacion de datos fiscales del receptor."""
+    from core.cfdi.db_service import get_cfdi_db_service
+    db_svc = get_cfdi_db_service()
+
+    per_page = 50
+    try:
+        items, total = await db_svc.get_errores_fiscales_paginado(
+            conn, modulo_slug="compras", page=page, per_page=per_page
+        )
+    except asyncpg.PostgresError:
+        # Degrada a lista vacia si la migracion que agrega tb_cfdi_errores_fiscales
+        # todavia no se aplico en este entorno (desfase de orden migracion/deploy,
+        # ver decision 9 de _Planes_Activos/2026-08-19-cfdi-servicio-compartido.md).
+        logger.exception("Error de BD al listar errores fiscales de XML CFDI")
+        items, total = [], 0
+    pages = (total + per_page - 1) // per_page if total > 0 else 1
+
+    ctx = {
+        "user_name": context.get("user_name"),
+        "role": context.get("role"),
+        "module_roles": context.get("module_roles", {}),
+        "items": items,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": pages,
+    }
+
+    if is_htmx(request):
+        return templates.TemplateResponse(request, "compras/partials/xml_errores_content.html", ctx)
+    return templates.TemplateResponse(request, "compras/xml_errores.html", ctx)
 
 
 # ========================================
@@ -1391,7 +1436,7 @@ async def backfill_tc_materiales(
     from .db_service import get_db_service
     from core.integrations.sharepoint import get_sharepoint_service
     from core.microsoft import get_ms_auth
-    from .xml_extractor import parse_cfdi_xml
+    from core.cfdi.extractor import parse_cfdi_xml
 
     db_svc = get_db_service()
 

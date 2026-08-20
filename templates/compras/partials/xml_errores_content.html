@@ -1,0 +1,96 @@
+<div class="space-y-6 p-6" id="xml-errores-root">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <h2 class="text-lg font-semibold text-gray-800">Facturas con errores fiscales</h2>
+      <p class="text-sm text-gray-500 mt-0.5">
+        XML CFDI rechazados por datos fiscales del receptor invalidos (RFC, razon social, CP,
+        regimen fiscal, UsoCFDI o FormaPago). Solo lectura.
+      </p>
+    </div>
+    <a href="/compras/ui" hx-get="/compras/ui" hx-target="#main-content" hx-push-url="true"
+       class="action-btn action-btn-ghost">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+      </svg>
+      <span class="action-label">Volver</span>
+    </a>
+  </div>
+
+  <div class="rounded-xl border border-gray-200 bg-white overflow-hidden">
+    {% if items %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200 text-sm">
+        <thead class="bg-gray-50 border-b border-gray-200">
+          <tr>
+            <th class="px-4 py-3 text-left font-medium text-gray-500">Fecha</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-500">Archivo</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-500">UUID</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-500">Emisor</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-500">Tipo(s) de error</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-500">Detalle</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-500">Canal</th>
+            <th class="px-4 py-3 text-left font-medium text-gray-500">Subido por</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100 bg-white">
+          {% for item in items %}
+          <tr class="hover:bg-gray-50 align-top">
+            <td class="px-4 py-3 whitespace-nowrap text-gray-600"
+                title="{{ item.created_at.strftime('%d/%m/%Y %H:%M') if item.created_at else '' }}">
+              {{ item.created_at.strftime('%d/%m/%Y') if item.created_at else '-' }}
+            </td>
+            <td class="px-4 py-3 text-gray-700">{{ item.archivo }}</td>
+            <td class="px-4 py-3 text-gray-500 font-mono text-xs">
+              {{ item.uuid_factura[:8] ~ '...' if item.uuid_factura else '-' }}
+            </td>
+            <td class="px-4 py-3">
+              <div class="text-gray-700">{{ item.emisor_nombre or '-' }}</div>
+              <div class="text-xs text-gray-400">{{ item.emisor_rfc or '-' }}</div>
+            </td>
+            <td class="px-4 py-3">
+              <div class="flex flex-wrap gap-1">
+                {% for tipo in (item.tipo_error or '').split(',') %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200">
+                  {{ tipo }}
+                </span>
+                {% endfor %}
+              </div>
+            </td>
+            <td class="px-4 py-3 text-gray-600 max-w-md">{{ item.detalle }}</td>
+            <td class="px-4 py-3">
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+                {% if item.canal == 'BUZON_SAT' %}bg-blue-50 text-blue-700 border border-blue-200
+                {% else %}bg-gray-100 text-gray-700 border border-gray-200{% endif %}">
+                {{ 'Buzón SAT' if item.canal == 'BUZON_SAT' else 'Carga manual' }}
+              </span>
+            </td>
+            <td class="px-4 py-3 text-gray-600">{{ item.uploaded_by_nombre or '-' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if pages > 1 %}
+    <div class="flex items-center justify-between px-4 py-3 border-t border-gray-200 text-sm text-gray-500">
+      <span>Página {{ page }} de {{ pages }} ({{ total }} registros)</span>
+      <div class="flex gap-2">
+        {% if page > 1 %}
+        <a href="/compras/xml-errores?page={{ page - 1 }}" hx-get="/compras/xml-errores?page={{ page - 1 }}"
+           hx-target="#main-content" hx-push-url="true"
+           class="px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50">Anterior</a>
+        {% endif %}
+        {% if page < pages %}
+        <a href="/compras/xml-errores?page={{ page + 1 }}" hx-get="/compras/xml-errores?page={{ page + 1 }}"
+           hx-target="#main-content" hx-push-url="true"
+           class="px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50">Siguiente</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="p-10 text-center text-gray-400">
+      <p class="text-sm">No hay facturas con errores fiscales registradas.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>

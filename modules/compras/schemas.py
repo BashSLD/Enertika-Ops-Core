@@ -328,82 +328,12 @@ class ComprobanteFactura(BaseModel):
 # ========================================
 # XML CFDI
 # ========================================
+# El parser (CfdiData/CfdiConcepto/CfdiRelacionado/TipoFactura/TipoComprobanteSAT)
+# vive en core/cfdi/schemas.py -- compartido con Finanzas y el futuro flujo de
+# Construccion. Este modulo solo mantiene los schemas propios del workflow de
+# matching XML<->comprobante, que si son especificos de Compras.
 
-class TipoFactura(str, Enum):
-    """Tipo de factura detectado del XML CFDI."""
-    NORMAL = "NORMAL"
-    ANTICIPO = "ANTICIPO"
-    CIERRE_ANTICIPO = "CIERRE_ANTICIPO"
-    NOTA_CREDITO = "NOTA_CREDITO"
-    PAGO = "PAGO"  # CFDI complemento de pago (TipoDeComprobante="P")
-
-
-class TipoComprobanteSAT(str, Enum):
-    """Tipos de comprobante segun catalogo SAT."""
-    INGRESO = "I"
-    EGRESO = "E"
-    TRASLADO = "T"
-    PAGO = "P"
-
-
-class CfdiConcepto(BaseModel):
-    """Concepto/item extraido de un CFDI."""
-    descripcion: str
-    cantidad: Decimal
-    valor_unitario: Decimal
-    importe: Decimal
-    unidad: Optional[str] = None
-    clave_prod_serv: Optional[str] = None
-    clave_unidad: Optional[str] = None
-
-
-class CfdiRelacionado(BaseModel):
-    """CFDI relacionado extraido del XML."""
-    uuid: str
-    tipo_relacion: str
-    tipo_relacion_desc: Optional[str] = None
-
-
-class CfdiData(BaseModel):
-    """Datos completos extraidos de un XML CFDI."""
-    archivo: str
-    uuid: str
-    fecha: str
-    total: Decimal
-    subtotal: Optional[Decimal] = None
-    moneda: str = "MXN"
-    metodo_pago: Optional[str] = None
-    forma_pago: Optional[str] = None
-    tipo_comprobante: Optional[str] = None
-
-    # Emisor (proveedor)
-    emisor_rfc: str
-    emisor_nombre: str
-
-    # Receptor
-    receptor_rfc: Optional[str] = None
-    receptor_nombre: Optional[str] = None
-
-    # Conceptos
-    conceptos: List[CfdiConcepto] = []
-
-    # CFDI relacionados
-    relacionados: List[CfdiRelacionado] = []
-
-    # Tipo detectado
-    tipo_factura: TipoFactura = TipoFactura.NORMAL
-
-    # Tipo de cambio SAT-certificado al momento de timbrar (None si moneda=MXN)
-    tipo_cambio_xml: Optional[Decimal] = None
-
-    @field_validator('total', 'subtotal', mode='before')
-    @classmethod
-    def convert_decimal(cls, v):
-        if v is None:
-            return v
-        if isinstance(v, (int, float, str)):
-            return Decimal(str(v))
-        return v
+from core.cfdi.schemas import CfdiData
 
 
 class XmlUploadError(BaseModel):

@@ -1137,11 +1137,6 @@ class ComprasDBService:
         )
         return doc_id
 
-    async def get_config_empresa(self, conn) -> Optional[dict]:
-        """Datos fiscales de Enertika (tb_config_empresa) para validar el RFC receptor del XML."""
-        row = await conn.fetchrow("SELECT * FROM tb_config_empresa WHERE id = 1")
-        return dict(row) if row else None
-
     async def get_config_valor(self, conn, clave: str) -> str:
         """
         Obtiene un valor de configuración de tb_configuracion_global.

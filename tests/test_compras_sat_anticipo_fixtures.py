@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from modules.compras.xml_extractor import parse_cfdi_xml
+from core.cfdi.extractor import parse_cfdi_xml
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "compras_sat_anticipo"

@@ -14,7 +14,7 @@ from core.jinja_filters import register_timezone_filters
 from .service import AdminService, get_admin_service
 from .permission_utils import extract_module_roles
 from core.tipo_cambio.service import TipoCambioService
-from modules.shared.utils import is_htmx, toast_error
+from modules.shared.utils import is_htmx, toast_error, toast_success
 import asyncpg
 import httpx
 
@@ -35,6 +35,7 @@ from .schemas import ConfiguracionGlobalUpdate
 from core.config_service import ConfigService
 from core.bom.db_service import BomDBService
 from modules.asistencia import service as asistencia_service
+from core.cfdi.db_service import get_cfdi_db_service
 
 router = APIRouter(
     prefix="/admin",
@@ -109,6 +110,7 @@ async def admin_dashboard(
     recordatorios_monitor = await service.get_recordatorios_oportunidad_monitor(conn)
     tc_actual = await tc_service.get_tasa_actual(conn)
     tc_historial = await tc_service.get_historial(conn, limit=30)
+    config_empresa = await get_cfdi_db_service().get_config_empresa(conn)
     comercial_popup_users = [
         user for user in users_enriched
         if _is_comercial_popup_user(user)
@@ -146,6 +148,7 @@ async def admin_dashboard(
         # Tipo de cambio
         "tipo_cambio_actual": tc_actual,
         "tipo_cambio_historial": tc_historial,
+        "config_empresa": config_empresa,
     })
 
 @router.post("/users/role")
@@ -808,6 +811,39 @@ async def update_config_sat_inbox(
         {"message": "Configuración SAT Inbox guardada correctamente", "type": "success"},
         headers={"HX-Reswap": "none"},
     )
+
+
+@router.post("/config/empresa", include_in_schema=False)
+async def update_config_empresa(
+    request: Request,
+    razon_social: str = Form(...),
+    rfc: str = Form(...),
+    codigo_postal: str = Form(""),
+    regimen_fiscal: str = Form(""),
+    direccion: str = Form(""),
+    telefono: str = Form(""),
+    email_contacto: str = Form(""),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin"),
+):
+    """Guarda los datos fiscales de la empresa (tb_config_empresa) -- membrete PDF RFQ y
+    validacion del receptor en XML CFDI, compartida entre Compras y futuros consumidores
+    (Finanzas/Construccion) via core/cfdi/."""
+    try:
+        await get_cfdi_db_service().update_config_empresa(
+            conn,
+            razon_social=razon_social.strip(),
+            rfc=rfc.strip().upper(),
+            codigo_postal=codigo_postal.strip() or None,
+            regimen_fiscal=regimen_fiscal.strip() or None,
+            direccion=direccion.strip() or None,
+            telefono=telefono.strip() or None,
+            email_contacto=email_contacto.strip() or None,
+        )
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al guardar datos de Empresa")
+        return toast_error(request, "Error de base de datos al guardar los datos de la empresa", status_code=500)
+    return toast_success(request, "Datos de la empresa guardados correctamente")
 
 
 @router.post("/config/visita-obra", include_in_schema=False)

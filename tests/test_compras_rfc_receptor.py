@@ -1,6 +1,9 @@
 """
-Test de validacion del RFC receptor contra tb_config_empresa (doc 35): procesar_xmls rechaza
-un XML timbrado a nombre de otra empresa como error de carga, antes de crear proveedor/match.
+Test de integracion de procesar_xmls + validacion fiscal del receptor (doc 35 +
+core/cfdi/): rechaza un XML timbrado a nombre de otra empresa como error de carga,
+antes de crear proveedor/match. Las reglas puras de validar_datos_fiscales_receptor
+se cubren en tests/test_cfdi_validacion_fiscal.py -- este archivo solo verifica la
+integracion con ComprasService.procesar_xmls (no duplica los casos de regla).
 """
 
 from types import SimpleNamespace
@@ -27,10 +30,18 @@ class FakeFile:
 
 def _fake_cfdi(receptor_rfc):
     return SimpleNamespace(
+        archivo="factura.xml",
         uuid="DDDDDDDD-1111-2222-3333-444444444444",
         emisor_rfc="AAA010101AAA",
         emisor_nombre="Proveedor Demo",
         receptor_rfc=receptor_rfc,
+        receptor_nombre=None,
+        receptor_cp=None,
+        receptor_regimen_fiscal=None,
+        uso_cfdi=None,
+        metodo_pago=None,
+        forma_pago=None,
+        tipo_comprobante=None,
         total=1000.0,
         moneda="MXN",
         tipo_factura=SimpleNamespace(value="NORMAL"),
@@ -40,11 +51,14 @@ def _fake_cfdi(receptor_rfc):
 @pytest.mark.asyncio
 async def test_rechaza_xml_con_rfc_receptor_distinto(monkeypatch):
     fake_db = SimpleNamespace(
-        get_config_empresa=AsyncMock(return_value={"rfc": "ENE010101AAA"}),
         get_proveedor_by_rfc=AsyncMock(),
         uuid_factura_exists=AsyncMock(),
     )
+    fake_cfdi_db = SimpleNamespace(
+        get_config_empresa=AsyncMock(return_value={"rfc": "ENE010101AAA"}),
+    )
     monkeypatch.setattr(compras_db_module, "get_db_service", lambda: fake_db)
+    monkeypatch.setattr(compras_service_module, "get_cfdi_db_service", lambda: fake_cfdi_db)
     monkeypatch.setattr(compras_service_module, "validate_xml_content", lambda content, filename: None)
     monkeypatch.setattr(
         compras_service_module, "parse_cfdi_xml",
@@ -63,13 +77,16 @@ async def test_rechaza_xml_con_rfc_receptor_distinto(monkeypatch):
 @pytest.mark.asyncio
 async def test_no_bloquea_si_config_empresa_sigue_pendiente(monkeypatch):
     fake_db = SimpleNamespace(
-        get_config_empresa=AsyncMock(return_value={"rfc": "PENDIENTE_CONFIGURAR"}),
         get_proveedor_by_rfc=AsyncMock(return_value=None),
         create_proveedor=AsyncMock(return_value={"id_proveedor": uuid4()}),
         uuid_factura_exists=AsyncMock(return_value=True),
         uuid_factura_exists_in_junction=AsyncMock(return_value=False),
     )
+    fake_cfdi_db = SimpleNamespace(
+        get_config_empresa=AsyncMock(return_value={"rfc": "PENDIENTE_CONFIGURAR"}),
+    )
     monkeypatch.setattr(compras_db_module, "get_db_service", lambda: fake_db)
+    monkeypatch.setattr(compras_service_module, "get_cfdi_db_service", lambda: fake_cfdi_db)
     monkeypatch.setattr(compras_service_module, "validate_xml_content", lambda content, filename: None)
     monkeypatch.setattr(
         compras_service_module, "parse_cfdi_xml",

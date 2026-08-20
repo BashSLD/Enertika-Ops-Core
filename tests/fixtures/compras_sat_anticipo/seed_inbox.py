@@ -19,7 +19,7 @@ from core.database import close_db_connection, connect_to_db, get_db_pool
 from core.integrations.sharepoint import SharePointService
 from core.microsoft import get_ms_auth
 from modules.compras import sat_db_service
-from modules.compras.xml_extractor import parse_cfdi_xml
+from core.cfdi.extractor import parse_cfdi_xml
 
 logger = logging.getLogger("SeedComprasSatAnticipos")
 

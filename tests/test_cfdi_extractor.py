@@ -1,17 +1,17 @@
 """
-Tests para el extractor de XML CFDI (modules/compras/xml_extractor.py).
+Tests para el extractor de XML CFDI (core/cfdi/extractor.py).
 Pruebas puras de parseo — sin BD ni I/O de red.
 """
 import pytest
 from decimal import Decimal
 
-from modules.compras.xml_extractor import (
+from core.cfdi.extractor import (
     parse_cfdi_xml,
     validate_xml_content,
     _safe_decimal,
     _detect_tipo_factura,
 )
-from modules.compras.schemas import (
+from core.cfdi.schemas import (
     CfdiConcepto,
     CfdiRelacionado,
     TipoFactura,

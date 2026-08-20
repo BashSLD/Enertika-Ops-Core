@@ -40,7 +40,7 @@ from modules.compras import db_service as compras_db_module
 from modules.compras import sat_db_service
 from modules.compras import sat_service
 from modules.compras.db_service import ComprasDBService
-from modules.compras.schemas import CfdiData, CfdiRelacionado, TipoFactura
+from core.cfdi.schemas import CfdiData, CfdiRelacionado, TipoFactura
 from modules.compras.service import ComprasService
 
 

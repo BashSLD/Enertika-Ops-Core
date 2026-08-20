@@ -1,4 +1,4 @@
-# Archivo: modules/compras/xml_extractor.py
+# core/cfdi/extractor.py
 """
 Extractor de datos de facturas XML CFDI (3.3 y 4.0).
 Parsea estructura SAT, extrae conceptos, detecta anticipos,
@@ -21,7 +21,10 @@ from .schemas import (
     TipoFactura,
 )
 
-logger = logging.getLogger("ComprasXMLExtractor")
+# UsoCFDI de los complementos de pago (tipo P) -- regla SAT fija, no se valida contra el receptor
+USO_CFDI_COMPLEMENTO_PAGO = "CP01"
+
+logger = logging.getLogger("CfdiExtractor")
 
 # Claves SAT para deteccion de anticipos y notas de credito
 CLAVE_ANTICIPO = "84111506"
@@ -309,6 +312,9 @@ def parse_cfdi_xml(content: bytes, filename: str) -> CfdiData:
         emisor_nombre=emisor_nombre,
         receptor_rfc=_get_attr(receptor, "Rfc"),
         receptor_nombre=_get_attr(receptor, "Nombre"),
+        receptor_cp=_get_attr(receptor, "DomicilioFiscalReceptor"),
+        receptor_regimen_fiscal=_get_attr(receptor, "RegimenFiscalReceptor"),
+        uso_cfdi=_get_attr(receptor, "UsoCFDI") or _get_attr(root, "UsoCFDI"),
         conceptos=conceptos,
         relacionados=relacionados,
         tipo_factura=tipo_factura,

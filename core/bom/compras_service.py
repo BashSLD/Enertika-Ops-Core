@@ -1730,8 +1730,8 @@ class BomComprasServiceMixin:
             await self.get_proyecto_info(conn, bom["id_proyecto"])
             if bom and bom.get("id_proyecto") else None
         )
-        from modules.compras.db_service import get_db_service as get_compras_db_service
-        empresa = await get_compras_db_service().get_config_empresa(conn)
+        from core.cfdi.db_service import get_cfdi_db_service
+        empresa = await get_cfdi_db_service().get_config_empresa(conn)
 
         from core.pdf_service.service import get_pdf_service
         pdf_service = get_pdf_service()

@@ -19,10 +19,13 @@ import base64
 import httpx
 from pdfminer.pdfexceptions import PSException
 from core.materials.service import get_materials_service
+from core.cfdi.extractor import parse_cfdi_xml, validate_xml_content
+from core.cfdi.schemas import TipoFactura
+from core.cfdi.service import validar_y_auditar_xml
+from core.cfdi.db_service import get_cfdi_db_service
 from .pdf_extractor import process_pdf_bytes
-from .xml_extractor import parse_cfdi_xml, validate_xml_content
 from .schemas import (
-    CfdiData, TipoFactura, XmlMatchResult, XmlUploadResult, XmlUploadError,
+    CfdiData, XmlMatchResult, XmlUploadResult, XmlUploadError,
 )
 
 logger = logging.getLogger("ComprasService")
@@ -858,13 +861,10 @@ class ComprasService:
 
         result = XmlUploadResult()
 
-        # RFC de Enertika (doc 35) -- 'PENDIENTE_CONFIGURAR' es el valor sembrado hasta que un
-        # ADMIN configure el real; no bloquear mientras tanto.
-        empresa = await db_svc.get_config_empresa(conn)
-        rfc_enertika = (
-            (empresa.get('rfc') or '').strip().upper()
-            if empresa and empresa.get('rfc') != 'PENDIENTE_CONFIGURAR' else ''
-        )
+        # Datos fiscales de Enertika, leidos una sola vez para todo el lote (no por-XML
+        # dentro del loop) -- tb_config_empresa es una tabla singleton editada casi nunca,
+        # ver decision 8 de _Planes_Activos/2026-08-19-cfdi-servicio-compartido.md.
+        empresa = await get_cfdi_db_service().get_config_empresa(conn)
 
         for file in files:
             filename = file.filename or "sin_nombre.xml"
@@ -897,16 +897,22 @@ class ComprasService:
                 ))
                 continue
 
-            # 3.5. Validar RFC receptor contra Enertika (doc 35) -- detecta XML mal
-            # timbrados (a nombre de otra empresa) antes de crear proveedor/match.
-            receptor_rfc = (cfdi.receptor_rfc or '').strip().upper()
-            if rfc_enertika and receptor_rfc and receptor_rfc != rfc_enertika:
+            # 3.5. Validar datos fiscales del receptor contra Enertika (doc 35 +
+            # validacion fiscal XML CFDI) -- detecta XML mal timbrados (a nombre de
+            # otra empresa, o con UsoCFDI/FormaPago incorrectos) antes de crear
+            # proveedor/match. 'PENDIENTE_CONFIGURAR' es el placeholder sembrado
+            # hasta que un ADMIN configure los datos reales; validar_y_auditar_xml
+            # no bloquea mientras tanto (centralizado en core/cfdi/service.py).
+            fallos = await validar_y_auditar_xml(
+                conn, cfdi, empresa,
+                modulo_slug="compras", canal="CARGA_MANUAL",
+                uploaded_by_id=user_id,
+            )
+            if fallos:
+                detalle = "; ".join(msg for _, msg in fallos)
                 result.errores.append(XmlUploadError(
                     archivo=filename,
-                    error=(
-                        f"RFC receptor ({receptor_rfc}) no coincide con Enertika "
-                        f"({rfc_enertika}); factura mal timbrada"
-                    ),
+                    error=f"Datos fiscales del receptor invalidos: {detalle}",
                 ))
                 continue
 

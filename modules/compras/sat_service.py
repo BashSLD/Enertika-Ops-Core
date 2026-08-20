@@ -13,7 +13,7 @@ from core.microsoft import get_ms_auth
 from core.timezone import now_mx
 from core.sat.client import SATClient
 from core.sat.fiel_loader import cargar_signer
-from modules.compras.xml_extractor import parse_cfdi_xml
+from core.cfdi.extractor import parse_cfdi_xml
 from modules.compras import sat_db_service
 
 logger = logging.getLogger("ComprasSATService")
