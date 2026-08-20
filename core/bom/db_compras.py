@@ -1411,6 +1411,15 @@ class BomComprasDBMixin:
 
     # ─── RFQ (doc 35) ────────────────────────────────────────
 
+    async def get_rfq_nombres_similares(self, conn, patron_base: str) -> list:
+        """Nombres de RFQ (de cualquier proyecto) iguales a patron_base o con sufijo
+        '-N' -- usado para autogenerar un nombre unico cuando no se captura uno."""
+        rows = await conn.fetch(
+            "SELECT nombre FROM tb_bom_rfq WHERE nombre = $1 OR nombre LIKE $2",
+            patron_base, patron_base + '-%',
+        )
+        return [r['nombre'] for r in rows]
+
     async def crear_rfq(
         self, conn, bom_id: UUID, creado_por: UUID, notas: Optional[str],
         nombre: Optional[str] = None,

@@ -1574,6 +1574,24 @@ class BomComprasServiceMixin:
 
     # ─── RFQ (doc 35) ────────────────────────────────────────
 
+    async def _siguiente_nombre_rfq_disponible(self, conn, base_nombre: str) -> str:
+        """base_nombre si esta libre; si no, el siguiente sufijo '-N' disponible.
+
+        Solo aplica al nombre autogenerado -- uno capturado a mano nunca pasa por
+        aqui y puede repetirse a proposito.
+        """
+        existentes = await self.db.get_rfq_nombres_similares(conn, base_nombre)
+        if not existentes:
+            return base_nombre
+        max_sufijo = 1
+        for n in existentes:
+            if n == base_nombre:
+                continue
+            sufijo = n[len(base_nombre) + 1:]
+            if sufijo.isdigit():
+                max_sufijo = max(max_sufijo, int(sufijo))
+        return f"{base_nombre}-{max_sufijo + 1}"
+
     async def crear_rfq(
         self, conn, id_bom: UUID, item_ids: list, creado_por: UUID,
         notas: Optional[str] = None, nombre: Optional[str] = None,
@@ -1592,7 +1610,8 @@ class BomComprasServiceMixin:
 
         if not nombre:
             proyecto_id_estandar = bom.get('proyecto_id_estandar') or 'SIN-ID'
-            nombre = f"RFQ_{proyecto_id_estandar}_{today_mx().strftime('%y%m%d')}"
+            base_nombre = f"RFQ_{proyecto_id_estandar}_{today_mx().strftime('%y%m%d')}"
+            nombre = await self._siguiente_nombre_rfq_disponible(conn, base_nombre)
 
         item_ids_unicos = list(dict.fromkeys(item_ids))
         items_bd = await self.db.get_items_by_ids(conn, item_ids_unicos)

@@ -49,6 +49,12 @@ class FakeDB:
     async def get_items_by_ids(self, conn, item_ids):
         return [self.items_bd[str(i)] for i in item_ids if str(i) in self.items_bd]
 
+    async def get_rfq_nombres_similares(self, conn, patron_base):
+        return [
+            r["nombre"] for r in self.rfqs.values()
+            if r["nombre"] == patron_base or (r["nombre"] or "").startswith(patron_base + "-")
+        ]
+
     async def crear_rfq(self, conn, bom_id, creado_por, notas, nombre=None):
         rfq_id = uuid4()
         rfq = {
@@ -121,6 +127,24 @@ async def test_crear_rfq_autogenera_nombre_con_proyecto_si_no_se_captura():
     rfq = await svc.crear_rfq(FakeConn(), bom_id, [item_id], uuid4())
 
     assert rfq["nombre"].startswith("RFQ_MX-50158-FV_")
+
+
+@pytest.mark.asyncio
+async def test_crear_rfq_autogenerado_evita_colision_de_nombre_con_sufijo():
+    """Dos RFQ del mismo proyecto el mismo dia (sin nombre manual) no deben
+    terminar con el nombre autogenerado identico."""
+    bom_id = uuid4()
+    item_id1 = uuid4()
+    item_id2 = uuid4()
+    svc = make_service(_bom(bom_id, proyecto_id_estandar="MX-50158-FV"), [
+        _bom_item(item_id1, bom_id), _bom_item(item_id2, bom_id),
+    ])
+
+    rfq1 = await svc.crear_rfq(FakeConn(), bom_id, [item_id1], uuid4())
+    rfq2 = await svc.crear_rfq(FakeConn(), bom_id, [item_id2], uuid4())
+
+    assert rfq1["nombre"] != rfq2["nombre"]
+    assert rfq2["nombre"] == f"{rfq1['nombre']}-2"
 
 
 @pytest.mark.asyncio
