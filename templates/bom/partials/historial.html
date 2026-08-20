@@ -1,4 +1,19 @@
 {# Historial de cambios del BOM #}
+<form class="mb-3 flex flex-wrap items-center gap-2"
+    hx-get="/bom/{{ bom.id_bom }}/historial"
+    hx-target="#historial-lista" hx-select="#historial-lista" hx-swap="outerHTML"
+    hx-trigger="change, keyup changed delay:300ms from:input[name='q']">
+    <select name="usuario_id"
+        class="text-sm border border-gray-300 rounded-md px-2 py-1.5 text-gray-700 bg-white">
+        <option value="">Todos los usuarios</option>
+        {% for u in usuarios %}
+        <option value="{{ u.id_usuario }}" {% if usuario_id == u.id_usuario|string %}selected{% endif %}>{{ u.nombre or 'Sistema' }}</option>
+        {% endfor %}
+    </select>
+    <input type="text" name="q" value="{{ q }}" placeholder="Buscar campo o valor..."
+        class="flex-1 min-w-[160px] text-sm border border-gray-300 rounded-md px-2 py-1.5 text-gray-700">
+</form>
+<div id="historial-lista">
 {% if historial %}
 <div class="bg-white rounded-lg border divide-y max-h-96 overflow-y-auto">
     {% for h in historial %}
@@ -72,6 +87,11 @@
 </div>
 {% else %}
 <div class="text-center py-6 text-sm text-gray-400">
+    {% if usuario_id or q %}
+    No hay cambios que coincidan con el filtro.
+    {% else %}
     No hay cambios registrados.
+    {% endif %}
 </div>
 {% endif %}
+</div>

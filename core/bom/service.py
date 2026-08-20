@@ -3469,9 +3469,17 @@ class BomService(BomComprasServiceMixin):
 
     # ─── HISTORIAL Y APROBACIONES ────────────────────────────
 
-    async def get_historial(self, conn, id_bom: UUID) -> list:
-        """Lista historial de cambios."""
-        return await self.db.get_historial_by_bom(conn, id_bom)
+    async def get_historial(
+        self, conn, id_bom: UUID,
+        usuario_id: Optional[UUID] = None,
+        q: Optional[str] = None,
+    ) -> list:
+        """Lista historial de cambios, con filtro opcional por usuario y texto."""
+        return await self.db.get_historial_by_bom(conn, id_bom, usuario_id, q)
+
+    async def get_historial_usuarios(self, conn, id_bom: UUID) -> list:
+        """Usuarios distintos con cambios registrados, para poblar el filtro de historial."""
+        return await self.db.get_historial_usuarios(conn, id_bom)
 
     async def get_aprobaciones(self, conn, id_bom: UUID) -> list:
         """Lista aprobaciones/rechazos."""

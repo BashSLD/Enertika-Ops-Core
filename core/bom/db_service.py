@@ -2246,17 +2246,43 @@ class BomDBService(BomComprasDBMixin):
             WHERE bom.id_bom = $1
         """, entradas)
 
-    async def get_historial_by_bom(self, conn, id_bom: UUID) -> List[dict]:
-        """Lista historial de cambios de un BOM."""
-        rows = await conn.fetch("""
+    async def get_historial_by_bom(
+        self, conn, id_bom: UUID,
+        usuario_id: Optional[UUID] = None,
+        q: Optional[str] = None,
+    ) -> List[dict]:
+        """Lista historial de cambios de un BOM, con filtro opcional por usuario y texto."""
+        condiciones = ["h.id_bom = $1"]
+        params: List = [id_bom]
+        if usuario_id:
+            params.append(usuario_id)
+            condiciones.append(f"h.realizado_por = ${len(params)}")
+        if q:
+            params.append(f"%{q}%")
+            condiciones.append(
+                f"(h.campo_modificado ILIKE ${len(params)} OR h.valor_anterior ILIKE ${len(params)} "
+                f"OR h.valor_nuevo ILIKE ${len(params)})"
+            )
+        rows = await conn.fetch(f"""
             SELECT h.id, h.id_bom, h.id_item, h.accion, h.campo_modificado,
                    h.valor_anterior, h.valor_nuevo, h.version_bom, h.realizado_por,
                    h.created_at AT TIME ZONE 'America/Mexico_City' AS created_at,
                    u.nombre AS realizado_por_nombre
             FROM tb_bom_historial h
             LEFT JOIN tb_usuarios u ON u.id_usuario = h.realizado_por
-            WHERE h.id_bom = $1
+            WHERE {' AND '.join(condiciones)}
             ORDER BY h.created_at DESC
+        """, *params)
+        return [dict(r) for r in rows]
+
+    async def get_historial_usuarios(self, conn, id_bom: UUID) -> List[dict]:
+        """Usuarios distintos con cambios registrados en el historial de un BOM (para el filtro)."""
+        rows = await conn.fetch("""
+            SELECT DISTINCT h.realizado_por AS id_usuario, u.nombre
+            FROM tb_bom_historial h
+            LEFT JOIN tb_usuarios u ON u.id_usuario = h.realizado_por
+            WHERE h.id_bom = $1 AND h.realizado_por IS NOT NULL
+            ORDER BY u.nombre
         """, id_bom)
         return [dict(r) for r in rows]
 

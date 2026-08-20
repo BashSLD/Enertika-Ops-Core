@@ -2646,14 +2646,18 @@ async def solicitar_modificacion(
 async def get_historial(
     request: Request,
     id_bom: UUID,
+    usuario_id: Optional[UUID] = None,
+    q: Optional[str] = None,
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
     _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
 ):
-    """Historial de cambios del BOM."""
+    """Historial de cambios del BOM, con filtro opcional por usuario y texto."""
+    q = (q or "").strip() or None
     try:
-        historial = await service.get_historial(conn, id_bom)
+        historial = await service.get_historial(conn, id_bom, usuario_id, q)
+        usuarios = await service.get_historial_usuarios(conn, id_bom)
         bom = await service.get_bom(conn, id_bom)
     except ValueError as e:
         return HTMLResponse(f'<p class="text-sm text-red-600 py-4">{e}</p>', status_code=400)
@@ -2664,8 +2668,12 @@ async def get_historial(
             status_code=500,
         )
 
-    return templates.TemplateResponse(request, "bom/partials/historial.html", {"historial": historial,
+    return templates.TemplateResponse(request, "bom/partials/historial.html", {
+        "historial": historial,
+        "usuarios": usuarios,
         "bom": bom,
+        "usuario_id": str(usuario_id) if usuario_id else "",
+        "q": q or "",
     })
 
 
