@@ -335,7 +335,7 @@ async def crear_rfq_rapido(
     try:
         item_ids = [UUID(i) for i in raw_ids]
     except ValueError:
-        raise HTTPException(status_code=400, detail="IDs inválidos")
+        return _toast_response(request, "IDs inválidos", "error", status_code=400)
 
     try:
         rfq = await service.crear_rfq(conn, id_bom, item_ids, user_id, nombre=nombre)
@@ -372,11 +372,11 @@ async def solicitar_aclaracion(
             conn, cotizacion_id, user_id, motivo, lock_version
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return _toast_response(request, str(e), "error", status_code=400)
 
     cotizacion = await service.get_cotizacion_by_id(conn, cotizacion_id)
     if not cotizacion:
-        raise HTTPException(status_code=404, detail="Cotización no encontrada")
+        return _toast_response(request, "Cotización no encontrada", "error", status_code=404)
     return await _render_cotizaciones_tab(request, conn, service, context, cotizacion['bom_id'])
 
 
@@ -639,9 +639,9 @@ async def rechazar_cotizacion(
             conn, cotizacion_id, user_id, int(form.get("lock_version", ""))
         )
     except (TypeError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return _toast_response(request, str(e), "error", status_code=400)
     if not cotizacion:
-        raise HTTPException(status_code=404, detail="Cotización no encontrada")
+        return _toast_response(request, "Cotización no encontrada", "error", status_code=404)
     return await _render_cotizaciones_tab(request, conn, service, context, cotizacion['bom_id'])
 
 
@@ -663,13 +663,13 @@ async def subir_pdf_cotizacion(
             conn, cotizacion_id, archivo, user_id, lock_version
         )
     except (TypeError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
-        raise HTTPException(status_code=500, detail="Error al actualizar PDF")
+        return _toast_response(request, "Error al actualizar PDF", "error", status_code=500)
 
     cotizacion = await service.get_cotizacion_by_id(conn, cotizacion_id)
     if not cotizacion:
-        raise HTTPException(status_code=404, detail="Cotización no encontrada")
+        return _toast_response(request, "Cotización no encontrada", "error", status_code=404)
     return await _render_cotizaciones_tab(request, conn, service, context, cotizacion['bom_id'])
 
 
@@ -731,7 +731,7 @@ async def solicitar_aprobacion_cotizacion(
     try:
         reemplaza_id = UUID(reemplaza_aprobacion_id) if reemplaza_aprobacion_id else None
     except ValueError:
-        raise HTTPException(status_code=400, detail="reemplaza_aprobacion_id inválido")
+        return _toast_response(request, "reemplaza_aprobacion_id inválido", "error", status_code=400)
     try:
         aprobacion = await service.solicitar_aprobacion_cotizacion(
             conn, cotizacion_id, user_id, comentarios,
@@ -739,10 +739,10 @@ async def solicitar_aprobacion_cotizacion(
             reemplaza_aprobacion_id=reemplaza_id,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
         logger.exception("Error de BD al solicitar aprobación de cotización")
-        raise HTTPException(status_code=500, detail="Error al solicitar la aprobación.")
+        return _toast_response(request, "Error al solicitar la aprobación.", "error", status_code=500)
 
     return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
 
@@ -769,10 +769,10 @@ async def aprobar_cotizacion_direccion(
             aprobacion_lock_version, autorizacion_lock_version,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
         logger.exception("Error de BD al aprobar cotización por Dirección")
-        raise HTTPException(status_code=500, detail="Error al aprobar la cotización.")
+        return _toast_response(request, "Error al aprobar la cotización.", "error", status_code=500)
 
     return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
 
@@ -799,10 +799,10 @@ async def rechazar_cotizacion_direccion(
             aprobacion_lock_version, autorizacion_lock_version,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
         logger.exception("Error de BD al rechazar cotización por Dirección")
-        raise HTTPException(status_code=500, detail="Error al rechazar la cotización.")
+        return _toast_response(request, "Error al rechazar la cotización.", "error", status_code=500)
 
     return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
 
@@ -895,10 +895,10 @@ async def dashboard_aprobar_cotizacion(
             aprobacion_lock_version, autorizacion_lock_version,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
         logger.exception("Error de BD al aprobar cotización desde el dashboard de Dirección")
-        raise HTTPException(status_code=500, detail="Error al aprobar la cotización.")
+        return _toast_response(request, "Error al aprobar la cotización.", "error", status_code=500)
     ctx = await _dashboard_direccion_ctx(
         conn, service, context, estatus, _parse_id_proyecto_filtro(id_proyecto), proveedor
     )
@@ -929,10 +929,10 @@ async def dashboard_rechazar_cotizacion(
             aprobacion_lock_version, autorizacion_lock_version,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
         logger.exception("Error de BD al rechazar cotización desde el dashboard de Dirección")
-        raise HTTPException(status_code=500, detail="Error al rechazar la cotización.")
+        return _toast_response(request, "Error al rechazar la cotización.", "error", status_code=500)
     ctx = await _dashboard_direccion_ctx(
         conn, service, context, estatus, _parse_id_proyecto_filtro(id_proyecto), proveedor
     )
@@ -1109,26 +1109,23 @@ async def asignar_match_concepto(
         try:
             item_uuid = UUID(valor)
         except ValueError:
-            raise HTTPException(status_code=400, detail="Ítem inválido.")
+            return _toast_response(request, "Ítem inválido.", "error", status_code=400)
         item_seleccionado = next(
             (it for it in data["items"] if it["id_item"] == item_uuid), None
         )
         if not item_seleccionado:
-            raise HTTPException(status_code=400, detail="El ítem no pertenece a esta autorización.")
+            return _toast_response(request, "El ítem no pertenece a esta autorización.", "error", status_code=400)
         grupos_validos = {
             grupo["id"] for grupo in item_seleccionado.get("grupos_conciliacion", [])
         }
         if id_grupo is not None and id_grupo not in grupos_validos:
-            raise HTTPException(status_code=400, detail="El grupo no pertenece al ítem seleccionado.")
+            return _toast_response(request, "El grupo no pertenece al ítem seleccionado.", "error", status_code=400)
         if len(grupos_validos) > 1 and id_grupo is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Selecciona el grupo al que se asignará el importe del concepto.",
-            )
+            return _toast_response(request, "Selecciona el grupo al que se asignará el importe del concepto.", "error", status_code=400)
     elif id_grupo is not None:
-        raise HTTPException(status_code=400, detail="No puedes asignar un grupo sin un ítem.")
+        return _toast_response(request, "No puedes asignar un grupo sin un ítem.", "error", status_code=400)
     if not any(c["historial_id"] == historial_id for c in data["conceptos"]):
-        raise HTTPException(status_code=404, detail="Concepto no encontrado en esta autorización.")
+        return _toast_response(request, "Concepto no encontrado en esta autorización.", "error", status_code=404)
 
     anterior_uuid = None
     anterior_valor = (id_bom_item_anterior or "").strip()
@@ -1136,7 +1133,7 @@ async def asignar_match_concepto(
         try:
             anterior_uuid = UUID(anterior_valor)
         except ValueError:
-            raise HTTPException(status_code=400, detail="Match anterior invalido.")
+            return _toast_response(request, "Match anterior invalido.", "error", status_code=400)
 
     try:
         await service.confirmar_match_concepto(
@@ -1144,9 +1141,9 @@ async def asignar_match_concepto(
             concepto_lock_version, id_grupo,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        return _toast_response(request, str(exc), "error", status_code=409)
     except asyncpg.PostgresError:
-        raise HTTPException(status_code=500, detail="Error al guardar la conciliación.")
+        return _toast_response(request, "Error al guardar la conciliación.", "error", status_code=500)
 
     data = await service.get_conciliacion(conn, autorizacion_id)
     return templates.TemplateResponse(
@@ -1173,9 +1170,9 @@ async def aprobar_autorizacion_obra(
             conn, autorizacion_id, user_id, nota, user_role, lock_version
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
-        raise HTTPException(status_code=500, detail="Error al aprobar la autorización.")
+        return _toast_response(request, "Error al aprobar la autorización.", "error", status_code=500)
 
     bom = await service.get_bom_by_id(conn, aut['bom_id'])
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
@@ -1205,9 +1202,9 @@ async def aprobar_autorizacion_direccion(
             lock_version,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
-        raise HTTPException(status_code=500, detail="Error al aprobar la autorización.")
+        return _toast_response(request, "Error al aprobar la autorización.", "error", status_code=500)
 
     bom = await service.get_bom_by_id(conn, aut['bom_id'])
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
@@ -1232,16 +1229,16 @@ async def aprobar_autorizacion_finanzas(
     user_role = context.get("role")
     finanzas_role = context.get("module_roles", {}).get("finanzas")
     if user_role != "ADMIN" and finanzas_role not in ("editor", "admin"):
-        raise HTTPException(status_code=403, detail="Requiere rol editor o admin en Finanzas")
+        return _toast_response(request, "Requiere rol editor o admin en Finanzas", "error", status_code=403)
     try:
         aut = await service.aprobar_finanzas(
             conn, autorizacion_id, user_id, nota, user_role, finanzas_role,
             lock_version,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
-        raise HTTPException(status_code=500, detail="Error al aprobar la autorización.")
+        return _toast_response(request, "Error al aprobar la autorización.", "error", status_code=500)
 
     bom = await service.get_bom_by_id(conn, aut['bom_id'])
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
@@ -1272,9 +1269,9 @@ async def rechazar_autorizacion(
             finanzas_role, lock_version,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return _toast_response(request, str(e), "error", status_code=400)
     except asyncpg.PostgresError:
-        raise HTTPException(status_code=500, detail="Error al rechazar la autorización.")
+        return _toast_response(request, "Error al rechazar la autorización.", "error", status_code=500)
 
     bom = await service.get_bom_by_id(conn, aut['bom_id'])
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
