@@ -129,6 +129,7 @@ async def get_visita_obra_modal(
 def _equipo_template_data(request, id_proyecto, data, permisos, guardado=False):
     return {
         "id_proyecto": str(id_proyecto),
+        "proyecto": data["proyecto"],
         "asignaciones": data["asignaciones"],
         "jefe_ingenieria": data["jefe_ingenieria"],
         "jefe_construccion": data["jefe_construccion"],

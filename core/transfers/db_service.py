@@ -122,7 +122,8 @@ class TransferDBService:
                 u.nombre as creado_por_nombre,
                 EXTRACT(DAY FROM NOW() - COALESCE(p.fecha_inicio_area, p.created_at))::int as dias_en_area,
                 ult_tp.status as ultimo_traspaso_status,
-                ult_tp.area_destino as ultimo_traspaso_area_destino
+                ult_tp.area_destino as ultimo_traspaso_area_destino,
+                eq.nombre as equipo_area_actual_nombre
             FROM tb_proyectos_gate p
             LEFT JOIN tb_cat_tecnologias t ON p.id_tecnologia = t.id
             LEFT JOIN tb_oportunidades o ON p.id_oportunidad = o.id_oportunidad
@@ -133,6 +134,23 @@ class TransferDBService:
                 WHERE tp.id_proyecto = p.id_proyecto
                 ORDER BY tp.fecha_envio DESC LIMIT 1
             ) ult_tp ON TRUE
+            -- Rol operativo por area: debe reflejar ROLES_EQUIPO en modules/proyectos/service.py
+            -- (fuente unica; no importable aqui por direccion de capas core -> modules).
+            LEFT JOIN LATERAL (
+                SELECT ue.nombre
+                FROM tb_proyecto_usuarios pu
+                JOIN tb_usuarios ue ON ue.id_usuario = pu.id_usuario
+                WHERE pu.id_proyecto = p.id_proyecto
+                  AND pu.activo = TRUE
+                  AND pu.area = p.area_actual
+                  AND pu.rol_proyecto = CASE p.area_actual
+                        WHEN 'INGENIERIA' THEN 'ingeniero_asignado'
+                        WHEN 'CONSTRUCCION' THEN 'coordinador_obra'
+                        WHEN 'OYM' THEN 'encargado'
+                        WHEN 'COMPRAS' THEN 'comprador_asignado'
+                    END
+                LIMIT 1
+            ) eq ON TRUE
             WHERE p.aprobacion_direccion = true
         """
         params: list = []

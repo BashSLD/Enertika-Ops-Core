@@ -8,6 +8,7 @@
     'OYM': {'bg': 'bg-emerald-50', 'text': 'text-emerald-700', 'border': 'border-emerald-200'},
 } %}
 {% set area_labels = {'INGENIERIA': 'Ingenieria', 'CONSTRUCCION': 'Construccion', 'OYM': 'O&M'} %}
+{% set equipo_rol_labels = {'INGENIERIA': 'Ingeniero de Diseño', 'CONSTRUCCION': 'Coordinador de Obra', 'OYM': 'Encargado O&M', 'COMPRAS': 'Comprador Asignado'} %}
 
 {# --- Helpers --- #}
 
@@ -24,6 +25,33 @@
     Enviado a {{ area_labels.get(p.ultimo_traspaso_area_destino, p.ultimo_traspaso_area_destino or 'N/A') }}
 </span>
 {% endif %}
+{% endmacro %}
+
+{# Chip de estado de equipo: indica si el rol operativo del area actual del proyecto
+   (Ingeniero de Diseño / Coordinador de Obra / Encargado O&M / Comprador Asignado)
+   tiene alguien asignado. Solo tiene sentido en la vista global (mostrar_area). #}
+{% macro chip_equipo(p) %}
+{% set rol_label = equipo_rol_labels.get(p.area_actual, 'Responsable') %}
+<div class="relative inline-flex group">
+    {% if p.equipo_area_actual_nombre %}
+    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-md bg-green-50 text-green-700 border border-green-200 whitespace-nowrap cursor-help">
+        <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+        Asignado
+    </span>
+    {% else %}
+    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-md bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap cursor-help">
+        <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+        Sin asignar
+    </span>
+    {% endif %}
+    <div class="hidden group-hover:block absolute top-full left-0 mt-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-nowrap z-50 pointer-events-none">
+        {% if p.equipo_area_actual_nombre %}
+        {{ rol_label }}: {{ p.equipo_area_actual_nombre }}
+        {% else %}
+        Falta asignar: {{ rol_label }}
+        {% endif %}
+    </div>
+</div>
 {% endmacro %}
 
 {% macro _dias_value(p) %}
@@ -107,16 +135,6 @@
 {# --- Acciones (compartidas por fila y tarjeta) --- #}
 
 {% macro render_actions(p, area, area_destino=None, puede_enviar=False, mostrar_mfv=False, mostrar_bom=False) %}
-{# Equipo #}
-<button hx-get="/proyectos/partials/equipo/{{ p.id_proyecto }}"
-    hx-target="#modal-action-container" hx-swap="innerHTML"
-    hx-disabled-elt="this" hx-sync="this:drop"
-    class="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-teal-600 text-white hover:bg-teal-700 transition-colors font-medium shadow-sm">
-    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
-    </svg>
-    Equipo
-</button>
 {# Enviar a la siguiente area #}
 {% if puede_enviar and area_destino and p.area_actual == area and p.ultimo_traspaso_status != 'ENVIADO' %}
 {% set module_prefix = {'INGENIERIA': 'ingenieria', 'CONSTRUCCION': 'construccion'}.get(area, '') %}
@@ -174,6 +192,15 @@
         x-transition:leave-end="opacity-0 -translate-y-1"
         :style="menuStyle"
         class="fixed z-30 bg-white border border-gray-200 rounded-lg shadow-lg p-1.5 min-w-[13rem] whitespace-nowrap">
+        <button hx-get="/proyectos/partials/equipo/{{ p.id_proyecto }}"
+            hx-target="#modal-action-container" hx-swap="innerHTML"
+            hx-disabled-elt="this" hx-sync="this:drop" @click="openMore = false"
+            class="flex w-full items-center gap-1.5 text-xs px-2 py-1.5 rounded-md text-gray-700 hover:bg-gray-100 transition-colors font-medium">
+            <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
+            </svg>
+            Equipo
+        </button>
         {% if mostrar_mfv %}
         <button hx-get="/bom/{{ p.id_proyecto }}/paneles-modal"
             hx-target="#modal-action-container" hx-swap="innerHTML"
@@ -230,6 +257,7 @@
     <td class="px-3 py-2.5 align-middle">
         <div class="flex items-center gap-2">
             <span class="text-sm font-mono font-bold text-gray-800 whitespace-nowrap">{{ p.proyecto_id_estandar or 'Sin ID' }}</span>
+            {% if mostrar_area %}{{ chip_equipo(p) }}{% endif %}
             {{ badge_traspaso(p) }}
         </div>
     </td>
@@ -258,7 +286,7 @@
         <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap mb-1">
                 <span class="text-sm font-mono font-bold text-gray-800">{{ p.proyecto_id_estandar or 'Sin ID' }}</span>
-                {% if mostrar_area %}{{ chip_area(p) }}{% endif %}
+                {% if mostrar_area %}{{ chip_area(p) }}{{ chip_equipo(p) }}{% endif %}
                 {{ badge_traspaso(p) }}
             </div>
             <p class="text-sm font-medium text-gray-700 truncate">{{ p.nombre_proyecto or p.nombre_corto or '-' }}</p>

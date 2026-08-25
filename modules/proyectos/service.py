@@ -150,6 +150,9 @@ class ProyectosService:
         - jefe_ingenieria / jefe_construccion: referencias organizacionales (solo lectura)
         - usuarios por departamento: listas filtradas para los dropdowns
         """
+        # Reusa el lookup de proyecto ya existente (core/transfers) en vez de una query nueva:
+        # p.* + nombre_proyecto/cliente_nombre cubren lo que necesita el header del modal.
+        proyecto = await self.get_proyecto_detalle(conn, id_proyecto)
         asignaciones = await self.db.get_asignaciones_equipo(conn, id_proyecto)
 
         # RC/RI persistido por proyecto (modelo cerrado, decision 3). Solo se muestra
@@ -197,6 +200,7 @@ class ProyectosService:
         usuarios_compras = [r for r in dept_rows if r["dept_slug"] == "compras"]
 
         return {
+            "proyecto": proyecto,
             "asignaciones": asignaciones,
             "jefe_ingenieria": jefe_ingenieria,
             "jefe_construccion": jefe_construccion,

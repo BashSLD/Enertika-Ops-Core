@@ -1,4 +1,5 @@
 {# templates/proyectos/partials/equipo_modal.html #}
+{% import "shared/partials/card_proyecto.html" as cp %}
 {% set asig_map = {} %}
 {% for a in asignaciones %}
     {% set _ = asig_map.update({(a.rol_proyecto, a.area): {'id': a.id_usuario | string, 'nombre': a.nombre_usuario}}) %}
@@ -68,10 +69,10 @@
     }"
     @keydown.escape.window="document.getElementById('modal-equipo').remove()">
 
-    <div class="relative bg-white rounded-xl shadow-xl w-full max-w-lg mx-3 flex flex-col border border-gray-200 overflow-hidden">
+    <div class="relative bg-white rounded-xl shadow-xl w-full max-w-2xl mx-3 flex flex-col border border-gray-200 overflow-hidden max-h-[90dvh]">
 
         <!-- Header -->
-        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200"
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0"
             style="background: linear-gradient(135deg, #123456 0%, #1a4a7a 100%);">
             <div class="flex items-center gap-3">
                 <div class="p-2 bg-white/15 rounded-lg">
@@ -93,27 +94,42 @@
             </button>
         </div>
 
-        <!-- Toast exito -->
-        <div x-show="guardado" x-cloak x-transition
-            class="mx-5 mt-4 flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-300 rounded-lg text-green-700 text-sm font-medium">
-            <svg class="w-4 h-4 shrink-0 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-            </svg>
-            Equipo guardado correctamente.
-        </div>
-
-        {% if not puede_asignar_construccion and not puede_reasignar_responsable %}
-        <div class="mx-5 mt-3 flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs">
-            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-            Solo el responsable del proyecto o Direccion pueden actualizar esta asignacion.
+        {% if proyecto %}
+        <div class="flex items-center justify-between gap-3 px-6 py-2.5 border-b border-gray-100 bg-gray-50 shrink-0">
+            <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                    <span class="text-sm font-mono font-bold text-gray-800 whitespace-nowrap">{{ proyecto.proyecto_id_estandar or 'Sin ID' }}</span>
+                    <span class="text-sm text-gray-700 truncate">{{ proyecto.nombre_proyecto or '—' }}</span>
+                </div>
+                <p class="text-xs text-gray-500 truncate mt-0.5">{{ proyecto.cliente_nombre or 'Sin cliente' }}</p>
+            </div>
+            <span class="px-2 py-0.5 text-xs font-semibold rounded-md bg-gray-200 text-gray-700 whitespace-nowrap shrink-0">
+                {{ cp.area_labels.get(proyecto.area_actual, proyecto.area_actual or 'N/A') }}
+            </span>
         </div>
         {% endif %}
 
-        <form id="form-equipo">
+        <form id="form-equipo" class="flex-1 min-h-0 flex flex-col">
 
-            <div class="px-5 py-4 space-y-2">
+            <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3">
+
+                <!-- Toast exito -->
+                <div x-show="guardado" x-cloak x-transition
+                    class="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-300 rounded-lg text-green-700 text-sm font-medium">
+                    <svg class="w-4 h-4 shrink-0 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                    Equipo guardado correctamente.
+                </div>
+
+                {% if not puede_asignar_construccion and not puede_reasignar_responsable %}
+                <div class="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs">
+                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    Solo el responsable del proyecto o Direccion pueden actualizar esta asignacion.
+                </div>
+                {% endif %}
 
                 {# ─── INGENIERÍA ───────────────────────────────────────── #}
                 <div class="flex items-center gap-2 pt-1 pb-1">
@@ -122,26 +138,53 @@
                     <div class="flex-1 h-px bg-blue-200"></div>
                 </div>
 
-                {# Responsable de Ingeniería — solo lectura #}
-                <div class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-blue-50 border border-blue-200">
-                    <div class="w-1 h-9 rounded-full bg-blue-600 shrink-0"></div>
-                    <div class="flex-1 min-w-0">
-                        <div class="text-xs font-semibold text-blue-800">Responsable de Ingenieria</div>
-                        <div class="text-[10px] text-blue-500 uppercase tracking-wide mt-0.5">Rol organizacional</div>
-                    </div>
-                    <div class="text-sm font-medium text-right">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {# Responsable de Ingeniería — solo lectura #}
+                    <div class="px-3 py-2.5 rounded-lg bg-blue-50 border border-blue-200">
+                        <div class="flex items-center gap-2 mb-1.5">
+                            <div class="w-1 h-4 rounded-full bg-blue-600 shrink-0"></div>
+                            <div class="min-w-0">
+                                <div class="text-xs font-semibold text-blue-800">Responsable de Ingenieria</div>
+                                <div class="text-[10px] text-blue-500 uppercase tracking-wide">Rol organizacional</div>
+                            </div>
+                        </div>
                         {% if puede_reasignar_responsable %}
                         <select name="responsable_ingenieria" x-model="ri"
-                            class="text-sm border border-blue-300 rounded-md px-2 py-1 bg-white text-blue-800 w-44">
+                            class="w-full text-sm border border-blue-300 rounded-md px-2 py-1 bg-white text-blue-800">
                             <option value="">— Sin asignar —</option>
                             {% for u in jefes_ingenieria %}
                             <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
                             {% endfor %}
                         </select>
                         {% elif jefe_ingenieria %}
-                            <span class="text-blue-800">{{ jefe_ingenieria.nombre }}</span>
+                        <p class="text-sm font-medium text-blue-800">{{ jefe_ingenieria.nombre }}</p>
                         {% else %}
-                            <span class="text-blue-300 italic text-xs">Sin asignar</span>
+                        <p class="text-xs text-blue-300 italic">Sin asignar</p>
+                        {% endif %}
+                    </div>
+
+                    {# Ingeniero de Diseño — editable #}
+                    <div class="px-3 py-2.5 rounded-lg bg-white border border-blue-200">
+                        <input type="hidden" name="rol_0_rol"  value="ingeniero_asignado">
+                        <input type="hidden" name="rol_0_area" value="INGENIERIA">
+                        <div class="flex items-center gap-2 mb-1.5">
+                            <div class="w-1 h-4 rounded-full bg-blue-300 shrink-0"></div>
+                            <div class="min-w-0">
+                                <div class="text-xs font-semibold text-gray-700">Ingeniero de Diseño</div>
+                                <div class="text-[10px] text-gray-400 uppercase tracking-wide">Dept. Ingenieria</div>
+                            </div>
+                        </div>
+                        {% if puede_asignar_ingenieria %}
+                        <select name="rol_0_usuario" x-model="ing"
+                            class="w-full text-sm border border-blue-300 rounded-md px-2 py-1.5 bg-white text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">— Sin asignar —</option>
+                            {% for u in usuarios_ingenieria %}
+                            <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
+                            {% endfor %}
+                        </select>
+                        {% else %}
+                        <input type="hidden" name="rol_0_usuario" value="{{ cur_ing.id or '' }}">
+                        <p class="text-sm text-gray-700 truncate">{{ cur_ing.nombre or '—' }}</p>
                         {% endif %}
                     </div>
                 </div>
@@ -155,29 +198,6 @@
                 </div>
                 {% endif %}
 
-                {# Ingeniero de Diseño — editable #}
-                <input type="hidden" name="rol_0_rol"  value="ingeniero_asignado">
-                <input type="hidden" name="rol_0_area" value="INGENIERIA">
-                <div class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white border border-blue-200">
-                    <div class="w-1 h-9 rounded-full bg-blue-300 shrink-0"></div>
-                    <div class="flex-1 min-w-0">
-                        <div class="text-xs font-semibold text-gray-700">Ingeniero de Diseño</div>
-                        <div class="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">Dept. Ingenieria</div>
-                    </div>
-                    {% if puede_asignar_ingenieria %}
-                    <select name="rol_0_usuario" x-model="ing"
-                        class="text-sm border border-blue-300 rounded-md px-2 py-1.5 bg-white text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-44">
-                        <option value="">— Sin asignar —</option>
-                        {% for u in usuarios_ingenieria %}
-                        <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
-                        {% endfor %}
-                    </select>
-                    {% else %}
-                    <input type="hidden" name="rol_0_usuario" value="{{ cur_ing.id or '' }}">
-                    <span class="text-sm text-gray-700 w-44 text-right truncate">{{ cur_ing.nombre or '—' }}</span>
-                    {% endif %}
-                </div>
-
                 {% if sera_ri %}
                 <div class="flex items-start gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-md">
                     <svg class="w-3.5 h-3.5 shrink-0 text-blue-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -188,32 +208,59 @@
                 {% endif %}
 
                 {# ─── CONSTRUCCIÓN ─────────────────────────────────────── #}
-                <div class="flex items-center gap-2 pt-3 pb-1">
+                <div class="flex items-center gap-2 pt-2 pb-1">
                     <div class="w-3 h-3 rounded-full bg-amber-600"></div>
                     <span class="text-xs font-bold uppercase tracking-widest text-amber-700">Construccion</span>
                     <div class="flex-1 h-px bg-amber-200"></div>
                 </div>
 
-                {# Responsable de Construcción — solo lectura #}
-                <div class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200">
-                    <div class="w-1 h-9 rounded-full bg-amber-600 shrink-0"></div>
-                    <div class="flex-1 min-w-0">
-                        <div class="text-xs font-semibold text-amber-800">Responsable de Construccion</div>
-                        <div class="text-[10px] text-amber-500 uppercase tracking-wide mt-0.5">Rol organizacional</div>
-                    </div>
-                    <div class="text-sm font-medium text-right">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {# Responsable de Construcción — solo lectura #}
+                    <div class="px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200">
+                        <div class="flex items-center gap-2 mb-1.5">
+                            <div class="w-1 h-4 rounded-full bg-amber-600 shrink-0"></div>
+                            <div class="min-w-0">
+                                <div class="text-xs font-semibold text-amber-800">Responsable de Construccion</div>
+                                <div class="text-[10px] text-amber-500 uppercase tracking-wide">Rol organizacional</div>
+                            </div>
+                        </div>
                         {% if puede_reasignar_responsable %}
                         <select name="responsable_construccion" x-model="rc"
-                            class="text-sm border border-amber-300 rounded-md px-2 py-1 bg-white text-amber-800 w-44">
+                            class="w-full text-sm border border-amber-300 rounded-md px-2 py-1 bg-white text-amber-800">
                             <option value="">— Sin asignar —</option>
                             {% for u in jefes_construccion %}
                             <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
                             {% endfor %}
                         </select>
                         {% elif jefe_construccion %}
-                            <span class="text-amber-800">{{ jefe_construccion.nombre }}</span>
+                        <p class="text-sm font-medium text-amber-800">{{ jefe_construccion.nombre }}</p>
                         {% else %}
-                            <span class="text-amber-300 italic text-xs">Sin asignar</span>
+                        <p class="text-xs text-amber-300 italic">Sin asignar</p>
+                        {% endif %}
+                    </div>
+
+                    {# Coordinador de Obra — editable #}
+                    <div class="px-3 py-2.5 rounded-lg bg-white border border-amber-200">
+                        <input type="hidden" name="rol_1_rol"  value="coordinador_obra">
+                        <input type="hidden" name="rol_1_area" value="CONSTRUCCION">
+                        <div class="flex items-center gap-2 mb-1.5">
+                            <div class="w-1 h-4 rounded-full bg-amber-300 shrink-0"></div>
+                            <div class="min-w-0">
+                                <div class="text-xs font-semibold text-gray-700">Coordinador de Obra</div>
+                                <div class="text-[10px] text-gray-400 uppercase tracking-wide">Dept. Construccion</div>
+                            </div>
+                        </div>
+                        {% if puede_asignar_construccion %}
+                        <select name="rol_1_usuario" x-model="coord"
+                            class="w-full text-sm border border-amber-300 rounded-md px-2 py-1.5 bg-white text-gray-700 focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
+                            <option value="">— Sin asignar —</option>
+                            {% for u in usuarios_construccion %}
+                            <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
+                            {% endfor %}
+                        </select>
+                        {% else %}
+                        <input type="hidden" name="rol_1_usuario" value="{{ cur_coord.id or '' }}">
+                        <p class="text-sm text-gray-700 truncate">{{ cur_coord.nombre or '—' }}</p>
                         {% endif %}
                     </div>
                 </div>
@@ -227,29 +274,6 @@
                 </div>
                 {% endif %}
 
-                {# Coordinador de Obra — editable #}
-                <input type="hidden" name="rol_1_rol"  value="coordinador_obra">
-                <input type="hidden" name="rol_1_area" value="CONSTRUCCION">
-                <div class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white border border-amber-200">
-                    <div class="w-1 h-9 rounded-full bg-amber-300 shrink-0"></div>
-                    <div class="flex-1 min-w-0">
-                        <div class="text-xs font-semibold text-gray-700">Coordinador de Obra</div>
-                        <div class="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">Dept. Construccion</div>
-                    </div>
-                    {% if puede_asignar_construccion %}
-                    <select name="rol_1_usuario" x-model="coord"
-                        class="text-sm border border-amber-300 rounded-md px-2 py-1.5 bg-white text-gray-700 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 w-44">
-                        <option value="">— Sin asignar —</option>
-                        {% for u in usuarios_construccion %}
-                        <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
-                        {% endfor %}
-                    </select>
-                    {% else %}
-                    <input type="hidden" name="rol_1_usuario" value="{{ cur_coord.id or '' }}">
-                    <span class="text-sm text-gray-700 w-44 text-right truncate">{{ cur_coord.nombre or '—' }}</span>
-                    {% endif %}
-                </div>
-
                 {% if sera_rc %}
                 <div class="flex items-start gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-md">
                     <svg class="w-3.5 h-3.5 shrink-0 text-amber-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -260,32 +284,59 @@
                 {% endif %}
 
                 {# ─── COMPRAS ──────────────────────────────────────────── #}
-                <div class="flex items-center gap-2 pt-3 pb-1">
+                <div class="flex items-center gap-2 pt-2 pb-1">
                     <div class="w-3 h-3 rounded-full bg-teal-600"></div>
                     <span class="text-xs font-bold uppercase tracking-widest text-teal-700">Compras</span>
                     <div class="flex-1 h-px bg-teal-200"></div>
                 </div>
 
-                {# Responsable de Compras — solo lectura #}
-                <div class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-teal-50 border border-teal-200">
-                    <div class="w-1 h-9 rounded-full bg-teal-600 shrink-0"></div>
-                    <div class="flex-1 min-w-0">
-                        <div class="text-xs font-semibold text-teal-800">Responsable de Compras</div>
-                        <div class="text-[10px] text-teal-500 uppercase tracking-wide mt-0.5">Rol organizacional</div>
-                    </div>
-                    <div class="text-sm font-medium text-right">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {# Responsable de Compras — solo lectura #}
+                    <div class="px-3 py-2.5 rounded-lg bg-teal-50 border border-teal-200">
+                        <div class="flex items-center gap-2 mb-1.5">
+                            <div class="w-1 h-4 rounded-full bg-teal-600 shrink-0"></div>
+                            <div class="min-w-0">
+                                <div class="text-xs font-semibold text-teal-800">Responsable de Compras</div>
+                                <div class="text-[10px] text-teal-500 uppercase tracking-wide">Rol organizacional</div>
+                            </div>
+                        </div>
                         {% if puede_reasignar_responsable %}
                         <select name="responsable_compras" x-model="rcompras"
-                            class="text-sm border border-teal-300 rounded-md px-2 py-1 bg-white text-teal-800 w-44">
+                            class="w-full text-sm border border-teal-300 rounded-md px-2 py-1 bg-white text-teal-800">
                             <option value="">— Sin asignar —</option>
                             {% for u in jefes_compras %}
                             <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
                             {% endfor %}
                         </select>
                         {% elif jefe_compras %}
-                            <span class="text-teal-800">{{ jefe_compras.nombre }}</span>
+                        <p class="text-sm font-medium text-teal-800">{{ jefe_compras.nombre }}</p>
                         {% else %}
-                            <span class="text-teal-300 italic text-xs">Sin asignar</span>
+                        <p class="text-xs text-teal-300 italic">Sin asignar</p>
+                        {% endif %}
+                    </div>
+
+                    {# Comprador Asignado — editable #}
+                    <div class="px-3 py-2.5 rounded-lg bg-white border border-teal-200">
+                        <input type="hidden" name="rol_2_rol"  value="comprador_asignado">
+                        <input type="hidden" name="rol_2_area" value="COMPRAS">
+                        <div class="flex items-center gap-2 mb-1.5">
+                            <div class="w-1 h-4 rounded-full bg-teal-300 shrink-0"></div>
+                            <div class="min-w-0">
+                                <div class="text-xs font-semibold text-gray-700">Comprador Asignado</div>
+                                <div class="text-[10px] text-gray-400 uppercase tracking-wide">Dept. Compras</div>
+                            </div>
+                        </div>
+                        {% if puede_asignar_compras %}
+                        <select name="rol_2_usuario" x-model="compras"
+                            class="w-full text-sm border border-teal-300 rounded-md px-2 py-1.5 bg-white text-gray-700 focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                            <option value="">— Sin asignar —</option>
+                            {% for u in usuarios_compras %}
+                            <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
+                            {% endfor %}
+                        </select>
+                        {% else %}
+                        <input type="hidden" name="rol_2_usuario" value="{{ cur_compras.id or '' }}">
+                        <p class="text-sm text-gray-700 truncate">{{ cur_compras.nombre or '—' }}</p>
                         {% endif %}
                     </div>
                 </div>
@@ -298,29 +349,6 @@
                     Comprador asignado sin Responsable de Compras definido; Direccion debe asignarlo.
                 </div>
                 {% endif %}
-
-                {# Comprador Asignado — editable #}
-                <input type="hidden" name="rol_2_rol"  value="comprador_asignado">
-                <input type="hidden" name="rol_2_area" value="COMPRAS">
-                <div class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white border border-teal-200">
-                    <div class="w-1 h-9 rounded-full bg-teal-300 shrink-0"></div>
-                    <div class="flex-1 min-w-0">
-                        <div class="text-xs font-semibold text-gray-700">Comprador Asignado</div>
-                        <div class="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">Dept. Compras</div>
-                    </div>
-                    {% if puede_asignar_compras %}
-                    <select name="rol_2_usuario" x-model="compras"
-                        class="text-sm border border-teal-300 rounded-md px-2 py-1.5 bg-white text-gray-700 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 w-44">
-                        <option value="">— Sin asignar —</option>
-                        {% for u in usuarios_compras %}
-                        <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
-                        {% endfor %}
-                    </select>
-                    {% else %}
-                    <input type="hidden" name="rol_2_usuario" value="{{ cur_compras.id or '' }}">
-                    <span class="text-sm text-gray-700 w-44 text-right truncate">{{ cur_compras.nombre or '—' }}</span>
-                    {% endif %}
-                </div>
 
                 {% if sera_rcompras %}
                 <div class="flex items-start gap-2 px-3 py-1.5 bg-teal-50 border border-teal-200 rounded-md">
@@ -336,7 +364,7 @@
             <!-- Footer -->
             {% set alguno_puede_editar = puede_asignar_ingenieria or puede_asignar_construccion or puede_asignar_compras %}
             {% if alguno_puede_editar %}
-            <div class="flex items-center justify-between gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50">
+            <div class="flex items-center justify-between gap-2 px-6 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
                 <div x-show="dirty && !guardando" x-cloak
                     class="flex items-center gap-1.5 text-xs text-amber-700 font-medium">
                     <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
