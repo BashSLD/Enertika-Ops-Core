@@ -1,59 +1,100 @@
 {% extends "_base.html" %}
 
 {% block doc_title %}Solicitud de Cotización (RFQ){% endblock %}
-{% block doc_date %}{{ proyecto.proyecto_id_estandar if proyecto else '' }} &nbsp;|&nbsp; Generado {{ rfq.updated_at | time_mx if rfq.updated_at else '' }}{% endblock %}
+{% block doc_date %}{% if proyecto %}Proyecto: {{ proyecto.proyecto_id_estandar or '' }} {{ proyecto.nombre_proyecto or '' }}{% endif %}{% endblock %}
 {% block footer_label %}Solicitud de cotización{% endblock %}
+{% block header_modifier %}pdf-header-accent{% endblock %}
+
+{% block footer_extra %}
+{% if empresa %}
+<div class="footer-empresa">
+    {{ empresa.razon_social }}{% if empresa.rfc %} &middot; RFC {{ empresa.rfc }}{% endif %}{% if empresa.direccion %} &middot; {{ empresa.direccion }}{% endif %}
+</div>
+{% endif %}
+{% endblock %}
 
 {% block extra_styles %}
 <style>
-    .empresa-box {
-        margin-bottom: 14px;
-        padding: 10px 14px;
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        font-size: 9pt;
-        color: #374151;
+    @page {
+        margin: 1.2cm 1.5cm 2.8cm 1.5cm;
+
+        @bottom-center {
+            height: 2.1cm;
+        }
     }
 
-    .empresa-box .razon-social {
+    .footer-empresa {
+        font-size: 7pt;
+        color: #9aa39e;
+        margin-bottom: 2px;
+    }
+
+    .pdf-header-accent {
+        position: relative;
+    }
+
+    .pdf-header-accent::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 0;
+        height: 0;
+        border-style: solid;
+        border-width: 0 44px 44px 0;
+        border-color: transparent rgba(0, 186, 187, 0.07) transparent transparent;
+        z-index: -1;
+    }
+
+    .section-label {
+        font-size: 8pt;
         font-weight: 700;
-        font-size: 10.5pt;
-        color: #0A2463;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: #8a9490;
+        margin: 16px 0 8px 0;
+        page-break-after: avoid;
+        break-after: avoid;
+    }
+
+    table.data-table.plain th,
+    table.data-table.plain td {
+        border: none;
+        border-bottom: 1px solid #eef1ee;
+        padding: 8px 9px;
+    }
+
+    table.data-table.plain thead th {
+        font-size: 8pt;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        color: #6b7280;
+        background: transparent;
+        border-bottom: 1.5px solid #00BABB;
+    }
+
+    table.data-table.plain tbody tr:nth-child(even) td {
+        background: transparent;
+    }
+
+    table.data-table.plain tbody tr:last-child td {
+        border-bottom: none;
     }
 
     .notice {
         margin-bottom: 14px;
-        padding: 8px 12px;
-        background: #fffbeb;
-        border: 1px solid #fcd34d;
+        padding: 9px 0;
+        border-top: 1px solid #eef1ee;
+        border-bottom: 1px solid #eef1ee;
         font-size: 8.5pt;
-        color: #92400e;
-    }
-
-    .footnote {
-        font-size: 8pt;
-        color: #6b7280;
-        margin-top: 6px;
+        font-style: italic;
+        color: #6b6255;
     }
 </style>
 {% endblock %}
 
 {% block content %}
-
-{% if empresa %}
-<div class="empresa-box">
-    <div class="razon-social">{{ empresa.razon_social }}</div>
-    {% if empresa.rfc %}<div>RFC: {{ empresa.rfc }}</div>{% endif %}
-    {% if empresa.direccion %}<div>{{ empresa.direccion }}</div>{% endif %}
-    {% if empresa.telefono or empresa.email_contacto %}
-    <div>
-        {% if empresa.telefono %}Tel: {{ empresa.telefono }}{% endif %}
-        {% if empresa.telefono and empresa.email_contacto %} &nbsp;|&nbsp; {% endif %}
-        {% if empresa.email_contacto %}{{ empresa.email_contacto }}{% endif %}
-    </div>
-    {% endif %}
-</div>
-{% endif %}
 
 <div class="notice">
     Este documento es una solicitud de cotización (RFQ). No constituye una orden de compra ni
@@ -61,22 +102,15 @@
     y tiempo de entrega para cada partida.
 </div>
 
-{% if proyecto %}
-<div class="section-title">Proyecto</div>
-<table class="data-table">
-    <tr><th>Proyecto</th><td>{{ proyecto.proyecto_id_estandar or '—' }} {{ proyecto.nombre_proyecto or '' }}</td></tr>
-</table>
-{% endif %}
-
 {% if rfq.notas %}
-<div class="section-title">Notas</div>
-<table class="data-table">
+<div class="section-label">Notas</div>
+<table class="data-table plain">
     <tr><th>Notas</th><td>{{ rfq.notas }}</td></tr>
 </table>
 {% endif %}
 
-<div class="section-title">Partidas solicitadas</div>
-<table class="data-table">
+<div class="section-label">Partidas solicitadas</div>
+<table class="data-table plain">
     <thead>
         <tr>
             <th style="width: 6%;">#</th>
@@ -96,9 +130,5 @@
         {% endfor %}
     </tbody>
 </table>
-<p class="footnote">
-    La unidad de medida mostrada puede diferir del catálogo interno de Enertika; se ajusta para
-    facilitar la cotización con el proveedor.
-</p>
 
 {% endblock %}

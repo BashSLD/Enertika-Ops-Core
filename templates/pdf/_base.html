@@ -132,13 +132,14 @@
 
     <!-- Running footer (WeasyPrint lo extrae y coloca en @bottom-center) -->
     <div id="footer-running">
+        {% block footer_extra %}{% endblock %}
         <img src="logos/footer.png" alt="" style="height: 0.3cm; width: auto; vertical-align: middle; margin-right: 5px;">
         Enertika &mdash; {% block footer_label %}Documento generado automaticamente{% endblock %} &nbsp;|&nbsp;
         Pagina <span class="page-num"></span> de <span class="page-total"></span>
     </div>
 
     <!-- HEADER CORPORATIVO -->
-    <div class="pdf-header">
+    <div class="pdf-header {% block header_modifier %}{% endblock %}">
         <table class="pdf-header-table">
             <tr>
                 <td>
