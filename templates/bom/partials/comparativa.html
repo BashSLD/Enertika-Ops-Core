@@ -40,8 +40,8 @@
                     {% endif %}
                 </span>
                 {{ form_campo_editable_rfq(rfq.id, 'editandoNombre', 'nombre', rfq.lock_version, 'nombre', rfq.nombre, 'Nombre del RFQ', css_width='w-40', required=true) }}
-                <span x-show="!editandoFolio" class="flex items-center gap-2 text-xs text-gray-400 ml-2" @click.stop>
-                    <span>Folio proveedor: {{ rfq.folio_proveedor or '—' }}</span>
+                <span x-show="!editandoFolio" class="flex items-center gap-2 text-xs ml-2" @click.stop>
+                    <span class="{{ 'text-gray-400' if rfq.folio_proveedor else 'rounded bg-indigo-50 px-1.5 py-0.5 text-indigo-700' }}">Folio proveedor: {{ rfq.folio_proveedor or '—' }}</span>
                     <button type="button" @click.stop="editandoFolio = !editandoFolio"
                         class="text-gray-400 hover:text-gray-600 underline">Editar folio</button>
                 </span>
