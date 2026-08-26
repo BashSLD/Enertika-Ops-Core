@@ -1451,12 +1451,49 @@ class BomComprasDBMixin:
         """, bom_id, creado_por, notas, nombre)
         return dict(row)
 
+    async def rfq_tiene_pago_asignado(self, conn, rfq_id: UUID) -> bool:
+        """True si alguna cotizacion de este RFQ ya tiene un pago registrado
+        (tb_bom_rfq -> tb_bom_cotizaciones.rfq_id -> tb_bom_autorizaciones.cotizacion_id
+        -> tb_bom_pagos.autorizacion_id). Los pagos se concilian por el nombre del RFQ,
+        asi que una vez que existe un pago el nombre ya no debe poder cambiarse."""
+        exists = await conn.fetchval("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM tb_bom_pagos pg
+                JOIN tb_bom_autorizaciones a ON a.id = pg.autorizacion_id
+                JOIN tb_bom_cotizaciones c ON c.id = a.cotizacion_id
+                WHERE c.rfq_id = $1
+            )
+        """, rfq_id)
+        return bool(exists)
+
     async def renombrar_rfq(self, conn, rfq_id: UUID, nombre: str, lock_version_esperado: int) -> Optional[dict]:
+        """NOT EXISTS pliega el chequeo de pago-asignado en la misma UPDATE en
+        vez de una query aparte antes: en el caso comun (sin pago) esto ahorra
+        un roundtrip; el caller solo vuelve a consultar rfq_tiene_pago_asignado
+        si esta UPDATE no afecto ninguna fila, para dar el mensaje especifico."""
         row = await conn.fetchrow("""
             UPDATE tb_bom_rfq SET nombre = $1, lock_version = lock_version + 1, updated_at = NOW()
             WHERE id = $2 AND lock_version = $3
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM tb_bom_pagos pg
+                  JOIN tb_bom_autorizaciones a ON a.id = pg.autorizacion_id
+                  JOIN tb_bom_cotizaciones c ON c.id = a.cotizacion_id
+                  WHERE c.rfq_id = tb_bom_rfq.id
+              )
             RETURNING *
         """, nombre, rfq_id, lock_version_esperado)
+        return dict(row) if row else None
+
+    async def actualizar_folio_rfq(
+        self, conn, rfq_id: UUID, folio_proveedor: Optional[str], lock_version_esperado: int,
+    ) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_rfq SET folio_proveedor = $1, lock_version = lock_version + 1, updated_at = NOW()
+            WHERE id = $2 AND lock_version = $3
+            RETURNING *
+        """, folio_proveedor, rfq_id, lock_version_esperado)
         return dict(row) if row else None
 
     async def agregar_items_rfq(self, conn, rfq_id: UUID, items: list) -> int:
@@ -1532,10 +1569,19 @@ class BomComprasDBMixin:
     # ─── COMPARATIVA RFQ (Gap 7d) ───────────────────────────
 
     async def get_rfqs_by_bom(self, conn, id_bom: UUID) -> list:
-        """RFQs (tb_bom_rfq) de un BOM, con conteo de items."""
+        """RFQs (tb_bom_rfq) de un BOM, con conteo de items y si ya tiene un
+        pago asignado (calculado aqui via EXISTS para no repetir un roundtrip
+        de rfq_tiene_pago_asignado por cada RFQ en la comparativa)."""
         rows = await conn.fetch("""
             SELECT r.*, r.created_at AS creado_en, u.nombre AS creado_por_nombre,
-                   COUNT(ri.id) AS total_items_cotizacion
+                   COUNT(ri.id) AS total_items_cotizacion,
+                   EXISTS (
+                       SELECT 1
+                       FROM tb_bom_pagos pg
+                       JOIN tb_bom_autorizaciones a ON a.id = pg.autorizacion_id
+                       JOIN tb_bom_cotizaciones c ON c.id = a.cotizacion_id
+                       WHERE c.rfq_id = r.id
+                   ) AS tiene_pago_asignado
             FROM tb_bom_rfq r
             LEFT JOIN tb_usuarios u ON u.id_usuario = r.creado_por
             LEFT JOIN tb_bom_rfq_items ri ON ri.rfq_id = r.id

@@ -1,6 +1,6 @@
 {# templates/bom/partials/comparativa.html #}
 {# Vista comparativa RFQ: items BOM × proveedores (Gap 7d) #}
-{% from "bom/partials/_macros.html" import boton_adjudicar %}
+{% from "bom/partials/_macros.html" import boton_adjudicar, form_campo_editable_rfq %}
 <div id="comparativa-container">
     <div class="flex items-center justify-between mb-4">
         <div>
@@ -22,7 +22,7 @@
     {% for comp in comparativas %}
     {% set rfq = comp.rfq %}
     <div class="mb-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
-        x-data="{ historialAbierto: false, editandoNombre: false, expandido: false }">
+        x-data="{ historialAbierto: false, editandoNombre: false, editandoFolio: false, expandido: false }">
         <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between cursor-pointer"
             @click="expandido = !expandido">
             <div class="flex items-center gap-2">
@@ -32,19 +32,20 @@
                 </svg>
                 <span x-show="!editandoNombre" class="flex items-center gap-2">
                     <span class="text-sm font-semibold text-gray-800">{{ rfq.nombre or ('RFQ #' + rfq.id.__str__()[:8]) }}</span>
+                    {% if not comp.tiene_pago_asignado %}
                     <button type="button" @click.stop="editandoNombre = !editandoNombre"
                         class="text-xs text-gray-400 hover:text-gray-600 underline">Editar nombre</button>
+                    {% else %}
+                    <span class="text-xs text-gray-300" title="Este RFQ ya tiene un pago asignado; los pagos se concilian por su nombre y ya no puede cambiarse">(nombre bloqueado)</span>
+                    {% endif %}
                 </span>
-                <form x-show="editandoNombre" x-cloak @click.stop
-                    hx-post="/bom/rfq/{{ rfq.id }}/nombre" hx-target="#comparativa-container" hx-swap="outerHTML"
-                    class="flex items-center gap-1.5">
-                    <input type="hidden" name="lock_version" value="{{ rfq.lock_version }}">
-                    <input type="text" name="nombre" value="{{ rfq.nombre or '' }}" required
-                        placeholder="Nombre del RFQ" class="w-40 rounded border-gray-300 text-xs">
-                    <button type="submit" class="text-xs font-medium text-indigo-600 hover:text-indigo-800">Guardar</button>
-                    <button type="button" @click="editandoNombre = false"
-                        class="text-xs text-gray-400 hover:text-gray-600">Cancelar</button>
-                </form>
+                {{ form_campo_editable_rfq(rfq.id, 'editandoNombre', 'nombre', rfq.lock_version, 'nombre', rfq.nombre, 'Nombre del RFQ', css_width='w-40', required=true) }}
+                <span x-show="!editandoFolio" class="flex items-center gap-2 text-xs text-gray-400 ml-2" @click.stop>
+                    <span>Folio proveedor: {{ rfq.folio_proveedor or '—' }}</span>
+                    <button type="button" @click.stop="editandoFolio = !editandoFolio"
+                        class="text-gray-400 hover:text-gray-600 underline">Editar folio</button>
+                </span>
+                {{ form_campo_editable_rfq(rfq.id, 'editandoFolio', 'folio', rfq.lock_version, 'folio_proveedor', rfq.folio_proveedor, 'Folio del proveedor', css_width='w-32', extra_class='ml-2') }}
                 <span class="text-xs text-gray-400 ml-2">{{ rfq.total_items_cotizacion }} ítems</span>
                 <span class="text-xs text-gray-400">&bull; {{ comp.responses | length }} respuesta{{ 's' if comp.responses | length != 1 else '' }}</span>
             </div>

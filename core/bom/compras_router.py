@@ -177,7 +177,7 @@ async def _render_modal_cotizacion_rfq(
     """
     bom = await service.get_bom_by_id(conn, bom_id)
     if not bom:
-        raise HTTPException(status_code=404, detail="BOM no encontrado")
+        return _toast_response(request, "BOM no encontrado", "error", status_code=404)
     items = await service.get_items(conn, bom_id)
     rfq_items = await service.get_items_rfq(conn, preset_rfq["id"])
     ids_en_rfq = _ids_en_rfq(rfq_items)
@@ -262,7 +262,7 @@ async def get_cotizaciones_tab(
     if rfq_id:
         preset_rfq = await service.db.get_rfq_by_id(conn, rfq_id)
         if not preset_rfq:
-            raise HTTPException(status_code=404, detail="RFQ no encontrado")
+            return _toast_response(request, "RFQ no encontrado", "error", status_code=404)
         return await _render_modal_cotizacion_rfq(request, conn, service, id_bom, preset_rfq)
     role = context.get("role")
     module_roles = context.get("module_roles", {})
@@ -496,6 +496,7 @@ async def _render_comparativa(request, conn, service, context, id_bom: UUID):
         comparativas.append({
             'rfq': rfq, 'items': rfq_items, 'responses': responses, 'resp_items': resp_items,
             'items_disponibles_json': [it for it in items_bom_json if it["id_item"] not in ids_en_rfq],
+            'tiene_pago_asignado': rfq.get('tiene_pago_asignado', False),
         })
     es_compras_editor = user_has_module_access("compras", context, "editor")
     catalogos = await service.get_catalogos(conn)
@@ -611,6 +612,31 @@ async def renombrar_rfq(
     except asyncpg.PostgresError:
         logger.exception("Error de BD al renombrar RFQ %s", rfq_id)
         return _toast_response(request, "Error interno al renombrar el RFQ", "error", status_code=500)
+
+    return await _render_comparativa(request, conn, service, context, actualizado["bom_id"])
+
+
+@compras_router.post("/rfq/{rfq_id}/folio", include_in_schema=False)
+async def actualizar_folio_rfq(
+    request: Request,
+    rfq_id: UUID,
+    folio_proveedor: Optional[str] = Form(None),
+    lock_version: int = Form(...),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Actualiza el folio/referencia que el proveedor asigno a su cotizacion (Compras)."""
+    try:
+        actualizado = await service.actualizar_folio_rfq(
+            conn, rfq_id, folio_proveedor, lock_version_esperado=lock_version,
+        )
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al actualizar folio del RFQ %s", rfq_id)
+        return _toast_response(request, "Error interno al actualizar el folio", "error", status_code=500)
 
     return await _render_comparativa(request, conn, service, context, actualizado["bom_id"])
 
