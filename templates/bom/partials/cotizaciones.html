@@ -1,5 +1,6 @@
 {# templates/bom/partials/cotizaciones.html #}
 {# Tab de cotizaciones del BOM — cargado lazy via HTMX #}
+{% from "bom/partials/_macros.html" import boton_adjudicar %}
 
 <div id="tab-cotizaciones-content"
     x-data="cotizacionesBom()"
@@ -163,6 +164,8 @@
                         'iva_pct': cot.iva_pct,
                         'notas': cot.notas,
                         'items': cot.items_json,
+                        'modo_simplificado': cot.modo_simplificado,
+                        'subtotal': cot.subtotal,
                     } %}
                     <button type="button" @click="abrirModalEditar(JSON.parse($el.dataset.cot))"
                         data-cot='{{ cot_payload | tojson | replace("'", "&#39;") }}'
@@ -180,16 +183,11 @@
                                 onchange="this.closest('form').requestSubmit()">
                         </label>
                     </form>
-                    <button
-                        hx-post="/bom/cotizaciones/{{ cot.id }}/seleccionar"
-                        hx-vals='{"lock_version": "{{ cot.lock_version }}"}'
-                        hx-target="#tab-cotizaciones"
-                        hx-swap="innerHTML"
-                        hx-confirm="¿Adjudicar esta cotización? Se generará la autorización de compra."
-                        title="Marca esta cotización como la elegida, actualiza los ítems cubiertos y genera la autorización de compra para el coordinador de obra."
-                        class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition">
-                        Adjudicar
-                    </button>
+                    {{ boton_adjudicar(
+                        cot.id, cot.lock_version,
+                        "¿Adjudicar esta cotización? Se generará la autorización de compra.",
+                        "px-2.5 py-1.5 text-xs font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition"
+                    ) }}
                     <button
                         hx-post="/bom/cotizaciones/{{ cot.id }}/rechazar"
                         hx-vals='{"lock_version": "{{ cot.lock_version }}"}'
@@ -428,10 +426,6 @@
         <div class="flex items-center justify-between gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
             <p x-show="errorMsg" x-text="errorMsg" class="text-sm text-red-600 font-medium"></p>
             <div class="flex gap-2 ml-auto">
-                <button type="button" @click="cerrarModal()"
-                    class="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                    Cancelar
-                </button>
                 <button type="button" @click="guardar()" :disabled="guardando || itemsSeleccionados.length === 0"
                     class="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed bg-emerald-600 hover:bg-emerald-700">
                     <svg class="w-4 h-4" :class="{'animate-spin': guardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -1,5 +1,6 @@
 {# templates/bom/partials/comparativa.html #}
 {# Vista comparativa RFQ: items BOM × proveedores (Gap 7d) #}
+{% from "bom/partials/_macros.html" import boton_adjudicar %}
 <div id="comparativa-container">
     <div class="flex items-center justify-between mb-4">
         <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide">RFQ</h3>
@@ -182,15 +183,13 @@
                                 {% if resp.subtotal %}${{ "{:,.0f}".format(resp.subtotal|float) }}{% else %}—{% endif %}
                             </div>
                             {% if es_compras_editor and resp.estatus in ('BORRADOR', 'RECIBIDA') %}
-                            <button type="button"
-                                hx-post="/bom/cotizaciones/{{ resp.id }}/seleccionar"
-                                hx-vals='{"lock_version": "{{ resp.lock_version }}"}'
-                                hx-target="#tab-cotizaciones" hx-swap="innerHTML"
-                                hx-confirm="¿Adjudicar la cotización de {{ resp.nombre_proveedor or 'este proveedor' }}? Se generará la autorización de compra."
-                                title="Marca esta cotización como la elegida, actualiza los ítems cubiertos y genera la autorización de compra para el coordinador de obra."
-                                class="mt-1.5 w-full rounded-lg bg-emerald-600 px-2 py-1 text-[10px] font-medium normal-case text-white hover:bg-emerald-700">
-                                Adjudicar
-                            </button>
+                            <div class="mt-1.5">
+                                {{ boton_adjudicar(
+                                    resp.id, resp.lock_version,
+                                    "¿Adjudicar la cotización de " ~ (resp.nombre_proveedor or 'este proveedor') ~ "? Se generará la autorización de compra.",
+                                    "w-full rounded-lg bg-emerald-600 px-2 py-1 text-[10px] font-medium normal-case text-white hover:bg-emerald-700"
+                                ) }}
+                            </div>
                             {% endif %}
                         </th>
                         {% endfor %}

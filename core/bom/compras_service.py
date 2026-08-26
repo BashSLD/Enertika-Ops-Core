@@ -43,6 +43,27 @@ class BomComprasServiceMixin:
             return bool(bom.get("es_cabeza_oficial"))
         return bool(bom.get("es_cabeza_trabajo", True))
 
+    async def _relock_bom_cotizable_o_raise(
+        self, conn, id_bom: UUID, bom_esperado: dict,
+        bom_lock_version_esperado: Optional[int] = None,
+    ) -> dict:
+        """Re-bloquea el BOM dentro de la transaccion y valida que sigue en el
+        mismo estado que se vio en el fetch temprano (cierra la ventana de
+        carrera entre validar y escribir). Compartido por crear_cotizacion y
+        editar_cotizacion."""
+        bom_bloqueado = await self.db.get_bom_for_update(conn, id_bom)
+        if (
+            not bom_bloqueado
+            or bom_bloqueado["estatus"] != bom_esperado["estatus"]
+            or not self._es_cabeza_cotizable(bom_bloqueado)
+            or (
+                bom_lock_version_esperado is not None
+                and bom_bloqueado["lock_version"] != bom_lock_version_esperado
+            )
+        ):
+            raise ValueError("El BOM cambio desde que abriste la cotizacion; recarga el paquete")
+        return bom_bloqueado
+
     async def resolver_bom_cotizable(self, conn, id_paquete: UUID) -> dict:
         """Resuelve, a partir del paquete, el BOM relevante para Compras hoy: la
         cabeza de trabajo, salvo que haya retrabajo en curso y la nueva version
@@ -162,6 +183,13 @@ class BomComprasServiceMixin:
                         tiene_sobrecosto = True
                         break
             cot['tiene_sobrecosto'] = tiene_sobrecosto
+            subtotal = cot.get('subtotal')
+            iva = cot.get('iva')
+            cot['iva_pct'] = (
+                round(float(iva) / float(subtotal) * 100, 2)
+                if subtotal and float(subtotal) > 0 and iva is not None
+                else 16
+            )
 
         return cotizaciones
 
@@ -328,16 +356,7 @@ class BomComprasServiceMixin:
         )
 
         async with conn.transaction():
-            bom_bloqueado = await self.db.get_bom_for_update(conn, id_bom)
-            if (
-                not bom_bloqueado
-                or bom_bloqueado["lock_version"] != bom_lock_version_esperado
-                or bom_bloqueado["estatus"] != bom["estatus"]
-                or not self._es_cabeza_cotizable(bom_bloqueado)
-            ):
-                raise ValueError(
-                    "El BOM cambio desde que abriste la cotizacion; recarga el paquete"
-                )
+            await self._relock_bom_cotizable_o_raise(conn, id_bom, bom, bom_lock_version_esperado)
             items_bloqueados = await self.db.lock_items_context_by_ids(
                 conn, sorted(item_ids, key=str)
             )
@@ -353,6 +372,7 @@ class BomComprasServiceMixin:
                 conn, id_bom, proveedor_id, nombre_proveedor, moneda,
                 subtotal, iva, total, notas, creado_por,
                 rfq_id=rfq_id,
+                modo_simplificado=subtotal_externo is not None,
             )
             await self.db.agregar_items_cotizacion(
                 conn, cotizacion['id'], id_bom, items_insert
@@ -388,11 +408,16 @@ class BomComprasServiceMixin:
         moneda = self._validar_proveedor_moneda(proveedor_id, nombre_proveedor, moneda)
 
         id_bom = cotizacion["bom_id"]
+        bom = await self.get_bom(conn, id_bom)
+        if EstatusBOM(bom['estatus']) not in ESTATUS_COTIZABLE or not self._es_cabeza_cotizable(bom):
+            raise ValueError("El BOM ya no admite cotizaciones; recarga el paquete")
+
         items_insert, item_ids, subtotal, iva, total = await self._calcular_items_cotizacion(
             conn, id_bom, items_data, moneda, iva_pct, notas, subtotal_externo,
         )
 
         async with conn.transaction():
+            await self._relock_bom_cotizable_o_raise(conn, id_bom, bom)
             items_bloqueados = await self.db.lock_items_context_by_ids(
                 conn, sorted(item_ids, key=str)
             )
@@ -407,6 +432,7 @@ class BomComprasServiceMixin:
             actualizado = await self.db.actualizar_cotizacion(
                 conn, cotizacion_id, proveedor_id, nombre_proveedor, moneda,
                 subtotal, iva, total, notas, lock_version_esperado,
+                modo_simplificado=subtotal_externo is not None,
             )
             if not actualizado:
                 raise ValueError("La cotizacion cambio; recarga la pestaña")

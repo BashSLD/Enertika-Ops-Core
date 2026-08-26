@@ -115,13 +115,6 @@ async def _render_cotizaciones_tab(
         cot_items_json.setdefault(key, []).append(_item_cotizacion_json(it))
     for cot in cotizaciones:
         cot["items_json"] = cot_items_json.get(str(cot["id"]), [])
-        subtotal = cot.get("subtotal")
-        iva = cot.get("iva")
-        cot["iva_pct"] = (
-            round(float(iva) / float(subtotal) * 100, 2)
-            if subtotal and float(subtotal) > 0 and iva is not None
-            else 16
-        )
     items = await service.get_items(conn, bom_id)
     items_disponibles = [
         _item_cotizacion_json(i) for i in items if item_disponible_cotizacion(i)
@@ -302,6 +295,9 @@ async def editar_cotizacion(
         )
     except (ValueError, TypeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al editar cotización %s", cotizacion_id)
+        raise HTTPException(status_code=500, detail="Error interno al editar la cotización")
 
     return await _render_cotizaciones_tab(request, conn, service, context, actualizado["bom_id"])
 

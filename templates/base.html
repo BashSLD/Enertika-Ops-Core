@@ -418,6 +418,8 @@
                         editandoLockVersion: cot.lock_version,
                     });
                     this.notas = cot.notas || '';
+                    this.modoSimplificado = !!cot.modo_simplificado;
+                    this.subtotalSimplificado = this.modoSimplificado ? (cot.subtotal || null) : null;
                     (cot.items || []).forEach(it => {
                         const disponible = this.itemsDisponibles.find(d => d.id_item === it.id_item);
                         this.itemsSeleccionados.push(disponible ? { ...disponible } : { ...it });

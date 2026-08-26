@@ -18,15 +18,16 @@ class BomComprasDBMixin:
         nombre_proveedor: Optional[str], moneda: str,
         subtotal, iva, total, notas: Optional[str], creado_por: UUID,
         rfq_id: Optional[UUID] = None,
+        modo_simplificado: bool = False,
     ) -> dict:
         row = await conn.fetchrow("""
             INSERT INTO tb_bom_cotizaciones
                 (bom_id, proveedor_id, nombre_proveedor, moneda,
-                 subtotal, iva, total, notas, creado_por, rfq_id)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                 subtotal, iva, total, notas, creado_por, rfq_id, modo_simplificado)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
             RETURNING *
         """, bom_id, proveedor_id, nombre_proveedor, moneda,
-            subtotal, iva, total, notas, creado_por, rfq_id)
+            subtotal, iva, total, notas, creado_por, rfq_id, modo_simplificado)
         return dict(row)
 
     async def agregar_items_cotizacion(
@@ -280,16 +281,18 @@ class BomComprasDBMixin:
         nombre_proveedor: Optional[str], moneda: str,
         subtotal, iva, total, notas: Optional[str],
         lock_version_esperado: int,
+        modo_simplificado: bool = False,
     ) -> Optional[dict]:
         row = await conn.fetchrow("""
             UPDATE tb_bom_cotizaciones
             SET proveedor_id = $2, nombre_proveedor = $3, moneda = $4,
                 subtotal = $5, iva = $6, total = $7, notas = $8,
+                modo_simplificado = $10,
                 actualizado_en = NOW(), lock_version = lock_version + 1
             WHERE id = $1 AND estatus IN ('BORRADOR', 'RECIBIDA') AND lock_version = $9
             RETURNING *
         """, cotizacion_id, proveedor_id, nombre_proveedor, moneda,
-            subtotal, iva, total, notas, lock_version_esperado)
+            subtotal, iva, total, notas, lock_version_esperado, modo_simplificado)
         return dict(row) if row else None
 
     async def eliminar_attachment_huerfano(self, conn, doc_id: UUID) -> None:
@@ -1644,7 +1647,7 @@ class BomComprasDBMixin:
                            WHERE d.id_bom_item = $3
                            HAVING ABS(SUM(d.porcentaje) - 1) <= 0.000001
                        ), grupos.distribucion_unica, '[]'::JSONB)
-                CROSS JOIN LATERAL (
+                FROM (
                     WITH efectivos AS (
                         SELECT operativo.id_grupo
                         FROM tb_bom_item_grupos_operativos operativo

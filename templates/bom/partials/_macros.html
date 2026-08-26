@@ -1,0 +1,11 @@
+{% macro boton_adjudicar(cotizacion_id, lock_version, confirm_msg, css_class) %}
+<button type="button"
+    hx-post="/bom/cotizaciones/{{ cotizacion_id }}/seleccionar"
+    hx-vals='{"lock_version": "{{ lock_version }}"}'
+    hx-target="#tab-cotizaciones" hx-swap="innerHTML"
+    hx-confirm="{{ confirm_msg }}"
+    title="Marca esta cotización como la elegida, actualiza los ítems cubiertos y genera la autorización de compra para el coordinador de obra."
+    class="{{ css_class }}">
+    Adjudicar
+</button>
+{% endmacro %}
