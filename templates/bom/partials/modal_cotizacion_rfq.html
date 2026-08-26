@@ -1,0 +1,13 @@
+{# Modal standalone "Pasar a Cotizacion" para una tarjeta de RFQ.
+   Se swapea en #bom-modal-container (compras_paquete.html), nunca en
+   #tab-cotizaciones, para no perder la vista de RFQs que queda debajo. #}
+<div id="modal-cotizacion-rfq-content" x-data="cotizacionesBom()" x-init="init()"
+    data-standalone
+    data-bom-id="{{ bom.id_bom }}"
+    data-bom-lock-version="{{ bom.lock_version }}"
+    data-bom-lock-version-container
+    data-preset-rfq-id="{{ preset_rfq.id }}"
+    data-preset-rfq-nombre="{{ preset_rfq.nombre }}"
+    data-items='{{ items_disponibles | tojson | replace("'", "&#39;") }}'>
+    {% include "bom/partials/_modal_cargar_cotizacion.html" %}
+</div>

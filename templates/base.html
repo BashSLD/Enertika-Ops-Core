@@ -427,7 +427,18 @@
                     });
                 },
 
-                cerrarModal() { this.modalAbierto = false; },
+                // El modal normal vive dentro de #tab-cotizaciones-content (persiste,
+                // solo se oculta). El modal abierto desde una tarjeta RFQ vive en una
+                // instancia standalone dentro de #bom-modal-container (ver
+                // data-standalone en modal_cotizacion_rfq.html) -- a esa si hay que
+                // quitarla del DOM al cerrar, para no dejar un componente Alpine
+                // fantasma ahi.
+                cerrarModal() {
+                    this.modalAbierto = false;
+                    if (this.$root.dataset.standalone !== undefined) {
+                        this.$root.remove();
+                    }
+                },
 
                 isSelected(id_item) {
                     return this.itemsSeleccionados.some(i => i.id_item === id_item);
@@ -474,7 +485,7 @@
                     if (this.busquedaProveedor.length < 2) return;
                     const resp = await fetch(`/bom/proveedores/buscar?q=${encodeURIComponent(this.busquedaProveedor)}`);
                     const html = await resp.text();
-                    document.getElementById('resultados-proveedores-bom').innerHTML = html;
+                    this.$root.querySelector('#resultados-proveedores-bom').innerHTML = html;
                     this.mostrarResultadosProveedor = true;
                 },
 
@@ -499,7 +510,7 @@
                     this.guardando = true;
                     this.errorMsg = '';
                     try {
-                        const rootEl = document.getElementById('tab-cotizaciones-content');
+                        const rootEl = this.$root;
                         const body = {
                             proveedor_id: this.proveedorSeleccionado.id || null,
                             nombre_proveedor: this.proveedorSeleccionado.nombre || this.busquedaProveedor || null,
@@ -534,7 +545,7 @@
                             throw new Error(err.detail || (this.editandoCotizacionId ? 'Error al editar cotización' : 'Error al crear cotización'));
                         }
                         const html = await resp.text();
-                        document.getElementById('tab-cotizaciones').innerHTML = html;
+                        swapTabCotizaciones(html);
                         this.cerrarModal();
                     } catch(e) {
                         this.errorMsg = e.message;
@@ -579,7 +590,7 @@
                             throw new Error(err.detail || 'Error al reemplazar la cotización');
                         }
                         const html = await resp.text();
-                        document.getElementById('tab-cotizaciones').innerHTML = html;
+                        swapTabCotizaciones(html);
                         this.cerrarModalReemplazo();
                     } catch(e) {
                         this.reemplazoError = e.message;
@@ -589,6 +600,31 @@
                 }
             }));
         });
+
+        // Reemplaza el contenido de la tab de Cotizaciones tras guardar/reemplazar
+        // (fetch manual, no hx-swap) y reprocesa sus atributos hx-* con htmx.
+        function swapTabCotizaciones(html) {
+            const tabCotizaciones = document.getElementById('tab-cotizaciones');
+            tabCotizaciones.innerHTML = html;
+            htmx.process(tabCotizaciones);
+        }
+
+        // Función global llamada desde el autocomplete de proveedores del modal
+        // de cotizaciones (server-rendered en /bom/proveedores/buscar). Recibe el
+        // botón que disparó el click para ubicar la instancia Alpine correcta
+        // (this.closest('[x-data]')) -- puede ser el modal normal del tab de
+        // Cotizaciones o el modal standalone abierto desde una tarjeta RFQ.
+        function seleccionarProveedor(btnEl, id, nombre) {
+            const root = btnEl.closest('[x-data]');
+            if (root && root._x_dataStack) {
+                const data = root._x_dataStack[0];
+                if (data) {
+                    data.proveedorSeleccionado = { id, nombre };
+                    data.busquedaProveedor = nombre;
+                    data.mostrarResultadosProveedor = false;
+                }
+            }
+        }
     </script>
 
     <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/persist@3.x.x/dist/cdn.min.js"></script>

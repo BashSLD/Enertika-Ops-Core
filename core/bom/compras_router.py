@@ -86,6 +86,11 @@ def _parse_cotizacion_payload(body: dict) -> dict:
     }
 
 
+def _ids_en_rfq(rfq_items) -> set:
+    """IDs (str) de bom_item vinculados a un RFQ."""
+    return {str(i["bom_item_id"]) for i in rfq_items}
+
+
 def _cotizacion_ctx(request, cotizaciones, bom, es_compras_editor: bool) -> dict:
     return {
         "cotizaciones": cotizaciones,
@@ -157,6 +162,39 @@ async def _render_cotizaciones_tab(
     )
 
 
+async def _render_modal_cotizacion_rfq(
+    request: Request,
+    conn,
+    service: BomService,
+    bom_id: UUID,
+    preset_rfq: dict,
+):
+    """Modal standalone de 'Pasar a Cotizacion' para una tarjeta de RFQ.
+
+    A diferencia de _render_cotizaciones_tab, no reemplaza la vista de RFQs:
+    se swapea aparte en #bom-modal-container para que la comparativa de RFQs
+    debajo no se pierda al abrir el modal (ver comparativa.html).
+    """
+    bom = await service.get_bom_by_id(conn, bom_id)
+    if not bom:
+        raise HTTPException(status_code=404, detail="BOM no encontrado")
+    items = await service.get_items(conn, bom_id)
+    rfq_items = await service.get_items_rfq(conn, preset_rfq["id"])
+    ids_en_rfq = _ids_en_rfq(rfq_items)
+    items_disponibles = [
+        _item_cotizacion_json(i) for i in items
+        if item_disponible_cotizacion(i) and str(i["id_item"]) in ids_en_rfq
+    ]
+    return templates.TemplateResponse(
+        request, "bom/partials/modal_cotizacion_rfq.html",
+        {
+            "bom": bom,
+            "items_disponibles": items_disponibles,
+            "preset_rfq": preset_rfq,
+        },
+    )
+
+
 # ========================================
 # PAGINA "COMPRAS DEL PAQUETE" (Resumen de compra + Cotizaciones + Autorizaciones)
 # ========================================
@@ -217,9 +255,15 @@ async def get_cotizaciones_tab(
 ):
     """Tab de cotizaciones — cargado lazy con HTMX intersect.
 
-    rfq_id (opcional): al llegar desde el boton "Nueva Cotizacion" de una tarjeta
-    RFQ, precarga el modal ya ligado a ese RFQ (ver x-init en cotizaciones.html).
+    rfq_id (opcional): al llegar desde el boton "Pasar a Cotizacion" de una
+    tarjeta RFQ, responde solo el modal standalone (ver _render_modal_cotizacion_rfq)
+    en vez de reemplazar el tab completo, para no perder la vista de RFQs debajo.
     """
+    if rfq_id:
+        preset_rfq = await service.db.get_rfq_by_id(conn, rfq_id)
+        if not preset_rfq:
+            raise HTTPException(status_code=404, detail="RFQ no encontrado")
+        return await _render_modal_cotizacion_rfq(request, conn, service, id_bom, preset_rfq)
     role = context.get("role")
     module_roles = context.get("module_roles", {})
     es_aprobador = (
@@ -227,10 +271,8 @@ async def get_cotizaciones_tab(
         or module_roles.get("ingenieria") in ("editor", "admin")
         or module_roles.get("construccion") in ("editor", "admin")
     )
-    preset_rfq = await service.db.get_rfq_by_id(conn, rfq_id) if rfq_id else None
     return await _render_cotizaciones_tab(
-        request, conn, service, context, id_bom,
-        es_aprobador=es_aprobador, preset_rfq=preset_rfq,
+        request, conn, service, context, id_bom, es_aprobador=es_aprobador,
     )
 
 
@@ -265,6 +307,8 @@ async def crear_cotizacion(
     except (ValueError, TypeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    if rfq_id:
+        return await _render_comparativa(request, conn, service, context, id_bom)
     return await _render_cotizaciones_tab(request, conn, service, context, id_bom)
 
 
@@ -448,7 +492,7 @@ async def _render_comparativa(request, conn, service, context, id_bom: UUID):
         resp_items = {}
         for resp in responses:
             resp_items[str(resp['id'])] = await service.get_items_cotizacion(conn, resp['id'])
-        ids_en_rfq = {str(i["bom_item_id"]) for i in rfq_items}
+        ids_en_rfq = _ids_en_rfq(rfq_items)
         comparativas.append({
             'rfq': rfq, 'items': rfq_items, 'responses': responses, 'resp_items': resp_items,
             'items_disponibles_json': [it for it in items_bom_json if it["id_item"] not in ids_en_rfq],
@@ -1298,9 +1342,8 @@ async def buscar_proveedores_bom(
     proveedores = await service.get_proveedores_buscar(conn, q)
     items_html = "".join(
         f'<button type="button" '
-        f'onclick="seleccionarProveedor({_js_str(str(p["id_proveedor"]))}, '
-        f'{_js_str(p["nombre_comercial"] or p["razon_social"] or "")}); '
-        f'document.getElementById(\'resultados-proveedores-bom\').innerHTML=\'\'"'
+        f'onclick="seleccionarProveedor(this, {_js_str(str(p["id_proveedor"]))}, '
+        f'{_js_str(p["nombre_comercial"] or p["razon_social"] or "")})"'
         f' class="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-gray-100 last:border-0">'
         f'<span class="font-medium">{html.escape(p["nombre_comercial"] or p["razon_social"] or "")}</span>'
         f'<span class="text-xs text-gray-400 ml-2">{html.escape(p["rfc"] or "")}</span>'

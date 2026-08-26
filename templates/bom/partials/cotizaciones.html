@@ -1,6 +1,6 @@
 {# templates/bom/partials/cotizaciones.html #}
 {# Tab de cotizaciones del BOM — cargado lazy via HTMX #}
-{% from "bom/partials/_macros.html" import boton_adjudicar %}
+{% from "bom/partials/_macros.html" import boton_adjudicar, icono_caja %}
 {% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 
 {% if bulk_toast %}
@@ -15,8 +15,6 @@
     data-bom-id="{{ bom.id_bom }}"
     data-bom-lock-version="{{ bom.lock_version }}"
     data-bom-lock-version-container
-    data-preset-rfq-id="{{ preset_rfq.id if preset_rfq else '' }}"
-    data-preset-rfq-nombre="{{ preset_rfq.nombre if preset_rfq else '' }}"
     data-items='{{ items_disponibles | tojson | replace("'", "&#39;") }}'>
 
     {# Header #}
@@ -29,18 +27,19 @@
         <div class="flex items-center gap-2">
         <button hx-get="/bom/{{ bom.id_bom }}/cotizaciones/comparativa"
             hx-target="#tab-cotizaciones" hx-swap="innerHTML"
+            hx-indicator="#global-loading-overlay"
+            title="Ver las solicitudes de cotización (RFQ) enviadas a proveedores y comparar sus respuestas"
             class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 transition">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
             </svg>
-            RFQ
+            Ver RFQs
         </button>
         <button @click="abrirModal()"
+            title="Registrar la cotización que envió un proveedor"
             class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition shadow-sm">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-            </svg>
-            Nueva Cotización
+            {{ icono_caja('w-4 h-4', '2') }}
+            Cargar Cotización
         </button>
         </div>
         {% endif %}
@@ -75,7 +74,7 @@
                         {% if cot.rfq_id %}
                         <span class="px-2 py-0.5 text-xs font-bold rounded-lg border bg-purple-100 text-purple-700 border-purple-300"
                             title="Respuesta a un RFQ">
-                            RFQ
+                            Vía RFQ
                         </span>
                         {% endif %}
                         {% if cot.tiene_sobrecosto %}
@@ -265,10 +264,7 @@
     </div>
     {% else %}
     <div class="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-300">
-        <svg class="mx-auto w-10 h-10 text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-        </svg>
+        {{ icono_caja('mx-auto w-10 h-10 text-gray-300 mb-2') }}
         <p class="text-sm text-gray-500 font-medium">Sin cotizaciones registradas</p>
         {% if es_compras_editor and bom_cotizable %}
         <p class="text-xs text-gray-400 mt-1">Crea la primera cotización con el botón de arriba.</p>
@@ -276,184 +272,7 @@
     </div>
     {% endif %}
 
-{# Modal Nueva Cotización #}
-<div x-show="modalAbierto" x-cloak
-    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
-    @keydown.escape.window="cerrarModal()">
-    <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-3 max-h-[90vh] flex flex-col">
-
-        {# Header modal #}
-        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0"
-            style="background: linear-gradient(135deg, #065f46 0%, #047857 100%);">
-            <div class="flex items-center gap-3">
-                <div class="p-2 bg-white/15 rounded-lg">
-                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                    </svg>
-                </div>
-                <div>
-                    <h2 class="text-base font-semibold text-white" x-text="editandoCotizacionId ? 'Editar Cotización' : 'Nueva Cotización'"></h2>
-                    <p class="text-xs text-emerald-200">Selecciona ítems y captura el precio del proveedor</p>
-                </div>
-            </div>
-            <button @click="cerrarModal()" class="text-white/60 hover:text-white transition-colors p-1">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                </svg>
-            </button>
-        </div>
-
-        {# Body modal — scrollable #}
-        <div class="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-
-            <div x-show="rfqIdActivo" x-cloak
-                class="flex items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-700">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                </svg>
-                <span>Respondiendo al RFQ: <span class="font-semibold" x-text="rfqNombreActivo"></span></span>
-            </div>
-
-            {# Proveedor #}
-            <div>
-                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Proveedor *</label>
-                <div class="relative">
-                    <input type="text" x-model="busquedaProveedor"
-                        @input.debounce.400ms="buscarProveedores()"
-                        @focus="mostrarResultadosProveedor = true"
-                        @click.outside="mostrarResultadosProveedor = false"
-                        placeholder="Buscar proveedor..."
-                        autocomplete="off"
-                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
-                    <div id="resultados-proveedores-bom"
-                        class="absolute z-20 w-full mt-1"
-                        x-show="mostrarResultadosProveedor && busquedaProveedor.length >= 2">
-                    </div>
-                </div>
-                <div x-show="proveedorSeleccionado.nombre"
-                    class="mt-2 flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg">
-                    <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                    </svg>
-                    <span class="text-sm text-emerald-800 font-medium" x-text="proveedorSeleccionado.nombre"></span>
-                    <button type="button" @click="limpiarProveedor()" class="ml-auto text-emerald-400 hover:text-emerald-600">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-
-            {# Moneda + IVA #}
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Moneda</label>
-                    <select x-model="moneda" class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500">
-                        <option value="MXN">MXN — Peso Mexicano</option>
-                        <option value="USD">USD — Dólar</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">IVA %</label>
-                    <input type="number" x-model.number="ivaPct" min="0" max="100" step="0.01"
-                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500">
-                </div>
-            </div>
-
-            {# Ítems #}
-            <div>
-                <div class="flex items-center justify-between mb-2">
-                    <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide">
-                        Ítems a cotizar
-                        <span class="text-gray-400 font-normal normal-case ml-1">(<span x-text="itemsSeleccionados.length"></span> seleccionados)</span>
-                    </label>
-                    <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-                        <input type="checkbox" x-model="modoSimplificado"
-                            class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
-                        Capturar solo el total
-                    </label>
-                </div>
-                <template x-if="itemsDisponibles.length === 0">
-                    <p class="text-sm text-gray-400 italic text-center py-4">Todos los ítems ya están en proceso de cotización o pago.</p>
-                </template>
-                <div class="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-                    <template x-for="item in itemsDisponibles" :key="item.id_item">
-                        <div class="flex items-center gap-3 px-3 py-2.5 rounded-lg border"
-                            :class="isSelected(item.id_item) ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-gray-200'">
-                            <input type="checkbox"
-                                :checked="isSelected(item.id_item)"
-                                @change="toggleItem(item)"
-                                class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 shrink-0">
-                            <div class="flex-1 min-w-0">
-                                <div class="text-sm font-medium text-gray-800 truncate" x-text="item.descripcion"></div>
-                                <div class="text-xs text-gray-400">
-                                    <span x-text="item.categoria_nombre || '—'"></span>
-                                    &bull;
-                                    Cant: <span x-text="item.cantidad"></span>
-                                    <span x-text="item.unidad_medida || ''"></span>
-                                </div>
-                            </div>
-                            <div x-show="isSelected(item.id_item) && !modoSimplificado" class="shrink-0">
-                                <input type="number"
-                                    :value="getPrecio(item.id_item)"
-                                    @input="setPrecio(item.id_item, $event.target.value)"
-                                    min="0" step="0.01"
-                                    placeholder="Precio unit."
-                                    class="w-28 text-sm border border-emerald-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-emerald-500 text-right">
-                            </div>
-                        </div>
-                    </template>
-                </div>
-                <div x-show="modoSimplificado" x-cloak class="mt-2">
-                    <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Subtotal total cotizado</label>
-                    <input type="number" x-model.number="subtotalSimplificado" min="0" step="0.01"
-                        placeholder="Subtotal que dio el proveedor (se reparte entre los ítems)"
-                        class="w-full text-sm border border-emerald-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500">
-                </div>
-            </div>
-
-            {# Resumen totales #}
-            <div x-show="itemsSeleccionados.length > 0"
-                class="bg-emerald-50 rounded-lg px-4 py-3 space-y-1 border border-emerald-200">
-                <div class="flex justify-between text-sm">
-                    <span class="text-gray-600">Subtotal</span>
-                    <span class="font-semibold" x-text="'$' + subtotal.toLocaleString('es-MX', {minimumFractionDigits: 2})"></span>
-                </div>
-                <div class="flex justify-between text-sm">
-                    <span class="text-gray-600">IVA (<span x-text="ivaPct"></span>%)</span>
-                    <span class="font-semibold" x-text="'$' + iva.toLocaleString('es-MX', {minimumFractionDigits: 2})"></span>
-                </div>
-                <div class="flex justify-between text-sm border-t border-emerald-300 pt-1 mt-1">
-                    <span class="font-bold text-emerald-800">Total</span>
-                    <span class="font-bold text-emerald-800" x-text="'$' + total.toLocaleString('es-MX', {minimumFractionDigits: 2}) + ' ' + moneda"></span>
-                </div>
-            </div>
-
-            {# Notas #}
-            <div>
-                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Notas</label>
-                <textarea x-model="notas" rows="2"
-                    class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 resize-none"
-                    placeholder="Notas opcionales sobre esta cotización..."></textarea>
-            </div>
-        </div>
-
-        {# Footer modal #}
-        <div class="flex items-center justify-between gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
-            <p x-show="errorMsg" x-text="errorMsg" class="text-sm text-red-600 font-medium"></p>
-            <div class="flex gap-2 ml-auto">
-                <button type="button" @click="guardar()" :disabled="guardando || itemsSeleccionados.length === 0"
-                    class="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed bg-emerald-600 hover:bg-emerald-700">
-                    <svg class="w-4 h-4" :class="{'animate-spin': guardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                    </svg>
-                    <span x-text="guardando ? 'Guardando...' : (editandoCotizacionId ? 'Guardar Cambios' : 'Crear Cotización')"></span>
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
+{% include "bom/partials/_modal_cargar_cotizacion.html" %}
 
 {# Modal Reemplazar por proveedor incumplido (## 7.4) #}
 <div x-show="modalReemplazoAbierto" x-cloak
@@ -509,26 +328,3 @@
     </div>
 </div>
 </div>
-
-<script>
-// cotizacionesBom() vive en base.html via Alpine.data() (junto a
-// sharepointFolderButton) -- definirla aqui, en un <script> de este partial
-// cargado lazy por HTMX, causaba una carrera real: Alpine inicializaba
-// x-data="cotizacionesBom()" antes de que HTMX terminara de ejecutar el
-// <script> del swap (fase "settle", diferida), dejando abrirModal() y el
-// resto de metodos como undefined.
-
-// Función global llamada desde el autocomplete de proveedores
-function seleccionarProveedor(id, nombre) {
-    // Buscar el componente Alpine más cercano
-    const el = document.getElementById('tab-cotizaciones-content');
-    if (el && el._x_dataStack) {
-        const data = el._x_dataStack[0];
-        if (data) {
-            data.proveedorSeleccionado = { id, nombre };
-            data.busquedaProveedor = nombre;
-            data.mostrarResultadosProveedor = false;
-        }
-    }
-}
-</script>

@@ -3,9 +3,13 @@
 {% from "bom/partials/_macros.html" import boton_adjudicar %}
 <div id="comparativa-container">
     <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide">RFQ</h3>
+        <div>
+            <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide">Solicitudes de cotización (RFQ)</h3>
+            <p class="text-xs text-gray-400 mt-0.5">Aquí puedes generar y enviar RFQ a los proveedores, y cargar la cotización que te compartan como respuesta.</p>
+        </div>
         <button type="button" hx-get="/bom/{{ id_bom }}/cotizaciones"
             hx-target="#tab-cotizaciones" hx-swap="innerHTML"
+            hx-indicator="#global-loading-overlay"
             class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg text-gray-600 bg-gray-50 border border-gray-200 hover:bg-gray-100 transition">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
@@ -57,9 +61,11 @@
                 {% if es_compras_editor %}
                 <button type="button" @click.stop
                     hx-get="/bom/{{ id_bom }}/cotizaciones?rfq_id={{ rfq.id }}"
-                    hx-target="#tab-cotizaciones" hx-swap="innerHTML"
+                    hx-target="#bom-modal-container" hx-swap="innerHTML"
+                    hx-indicator="#global-loading-overlay"
+                    title="Registrar la respuesta de un proveedor a este RFQ (solo sus ítems), sin salir de esta vista"
                     class="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">
-                    Nueva Cotización
+                    Pasar a Cotización
                 </button>
                 {% endif %}
             </div>
