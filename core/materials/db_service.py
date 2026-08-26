@@ -379,7 +379,7 @@ class MaterialsDBService:
 
         if filtros.get('q'):
             q_norm = normalizar_descripcion(filtros['q'])
-            base += f" AND (c.descripcion_norm ILIKE ${idx} OR c.descripcion_canonica ILIKE ${idx})"
+            base += f" AND (c.descripcion_norm ILIKE ${idx} OR c.descripcion_canonica ILIKE ${idx} OR c.marca ILIKE ${idx})"
             params.append(f"%{q_norm}%")
             idx += 1
         if filtros.get('id_unidad_medida'):
@@ -812,7 +812,7 @@ class MaterialsDBService:
     async def buscar_internos_para_vincular(self, conn, id_xml: UUID, q: str, limite: int = 20) -> list:
         q_norm = normalizar_descripcion(q)
         query = self._INTERNO_VINCULAR_SELECT + """
-              AND (c.descripcion_norm ILIKE '%' || $2 || '%' OR c.descripcion_canonica ILIKE '%' || $2 || '%')
+              AND (c.descripcion_norm ILIKE '%' || $2 || '%' OR c.descripcion_canonica ILIKE '%' || $2 || '%' OR c.marca ILIKE '%' || $2 || '%')
             ORDER BY c.descripcion_canonica
             LIMIT $3
         """
