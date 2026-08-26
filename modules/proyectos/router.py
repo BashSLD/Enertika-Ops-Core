@@ -155,7 +155,13 @@ async def get_equipo_partial(
     conn=Depends(get_db_connection),
     service: ProyectosService = Depends(get_service),
 ):
-    data = await service.get_equipo_proyecto(conn, id_proyecto)
+    try:
+        data = await service.get_equipo_proyecto(conn, id_proyecto)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al obtener equipo de proyecto")
+        raise HTTPException(status_code=500, detail="Error interno al obtener el equipo")
     permisos = await service.permisos_equipo(conn, context, id_proyecto)
 
     return templates.TemplateResponse(request,
@@ -213,7 +219,17 @@ async def save_equipo(
         logger.exception("Error de BD al guardar equipo de proyecto")
         raise HTTPException(status_code=500, detail="Error interno al guardar el equipo")
 
-    data = await service.get_equipo_proyecto(conn, id_proyecto)
+    try:
+        data = await service.get_equipo_proyecto(conn, id_proyecto)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Equipo guardado pero fallo el refresco de la vista")
+        raise HTTPException(
+            status_code=500,
+            detail="El equipo se guardó, pero no se pudo actualizar la vista. Recarga la página.",
+        )
+
     return templates.TemplateResponse(request,
         "proyectos/partials/equipo_modal.html",
         _equipo_template_data(request, id_proyecto, data, permisos, guardado=True),
@@ -247,7 +263,17 @@ async def reasignar_responsable(
         logger.exception("Error de BD al reasignar responsable")
         raise HTTPException(status_code=500, detail="Error interno al reasignar")
 
-    data = await service.get_equipo_proyecto(conn, id_proyecto)
+    try:
+        data = await service.get_equipo_proyecto(conn, id_proyecto)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Responsable reasignado pero fallo el refresco de la vista")
+        raise HTTPException(
+            status_code=500,
+            detail="El responsable se reasignó, pero no se pudo actualizar la vista. Recarga la página.",
+        )
+
     return templates.TemplateResponse(
         request, "proyectos/partials/equipo_modal.html",
         _equipo_template_data(request, id_proyecto, data, permisos, guardado=True),
