@@ -165,7 +165,7 @@
                         'notas': cot.notas,
                         'items': cot.items_json,
                         'modo_simplificado': cot.modo_simplificado,
-                        'subtotal': cot.subtotal,
+                        'subtotal': cot.subtotal | float if cot.subtotal is not none else none,
                     } %}
                     <button type="button" @click="abrirModalEditar(JSON.parse($el.dataset.cot))"
                         data-cot='{{ cot_payload | tojson | replace("'", "&#39;") }}'
