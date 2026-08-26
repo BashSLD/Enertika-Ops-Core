@@ -1,6 +1,13 @@
 {# templates/bom/partials/cotizaciones.html #}
 {# Tab de cotizaciones del BOM — cargado lazy via HTMX #}
 {% from "bom/partials/_macros.html" import boton_adjudicar %}
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+
+{% if bulk_toast %}
+{% with message=bulk_toast.message, type=bulk_toast.type, title=bulk_toast.title %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
 
 <div id="tab-cotizaciones-content"
     x-data="cotizacionesBom()"
@@ -41,6 +48,11 @@
 
     {# Lista de cotizaciones #}
     {% if cotizaciones %}
+    <style>
+        .form-subir-pdf-cotizacion.htmx-request .pdf-label-idle { display: none; }
+        .form-subir-pdf-cotizacion.htmx-request .pdf-label-loading { display: inline-flex; }
+        .form-subir-pdf-cotizacion.htmx-request label { pointer-events: none; opacity: .7; }
+    </style>
     <div class="space-y-3">
         {% for cot in cotizaciones %}
         {% set estatus_styles = {
@@ -172,13 +184,18 @@
                         class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-gray-700 bg-gray-100 border border-gray-300 hover:bg-gray-200 transition">
                         Editar
                     </button>
-                    <form hx-post="/bom/cotizaciones/{{ cot.id }}/pdf"
+                    <form class="form-subir-pdf-cotizacion"
+                        hx-post="/bom/cotizaciones/{{ cot.id }}/pdf"
                         hx-target="#tab-cotizaciones" hx-swap="innerHTML"
                         hx-encoding="multipart/form-data"
-                        hx-disabled-elt="this">
+                        hx-sync="this:drop">
                         <input type="hidden" name="lock_version" value="{{ cot.lock_version }}">
                         <label class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-blue-700 bg-blue-50 border border-blue-300 hover:bg-blue-100 transition cursor-pointer">
-                            {{ 'Reemplazar PDF' if cot.pdf_url else 'Subir PDF' }}
+                            <span class="pdf-label-idle">{{ 'Reemplazar PDF' if cot.pdf_url else 'Subir PDF' }}</span>
+                            <span class="pdf-label-loading hidden items-center gap-1.5">
+                                {{ spinner_icon('w-3.5 h-3.5') }}
+                                Subiendo...
+                            </span>
                             <input type="file" name="archivo" accept="application/pdf" class="hidden"
                                 onchange="this.closest('form').requestSubmit()">
                         </label>
@@ -239,7 +256,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
                     </svg>
-                    Ver PDF
+                    Ver cotización proveedor
                 </a>
             </div>
             {% endif %}

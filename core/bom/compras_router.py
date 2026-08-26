@@ -666,7 +666,14 @@ async def subir_pdf_cotizacion(
     cotizacion = await service.get_cotizacion_by_id(conn, cotizacion_id)
     if not cotizacion:
         return _toast_response(request, "Cotización no encontrada", "error", status_code=404)
-    return await _render_cotizaciones_tab(request, conn, service, context, cotizacion['bom_id'])
+    return await _render_cotizaciones_tab(
+        request, conn, service, context, cotizacion['bom_id'],
+        bulk_toast={
+            "message": "PDF actualizado correctamente",
+            "type": "success",
+            "title": "Listo",
+        },
+    )
 
 
 @compras_router.get("/cotizaciones/{cotizacion_id}/preview", include_in_schema=False)
