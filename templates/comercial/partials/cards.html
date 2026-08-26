@@ -565,8 +565,8 @@
                                                         </div>
                                                         <form hx-post="/comercial/levantamientos/cerrar-cancelado/{{ op.id_oportunidad }}"
                                                             hx-target="#tab-content" hx-swap="innerHTML"
-                                                            hx-on::before-request="cargando = true"
-                                                            hx-on::after-request="cargando = false; open = false">
+                                                            @htmx:before-request="cargando = true"
+                                                            @htmx:after-request="cargando = false; open = false">
                                                             <div class="px-5 py-4 space-y-3">
                                                                 <p class="text-sm text-gray-600">
                                                                     Todos los levantamientos de <strong>{{ op.op_id_estandar }}</strong> están cancelados.

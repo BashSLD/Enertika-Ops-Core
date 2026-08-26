@@ -117,8 +117,8 @@
           hx-encoding="multipart/form-data"
           hx-target="{{ firma_target }}"
           hx-swap="innerHTML"
-          hx-on::before-request="subiendo = true"
-          hx-on::after-request="subiendo = false"
+          @htmx:before-request="subiendo = true"
+          @htmx:after-request="subiendo = false"
           class="space-y-4">
       {% if solicitud_pendiente_id %}
       <input type="hidden" name="solicitud_pendiente_id" value="{{ solicitud_pendiente_id }}">
@@ -157,8 +157,8 @@
           hx-target="{{ firma_target }}"
           hx-swap="innerHTML"
           data-firma-dibujada-form
-          hx-on::before-request="dibujando = true"
-          hx-on::after-request="dibujando = false"
+          @htmx:before-request="dibujando = true"
+          @htmx:after-request="dibujando = false"
           hx-on::config-request="
             if (this.sigPad && !this.sigPad.isEmpty()) {
               event.detail.parameters['firma_b64'] = this.sigPad.toDataURL('image/png');

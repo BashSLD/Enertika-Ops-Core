@@ -29,9 +29,9 @@
             hx-swap="beforeend"
             hx-indicator="#global-loading-overlay"
             x-on:submit="cancelando = true"
-            hx-on::after-request="cancelando = false; if(event.detail.successful && event.detail.xhr.getResponseHeader('X-Transfer-Error') !== '1'){ document.getElementById('modal-reasignar-preview')?.remove(); }"
-            hx-on::response-error="cancelando = false"
-            hx-on::send-error="cancelando = false">
+            @htmx:after-request="cancelando = false; if($event.detail.successful && $event.detail.xhr.getResponseHeader('X-Transfer-Error') !== '1'){ document.getElementById('modal-reasignar-preview')?.remove(); }"
+            @htmx:response-error="cancelando = false"
+            @htmx:send-error="cancelando = false">
             <input type="hidden" name="draft_id" value="{{ draft.draft_id }}">
         </form>
 
@@ -41,9 +41,9 @@
             hx-swap="beforeend"
             hx-indicator="#global-loading-overlay"
             x-on:submit="confirmando = true"
-            hx-on::after-request="confirmando = false; if(event.detail.successful && event.detail.xhr.getResponseHeader('X-Transfer-Error') !== '1'){ document.getElementById('modal-reasignar-preview')?.remove(); }"
-            hx-on::response-error="confirmando = false"
-            hx-on::send-error="confirmando = false"
+            @htmx:after-request="confirmando = false; if($event.detail.successful && $event.detail.xhr.getResponseHeader('X-Transfer-Error') !== '1'){ document.getElementById('modal-reasignar-preview')?.remove(); }"
+            @htmx:response-error="confirmando = false"
+            @htmx:send-error="confirmando = false"
             class="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
 
             <input type="hidden" name="draft_id" value="{{ draft.draft_id }}">

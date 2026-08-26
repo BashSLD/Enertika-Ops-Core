@@ -64,8 +64,8 @@
             hx-post="/rrhh/solicitudes/{{ sol.id }}/aprobar"
             hx-target="#rrhh-content"
             hx-swap="innerHTML"
-            hx-on::before-request="aprobando = true"
-            hx-on::after-request="aprobando = false"
+            @htmx:before-request="aprobando = true"
+            @htmx:after-request="aprobando = false"
             :disabled="aprobando"
             :class="aprobando ? 'cursor-wait opacity-75' : ''"
             class="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:pointer-events-none transition-colors">
@@ -100,8 +100,8 @@
             class="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between"
             hx-post="/asistencia/api/saldo-inicial/{{ emp.id_usuario }}/confirmar"
             hx-swap="none"
-            hx-on::before-request="confirmando = true"
-            hx-on::after-request="confirmando = false; if (event.detail.successful) this.remove()">
+            @htmx:before-request="confirmando = true"
+            @htmx:after-request="confirmando = false; if ($event.detail.successful) this.remove()">
         <div>
           <p class="text-sm font-semibold text-gray-800">{{ emp.nombre }}</p>
           <p class="text-xs text-gray-400">{{ emp.email or '' }}</p>
@@ -514,8 +514,8 @@
                     hx-post="/asistencia/api/solicitudes-manuales/{{ solicitud.id }}/aprobar"
                     hx-target="#solicitud-manual-pendiente-{{ solicitud.id }}"
                     hx-swap="outerHTML"
-                    hx-on::before-request="aprobando = true"
-                    hx-on::after-request="aprobando = false"
+                    @htmx:before-request="aprobando = true"
+                    @htmx:after-request="aprobando = false"
                     :disabled="aprobando"
                     :class="aprobando ? 'cursor-wait opacity-75' : ''"
                     class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#00BABB] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#009899] disabled:pointer-events-none">
@@ -537,8 +537,8 @@
               hx-post="/asistencia/api/solicitudes-manuales/{{ solicitud.id }}/rechazar"
               hx-target="#solicitud-manual-pendiente-{{ solicitud.id }}"
               hx-swap="outerHTML"
-              hx-on::before-request="rechazando = true"
-              hx-on::after-request="rechazando = false"
+              @htmx:before-request="rechazando = true"
+              @htmx:after-request="rechazando = false"
               class="flex flex-col gap-2 sm:flex-row">
           <textarea name="comentario" rows="2" required
                     placeholder="Comentario de rechazo" :disabled="rechazando"

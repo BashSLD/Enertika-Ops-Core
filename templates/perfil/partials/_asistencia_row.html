@@ -69,8 +69,8 @@
       <button hx-post="/perfil/horas-extra/{{ row.id }}/omitir"
               hx-target="#he-row-mi-{{ row.id }}"
               hx-swap="outerHTML"
-              hx-on::before-request="descartando = true"
-              hx-on::after-request="descartando = false"
+              @htmx:before-request="descartando = true"
+              @htmx:after-request="descartando = false"
               :disabled="descartando"
               :class="descartando ? 'cursor-wait opacity-75' : ''"
               class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium text-red-700 bg-white border border-red-200 hover:bg-red-50 transition-colors disabled:pointer-events-none">

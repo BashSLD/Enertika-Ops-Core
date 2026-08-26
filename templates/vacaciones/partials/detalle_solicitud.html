@@ -173,8 +173,8 @@
       hx-swap="innerHTML"
       hx-replace-url="{{ volver_history_url }}"
       hx-confirm="¿Aprobar y firmar esta solicitud?"
-      hx-on::before-request="aprobando = true"
-      hx-on::after-request="aprobando = false"
+      @htmx:before-request="aprobando = true"
+      @htmx:after-request="aprobando = false"
       :disabled="aprobando"
       :class="aprobando ? 'cursor-wait opacity-75' : ''"
       class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:pointer-events-none transition-colors">

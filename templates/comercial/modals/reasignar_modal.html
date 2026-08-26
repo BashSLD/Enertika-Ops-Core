@@ -27,9 +27,9 @@
             hx-target="body" hx-swap="beforeend"
             hx-indicator="#global-loading-overlay"
             x-on:submit="loading = true"
-            hx-on::after-request="loading = false; if(event.detail.successful && event.detail.xhr.getResponseHeader('X-Transfer-Error') !== '1'){ this.closest('#modal-reasignar')?.remove(); }"
-            hx-on::response-error="loading = false"
-            hx-on::send-error="loading = false"
+            @htmx:after-request="loading = false; if($event.detail.successful && $event.detail.xhr.getResponseHeader('X-Transfer-Error') !== '1'){ this.closest('#modal-reasignar')?.remove(); }"
+            @htmx:response-error="loading = false"
+            @htmx:send-error="loading = false"
             class="p-5 space-y-4">
 
             <div>

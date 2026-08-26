@@ -58,7 +58,7 @@
 
     <!-- Main Form Container -->
     <form hx-post="/levantamientos/assign/{{ id_levantamiento }}" hx-target="#kanban-container" hx-swap="outerHTML"
-        hx-on::after-request="if(event.detail.successful) { origJefe = jefeId; origResponsable = responsableId; origTecnicos = [...tecnicoIds]; }" class="flex flex-col flex-1 overflow-hidden">
+        @htmx:after-request="if($event.detail.successful) { origJefe = jefeId; origResponsable = responsableId; origTecnicos = [...tecnicoIds]; }" class="flex flex-col flex-1 overflow-hidden">
 
         <!-- Hidden inputs para submission real (manejados por Alpine) -->
         <input type="hidden" name="responsable_id" :value="responsableId">
