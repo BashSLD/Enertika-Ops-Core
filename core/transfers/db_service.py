@@ -6,7 +6,15 @@ from typing import Optional, List, Dict, Any
 from uuid import UUID
 import logging
 
+from core.constants import ROL_OPERATIVO_POR_AREA
+
 logger = logging.getLogger("TransferDBService")
+
+# CASE SQL estatico armado desde ROL_OPERATIVO_POR_AREA (constante propia del
+# codigo, no dato de usuario) para no repetir el mapeo area -> rol a mano.
+_ROL_OPERATIVO_CASE_SQL = "CASE p.area_actual " + " ".join(
+    f"WHEN '{area}' THEN '{rol}'" for area, rol in ROL_OPERATIVO_POR_AREA.items()
+) + " END"
 
 
 class TransferDBService:
@@ -104,7 +112,7 @@ class TransferDBService:
         q: Optional[str] = None,
         limit: int = 50
     ) -> List[Dict[str, Any]]:
-        query = """
+        query = f"""
             SELECT
                 p.id_proyecto,
                 p.proyecto_id_estandar,
@@ -134,8 +142,6 @@ class TransferDBService:
                 WHERE tp.id_proyecto = p.id_proyecto
                 ORDER BY tp.fecha_envio DESC LIMIT 1
             ) ult_tp ON TRUE
-            -- Rol operativo por area: debe reflejar ROLES_EQUIPO en modules/proyectos/service.py
-            -- (fuente unica; no importable aqui por direccion de capas core -> modules).
             LEFT JOIN LATERAL (
                 SELECT ue.nombre
                 FROM tb_proyecto_usuarios pu
@@ -143,12 +149,7 @@ class TransferDBService:
                 WHERE pu.id_proyecto = p.id_proyecto
                   AND pu.activo = TRUE
                   AND pu.area = p.area_actual
-                  AND pu.rol_proyecto = CASE p.area_actual
-                        WHEN 'INGENIERIA' THEN 'ingeniero_asignado'
-                        WHEN 'CONSTRUCCION' THEN 'coordinador_obra'
-                        WHEN 'OYM' THEN 'encargado'
-                        WHEN 'COMPRAS' THEN 'comprador_asignado'
-                    END
+                  AND pu.rol_proyecto = {_ROL_OPERATIVO_CASE_SQL}
                 LIMIT 1
             ) eq ON TRUE
             WHERE p.aprobacion_direccion = true

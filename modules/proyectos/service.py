@@ -9,6 +9,7 @@ import logging
 import asyncpg
 
 from core.config_service import ConfigService
+from core.constants import ROL_OPERATIVO_POR_AREA
 from core.transfers.service import get_transfer_service
 from .db_service import ProyectosDBService, get_db_service, ROL_RESPONSABLE_POR_AREA
 
@@ -17,24 +18,26 @@ logger = logging.getLogger("ProyectosService")
 # Roles asignables al equipo de proyecto (almacenados en tb_proyecto_usuarios).
 # Fuente unica: todos los mapas derivados (ROLES_EQUIPO_MAP, PERMISO_POR_ROL, etc.)
 # se construyen a partir de esta lista para evitar repetir las tuplas (rol, area).
+# El campo "rol" de cada entrada se toma de ROL_OPERATIVO_POR_AREA (core/constants.py),
+# que a su vez es la fuente que usa core/transfers/db_service.py — evita que ambos se desincronicen.
 ROLES_EQUIPO = [
     {
-        "rol": "ingeniero_asignado", "area": "INGENIERIA", "label": "Ingeniero de Diseño",
+        "rol": ROL_OPERATIVO_POR_AREA["INGENIERIA"], "area": "INGENIERIA", "label": "Ingeniero de Diseño",
         "permiso": "puede_asignar_ingenieria", "departamento": "ingenieria",
         "rol_jefe": "jefe_ingenieria",
     },
     {
-        "rol": "coordinador_obra", "area": "CONSTRUCCION", "label": "Coordinador de Obra",
+        "rol": ROL_OPERATIVO_POR_AREA["CONSTRUCCION"], "area": "CONSTRUCCION", "label": "Coordinador de Obra",
         "permiso": "puede_asignar_construccion", "departamento": "construccion",
         "rol_jefe": "jefe_construccion",
     },
     {
-        "rol": "encargado", "area": "OYM", "label": "Encargado O&M",
+        "rol": ROL_OPERATIVO_POR_AREA["OYM"], "area": "OYM", "label": "Encargado O&M",
         "permiso": "puede_asignar_oym", "departamento": "oym",
         "rol_jefe": None,
     },
     {
-        "rol": "comprador_asignado", "area": "COMPRAS", "label": "Comprador Asignado",
+        "rol": ROL_OPERATIVO_POR_AREA["COMPRAS"], "area": "COMPRAS", "label": "Comprador Asignado",
         "permiso": "puede_asignar_compras", "departamento": "compras",
         "rol_jefe": "jefe_compras",
     },
