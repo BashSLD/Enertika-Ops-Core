@@ -131,7 +131,9 @@ class TransferDBService:
                 EXTRACT(DAY FROM NOW() - COALESCE(p.fecha_inicio_area, p.created_at))::int as dias_en_area,
                 ult_tp.status as ultimo_traspaso_status,
                 ult_tp.area_destino as ultimo_traspaso_area_destino,
-                eq.nombre as equipo_area_actual_nombre
+                eq.equipo_area_actual_nombre,
+                eq.ingeniero_disenio_nombre,
+                eq.coordinador_obra_nombre
             FROM tb_proyectos_gate p
             LEFT JOIN tb_cat_tecnologias t ON p.id_tecnologia = t.id
             LEFT JOIN tb_oportunidades o ON p.id_oportunidad = o.id_oportunidad
@@ -142,15 +144,26 @@ class TransferDBService:
                 WHERE tp.id_proyecto = p.id_proyecto
                 ORDER BY tp.fecha_envio DESC LIMIT 1
             ) ult_tp ON TRUE
+            -- Roles de equipo en una sola pasada a tb_proyecto_usuarios: el rol
+            -- operativo del area actual (cualquier area, via ROL_OPERATIVO_POR_AREA)
+            -- + Ingeniero de Diseno y Coordinador de Obra siempre, independiente de
+            -- area_actual, porque ambos deben quedar asignados antes del BOM (que
+            -- ocurre antes del traspaso de area).
             LEFT JOIN LATERAL (
-                SELECT ue.nombre
+                SELECT
+                    MAX(ue.nombre) FILTER (
+                        WHERE pu.area = p.area_actual AND pu.rol_proyecto = {_ROL_OPERATIVO_CASE_SQL}
+                    ) AS equipo_area_actual_nombre,
+                    MAX(ue.nombre) FILTER (
+                        WHERE pu.area = 'INGENIERIA' AND pu.rol_proyecto = '{ROL_OPERATIVO_POR_AREA["INGENIERIA"]}'
+                    ) AS ingeniero_disenio_nombre,
+                    MAX(ue.nombre) FILTER (
+                        WHERE pu.area = 'CONSTRUCCION' AND pu.rol_proyecto = '{ROL_OPERATIVO_POR_AREA["CONSTRUCCION"]}'
+                    ) AS coordinador_obra_nombre
                 FROM tb_proyecto_usuarios pu
                 JOIN tb_usuarios ue ON ue.id_usuario = pu.id_usuario
                 WHERE pu.id_proyecto = p.id_proyecto
                   AND pu.activo = TRUE
-                  AND pu.area = p.area_actual
-                  AND pu.rol_proyecto = {_ROL_OPERATIVO_CASE_SQL}
-                LIMIT 1
             ) eq ON TRUE
             WHERE p.aprobacion_direccion = true
         """

@@ -27,30 +27,55 @@
 {% endif %}
 {% endmacro %}
 
-{# Chip de estado de equipo: indica si el rol operativo del area actual del proyecto
-   (Ingeniero de Diseño / Coordinador de Obra / Encargado O&M / Comprador Asignado)
-   tiene alguien asignado. Solo tiene sentido en la vista global (mostrar_area). #}
+{# Badge verde/ambar compartido por chip_equipo: "asignado" decide el color,
+   "texto_falta" es el texto ambar cuando falta algo. #}
+{% macro _chip_badge(asignado, texto_falta) %}
+{% if asignado %}
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-md bg-green-50 text-green-700 border border-green-200 whitespace-nowrap cursor-help">
+    <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+    Asignado
+</span>
+{% else %}
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-md bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap cursor-help">
+    <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+    {{ texto_falta }}
+</span>
+{% endif %}
+{% endmacro %}
+
+{# Tooltip compartido por chip_equipo: una linea por elemento de "lineas". #}
+{% macro _chip_tooltip(lineas) %}
+<div class="hidden group-hover:block absolute bottom-full left-0 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-nowrap z-50 pointer-events-none">
+    {% for linea in lineas %}{{ linea }}{% if not loop.last %}<br>{% endif %}{% endfor %}
+</div>
+{% endmacro %}
+
+{# Chip de estado de equipo:
+   - En Ingenieria/Construccion: valida SIEMPRE ambos roles (Ingeniero de Diseño +
+     Coordinador de Obra), sin importar cual sea el area_actual, porque los dos
+     deben quedar asignados antes del BOM (que ocurre antes del traspaso de area).
+   - En O&M (u otra area): conserva el chip de un solo rol basado en area_actual
+     (Encargado O&M / Comprador Asignado), ya no es relevante revalidar ING/CONS
+     porque para llegar ahi ya paso por el flujo que los garantiza.
+   Solo tiene sentido en la vista global (mostrar_area). #}
 {% macro chip_equipo(p) %}
-{% set rol_label = equipo_rol_labels.get(p.area_actual, 'Responsable') %}
 <div class="relative inline-flex group">
-    {% if p.equipo_area_actual_nombre %}
-    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-md bg-green-50 text-green-700 border border-green-200 whitespace-nowrap cursor-help">
-        <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-        Asignado
-    </span>
+    {% if p.area_actual in ('INGENIERIA', 'CONSTRUCCION') %}
+        {% set faltantes = [] %}
+        {% if not p.ingeniero_disenio_nombre %}{% set _ = faltantes.append('ING') %}{% endif %}
+        {% if not p.coordinador_obra_nombre %}{% set _ = faltantes.append('CONS') %}{% endif %}
+        {{ _chip_badge(not faltantes, faltantes | join(' - ') + ' Sin asignar') }}
+        {{ _chip_tooltip([
+            'Ingeniero de Diseño: ' + p.ingeniero_disenio_nombre if p.ingeniero_disenio_nombre else 'Falta asignar: Ingeniero de Diseño',
+            'Coordinador de Obra: ' + p.coordinador_obra_nombre if p.coordinador_obra_nombre else 'Falta asignar: Coordinador de Obra'
+        ]) }}
     {% else %}
-    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-md bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap cursor-help">
-        <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-        Sin asignar
-    </span>
+        {% set rol_label = equipo_rol_labels.get(p.area_actual, 'Responsable') %}
+        {{ _chip_badge(p.equipo_area_actual_nombre, 'Sin asignar') }}
+        {{ _chip_tooltip([
+            rol_label + ': ' + p.equipo_area_actual_nombre if p.equipo_area_actual_nombre else 'Falta asignar: ' + rol_label
+        ]) }}
     {% endif %}
-    <div class="hidden group-hover:block absolute top-full left-0 mt-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-nowrap z-50 pointer-events-none">
-        {% if p.equipo_area_actual_nombre %}
-        {{ rol_label }}: {{ p.equipo_area_actual_nombre }}
-        {% else %}
-        Falta asignar: {{ rol_label }}
-        {% endif %}
-    </div>
 </div>
 {% endmacro %}
 
