@@ -124,6 +124,7 @@ async def _render_cotizaciones_tab(
     items_disponibles = [
         _item_cotizacion_json(i) for i in items if item_disponible_cotizacion(i)
     ]
+    rfqs = await service.get_rfqs(conn, bom_id)
     role = context.get("role")
     rol_org = context.get("rol_organizacional")
     module_roles = context.get("module_roles", {})
@@ -154,6 +155,7 @@ async def _render_cotizaciones_tab(
         {
             **_cotizacion_ctx(request, cotizaciones, bom, es_compras_editor),
             "items_disponibles": items_disponibles,
+            "total_rfqs": len(rfqs),
             "es_aprobador_direccion": es_aprobador_direccion,
             "es_admin_o_director": role == "ADMIN" or rol_org == "director",
             "reemplazables": reemplazables,
