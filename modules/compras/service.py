@@ -918,6 +918,22 @@ class ComprasService:
 
             # 4. Verificar UUID duplicado. Una factura ya vinculada puede volver
             # a usarse si conserva saldo pendiente por aplicar.
+            # tb_comprobantes_pago.uuid_factura es tipo `uuid` (a diferencia de
+            # tb_comprobante_facturas, que es `text`) -- validar el formato en
+            # Python antes de tocar la BD (misma convencion que
+            # get_archivos_for_comprobantes en db_service.py) evita que un UUID
+            # mal formado en el XML tumbe el resto del lote.
+            try:
+                UUID(cfdi.uuid)
+            except (TypeError, ValueError) as e:
+                logger.warning(
+                    "UUID de factura mal formado en %s (%s): %s", filename, cfdi.uuid, e
+                )
+                result.errores.append(XmlUploadError(
+                    archivo=filename,
+                    error=f"UUID de factura invalido: {cfdi.uuid}"
+                ))
+                continue
             existe_legacy = await db_svc.uuid_factura_exists(conn, cfdi.uuid)
             existe_junction = await db_svc.uuid_factura_exists_in_junction(conn, cfdi.uuid)
             if existe_legacy or existe_junction:
