@@ -276,6 +276,27 @@
                               class="mt-1 block cursor-help text-xs text-gray-400"
                               title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
                     </div>
+
+                    {# Construccion no tiene autoridad de costos (ver disabled_precio_unitario
+                       arriba), pero SI puede reabrir uno ya configurado a 0 cuando en obra
+                       detecta que ya no aplica -- inputs ocultos en vez de exponer el numero
+                       libre, para que solo pueda mandar exactamente 0 (editar_item, service.py,
+                       lo rechaza si intenta cualquier otro valor). #}
+                    {% if area_editor == 'construccion' and costo_ya_configurado and not base_bloqueada %}
+                    <div class="sm:col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5"
+                         x-data="{ reabrir: false }">
+                        <p class="text-xs text-gray-600">
+                            Costo estimado actual:
+                            <span class="font-medium text-gray-800">{{ "%.2f"|format(item.precio_unitario|float) }} {{ item.moneda or 'MXN' }}</span>
+                        </p>
+                        <label class="mt-1.5 inline-flex items-center gap-2 text-xs text-amber-700 cursor-pointer">
+                            <input type="checkbox" x-model="reabrir" class="rounded border-amber-300 text-amber-600">
+                            Marcar sin costo (reabrir para que Compras lo capture de nuevo)
+                        </label>
+                        <input type="hidden" name="precio_unitario" value="0" :disabled="!reabrir">
+                        <input type="hidden" name="moneda" value="{{ item.moneda or 'MXN' }}" :disabled="!reabrir">
+                    </div>
+                    {% endif %}
                 </div>
 
                 {# Tab: Compras #}

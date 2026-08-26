@@ -9,6 +9,7 @@ import logging
 import json
 
 from core.timezone import now_mx
+from core.constants import ESTATUS_BOM_OCULTOS_PENDIENTES_PRECIO_COMPRAS
 
 logger = logging.getLogger("Compras.DBService")
 
@@ -1793,22 +1794,47 @@ class ComprasDBService:
         """)
         return [dict(r) for r in rows]
 
+    # JOIN LATERAL compartido entre get_proyectos_bom_pendientes_precio y su
+    # _count: cuenta items sin costo oficial de un BOM, con la misma ventana
+    # que core.bom.db_service.get_items_sin_costo_bom — mantener sincronizados
+    # si cambia el criterio de "sin costo" (SQL vs Python, no se puede compartir
+    # directo). El estatus excluido en el WHERE de cada caller SI esta unificado:
+    # viene de core.constants.ESTATUS_BOM_OCULTOS_PENDIENTES_PRECIO_COMPRAS, la
+    # misma fuente que core.bom.service.ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS.
+    _SQL_LATERAL_ITEMS_PENDIENTES_PRECIO = """
+            JOIN LATERAL (
+                SELECT COUNT(*) AS total_pendientes
+                FROM tb_bom_items i
+                WHERE i.id_bom = b.id_bom
+                  AND i.activo = TRUE
+                  AND (
+                      i.precio_unitario IS NULL OR i.precio_unitario <= 0
+                      OR i.precio_pendiente_confirmacion = TRUE
+                  )
+                  AND (
+                      (b.estatus <> 'APROBADO_FINAL' AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE')
+                      OR
+                      (b.estatus = 'APROBADO_FINAL' AND COALESCE(i.tipo_origen_item, 'BASE') <> 'BASE')
+                  )
+            ) pendientes ON TRUE
+    """
+
     async def get_proyectos_bom_pendientes_precio(self, conn) -> list:
-        """Una fila por paquete con BOM en cualquier etapa activa previa a
-        APROBADO_CONST que tiene items base sin costo oficial: sin precio, o con
-        un precio capturado por Ingenieria que Compras aun no confirma
-        (precio_pendiente_confirmacion). No se limita a BORRADOR: un item sin
-        costo puede agregarse en cualquier turno (ej. Obra/Construccion agregando
-        durante su revision), y debe seguir siendo visible/editable para Compras
-        hasta que el BOM llegue a APROBADO_CONST (ahi lo cubre la pestaña "Activos").
+        """Una fila por paquete con BOM que tiene items sin costo oficial: sin precio,
+        o con un precio capturado por Ingenieria que Compras aun no confirma
+        (precio_pendiente_confirmacion). Dos ventanas distintas segun tipo de item:
+        - Items BASE: en cualquier etapa activa previa a APROBADO_CONST. No se limita
+          a BORRADOR: un item sin costo puede agregarse en cualquier turno (ej. Obra/
+          Construccion agregando durante su revision), y debe seguir siendo visible/
+          editable para Compras hasta que el BOM llegue a APROBADO_CONST (ahi lo cubre
+          la pestaña "Activos").
+        - Items de adenda (FUERA_SCOPE/REEMPLAZO): solo existen con el BOM en
+          APROBADO_FINAL, y no tienen otro flujo donde resolverse — se cuentan ahi
+          en vez de en la ventana BASE.
 
         Mismo JOIN por cabeza_trabajo_id/estado_paquete='ACTIVO' que get_proyectos_con_bom
-        (evita traer versiones historicas del paquete), y el mismo predicado que
-        core.bom.db_service.get_items_sin_costo_bom (excluye items de adenda) — mantener
-        ambos sincronizados si cambia el criterio de "sin costo". El estatus excluido debe
-        coincidir con el de get_proyectos_con_bom (misma frontera, sin hueco ni traslape) y
-        con el gate de core.bom.service.resolver_costos_pendientes_compras."""
-        rows = await conn.fetch("""
+        (evita traer versiones historicas del paquete)."""
+        rows = await conn.fetch(f"""
             SELECT
                 p.id_proyecto,
                 p.proyecto_id_estandar,
@@ -1825,46 +1851,26 @@ class ComprasDBService:
             JOIN tb_bom b ON b.id_bom = paquete.cabeza_trabajo_id
             JOIN tb_proyectos_gate p ON p.id_proyecto = b.id_proyecto
             LEFT JOIN tb_oportunidades o ON o.id_oportunidad = p.id_oportunidad
-            JOIN LATERAL (
-                SELECT COUNT(*) AS total_pendientes
-                FROM tb_bom_items i
-                WHERE i.id_bom = b.id_bom
-                  AND i.activo = TRUE
-                  AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
-                  AND (
-                      i.precio_unitario IS NULL OR i.precio_unitario <= 0
-                      OR i.precio_pendiente_confirmacion = TRUE
-                  )
-            ) pendientes ON TRUE
+            {self._SQL_LATERAL_ITEMS_PENDIENTES_PRECIO}
             WHERE paquete.estado_paquete = 'ACTIVO'
-              AND b.estatus NOT IN ('APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL', 'CANCELADO')
+              AND NOT (b.estatus = ANY($1::varchar[]))
               AND pendientes.total_pendientes > 0
             ORDER BY p.proyecto_id_estandar, paquete.codigo, paquete.id_paquete
-        """)
+        """, list(ESTATUS_BOM_OCULTOS_PENDIENTES_PRECIO_COMPRAS))
         return [dict(r) for r in rows]
 
     async def get_proyectos_bom_pendientes_precio_count(self, conn) -> int:
         """Cuenta de paquetes pendientes de precio, para el badge del shell de tabs
         (mismo criterio que get_proyectos_bom_pendientes_precio, sin materializar filas)."""
-        total = await conn.fetchval("""
+        total = await conn.fetchval(f"""
             SELECT COUNT(*)
             FROM tb_bom_paquetes paquete
             JOIN tb_bom b ON b.id_bom = paquete.cabeza_trabajo_id
-            JOIN LATERAL (
-                SELECT COUNT(*) AS total_pendientes
-                FROM tb_bom_items i
-                WHERE i.id_bom = b.id_bom
-                  AND i.activo = TRUE
-                  AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
-                  AND (
-                      i.precio_unitario IS NULL OR i.precio_unitario <= 0
-                      OR i.precio_pendiente_confirmacion = TRUE
-                  )
-            ) pendientes ON TRUE
+            {self._SQL_LATERAL_ITEMS_PENDIENTES_PRECIO}
             WHERE paquete.estado_paquete = 'ACTIVO'
-              AND b.estatus NOT IN ('APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL', 'CANCELADO')
+              AND NOT (b.estatus = ANY($1::varchar[]))
               AND pendientes.total_pendientes > 0
-        """)
+        """, list(ESTATUS_BOM_OCULTOS_PENDIENTES_PRECIO_COMPRAS))
         return total or 0
 
     # ─── MINI ALMACÉN (Gap 9) ─────────────────────────────

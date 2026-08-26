@@ -1704,10 +1704,12 @@ async def get_modal_precios_pendientes_compras(
     service: BomService = Depends(get_bom_service),
     _=_requiere_compras_editor_precios_pendientes(),
 ):
-    """Modal de Compras para capturar precio_unitario/moneda de items BASE sin costo
-    de un BOM en cualquier etapa activa previa a APROBADO_CONST — lugar propio, ya
-    que Compras no es actor de ningun turno antes de APROBADO_FINAL y no puede usar
-    el editor de items normal en esta etapa."""
+    """Modal de Compras para capturar precio_unitario/moneda de items sin costo de un
+    BOM. Items BASE: solo en cualquier etapa activa previa a APROBADO_CONST — lugar
+    propio, ya que Compras no es actor de ningun turno antes de APROBADO_FINAL y no
+    puede usar el editor de items normal en esta etapa. Items de adenda (FUERA_SCOPE/
+    REEMPLAZO): siempre que el BOM no este CANCELADO, porque no tienen otro flujo
+    donde resolverse (ver docstring de BomService.resolver_costos_pendientes_compras)."""
     habilitada = await ConfigService.get_global_config(
         conn, FLAG_ACTUALIZACION_PRECIOS_COMPRAS, False, bool
     )
@@ -1717,15 +1719,24 @@ async def get_modal_precios_pendientes_compras(
         bom = await service.get_bom(conn, id_bom)
     except ValueError as exc:
         return _toast_response(request, str(exc), "error", status_code=404)
-    if bom["estatus"] in ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS:
-        return _toast_response(request, "Este BOM ya llego a Construccion aprobada.", "error")
+    if bom["estatus"] == "CANCELADO":
+        return _toast_response(request, "Este BOM esta cancelado.", "error")
     if bom.get("estado_paquete") != "ACTIVO":
         return _toast_response(request, "Este paquete BOM ya no esta activo.", "error")
+    bloqueado_para_base = bom["estatus"] in ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS
     items = await service.get_items_sin_costo(conn, id_bom)
+    if bloqueado_para_base:
+        # A partir de APROBADO_CONST los items BASE los cubre la pestaña "Activos"
+        # de Compras; aqui solo quedan los de adenda, que no tienen otro lugar.
+        items = [i for i in items if (i.get("tipo_origen_item") or "BASE") != "BASE"]
     if not items:
-        return _toast_response(
-            request, "Este BOM ya no tiene items pendientes de costo.", "success", "Sin pendientes"
+        msg = (
+            "Este BOM ya llego a Construccion aprobada y no tiene items de adenda "
+            "pendientes de costo."
+            if bloqueado_para_base
+            else "Este BOM ya no tiene items pendientes de costo."
         )
+        return _toast_response(request, msg, "success", "Sin pendientes")
     return templates.TemplateResponse(
         request, "bom/partials/modal_precios_pendientes_compras.html",
         {"bom": bom, "items": items}

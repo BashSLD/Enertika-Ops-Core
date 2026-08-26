@@ -77,6 +77,12 @@ class FakeAdendaDB:
         item = self.items.get(id_item)
         return dict(item) if item else None
 
+    async def get_items_sin_costo_bom(self, conn, id_bom):
+        return [
+            dict(item) for item in self.items.values()
+            if item.get("id_bom") == id_bom and BomService.item_sin_costo(item)
+        ]
+
     async def crear_adenda(self, conn, id_bom_base, tipo_adenda, motivo, creado_por):
         adenda = {
             "id_adenda": uuid4(),

@@ -608,7 +608,8 @@ class BomDBService(BomComprasDBMixin):
                    p.id_oportunidad,
                    p.proyecto_id_estandar,
                    COALESCE(items.total, 0) AS total_items,
-                   COALESCE(items.entregados, 0) AS items_entregados
+                   COALESCE(items.entregados, 0) AS items_entregados,
+                   (pe.tipo_cambio_manual IS NOT NULL) AS tipo_cambio_manual_activo
             FROM tb_bom b
             JOIN tb_bom_paquetes paquete ON paquete.id_paquete = b.id_paquete
             LEFT JOIN tb_usuarios u1 ON u1.id_usuario = b.elaborado_por
@@ -617,6 +618,7 @@ class BomDBService(BomComprasDBMixin):
             LEFT JOIN tb_usuarios u4 ON u4.id_usuario = b.coordinador_obra
             LEFT JOIN tb_proyectos_gate p ON p.id_proyecto = b.id_proyecto
             LEFT JOIN tb_oportunidades o ON o.id_oportunidad = p.id_oportunidad
+            LEFT JOIN tb_bom_proyecto_estado pe ON pe.id_proyecto = b.id_proyecto
             LEFT JOIN LATERAL (
                 SELECT COUNT(*) FILTER (WHERE activo) AS total,
                        COUNT(*) FILTER (WHERE activo AND entregado) AS entregados
@@ -1398,7 +1400,10 @@ class BomDBService(BomComprasDBMixin):
     async def get_items_sin_costo_bom(self, conn, id_bom: UUID) -> List[dict]:
         """Lista items activos sin costo util para presupuesto: sin precio (NULL o
         <=0), o con un precio capturado por Ingenieria que Compras aun no confirma
-        (precio_pendiente_confirmacion) — ese precio no es oficial todavia."""
+        (precio_pendiente_confirmacion) — ese precio no es oficial todavia. Incluye
+        items BASE y items de adenda (FUERA_SCOPE/REEMPLAZO); el caller filtra por
+        tipo_origen_item cuando el BOM ya no admite resolver items BASE aqui (ver
+        ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS en core.bom.service)."""
         rows = await conn.fetch("""
             SELECT i.id_item,
                    i.descripcion,
@@ -1407,6 +1412,7 @@ class BomDBService(BomComprasDBMixin):
                    i.precio_unitario,
                    i.moneda,
                    i.tipo_partida,
+                   COALESCE(i.tipo_origen_item, 'BASE') AS tipo_origen_item,
                    i.orden,
                    i.lock_version,
                    i.id_material_interno,
@@ -1422,7 +1428,6 @@ class BomDBService(BomComprasDBMixin):
             LEFT JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo AND g.activo = TRUE
             WHERE i.id_bom = $1
               AND i.activo = TRUE
-              AND COALESCE(i.tipo_origen_item, 'BASE') = 'BASE'
               AND (
                   i.precio_unitario IS NULL OR i.precio_unitario <= 0
                   OR i.precio_pendiente_confirmacion = TRUE

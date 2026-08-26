@@ -15,3 +15,16 @@ ROL_OPERATIVO_POR_AREA = {
     "OYM": "encargado",
     "COMPRAS": "comprador_asignado",
 }
+
+# Estatus de BOM en los que un paquete deja de mostrarse en el listado
+# "pendientes de precio" de Compras (ya no hay items BASE sin costo que
+# resolver ahi, o el BOM esta cancelado). Fuente unica para:
+# - core/bom/service.py (ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS, que
+#   ademas agrega APROBADO_FINAL para bloquear el flujo de items BASE ahi)
+# - modules/compras/db_service.py (get_proyectos_bom_pendientes_precio y su
+#   _count, como parametro en vez de literal SQL)
+# modules/compras no puede importar core/bom/service.py (direccion de capas
+# core -> modules), de ahi que el set vaya aqui.
+ESTATUS_BOM_OCULTOS_PENDIENTES_PRECIO_COMPRAS = (
+    "APROBADO_CONST", "EN_REVISION_FINAL", "CANCELADO",
+)

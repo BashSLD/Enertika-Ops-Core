@@ -26,6 +26,7 @@ from core.bom.compras_service import (
 from core.bom.db_service import BomDBService
 from core.bom.schemas import EstatusBOM, AccionHistorial, TipoAprobacion
 from core.config import settings
+from core.constants import ESTATUS_BOM_OCULTOS_PENDIENTES_PRECIO_COMPRAS
 from core.materials.normalizer import normalizar_unidad
 from core.materials.service import MaterialsService
 from core.notifications.service import get_notifications_service
@@ -150,10 +151,8 @@ BOM_COSTOS_DEFAULT_TEMPLATE = (
 # que excluye el mismo set). Antes de eso (BORRADOR..EN_REVISION_CONST) un item
 # sin costo puede haberse agregado en cualquier turno, no solo en BORRADOR.
 ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS = {
-    EstatusBOM.APROBADO_CONST.value,
-    EstatusBOM.EN_REVISION_FINAL.value,
+    *ESTATUS_BOM_OCULTOS_PENDIENTES_PRECIO_COMPRAS,
     EstatusBOM.APROBADO_FINAL.value,
-    EstatusBOM.CANCELADO.value,
 }
 
 
@@ -1145,10 +1144,11 @@ class BomService(BomComprasServiceMixin):
     def item_sin_costo(item: dict) -> bool:
         """True si el item activo no tiene costo util (oficial) para presupuesto:
         sin precio, o con un precio que Ingenieria capturo pero Compras aun no
-        confirma (precio_pendiente_confirmacion) — no cuenta como resuelto."""
+        confirma (precio_pendiente_confirmacion) — no cuenta como resuelto.
+        Aplica tanto a items BASE como a items de adenda (FUERA_SCOPE/REEMPLAZO):
+        estos ultimos solo existen con el BOM en APROBADO_FINAL, pero igual
+        necesitan quedar en el radar de Compras si nadie les capturo costo real."""
         if not item.get("activo", True):
-            return False
-        if (item.get("tipo_origen_item") or TIPO_ITEM_BASE) != TIPO_ITEM_BASE:
             return False
         if item.get("precio_pendiente_confirmacion"):
             return True
@@ -1221,10 +1221,13 @@ class BomService(BomComprasServiceMixin):
     async def resolver_costos_pendientes_compras(
         self, conn, id_bom: UUID, user_id: UUID, items_payload: List[dict],
     ) -> dict:
-        """Compras captura precio_unitario/moneda (presupuesto) sobre items BASE sin
-        costo de un BOM en cualquier etapa activa previa a APROBADO_CONST (ver
-        ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS) — un flujo nuevo y explicito, no
-        una variante de `editar_item(area_editor='compras')`: ese metodo redirige precio_unitario/moneda
+        """Compras captura precio_unitario/moneda (presupuesto) sobre items sin costo
+        de un BOM. Items BASE: solo en cualquier etapa activa previa a APROBADO_CONST
+        (ver ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS) — a partir de ahi los cubre
+        la pestaña "Activos" de Compras. Items de adenda (FUERA_SCOPE/REEMPLAZO): SIEMPRE
+        que el BOM no este CANCELADO, porque solo existen con el BOM en APROBADO_FINAL
+        (dentro del mismo set) y no tienen ningun otro flujo donde resolverse. Este metodo
+        no es una variante de `editar_item(area_editor='compras')`: ese metodo redirige precio_unitario/moneda
         a precio_real/moneda_real (costo real, no presupuesto), asi que reusarlo
         escribiria en la columna equivocada sin error visible. La misma trampa aplica
         a `id_material_interno`: `update_item` (BomDBService) lo excluye a proposito de
@@ -1253,11 +1256,14 @@ class BomService(BomComprasServiceMixin):
             bom = await self.db.get_bom_for_update(conn, id_bom)
             if not bom:
                 raise ValueError("BOM no encontrado")
-            if bom["estatus"] in ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS:
+            if bom["estatus"] == EstatusBOM.CANCELADO.value:
                 raise ValueError(
-                    "El BOM ya llego a Construccion aprobada; tus cambios no se "
-                    "aplicaron. Contacta a Ingenieria."
+                    "El BOM esta cancelado; tus cambios no se aplicaron."
                 )
+            # A partir de aqui items BASE ya no se resuelven en este flujo (los cubre
+            # la pestaña "Activos" de Compras); items de adenda si, por eso el gate se
+            # aplica por item mas abajo en vez de cortar toda la funcion.
+            bloqueado_para_base = bom["estatus"] in ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS
             if bom.get("estado_paquete") != "ACTIVO":
                 raise ValueError(
                     "Este paquete BOM ya no esta activo; tus cambios no se aplicaron."
@@ -1286,6 +1292,18 @@ class BomService(BomComprasServiceMixin):
                     rechazados.append({
                         "id_item": id_item,
                         "motivo": "Este item ya no aplica (fue resuelto, no es base, o esta inactivo)",
+                    })
+                    continue
+                es_item_base = (
+                    actual.get("tipo_origen_item") or TIPO_ITEM_BASE
+                ) == TIPO_ITEM_BASE
+                if bloqueado_para_base and es_item_base:
+                    rechazados.append({
+                        "id_item": id_item,
+                        "motivo": (
+                            "El BOM ya llego a Construccion aprobada; este item base "
+                            "no se resuelve aqui, contacta a Ingenieria."
+                        ),
                     })
                     continue
 
@@ -2225,7 +2243,35 @@ class BomService(BomComprasServiceMixin):
                 id_paquete=adenda.get("id_paquete"), id_bom=adenda["id_bom_base"],
                 id_documento=id_adenda,
             )
+        if not requiere_ingenieria:
+            await self._avisar_costos_pendientes_tras_adenda(
+                conn, adenda["id_bom_base"], user_id
+            )
         return updated
+
+    async def _avisar_costos_pendientes_tras_adenda(
+        self, conn, id_bom: UUID, user_id: UUID
+    ) -> None:
+        """Dispara el mismo aviso (SSE/correo) del boton manual "Notificar a
+        Compras", pero automatico al aplicar una adenda: FUERA_SCOPE/REEMPLAZO
+        solo existen con el BOM en APROBADO_FINAL, donde ninguna transicion de
+        etapa (ni su modal de aprobacion, unico lugar con ese boton hoy) vuelve
+        a correr -- sin este disparo el item sin costo quedaba sin ningun canal
+        activo de recordatorio, solo visible si Compras entraba por su cuenta a
+        la pestaña de precios pendientes. Best effort, llamado DESPUES del
+        commit de la adenda: nunca debe tumbar una aprobacion ya aplicada."""
+        try:
+            await self.notificar_items_sin_costo_compras(conn, id_bom, user_id)
+        except ValueError:
+            # Sin items sin costo (lo normal, la mayoria de adendas SI trae
+            # precio) o sin canal de aviso configurado -- no es un error de la
+            # adenda en si, solo no hay nada (o como) que avisar.
+            pass
+        except asyncpg.PostgresError:
+            logger.exception(
+                "Error de BD al avisar costos pendientes tras aplicar adenda (bom=%s)",
+                id_bom,
+            )
 
     async def aprobar_adenda_ingenieria(
         self, conn, id_adenda: UUID, user_id: UUID, user_role: str,
@@ -2270,6 +2316,9 @@ class BomService(BomComprasServiceMixin):
                 id_paquete=adenda.get("id_paquete"), id_bom=adenda["id_bom_base"],
                 id_documento=id_adenda,
             )
+        await self._avisar_costos_pendientes_tras_adenda(
+            conn, adenda["id_bom_base"], user_id
+        )
         return updated
 
     async def rechazar_adenda(
@@ -2394,8 +2443,15 @@ class BomService(BomComprasServiceMixin):
             # Autoridad de costos (doc 38): precio_unitario/moneda son de
             # Ingenieria o Compras, nunca de Construccion, aunque controle el
             # turno (editar_base=True) en EN_REVISION_OBRA/EN_REVISION_CONST.
-            for campo_real in {"precio_unitario", "moneda"}:
-                campos_base.pop(campo_real, None)
+            # Excepcion acotada: SI puede reabrir un costo ya configurado
+            # dejandolo exactamente en 0 (bandera "sin costo, esperando
+            # Compras") -- cualquier otro valor se descarta igual que antes.
+            precio_construccion = campos_base.get("precio_unitario")
+            if precio_construccion is None or self._decimal_o_error(
+                precio_construccion, "El precio unitario no puede ser negativo"
+            ) != 0:
+                campos_base.pop("precio_unitario", None)
+                campos_base.pop("moneda", None)
         campos_ejecucion_permitidos = (
             CAMPOS_CONSTRUCCION_EJECUCION
             if area_editor == "construccion"
@@ -2534,7 +2590,10 @@ class BomService(BomComprasServiceMixin):
             if grupo_ids is not None and not grupos_base and not capacidades["editar_ejecucion"]:
                 raise ValueError("Solo Construccion puede actualizar grupos operativos")
 
-            if area_editor == "ingenieria" and campos_base.get("precio_unitario") is not None:
+            if (
+                area_editor in ("ingenieria", "construccion")
+                and campos_base.get("precio_unitario") is not None
+            ):
                 # Autoridad de edicion de costos (Fase 4): Ingenieria puede capturar
                 # el costo de un item sin costo, pero una vez que el item YA tiene
                 # un costo configurado (sin importar si es de entrada manual o de
@@ -2544,6 +2603,9 @@ class BomService(BomComprasServiceMixin):
                 # es el que se vuelve costo oficial. Se valida aqui (despues del
                 # gate de turno/estatus de arriba) para que "no es tu turno"
                 # siga siendo el mensaje correcto cuando ambas cosas aplican.
+                # Construccion solo llega aqui con precio_unitario == 0 (el
+                # popeo de arriba descarta cualquier otro valor), asi que para
+                # esa area este bloque es siempre el camino de "reabrir".
                 precio_nuevo = precio
                 precio_actual = item.get("precio_unitario")
                 try:
@@ -3835,10 +3897,12 @@ class BomService(BomComprasServiceMixin):
         self, conn, id_bom: UUID, user_id: UUID
     ) -> dict:
         """Envia a Compras la lista consolidada de items del BOM sin costo."""
-        bom = await self.get_bom(conn, id_bom)
+        # items primero: si no hay nada que notificar (el caso comun cuando esto
+        # se dispara automatico tras aprobar una adenda), evita el get_bom extra.
         items = await self.get_items_sin_costo(conn, id_bom)
         if not items:
             raise ValueError("No hay items sin costo estimado para notificar.")
+        bom = await self.get_bom(conn, id_bom)
 
         try:
             from core.workflow.notification_service import NotificationService

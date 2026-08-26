@@ -201,7 +201,7 @@
     <td class="px-3 py-2 text-sm text-right font-mono">
         {% if item.importe and item.precio_unitario and item.precio_unitario|float > 0 %}
         {% if item.moneda == 'USD' and costo_mxn_total is not none %}
-        <span {% if tc_item %}title="Tipo de cambio usado: {{ "{:,.4f}".format(tc_item) }} MXN/USD"{% endif %} class="cursor-help">${{ "{:,.2f}".format(costo_mxn_total) }} MXN</span>
+        <span {% if tc_item %}title="{{ 'TC Fijado Manualmente: ' if bom.tipo_cambio_manual_activo else 'Tipo de cambio usado: ' }}{{ "{:,.4f}".format(tc_item) }} MXN/USD"{% endif %} class="cursor-help">${{ "{:,.2f}".format(costo_mxn_total) }} MXN</span>
         <div class="text-[10px] text-gray-400 font-normal">≈ ${{ "{:,.2f}".format(item.importe|float) }} USD</div>
         {% elif item.moneda == 'USD' %}
         ${{ "{:,.2f}".format(item.importe|float) }} USD
