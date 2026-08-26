@@ -23,13 +23,13 @@
         {{ chip_info(estadisticas.atrasados or 0, 'Atrasados', 'border-red-500', 'text-red-600') }}
     </div>
 
-    <div class="flex-[1.2] min-w-[170px] max-w-[210px] glass-card rounded-lg px-3 py-2 text-center border-b-2 border-emerald-400 bg-emerald-50/40">
+    <div class="flex-[1.2] min-w-[170px] max-w-[260px] glass-card rounded-lg px-3 py-2 text-center border-b-2 border-emerald-400 bg-emerald-50/40">
         <div id="stat-costo-estimado-label" class="text-xs text-emerald-600" {{ 'hidden' if estadisticas.costo_total_estimado is none }}>
             Costo Estimado
             <span id="stat-costo-filtrado-wrap" class="text-emerald-500" hidden>(filtrado)</span>
         </div>
         <div class="text-lg font-bold text-emerald-700">
-            <span id="stat-costo-estimado-monto" {{ 'hidden' if estadisticas.costo_total_estimado is none }}>
+            <span id="stat-costo-estimado-monto" class="whitespace-nowrap" {{ 'hidden' if estadisticas.costo_total_estimado is none }}>
                 $<span id="stat-costo-estimado-valor">{{ "{:,.2f}".format(estadisticas.costo_total_estimado|float) if estadisticas.costo_total_estimado is not none else '0.00' }}</span> MXN
             </span>
             <span id="stat-costo-estimado-pendiente" class="text-sm text-amber-700" {{ 'hidden' if estadisticas.costo_total_estimado is not none }}>Importe pendiente</span>
