@@ -823,6 +823,7 @@ async def update_config_empresa(
     direccion: str = Form(""),
     telefono: str = Form(""),
     email_contacto: str = Form(""),
+    email_rfq: str = Form(""),
     conn = Depends(get_db_connection),
     _ = require_module_access("admin", "admin"),
 ):
@@ -839,6 +840,7 @@ async def update_config_empresa(
             direccion=direccion.strip() or None,
             telefono=telefono.strip() or None,
             email_contacto=email_contacto.strip() or None,
+            email_rfq=email_rfq.strip() or None,
         )
     except asyncpg.PostgresError:
         logger.exception("Error de BD al guardar datos de Empresa")

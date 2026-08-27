@@ -1,14 +1,17 @@
 {% extends "_base.html" %}
 
-{% block doc_title %}Solicitud de Cotización (RFQ){% endblock %}
+{% block doc_title %}Solicitud de Cotización{% endblock %}
 {% block doc_date %}{% if proyecto %}Proyecto: {{ proyecto.proyecto_id_estandar or '' }} {{ proyecto.nombre_proyecto or '' }}{% endif %}{% endblock %}
 {% block footer_label %}Solicitud de cotización{% endblock %}
 {% block header_modifier %}pdf-header-accent{% endblock %}
 
 {% block footer_extra %}
+<div class="footer-disclaimer">
+    Este documento no constituye una orden de compra ni compromete a Enertika con ningún proveedor.
+</div>
 {% if empresa %}
 <div class="footer-empresa">
-    {{ empresa.razon_social }}{% if empresa.rfc %} &middot; RFC {{ empresa.rfc }}{% endif %}{% if empresa.direccion %} &middot; {{ empresa.direccion }}{% endif %}
+    {{ empresa.razon_social }}{% if empresa.rfc %} &middot; RFC {{ empresa.rfc }}{% endif %}{% if empresa.direccion %} &middot; {{ empresa.direccion }}{% endif %}{% if empresa.email_rfq %} &middot; {{ empresa.email_rfq }}{% endif %}
 </div>
 {% endif %}
 {% endblock %}
@@ -16,11 +19,18 @@
 {% block extra_styles %}
 <style>
     @page {
-        margin: 1.2cm 1.5cm 2.8cm 1.5cm;
+        margin: 1.2cm 1.5cm 2.1cm 1.5cm;
 
         @bottom-center {
-            height: 2.1cm;
+            height: 1.6cm;
         }
+    }
+
+    .footer-disclaimer {
+        font-size: 7pt;
+        color: #9aa39e;
+        font-style: italic;
+        margin-bottom: 2px;
     }
 
     .footer-empresa {
@@ -31,6 +41,7 @@
 
     .pdf-header-accent {
         position: relative;
+        z-index: 0;
     }
 
     .pdf-header-accent::before {
@@ -41,8 +52,16 @@
         width: 0;
         height: 0;
         border-style: solid;
-        border-width: 0 44px 44px 0;
-        border-color: transparent rgba(0, 186, 187, 0.07) transparent transparent;
+        border-width: 0 90px 90px 0;
+        border-color: transparent rgba(0, 186, 187, 0.14) transparent transparent;
+        z-index: -1;
+    }
+
+    .pdf-watermark {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
         z-index: -1;
     }
 
@@ -96,10 +115,22 @@
 
 {% block content %}
 
+<div class="pdf-watermark">
+    <svg width="320" height="320" viewBox="0 0 320 320" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="160" cy="160" r="150" fill="none" stroke="#00BABB" stroke-width="1" opacity="0.07"/>
+        <circle cx="160" cy="160" r="105" fill="none" stroke="#00BABB" stroke-width="1.2" opacity="0.09"/>
+        <circle cx="160" cy="160" r="60" fill="none" stroke="#00BABB" stroke-width="1.4" opacity="0.12"/>
+        <polygon points="160,4 172,26 148,26" fill="#00BABB" opacity="0.13"/>
+        <polygon points="160,316 172,294 148,294" fill="#00BABB" opacity="0.13"/>
+        <polygon points="4,160 26,148 26,172" fill="#00BABB" opacity="0.13"/>
+        <polygon points="316,160 294,148 294,172" fill="#00BABB" opacity="0.13"/>
+    </svg>
+</div>
+
 <div class="notice">
-    Este documento es una solicitud de cotización (RFQ). No constituye una orden de compra ni
-    compromete a Enertika con ningún proveedor. Favor de responder con precio unitario, moneda
-    y tiempo de entrega para cada partida.
+    Se realiza la siguiente solicitud de cotización. Favor de responder con precio unitario,
+    moneda y tiempo de entrega para cada partida.{% if empresa and empresa.email_rfq %} Correo:
+    <strong>{{ empresa.email_rfq }}</strong>{% endif %}
 </div>
 
 {% if rfq.notas %}

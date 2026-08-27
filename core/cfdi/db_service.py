@@ -1,7 +1,7 @@
 # core/cfdi/db_service.py
-"""Acceso a datos compartido del dominio CFDI: datos fiscales de la empresa
-(tb_config_empresa) y auditoria de errores fiscales (tb_cfdi_errores_fiscales).
-Recibe conn como parametro (patron del proyecto)."""
+"""Acceso a datos compartido del dominio CFDI: datos fiscales y de contacto de la
+empresa (tb_config_empresa, incluye correos operativos como el de RFQ) y auditoria
+de errores fiscales (tb_cfdi_errores_fiscales). Recibe conn como parametro (patron del proyecto)."""
 
 from typing import Optional
 from uuid import UUID, uuid4
@@ -21,15 +21,16 @@ class CfdiDBService:
         self, conn, razon_social: str, rfc: str,
         codigo_postal: Optional[str], regimen_fiscal: Optional[str],
         direccion: Optional[str], telefono: Optional[str], email_contacto: Optional[str],
+        email_rfq: Optional[str],
     ) -> dict:
         """Actualiza los datos fiscales de Enertika (Admin > Empresa)."""
         row = await conn.fetchrow("""
             UPDATE tb_config_empresa
             SET razon_social = $1, rfc = $2, codigo_postal = $3, regimen_fiscal = $4,
-                direccion = $5, telefono = $6, email_contacto = $7, updated_at = NOW()
+                direccion = $5, telefono = $6, email_contacto = $7, email_rfq = $8, updated_at = NOW()
             WHERE id = 1
             RETURNING *
-        """, razon_social, rfc, codigo_postal, regimen_fiscal, direccion, telefono, email_contacto)
+        """, razon_social, rfc, codigo_postal, regimen_fiscal, direccion, telefono, email_contacto, email_rfq)
         return dict(row)
 
     async def insert_error_fiscal(
