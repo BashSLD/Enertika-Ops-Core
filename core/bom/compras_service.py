@@ -531,6 +531,12 @@ class BomComprasServiceMixin:
             if not updated:
                 raise ValueError("La cotizacion ya cambio; recarga la pestaña")
 
+            # TC del proyecto, resuelto una sola vez: lo usa la bitácora de items
+            # (congelado por ítem si es USD) y la autorización más abajo (si aplica).
+            tc_resuelto = None
+            if cotizacion['moneda'] == 'USD':
+                tc_resuelto = await self.resolver_tipo_cambio(conn, bom['id_proyecto'])
+
             # Actualizar estatus_compra de los ítems cubiertos
             if items:
                 item_ids = [i['bom_item_id'] for i in items]
@@ -560,6 +566,36 @@ class BomComprasServiceMixin:
                             "La ejecución de un ítem cambió; recarga la cotización"
                         )
 
+                # Bitácora de precios: solo si el proveedor está catalogado
+                # (id_proveedor NOT NULL en tb_materiales_historial) -- una
+                # cotización con solo nombre libre de proveedor no puede
+                # alimentar esta bitácora.
+                if cotizacion.get('proveedor_id'):
+                    tc_usd = tc_resuelto["tasa"] if tc_resuelto else None
+                    await self.db.guardar_historial_cotizacion(
+                        conn, cotizacion['proveedor_id'],
+                        today_mx(), user_id, items, tc_usd,
+                    )
+
+                # Refresco de costo del catálogo interno: independiente de si el
+                # proveedor está catalogado, solo depende de que el ítem tenga
+                # material interno vinculado. Misma autoridad que editar el
+                # catálogo a mano (MaterialsService.actualizar_interno).
+                registros_catalogo = [
+                    {
+                        'id': it['id_material_interno'],
+                        'precio_referencia': it['precio_unitario'],
+                        'moneda': it.get('moneda') or 'MXN',
+                        'actualizado_por': user_id,
+                    }
+                    for it in items
+                    if it.get('id_material_interno') and it.get('precio_unitario')
+                ]
+                if registros_catalogo:
+                    await self.materials.actualizar_precios_referencia_bulk(
+                        conn, registros_catalogo
+                    )
+
             # Crear autorización de compra (Fase D) si no existe ya; si quedó
             # RECHAZADA de un ciclo anterior, reabrirla a PENDIENTE (nuevo ciclo)
             existente = await self.db.get_autorizacion_by_cotizacion(conn, cotizacion_id)
@@ -567,12 +603,11 @@ class BomComprasServiceMixin:
                 bom = await self.db.get_bom_by_id(conn, cotizacion['bom_id'])
                 tc_valor = None
                 if cotizacion['moneda'] == 'USD':
-                    resuelto = await self.resolver_tipo_cambio(conn, bom['id_proyecto'])
-                    if not resuelto["tasa"]:
+                    if not tc_resuelto["tasa"]:
                         raise ValueError(
                             "No hay tipo de cambio vigente para autorizar la cotizacion"
                         )
-                    tc_valor = resuelto["tasa"]
+                    tc_valor = tc_resuelto["tasa"]
                 if existente:
                     await self.db.reabrir_autorizacion_db(
                         conn, existente['id'], cotizacion['total'],

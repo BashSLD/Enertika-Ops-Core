@@ -215,6 +215,13 @@ class MaterialsService:
             self._decimals_a_float([m], ('precio_referencia',))
         return m
 
+    async def actualizar_precios_referencia_bulk(self, conn, registros: list) -> int:
+        """Bulk de precio_referencia/moneda. Mismo helper que usa la carga masiva
+        por Excel (`actualizar_precios_excel`), reusado tambien al adjudicar
+        cotizaciones de BOM (core/bom/compras_service.py) -- misma autoridad que
+        editar el catalogo a mano, solo que por esa via."""
+        return await self.db.actualizar_precios_bulk(conn, registros)
+
     async def desactivar_interno(self, conn, id: UUID) -> bool:
         return await self.db.desactivar_interno(conn, id)
 

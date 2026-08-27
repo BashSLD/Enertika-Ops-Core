@@ -4,7 +4,9 @@ cambio, resumen de compra y RFQ. Mixin incluido en BomDBService.
 """
 
 import json
-from uuid import UUID
+from datetime import date
+from decimal import Decimal
+from uuid import UUID, uuid4
 from typing import Optional, List
 
 
@@ -199,6 +201,7 @@ class BomComprasDBMixin:
         rows = await conn.fetch("""
             SELECT ci.*,
                    bi.descripcion, bi.unidad_medida, bi.id_categoria,
+                   bi.id_material_interno,
                    cat.nombre AS categoria_nombre
             FROM tb_bom_cotizacion_items ci
             JOIN tb_bom_items bi ON bi.id_item = ci.bom_item_id
@@ -207,6 +210,53 @@ class BomComprasDBMixin:
             ORDER BY bi.orden ASC
         """, cotizacion_id)
         return [dict(r) for r in rows]
+
+    async def guardar_historial_cotizacion(
+        self, conn, id_proveedor: UUID,
+        fecha: date, user_id: UUID, items: List[dict],
+        tc_usd: Optional[Decimal],
+    ) -> None:
+        """Bitacora de precios en tb_materiales_historial (origen='COTIZACION'),
+        mismo rol que el historial que ya alimenta el flujo XML pero atado
+        directo al bom_item (sin ambiguedad de descripcion de proveedor).
+
+        uuid_factura/numero_linea_cfdi son sinteticos (no hay CFDI real todavia
+        para una cotizacion). uuid_factura se genera nuevo en cada llamada (NO se
+        deriva de cotizacion_id): una cotizacion rechazada vuelve a RECIBIDA
+        (_liberar_cotizacion_rechazada) y puede volver a adjudicarse, lo que
+        repetiria el mismo par (uuid_factura, numero_linea_cfdi) contra el
+        indice unico uq_materiales_factura_numero_linea si se reusara el id.
+        tc_usd: tipo de cambio ya resuelto para el proyecto, solo se persiste en
+        items cuya moneda es USD -- congela el TC del dia de adjudicacion para
+        que get_items() lo use igual que ya hace con el TC del XML de factura
+        (core/bom/db_service.py::get_tc_from_linked_materials).
+        """
+        uuid_factura = uuid4()
+        # precio_unitario/subtotal_linea siempre vienen juntos: _calcular_items_cotizacion
+        # solo persiste subtotal_linea cuando precio_unitario > 0 (core/bom/compras_service.py).
+        validos = [it for it in items if it.get('precio_unitario') and it.get('cantidad')]
+        rows = [
+            (
+                uuid_factura, id_proveedor, idx,
+                it.get('descripcion') or 'Item sin descripcion',
+                Decimal(str(it['cantidad'])), Decimal(str(it['precio_unitario'])),
+                Decimal(str(it['subtotal_linea'])),
+                it.get('unidad_medida'), it.get('id_categoria'),
+                fecha, tc_usd if it.get('moneda') == 'USD' else None,
+                user_id, it['bom_item_id'],
+            )
+            for idx, it in enumerate(validos, start=1)
+        ]
+        if not rows:
+            return
+        await conn.executemany("""
+            INSERT INTO tb_materiales_historial (
+                uuid_factura, id_proveedor, numero_linea_cfdi,
+                descripcion_proveedor, cantidad, precio_unitario, importe,
+                unidad, id_categoria, fecha_factura, tipo_cambio_xml,
+                created_by_id, id_bom_item, origen
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'COTIZACION')
+        """, rows)
 
     async def get_items_by_cotizacion_ids(self, conn, cotizacion_ids: list) -> List[dict]:
         rows = await conn.fetch("""
