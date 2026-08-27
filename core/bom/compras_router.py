@@ -59,6 +59,20 @@ def _item_cotizacion_json(item: dict) -> dict:
     }
 
 
+def _con_trigger_cotizacion_guardada(resp, cotizacion: dict):
+    """Agrega HX-Trigger (mismo patron que core/workflow/router.py) con el id/lock_version
+    recien guardados. guardar() en templates/base.html (fetch manual, no htmx-managed)
+    lo lee a mano del header de respuesta para encadenar la subida del PDF pendiente
+    de captura asistida, sin tener que parsear el partial swapeado."""
+    resp.headers["HX-Trigger"] = json.dumps({
+        "cotizacion-guardada": {
+            "id": str(cotizacion["id"]),
+            "lock_version": cotizacion["lock_version"],
+        }
+    })
+    return resp
+
+
 # ========================================
 # COTIZACIONES (Fase C)
 # ========================================
@@ -298,7 +312,7 @@ async def crear_cotizacion(
     bom_lock_version_raw = body.get("bom_lock_version")
 
     try:
-        await service.crear_cotizacion(
+        cotizacion = await service.crear_cotizacion(
             conn, id_bom, parsed["proveedor_id"], parsed["nombre_proveedor"], parsed["moneda"],
             parsed["items_data"], parsed["iva_pct"], parsed["notas"], user_id,
             subtotal_externo=parsed["subtotal_externo"],
@@ -312,8 +326,10 @@ async def crear_cotizacion(
         raise HTTPException(status_code=400, detail=str(e))
 
     if rfq_id:
-        return await _render_comparativa(request, conn, service, context, id_bom)
-    return await _render_cotizaciones_tab(request, conn, service, context, id_bom)
+        resp = await _render_comparativa(request, conn, service, context, id_bom)
+    else:
+        resp = await _render_cotizaciones_tab(request, conn, service, context, id_bom)
+    return _con_trigger_cotizacion_guardada(resp, cotizacion)
 
 
 @compras_router.post("/cotizaciones/{cotizacion_id}/editar", include_in_schema=False)
@@ -348,7 +364,8 @@ async def editar_cotizacion(
         logger.exception("Error de BD al editar cotización %s", cotizacion_id)
         raise HTTPException(status_code=500, detail="Error interno al editar la cotización")
 
-    return await _render_cotizaciones_tab(request, conn, service, context, actualizado["bom_id"])
+    resp = await _render_cotizaciones_tab(request, conn, service, context, actualizado["bom_id"])
+    return _con_trigger_cotizacion_guardada(resp, actualizado)
 
 
 @compras_router.post("/{id_bom}/rfq-rapido", include_in_schema=False)
@@ -689,6 +706,21 @@ async def rechazar_cotizacion(
     if not cotizacion:
         return _toast_response(request, "Cotización no encontrada", "error", status_code=404)
     return await _render_cotizaciones_tab(request, conn, service, context, cotizacion['bom_id'])
+
+
+@compras_router.post("/cotizaciones/extraer-pdf-costos", include_in_schema=False)
+async def extraer_pdf_costos_cotizacion(
+    archivo: UploadFile = File(...),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Extrae precios candidatos de un PDF de cotizacion de proveedor (captura
+    asistida, sin match automatico). No persiste nada ni sube a SharePoint --
+    eso ocurre aparte al guardar, via /cotizaciones/{id}/pdf."""
+    try:
+        return await service.extraer_costos_pdf_cotizacion(archivo)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @compras_router.post("/cotizaciones/{cotizacion_id}/pdf", include_in_schema=False)

@@ -1,6 +1,7 @@
 {# Modal Cargar/Pasar a Cotizacion — compartido entre cotizaciones.html (tab)
    y modal_cotizacion_rfq.html (standalone, abierto desde una tarjeta RFQ) #}
 {% from "bom/partials/_macros.html" import icono_caja, icono_lapiz %}
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 <div x-show="modalAbierto" x-cloak
     class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm modal-overlay-layer"
     @keydown.escape.window="cerrarModal()">
@@ -18,11 +19,30 @@
                     <p class="text-xs text-emerald-200">Selecciona ítems y captura el precio del proveedor</p>
                 </div>
             </div>
-            <button @click="cerrarModal()" class="text-white/60 hover:text-white transition-colors p-1">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                </svg>
-            </button>
+            <div class="flex items-center gap-2 shrink-0">
+                <label class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg text-white bg-white/15 hover:bg-white/25 transition-colors cursor-pointer"
+                    title="Extrae precios candidatos del PDF para asistir la captura (sin match automático)">
+                    {{ spinner_icon('w-3.5 h-3.5', attrs='x-show="extrayendoPdf" x-cloak') }}
+                    <svg x-show="!extrayendoPdf" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3-3m0 0l3 3m-3-3v8"/>
+                    </svg>
+                    <span x-show="!pdfPendiente" x-cloak>Cargar PDF de proveedor</span>
+                    <span x-show="pdfPendiente" x-cloak class="truncate max-w-[8rem]" x-text="pdfPendiente && pdfPendiente.name"></span>
+                    <input type="file" accept="application/pdf" class="hidden"
+                        @change="onPdfSeleccionado($event.target.files[0]); $event.target.value = ''">
+                </label>
+                <button type="button" x-show="pdfPendiente" x-cloak @click="limpiarPdf()"
+                    class="text-white/60 hover:text-white p-1" aria-label="Quitar PDF cargado">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+                <button @click="cerrarModal()" class="text-white/60 hover:text-white transition-colors p-1">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
         </div>
 
         {# Body modal — cabecera fija + lista de ítems flexible #}
@@ -63,6 +83,26 @@
                     </button>
                 </div>
             </div>
+
+            {# Precios detectados en el PDF — captura asistida, sin match automático.
+               La lista completa vive en un modal secundario (mas espacio para
+               trabajarla, ver el final del archivo); aqui solo una barra resumen
+               para reabrirlo, y los mensajes de "no se detecto nada"/error. #}
+            <button type="button" x-show="candidatosPdf.length > 0" x-cloak @click="modalPdfAbierto = true"
+                class="shrink-0 flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 transition-colors text-left">
+                <span class="text-xs font-medium text-blue-700">
+                    <span x-text="candidatosPdf.length"></span> precio(s) detectados en el PDF
+                </span>
+                <span class="text-[11px] font-semibold text-blue-600 shrink-0">Revisar y asignar →</span>
+            </button>
+            <p x-show="pdfPendiente && candidatosPdf.length === 0 && !extrayendoPdf && pdfError" x-cloak
+                class="shrink-0 text-xs text-red-500">
+                No se pudo leer el PDF (<span x-text="pdfError"></span>) — captura manual.
+            </p>
+            <p x-show="pdfPendiente && candidatosPdf.length === 0 && !extrayendoPdf && !pdfError" x-cloak
+                class="shrink-0 text-xs text-gray-500">
+                No se detectaron precios en el PDF — captura manual.
+            </p>
 
             {# Folio + Moneda + IVA en una sola fila — folio se colapsa a texto al perder foco.
                editandoFolio vive en cotizacionesBom() y se resetea en _resetModal() (base.html)
@@ -224,6 +264,65 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                 </svg>
                 <span x-text="guardando ? 'Guardando...' : (editandoCotizacionId ? 'Guardar Cambios' : 'Guardar Captura')"></span>
+            </button>
+        </div>
+    </div>
+</div>
+
+{# Modal secundario: revisar/asignar precios detectados en el PDF. Separado del
+   modal de captura porque la lista comprimida ahi adentro era dificil de
+   trabajar (feedback de usuario). Comparte el mismo x-data (cotizacionesBom) --
+   no es standalone, solo se apila encima con z-index mayor. #}
+<div x-show="modalPdfAbierto" x-cloak
+    class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm modal-overlay-layer"
+    @keydown.escape.window="modalPdfAbierto = false">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-3 max-h-[85vh] flex flex-col">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200 shrink-0 bg-blue-50 rounded-t-xl">
+            <div>
+                <h3 class="text-sm font-semibold text-blue-900">Precios detectados en el PDF</h3>
+                <p class="text-xs text-blue-500">
+                    <span x-text="pdfMetodo === 'tabla' ? 'Extraído de una tabla' : 'Extraído de texto'"></span>
+                    <template x-if="pdfMonedaDetectada"> · Moneda en PDF: <span x-text="pdfMonedaDetectada"></span></template>
+                </p>
+            </div>
+            <button type="button" @click="modalPdfAbierto = false" class="text-blue-400 hover:text-blue-700 p-1" aria-label="Cerrar">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div class="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-1.5">
+            <template x-if="!modoSimplificado">
+                <template x-for="(cand, idx) in candidatosPdf" :key="idx">
+                    <div class="flex items-center gap-3 px-3 py-2 rounded-lg border"
+                        :class="cand.asignado_a ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-200'">
+                        <div class="flex-1 min-w-0 text-sm text-gray-700" x-text="cand.texto"></div>
+                        <div class="text-sm font-semibold text-blue-700 whitespace-nowrap" x-text="'$' + formatMoneda(cand.precio)"></div>
+                        <select class="text-xs border border-gray-300 rounded px-2 py-1 max-w-[12rem] shrink-0"
+                            :value="cand.asignado_a || ''"
+                            @change="usarCandidatoPdf(cand, $event.target.value)">
+                            <option value="">Asignar a ítem...</option>
+                            <template x-for="item in itemsParaCandidato(cand)" :key="item.id_item">
+                                <option :value="item.id_item" x-text="item.descripcion"></option>
+                            </template>
+                        </select>
+                    </div>
+                </template>
+            </template>
+            <template x-if="modoSimplificado">
+                <template x-for="(cand, idx) in candidatosPdf" :key="idx">
+                    <button type="button" @click="usarCandidatoPdf(cand, null); modalPdfAbierto = false"
+                        class="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg border bg-gray-50 border-gray-200 hover:bg-blue-50 text-left">
+                        <span class="flex-1 min-w-0 text-sm text-gray-700" x-text="cand.texto"></span>
+                        <span class="text-sm font-semibold text-blue-700 whitespace-nowrap" x-text="'$' + formatMoneda(cand.precio)"></span>
+                    </button>
+                </template>
+            </template>
+        </div>
+        <div class="flex justify-end px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl shrink-0">
+            <button type="button" @click="modalPdfAbierto = false"
+                class="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg">
+                Listo
             </button>
         </div>
     </div>

@@ -11,7 +11,9 @@ from typing import Optional, List
 
 import asyncpg
 
+from core.bom.pdf_cotizacion_extractor import extraer_costos_cotizacion
 from core.bom.schemas import EstatusBOM, EstatusCotizacionAprobacion
+from core.config import settings
 from core.timezone import today_mx
 
 logger = logging.getLogger("BOM.Service")
@@ -42,6 +44,12 @@ class BomComprasServiceMixin:
         if estado == EstatusBOM.APROBADO_FINAL:
             return bool(bom.get("es_cabeza_oficial"))
         return bool(bom.get("es_cabeza_trabajo", True))
+
+    @staticmethod
+    def _validar_content_type_pdf(file) -> None:
+        content_type = (getattr(file, "content_type", None) or "").split(";")[0].strip().lower()
+        if content_type != "application/pdf":
+            raise ValueError("El archivo debe ser un PDF")
 
     async def _relock_bom_cotizable_o_raise(
         self, conn, id_bom: UUID, bom_esperado: dict,
@@ -1451,9 +1459,7 @@ class BomComprasServiceMixin:
             raise ValueError(
                 "La cotización ya fue aprobada por Dirección y no puede modificarse."
             )
-        content_type = (getattr(file, "content_type", None) or "").split(";")[0].strip().lower()
-        if content_type != "application/pdf":
-            raise ValueError("El archivo debe ser un PDF")
+        self._validar_content_type_pdf(file)
 
         from modules.compras.service import ComprasService
 
@@ -1479,6 +1485,21 @@ class BomComprasServiceMixin:
             if doc_id:
                 await self.db.eliminar_attachment_huerfano(conn, doc_id)
             raise
+
+    async def extraer_costos_pdf_cotizacion(self, file) -> dict:
+        """Extrae precios candidatos de un PDF de cotizacion de proveedor para
+        asistir la captura manual (core/bom/pdf_cotizacion_extractor.py).
+
+        No hace match automatico contra items del BOM ni persiste nada -- es
+        solo lectura, para mostrar candidatos en el modal. El PDF se sube a
+        SharePoint aparte (subir_pdf_cotizacion) al guardar la cotizacion.
+        """
+        self._validar_content_type_pdf(file)
+        content = await file.read()
+        max_size_mb = settings.PDF_MAX_UPLOAD_SIZE_MB
+        if len(content) / (1024 * 1024) > max_size_mb:
+            raise ValueError(f"El PDF supera el tamaño máximo permitido ({max_size_mb}MB)")
+        return extraer_costos_cotizacion(content, file.filename or "cotizacion.pdf")
 
     async def get_pdf_cotizacion_bytes(
         self, conn, cotizacion_id: UUID, doc_id: Optional[UUID] = None,

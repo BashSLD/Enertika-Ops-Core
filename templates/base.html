@@ -366,6 +366,20 @@
                 editandoCotizacionId: null,
                 editandoLockVersion: null,
 
+                // Captura asistida por PDF (backlog: sin match automatico).
+                // pdfPendiente es el File en memoria -- no se sube hasta guardar()
+                // (el nombre se lee de el mismo, pdfPendiente.name, no se duplica).
+                pdfPendiente: null,
+                extrayendoPdf: false,
+                candidatosPdf: [],
+                pdfMetodo: null,
+                pdfMonedaDetectada: null,
+                pdfError: null,
+                // Modal secundario (mas espacio para revisar/asignar candidatos que
+                // el panel comprimido dentro del modal principal). Comparte este
+                // mismo x-data -- no es standalone, solo se apila encima.
+                modalPdfAbierto: false,
+
                 modalReemplazoAbierto: false,
                 reemplazo: { cotizacionId: null, aprobacionLockVersion: null, autorizacionLockVersion: null, proveedor: '' },
                 reemplazoMotivo: '',
@@ -408,6 +422,7 @@
                     this.rfqNombreActivo = rfqNombre;
                     this.editandoCotizacionId = editandoCotizacionId;
                     this.editandoLockVersion = editandoLockVersion;
+                    this._limpiarEstadoPdf();
                     this.modalAbierto = true;
                     // El modal es x-show (nunca se destruye/recrea), asi que las filas de
                     // itemsDisponibles y su buffer local de precio (patron en
@@ -451,6 +466,7 @@
                 // fantasma ahi.
                 cerrarModal() {
                     this.modalAbierto = false;
+                    this.modalPdfAbierto = false;
                     if (this.$root.dataset.standalone !== undefined) {
                         this.$root.remove();
                     }
@@ -523,6 +539,116 @@
                     this.busquedaProveedor = '';
                 },
 
+                // Estado de captura asistida por PDF, compartido entre _resetModal,
+                // onPdfSeleccionado (antes de mandar el nuevo archivo a extraer) y
+                // limpiarPdf (boton "x" junto al nombre del archivo cargado).
+                _limpiarEstadoPdf() {
+                    this.pdfPendiente = null;
+                    this.extrayendoPdf = false;
+                    this.candidatosPdf = [];
+                    this.pdfMetodo = null;
+                    this.pdfMonedaDetectada = null;
+                    this.pdfError = null;
+                    this.modalPdfAbierto = false;
+                },
+
+                // Sube el PDF a un endpoint de solo-lectura (no persiste nada) que
+                // devuelve precios candidatos para asistir la captura manual. Si
+                // falla o no encuentra nada, el PDF sigue adjunto para subirse al
+                // guardar -- solo no habra candidatos (fallback: captura manual,
+                // con pdfError visible para distinguir "no se pudo leer" de "se leyo
+                // pero no se detectaron precios").
+                async onPdfSeleccionado(file) {
+                    if (!file) return;
+                    this._limpiarEstadoPdf();
+                    this.pdfPendiente = file;
+                    this.extrayendoPdf = true;
+                    try {
+                        const formData = new FormData();
+                        formData.append('archivo', file);
+                        const resp = await fetch('/bom/cotizaciones/extraer-pdf-costos', {
+                            method: 'POST',
+                            body: formData,
+                        });
+                        const data = await resp.json().catch(() => ({}));
+                        if (resp.ok) {
+                            this.candidatosPdf = data.candidatos || [];
+                            this.pdfMetodo = data.metodo || null;
+                            this.pdfMonedaDetectada = data.moneda_detectada || null;
+                            this.pdfError = data.error || null;
+                            // Panel comprimido dentro del modal es dificil de trabajar
+                            // (feedback de usuario) -- si hay resultados, se abre de
+                            // una vez el modal secundario con mas espacio.
+                            if (this.candidatosPdf.length > 0) {
+                                this.modalPdfAbierto = true;
+                            }
+                        } else {
+                            this.pdfError = data.detail || 'No se pudo leer el PDF.';
+                        }
+                    } catch (e) {
+                        this.pdfError = 'No se pudo leer el PDF (error de conexión).';
+                    } finally {
+                        this.extrayendoPdf = false;
+                    }
+                },
+
+                limpiarPdf() {
+                    this._limpiarEstadoPdf();
+                },
+
+                // Asigna el precio de un candidato detectado en el PDF al item
+                // elegido en su dropdown (lo selecciona si no lo estaba ya), o al
+                // subtotal simplificado si id_item viene vacio. Dispara el reset
+                // de buffers porque el input del item vive en un x-data separado
+                // (mismo patron que abrirModalEditar) y no veria el cambio si no.
+                usarCandidatoPdf(candidato, id_item) {
+                    if (id_item) {
+                        if (!this.isSelected(id_item)) {
+                            const item = this.itemsDisponibles.find(d => d.id_item === id_item);
+                            if (item) this.toggleItem(item);
+                        }
+                        this.setPrecio(id_item, String(candidato.precio));
+                        candidato.asignado_a = id_item;
+                    } else {
+                        this.subtotalSimplificado = candidato.precio;
+                    }
+                    this.$dispatch('cotizacion-modal-reset');
+                },
+
+                // Items ofrecidos en el dropdown de un candidato: excluye los ya
+                // asignados a OTRO candidato del mismo PDF, para no poder repetir
+                // el mismo item en dos renglones. El propio item de "candidato"
+                // se conserva en la lista para que su seleccion actual siga visible.
+                itemsParaCandidato(candidato) {
+                    const asignadosAOtros = new Set(
+                        this.candidatosPdf
+                            .filter(c => c !== candidato && c.asignado_a)
+                            .map(c => c.asignado_a)
+                    );
+                    return this.itemsDisponibles.filter(item => !asignadosAOtros.has(item.id_item));
+                },
+
+                // Sube el PDF ya adjunto en el modal a la cotizacion recien guardada
+                // (mismo endpoint que "Subir PDF" en la tarjeta). Se ejecuta despues
+                // de cerrar el modal -- si falla, la cotizacion ya quedo guardada,
+                // solo se avisa que falta subir el PDF a mano.
+                async _subirPdfPendiente(cotizacionId, lockVersion) {
+                    try {
+                        const formData = new FormData();
+                        formData.append('archivo', this.pdfPendiente);
+                        formData.append('lock_version', lockVersion);
+                        const resp = await fetch(`/bom/cotizaciones/${cotizacionId}/pdf`, {
+                            method: 'POST',
+                            body: formData,
+                        });
+                        if (!resp.ok) throw new Error('upload failed');
+                        const html = await resp.text();
+                        swapTabCotizaciones(html);
+                    } catch (e) {
+                        showToast({ title: 'Cotización guardada', message: 'No se pudo subir el PDF automáticamente. Usa "Subir PDF" en la tarjeta.' });
+                    }
+                },
+
                 async guardar() {
                     if (!(this.proveedorSeleccionado.nombre || this.busquedaProveedor).trim()) {
                         this.errorMsg = 'Indica el proveedor que cotizó.';
@@ -574,9 +700,20 @@
                             const err = await resp.json().catch(() => ({}));
                             throw new Error(err.detail || (this.editandoCotizacionId ? 'Error al editar cotización' : 'Error al crear cotización'));
                         }
+                        // fetch() no procesa HX-Trigger como htmx (eso solo pasa en
+                        // requests hechos por htmx mismo) -- se parsea a mano, mismo
+                        // formato JSON que ya usa core/workflow/router.py.
+                        let cotGuardada = null;
+                        try {
+                            const trigger = JSON.parse(resp.headers.get('HX-Trigger') || '{}');
+                            cotGuardada = trigger['cotizacion-guardada'] || null;
+                        } catch (e) { /* sin trigger valido -- no se encadena la subida del PDF */ }
                         const html = await resp.text();
                         swapTabCotizaciones(html);
                         this.cerrarModal();
+                        if (this.pdfPendiente && cotGuardada) {
+                            this._subirPdfPendiente(cotGuardada.id, cotGuardada.lock_version);
+                        }
                     } catch(e) {
                         this.errorMsg = e.message;
                     } finally {
