@@ -1,5 +1,26 @@
 <div class="space-y-4">
 
+  {% macro empleado_link(a) %}
+  {% if a.tipo_slug == 'compensatorio' %}
+  <span class="text-sm font-semibold text-gray-800 truncate">{{ a.empleado_nombre }}</span>
+  {% else %}
+  <a href="/vacaciones/solicitudes/{{ a.id }}/abrir"
+     class="text-sm font-semibold text-gray-800 hover:text-[#00BABB] truncate transition-colors">{{ a.empleado_nombre }}</a>
+  {% endif %}
+  {% endmacro %}
+
+  {% macro detalle_fecha(a, modo) %}
+  {% if a.tipo_slug == 'compensatorio' %}
+  Fecha de permiso: {{ a.fecha_inicio.strftime('%d/%m/%Y') }}
+  {% elif modo == 'regresa' %}
+  {{ a.fecha_inicio.strftime('%d/%m') }} — {{ a.fecha_fin.strftime('%d/%m/%Y') }}
+  · regresa {{ a.fecha_presentarse.strftime('%d/%m/%Y') }}
+  {% else %}
+  {{ a.fecha_inicio.strftime('%d/%m') }} — {{ a.fecha_fin.strftime('%d/%m/%Y') }}
+  · {{ a.dias_solicitados }} día{{ 's' if a.dias_solicitados != 1 else '' }}
+  {% endif %}
+  {% endmacro %}
+
   <!-- Barra de filtros -->
   <div class="flex flex-wrap items-center gap-2">
 
@@ -103,6 +124,7 @@
     'permiso_sin_goce':      'bg-purple-100 text-purple-700',
     'permiso_llegar_tarde':  'bg-amber-100 text-amber-700',
     'permiso_salir_temprano':'bg-amber-100 text-amber-700',
+    'compensatorio':         'bg-indigo-100 text-indigo-700',
   } %}
 
   {% if not ausencias_hoy and not ausencias_proximas %}
@@ -121,31 +143,33 @@
 
       <!-- Actualmente ausentes -->
       <div class="p-5">
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center justify-between mb-1">
           <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Actualmente ausentes</h4>
           <span class="text-xs font-bold text-[#00BABB]">{{ ausencias_hoy | length }}</span>
         </div>
+        <p class="text-xs text-gray-400 mb-2">
+          {% if fecha_inicio == fecha_fin %}{{ fecha_inicio.strftime('%d/%m/%Y') }}
+          {% else %}{{ fecha_inicio.strftime('%d/%m') }} — {{ fecha_fin.strftime('%d/%m/%Y') }}{% endif %}
+        </p>
         {% if ausencias_hoy %}
         <div class="space-y-2">
           {% for a in ausencias_hoy %}
           <div class="rounded-xl border border-[#00BABB]/20 bg-[#00BABB]/5 px-3 py-2">
             <div class="flex items-center gap-2">
-              <a href="/vacaciones/solicitudes/{{ a.id }}/abrir"
-                 class="text-sm font-semibold text-gray-800 hover:text-[#00BABB] truncate transition-colors">{{ a.empleado_nombre }}</a>
+              {{ empleado_link(a) }}
               <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 {{ badge_colors.get(a.tipo_slug, 'bg-gray-100 text-gray-600') }}"
                     title="{{ a.tipo_nombre }}">
                 {{ a.tipo_nombre }}
               </span>
             </div>
             <p class="text-xs text-gray-500 mt-0.5">
-              {{ a.fecha_inicio.strftime('%d/%m') }} — {{ a.fecha_fin.strftime('%d/%m/%Y') }}
-              · regresa {{ a.fecha_presentarse.strftime('%d/%m/%Y') }}
+              {{ detalle_fecha(a, 'regresa') }}
             </p>
           </div>
           {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-400">Nadie está ausente hoy.</p>
+        <p class="text-sm text-gray-400">Nadie está ausente en este periodo.</p>
         {% endif %}
       </div>
 
@@ -160,15 +184,13 @@
           {% for a in ausencias_proximas %}
           <div class="rounded-xl border border-gray-100 px-3 py-2">
             <div class="flex items-center gap-2">
-              <a href="/vacaciones/solicitudes/{{ a.id }}/abrir"
-                 class="text-sm font-semibold text-gray-800 hover:text-[#00BABB] truncate transition-colors">{{ a.empleado_nombre }}</a>
+              {{ empleado_link(a) }}
               <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 {{ badge_colors.get(a.tipo_slug, 'bg-gray-100 text-gray-600') }}">
                 {{ a.tipo_nombre }}
               </span>
             </div>
             <p class="text-xs text-gray-500 mt-0.5">
-              {{ a.fecha_inicio.strftime('%d/%m') }} — {{ a.fecha_fin.strftime('%d/%m/%Y') }}
-              · {{ a.dias_solicitados }} día{{ 's' if a.dias_solicitados != 1 else '' }}
+              {{ detalle_fecha(a, 'dias') }}
             </p>
           </div>
           {% endfor %}

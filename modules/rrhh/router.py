@@ -27,6 +27,7 @@ from modules.rrhh.excel_utils import autofit_columns, format_date, format_dateti
 from modules.shared.utils import excel_response, format_minutes, is_htmx, toast_error
 from modules.vacaciones import db_service as vac_db
 from modules.vacaciones import service as vac_service
+from modules.vacaciones.constants import TIPO_COMPENSATORIO
 from core.timezone import today_mx
 
 logger = logging.getLogger("rrhh.router")
@@ -291,13 +292,20 @@ async def ausencias_panel(
 ):
     hoy = today_mx()
     fi = fecha_inicio or hoy
-    ff = fecha_fin or (hoy + timedelta(days=90))
+    ff = fecha_fin or hoy
     if ff < fi:
         ff = fi
-    ausencias = await vac_db.get_ausencias_activas(conn, fi, ff, tipo_slug=tipo or None)
+    tipo_slug = tipo or None
+    ausencias_hoy = await vac_db.get_ausencias_activas(conn, fi, ff, tipo_slug=tipo_slug)
+    # Arranca justo despues del rango filtrado (no en hoy+1 fijo) para que nunca se
+    # traslape con ausencias_hoy y una misma ausencia no aparezca en las dos columnas.
+    proximas_inicio = max(ff, hoy) + timedelta(days=1)
+    proximas_fin = proximas_inicio + timedelta(days=89)
+    ausencias_proximas = await vac_db.get_ausencias_activas(
+        conn, proximas_inicio, proximas_fin, tipo_slug=tipo_slug
+    )
     tipos = await vac_db.get_tipos_ausencia(conn)
-    ausencias_hoy = [a for a in ausencias if a["fecha_inicio"] <= hoy <= a["fecha_fin"]]
-    ausencias_proximas = [a for a in ausencias if a["fecha_inicio"] > hoy]
+    tipos.append(TIPO_COMPENSATORIO)
     return templates.TemplateResponse(
         request, "rrhh/partials/ausencias.html",
         {

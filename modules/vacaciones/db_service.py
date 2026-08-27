@@ -6,6 +6,7 @@ from typing import Optional
 from uuid import UUID
 
 from core.timezone import today_mx
+from modules.vacaciones.constants import TIPO_COMPENSATORIO
 
 
 # ─────────────────────────────────────────────
@@ -1006,22 +1007,42 @@ async def get_ausencias_activas(
 ) -> list[dict]:
     rows = await conn.fetch(
         """
-        SELECT sa.id, sa.fecha_inicio, sa.fecha_fin, sa.fecha_presentarse,
-               sa.dias_solicitados,
-               u.nombre AS empleado_nombre, u.email AS empleado_email,
-               ta.nombre AS tipo_nombre, ta.abreviatura AS tipo_abreviatura,
-               ta.slug AS tipo_slug
-        FROM tb_solicitudes_ausencia sa
-        JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
-        JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
-        WHERE sa.estado = 'aprobado'
-          AND COALESCE(sa.es_migracion, false) = false
-          AND sa.fecha_inicio <= $2
-          AND sa.fecha_fin   >= $1
-          AND ($3::text IS NULL OR ta.slug = $3)
-        ORDER BY ta.orden, u.nombre
+        WITH datos AS (
+            SELECT sa.id, sa.fecha_inicio, sa.fecha_fin, sa.fecha_presentarse,
+                   sa.dias_solicitados,
+                   u.nombre AS empleado_nombre, u.email AS empleado_email,
+                   ta.nombre AS tipo_nombre, ta.abreviatura AS tipo_abreviatura,
+                   ta.slug AS tipo_slug, ta.orden AS tipo_orden
+            FROM tb_solicitudes_ausencia sa
+            JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
+            JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
+            WHERE sa.estado = 'aprobado'
+              AND COALESCE(sa.es_migracion, false) = false
+              AND sa.fecha_inicio <= $2
+              AND sa.fecha_fin   >= $1
+              AND ($3::text IS NULL OR ta.slug = $3)
+
+            UNION ALL
+
+            SELECT hc.id, hc.fecha_descanso AS fecha_inicio, hc.fecha_descanso AS fecha_fin,
+                   NULL::date AS fecha_presentarse,
+                   1 AS dias_solicitados,
+                   u.nombre AS empleado_nombre, u.email AS empleado_email,
+                   $4::text AS tipo_nombre, $5::text AS tipo_abreviatura,
+                   $6::text AS tipo_slug, 99 AS tipo_orden
+            FROM tb_he_solicitudes_compensatorio hc
+            JOIN tb_usuarios u ON u.id_usuario = hc.usuario_id
+            WHERE hc.estatus = 'aprobado'
+              AND hc.fecha_descanso BETWEEN $1 AND $2
+              AND ($3::text IS NULL OR $3 = $6::text)
+        )
+        SELECT id, fecha_inicio, fecha_fin, fecha_presentarse, dias_solicitados,
+               empleado_nombre, empleado_email, tipo_nombre, tipo_abreviatura, tipo_slug
+        FROM datos
+        ORDER BY tipo_orden, empleado_nombre
         """,
         fecha_inicio, fecha_fin, tipo_slug,
+        TIPO_COMPENSATORIO["nombre"], TIPO_COMPENSATORIO["abreviatura"], TIPO_COMPENSATORIO["slug"],
     )
     return [dict(r) for r in rows]
 
