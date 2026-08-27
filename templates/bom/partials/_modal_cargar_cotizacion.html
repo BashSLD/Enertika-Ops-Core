@@ -1,6 +1,6 @@
 {# Modal Cargar/Pasar a Cotizacion — compartido entre cotizaciones.html (tab)
    y modal_cotizacion_rfq.html (standalone, abierto desde una tarjeta RFQ) #}
-{% from "bom/partials/_macros.html" import icono_caja %}
+{% from "bom/partials/_macros.html" import icono_caja, icono_lapiz %}
 <div x-show="modalAbierto" x-cloak
     class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm modal-overlay-layer"
     @keydown.escape.window="cerrarModal()">
@@ -25,77 +25,87 @@
             </button>
         </div>
 
-        {# Body modal — scrollable #}
-        <div class="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-
-            <p class="text-xs text-gray-500">Captura los ítems y el costo que te compartió el proveedor.</p>
+        {# Body modal — cabecera fija + lista de ítems flexible #}
+        <div class="flex-1 min-h-0 flex flex-col px-5 py-4 gap-2">
 
             <div x-show="rfqIdActivo" x-cloak
-                class="flex items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-700">
+                class="flex items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-700 shrink-0">
                 <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                 </svg>
                 <span>Respondiendo al RFQ: <span class="font-semibold" x-text="rfqNombreActivo"></span></span>
             </div>
 
-            {# Proveedor #}
-            <div>
-                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Proveedor *</label>
-                <div class="relative">
+            {# Proveedor — se colapsa a chip en cuanto hay uno elegido #}
+            <div class="shrink-0">
+                <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wide mb-0.5">Proveedor *</label>
+                <div class="relative" x-show="!proveedorSeleccionado.nombre">
                     <input type="text" x-model="busquedaProveedor"
                         @input.debounce.400ms="buscarProveedores()"
                         @focus="mostrarResultadosProveedor = true"
                         @click.outside="mostrarResultadosProveedor = false"
                         placeholder="Buscar proveedor..."
                         autocomplete="off"
-                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
                     <div id="resultados-proveedores-bom"
                         class="absolute z-20 w-full mt-1"
                         x-show="mostrarResultadosProveedor && busquedaProveedor.length >= 2">
                     </div>
                 </div>
-                <div x-show="proveedorSeleccionado.nombre"
-                    class="mt-2 flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg">
+                <div x-show="proveedorSeleccionado.nombre" x-cloak
+                    class="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg">
                     <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                     </svg>
-                    <span class="text-sm text-emerald-800 font-medium" x-text="proveedorSeleccionado.nombre"></span>
-                    <button type="button" @click="limpiarProveedor()" class="ml-auto text-emerald-400 hover:text-emerald-600">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
+                    <span class="text-sm text-emerald-800 font-medium truncate" x-text="proveedorSeleccionado.nombre"></span>
+                    <button type="button" @click="limpiarProveedor()" class="ml-auto text-emerald-400 hover:text-emerald-600 shrink-0" aria-label="Cambiar proveedor">
+                        {{ icono_lapiz('w-4 h-4') }}
                     </button>
                 </div>
             </div>
 
-            {# Folio del proveedor #}
-            <div>
-                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Folio de proveedor</label>
-                <input type="text" x-model="folioProveedor"
-                    placeholder="Folio o referencia que el proveedor asignó a su cotización"
-                    class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
-                <p class="text-[11px] text-gray-400 mt-1">Sirve para conciliar después contra la factura del proveedor.</p>
-            </div>
-
-            {# Moneda + IVA #}
-            <div class="grid grid-cols-2 gap-3">
+            {# Folio + Moneda + IVA en una sola fila — folio se colapsa a texto al perder foco.
+               editandoFolio vive en cotizacionesBom() y se resetea en _resetModal() (base.html)
+               cada vez que el modal se abre, ya que a diferencia de collapsibleField este modal
+               es x-show (nunca se destruye/recrea) y no reinicia estado local por si solo. #}
+            <div class="grid grid-cols-3 gap-3 shrink-0">
                 <div>
-                    <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Moneda</label>
-                    <select x-model="moneda" class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500">
-                        <option value="MXN">MXN — Peso Mexicano</option>
+                    <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wide mb-0.5">Folio de proveedor</label>
+                    <template x-if="editandoFolio">
+                        <input type="text" x-model="folioProveedor"
+                            @blur="if (folioProveedor) editandoFolio = false"
+                            @keydown.enter.prevent="if (folioProveedor) editandoFolio = false"
+                            placeholder="Folio del proveedor"
+                            title="Sirve para conciliar después contra la factura del proveedor."
+                            class="w-full text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+                    </template>
+                    <template x-if="!editandoFolio">
+                        <div class="flex items-center justify-between gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg bg-gray-50"
+                            title="Sirve para conciliar después contra la factura del proveedor.">
+                            <span class="text-sm text-gray-700 truncate" x-text="folioProveedor"></span>
+                            <button type="button" @click="editandoFolio = true" class="text-gray-400 hover:text-emerald-600 shrink-0" aria-label="Editar folio">
+                                {{ icono_lapiz('w-3.5 h-3.5') }}
+                            </button>
+                        </div>
+                    </template>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wide mb-0.5">Moneda</label>
+                    <select x-model="moneda" class="w-full text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-emerald-500">
+                        <option value="MXN">MXN — Peso</option>
                         <option value="USD">USD — Dólar</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">IVA %</label>
+                    <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wide mb-0.5">IVA %</label>
                     <input type="number" x-model.number="ivaPct" min="0" max="100" step="0.01"
-                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500">
+                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-emerald-500">
                 </div>
             </div>
 
-            {# Ítems #}
-            <div>
-                <div class="flex items-center justify-between mb-2">
+            {# Ítems — ocupa el espacio restante #}
+            <div class="flex-1 min-h-0 flex flex-col">
+                <div class="flex items-center justify-between mb-1.5 shrink-0">
                     <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide">
                         Ítems a cotizar
                         <span class="text-gray-400 font-normal normal-case ml-1">(<span x-text="itemsSeleccionados.length"></span> seleccionados)</span>
@@ -109,80 +119,112 @@
                 <template x-if="itemsDisponibles.length === 0">
                     <p class="text-sm text-gray-400 italic text-center py-4">Todos los ítems ya están en proceso de cotización o pago.</p>
                 </template>
-                <div class="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                <div x-show="itemsDisponibles.length > 0"
+                    class="flex-1 min-h-[140px] overflow-y-auto border border-gray-200 rounded-lg">
+                    <div class="grid grid-cols-[1.75rem_1fr_5rem_7rem] gap-x-2 sticky top-0 z-10 bg-gray-50 text-gray-500 uppercase text-[10px] px-2 py-1.5 border-b border-gray-200">
+                        <span></span>
+                        <span>Ítem</span>
+                        <span class="text-right">Cant.</span>
+                        <span class="text-right" x-show="!modoSimplificado">Precio unit.</span>
+                    </div>
                     <template x-for="item in itemsDisponibles" :key="item.id_item">
-                        <div class="flex items-center gap-3 px-3 py-2.5 rounded-lg border"
-                            :class="isSelected(item.id_item) ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-gray-200'">
+                        <div class="grid grid-cols-[1.75rem_1fr_5rem_7rem] gap-x-2 items-center px-2 py-2 border-b border-gray-100 last:border-b-0"
+                            :class="isSelected(item.id_item) ? 'bg-emerald-50' : 'bg-white'"
+                            x-data="{ buffer: '' }"
+                            x-init="buffer = formatMoneda(getPrecio(item.id_item))"
+                            @cotizacion-modal-reset.window="buffer = formatMoneda(getPrecio(item.id_item))">
                             <input type="checkbox"
                                 :checked="isSelected(item.id_item)"
-                                @change="toggleItem(item)"
-                                class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 shrink-0">
-                            <div class="flex-1 min-w-0">
-                                <div class="text-sm font-medium text-gray-800 truncate" x-text="item.descripcion"></div>
-                                <div class="text-xs text-gray-400">
-                                    <span x-text="item.categoria_nombre || '—'"></span>
-                                    &bull;
-                                    Cant: <span x-text="item.cantidad"></span>
-                                    <span x-text="item.unidad_medida || ''"></span>
-                                </div>
+                                @change="toggleItem(item); buffer = formatMoneda(getPrecio(item.id_item))"
+                                class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
+                            <div class="min-w-0">
+                                <div class="text-xs font-medium text-gray-800 truncate" :title="item.descripcion" x-text="item.descripcion"></div>
+                                <div class="text-[10px] text-gray-400 truncate" x-text="item.categoria_nombre || '—'"></div>
                             </div>
-                            <div x-show="isSelected(item.id_item) && !modoSimplificado" class="shrink-0">
-                                <input type="number"
-                                    :value="getPrecio(item.id_item)"
-                                    @input="setPrecio(item.id_item, $event.target.value)"
-                                    min="0" step="0.01"
-                                    placeholder="Precio unit."
-                                    class="w-28 text-sm border border-emerald-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-emerald-500 text-right">
+                            <div class="text-xs text-gray-500 text-right whitespace-nowrap">
+                                <span x-text="item.cantidad"></span> <span x-text="item.unidad_medida || ''"></span>
+                            </div>
+                            <div class="text-right">
+                                <input x-show="isSelected(item.id_item) && !modoSimplificado" type="text" inputmode="decimal"
+                                    x-model="buffer"
+                                    @input="setPrecio(item.id_item, buffer)"
+                                    @focus="buffer = String(getPrecio(item.id_item) || '')"
+                                    @blur="buffer = formatMoneda(getPrecio(item.id_item))"
+                                    placeholder="0.00"
+                                    class="w-full text-xs border border-emerald-300 rounded px-2 py-1 focus:ring-2 focus:ring-emerald-500 text-right">
                             </div>
                         </div>
                     </template>
                 </div>
-                <div x-show="modoSimplificado" x-cloak class="mt-2">
+                <div x-show="modoSimplificado" x-cloak class="mt-2 shrink-0" x-data="{ buffer: '' }"
+                    x-init="buffer = formatMoneda(subtotalSimplificado)"
+                    @cotizacion-modal-reset.window="buffer = formatMoneda(subtotalSimplificado)">
                     <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Subtotal total cotizado</label>
-                    <input type="number" x-model.number="subtotalSimplificado" min="0" step="0.01"
+                    <input type="text" inputmode="decimal" x-model="buffer"
+                        @input="subtotalSimplificado = parseMoneda(buffer) || null"
+                        @focus="buffer = String(subtotalSimplificado || '')"
+                        @blur="buffer = formatMoneda(subtotalSimplificado)"
                         placeholder="Subtotal que dio el proveedor (se reparte entre los ítems)"
                         class="w-full text-sm border border-emerald-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500">
                 </div>
             </div>
 
-            {# Resumen totales #}
-            <div x-show="itemsSeleccionados.length > 0"
-                class="bg-emerald-50 rounded-lg px-4 py-3 space-y-1 border border-emerald-200">
-                <div class="flex justify-between text-sm">
-                    <span class="text-gray-600">Subtotal</span>
-                    <span class="font-semibold" x-text="'$' + subtotal.toLocaleString('es-MX', {minimumFractionDigits: 2})"></span>
-                </div>
-                <div class="flex justify-between text-sm">
-                    <span class="text-gray-600">IVA (<span x-text="ivaPct"></span>%)</span>
-                    <span class="font-semibold" x-text="'$' + iva.toLocaleString('es-MX', {minimumFractionDigits: 2})"></span>
-                </div>
-                <div class="flex justify-between text-sm border-t border-emerald-300 pt-1 mt-1">
-                    <span class="font-bold text-emerald-800">Total</span>
-                    <span class="font-bold text-emerald-800" x-text="'$' + total.toLocaleString('es-MX', {minimumFractionDigits: 2}) + ' ' + moneda"></span>
-                </div>
-            </div>
-
-            {# Notas #}
-            <div>
-                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Notas</label>
-                <textarea x-model="notas" rows="2"
-                    class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 resize-none"
-                    placeholder="Notas opcionales sobre esta cotización..."></textarea>
+            {# Notas — colapsada a boton "+ Agregar notas" cuando esta vacia.
+               editandoNotas vive en cotizacionesBom() y se resetea en _resetModal() (mismo
+               motivo que editandoFolio arriba). #}
+            <div class="shrink-0">
+                <template x-if="editandoNotas">
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wide mb-0.5">Notas</label>
+                        <textarea x-ref="notasInput" x-model="notas" rows="2"
+                            @blur="if (!notas) editandoNotas = false"
+                            class="w-full text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-emerald-500 resize-none"
+                            placeholder="Notas opcionales sobre esta cotización..."></textarea>
+                    </div>
+                </template>
+                <template x-if="!editandoNotas && notas">
+                    <div class="flex items-start justify-between gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg bg-gray-50">
+                        <div class="min-w-0">
+                            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Notas</div>
+                            <span class="text-sm text-gray-700 break-words" x-text="notas"></span>
+                        </div>
+                        <button type="button" @click="editandoNotas = true; $nextTick(() => $refs.notasInput && $refs.notasInput.focus())"
+                            class="text-gray-400 hover:text-emerald-600 shrink-0" aria-label="Editar notas">
+                            {{ icono_lapiz('w-3.5 h-3.5') }}
+                        </button>
+                    </div>
+                </template>
+                <template x-if="!editandoNotas && !notas">
+                    <button type="button" @click="editandoNotas = true; $nextTick(() => $refs.notasInput && $refs.notasInput.focus())"
+                        class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-emerald-600">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                        </svg>
+                        Agregar notas
+                    </button>
+                </template>
             </div>
         </div>
 
-        {# Footer modal #}
-        <div class="flex items-center justify-between gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
-            <p x-show="errorMsg" x-text="errorMsg" class="text-sm text-red-600 font-medium"></p>
-            <div class="flex gap-2 ml-auto">
-                <button type="button" @click="guardar()" :disabled="guardando || itemsSeleccionados.length === 0"
-                    class="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed bg-emerald-600 hover:bg-emerald-700">
-                    <svg class="w-4 h-4" :class="{'animate-spin': guardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                    </svg>
-                    <span x-text="guardando ? 'Guardando...' : (editandoCotizacionId ? 'Guardar Cambios' : 'Capturar Cotización de Proveedor')"></span>
-                </button>
+        {# Footer modal — totales + acción #}
+        <div class="flex items-center justify-between gap-3 px-5 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs min-w-0">
+                <p x-show="errorMsg" x-text="errorMsg" class="text-red-600 font-medium"></p>
+                <template x-if="!errorMsg && itemsSeleccionados.length > 0">
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+                        <span class="text-gray-500">Subtotal <span class="font-semibold text-gray-700" x-text="'$' + subtotal.toLocaleString('es-MX', {minimumFractionDigits: 2})"></span></span>
+                        <span class="text-gray-500">IVA <span class="font-semibold text-gray-700" x-text="'$' + iva.toLocaleString('es-MX', {minimumFractionDigits: 2})"></span></span>
+                        <span class="text-sm font-bold text-emerald-800" x-text="'Total $' + total.toLocaleString('es-MX', {minimumFractionDigits: 2}) + ' ' + moneda"></span>
+                    </div>
+                </template>
             </div>
+            <button type="button" @click="guardar()" :disabled="guardando || itemsSeleccionados.length === 0"
+                class="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed bg-emerald-600 hover:bg-emerald-700 shrink-0">
+                <svg class="w-4 h-4" :class="{'animate-spin': guardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+                <span x-text="guardando ? 'Guardando...' : (editandoCotizacionId ? 'Guardar Cambios' : 'Guardar Captura')"></span>
+            </button>
         </div>
     </div>
 </div>

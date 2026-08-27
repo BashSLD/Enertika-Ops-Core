@@ -357,6 +357,8 @@
                 mostrarResultadosProveedor: false,
                 proveedorSeleccionado: { id: null, nombre: '' },
                 folioProveedor: '',
+                editandoFolio: true,
+                editandoNotas: false,
                 guardando: false,
                 errorMsg: '',
                 rfqIdActivo: null,
@@ -399,12 +401,21 @@
                     this.busquedaProveedor = busquedaProveedor;
                     this.proveedorSeleccionado = proveedorSeleccionado;
                     this.folioProveedor = folioProveedor;
+                    this.editandoFolio = !folioProveedor;
+                    this.editandoNotas = false;
                     this.errorMsg = '';
                     this.rfqIdActivo = rfqId;
                     this.rfqNombreActivo = rfqNombre;
                     this.editandoCotizacionId = editandoCotizacionId;
                     this.editandoLockVersion = editandoLockVersion;
                     this.modalAbierto = true;
+                    // El modal es x-show (nunca se destruye/recrea), asi que las filas de
+                    // itemsDisponibles y su buffer local de precio (patron en
+                    // _modal_cargar_cotizacion.html) tampoco se recrean entre aperturas.
+                    // Este evento les avisa que resincronicen su buffer contra precios/
+                    // subtotalSimplificado ya actuales -- necesario aqui (limpia a vacio)
+                    // y de nuevo al final de abrirModalEditar (rellena con los valores reales).
+                    this.$dispatch('cotizacion-modal-reset');
                 },
 
                 abrirModal(rfqId = null, rfqNombre = '') {
@@ -429,6 +440,7 @@
                         this.itemsSeleccionados.push(disponible ? { ...disponible } : { ...it });
                         this.precios[it.id_item] = it.precio_unitario || 0;
                     });
+                    this.$dispatch('cotizacion-modal-reset');
                 },
 
                 // El modal normal vive dentro de #tab-cotizaciones-content (persiste,
@@ -462,8 +474,21 @@
                     return this.precios[id_item] || 0;
                 },
 
+                // Par de helpers para inputs de dinero con separador de miles:
+                // parseMoneda ignora comas al convertir a numero, formatMoneda
+                // muestra el numero con comas (usado en el patron buffer de
+                // _modal_cargar_cotizacion.html: texto libre mientras se edita,
+                // formateado al perder el foco).
+                parseMoneda(val) {
+                    return parseFloat(String(val).replace(/,/g, '')) || 0;
+                },
+
+                formatMoneda(val) {
+                    return val > 0 ? val.toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '';
+                },
+
                 setPrecio(id_item, val) {
-                    this.precios[id_item] = parseFloat(val) || 0;
+                    this.precios[id_item] = this.parseMoneda(val);
                 },
 
                 get subtotal() {

@@ -4,6 +4,12 @@
 </svg>
 {% endmacro %}
 
+{% macro icono_lapiz(css_class='w-4 h-4') %}
+<svg class="{{ css_class }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+</svg>
+{% endmacro %}
+
 {% macro form_campo_editable_rfq(rfq_id, alpine_var, endpoint, lock_version, campo, valor, placeholder, css_width='w-40', required=false) %}
 <form x-show="{{ alpine_var }}" x-cloak @click.stop
     hx-post="/bom/rfq/{{ rfq_id }}/{{ endpoint }}" hx-target="#comparativa-container" hx-swap="outerHTML"
