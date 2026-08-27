@@ -16,7 +16,7 @@
         <span class="px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 text-xs font-medium">{{ row.estado_label }}</span>
       {% elif estado in ('falta', 'sin_registro', 'incompleto') %}
         <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-medium">{{ row.estado_label }}</span>
-      {% elif estado in ('vacaciones', 'checada_en_vacaciones', 'ausencia', 'checada_en_ausencia') %}
+      {% elif estado in ('vacaciones', 'checada_en_vacaciones', 'ausencia', 'checada_en_ausencia', 'checada_en_compensatorio') %}
         <span class="px-2 py-0.5 rounded-full bg-[#00BABB]/15 text-[#007C7D] text-xs font-medium">{{ row.estado_label }}</span>
       {% elif estado in ('descanso', 'feriado') %}
         <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">{{ row.estado_label }}</span>

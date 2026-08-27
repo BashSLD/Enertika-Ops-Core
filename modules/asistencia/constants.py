@@ -13,6 +13,7 @@ ASISTENCIA_ESTADOS = {
     "he_compensatorio",
     "checada_en_vacaciones",
     "checada_en_ausencia",
+    "checada_en_compensatorio",
     "sin_horario",
 }
 
@@ -50,6 +51,7 @@ ASISTENCIA_ESTADO_LABELS = {
     "he_compensatorio": "Horas extra tomadas",
     "checada_en_vacaciones": "Checada en vacaciones",
     "checada_en_ausencia": "Checada en ausencia",
+    "checada_en_compensatorio": "Checada en compensatorio",
     "sin_horario": "Sin horario",
 }
 
@@ -63,6 +65,7 @@ ASISTENCIA_ESTADO_COLORES: dict[str, str] = {
     "checada_en_vacaciones": "#5eead4",
     "ausencia": "#7dd3fc",
     "checada_en_ausencia": "#bae6fd",
+    "checada_en_compensatorio": "#a5b4fc",
     "descanso": "#d1d5db",
     "feriado": "#e5e7eb",
     "he_compensatorio": "#c7d2fe",
@@ -73,6 +76,7 @@ ASISTENCIA_ESTADOS_SIN_HUECO_MANUAL = {
     "asistencia",
     "checada_en_vacaciones",
     "checada_en_ausencia",
+    "checada_en_compensatorio",
     "en_curso",
     "vacaciones",
     "ausencia",

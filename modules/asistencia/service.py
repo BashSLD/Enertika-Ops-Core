@@ -754,12 +754,23 @@ async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[
         compensatorio = comp_by_user_date.get((usuario_id, fecha_laboral))
         minutos_compensatorio_aprobado = int(compensatorio["minutos_solicitados"]) if compensatorio else 0
         minutos_compensatorio = 0
-        if minutos_compensatorio_aprobado > 0 and not checks_dia:
-            minutos_compensatorio = minutos_compensatorio_aprobado
+        # Igual que tiene_ausencia_justificada en calcular_resumen_dia: vacaciones/ausencia
+        # tienen prioridad sobre compensatorio si coincidieran el mismo dia (en la practica
+        # crear_solicitud/solicitar_compensatorio_svc ya bloquean esa combinacion al crear
+        # cada solicitud, pero esto evita que una correccion manual de datos la pise en silencio).
+        if minutos_compensatorio_aprobado > 0 and not (tiene_vacaciones or tiene_ausencia_justificada):
             observaciones = [resumen.get("observaciones")] if resumen.get("observaciones") else []
-            observaciones.append("Horas extra tomadas")
-            resumen["estado"] = "he_compensatorio"
-            resumen["minutos_extra"] = 0
+            if not checks_dia:
+                minutos_compensatorio = minutos_compensatorio_aprobado
+                observaciones.append("Horas extra tomadas")
+                resumen["estado"] = "he_compensatorio"
+                resumen["minutos_extra"] = 0
+            else:
+                # A diferencia de una ausencia normal, si de todos modos checo ese dia se
+                # preservan las horas reales trabajadas (test_recalcular_asistencia_preserva_
+                # horas_reales_pese_a_compensatorio) -- solo se hace visible el permiso.
+                observaciones.append("Tiene tiempo compensatorio aprobado y tambien registro checadas")
+                resumen["estado"] = "checada_en_compensatorio"
             resumen["observaciones"] = "; ".join(observaciones)
 
         horas_extra_estado = "pendiente"

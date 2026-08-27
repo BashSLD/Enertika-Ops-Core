@@ -297,13 +297,18 @@ async def ausencias_panel(
         ff = fi
     tipo_slug = tipo or None
     ausencias_hoy = await vac_db.get_ausencias_activas(conn, fi, ff, tipo_slug=tipo_slug)
-    # Arranca justo despues del rango filtrado (no en hoy+1 fijo) para que nunca se
-    # traslape con ausencias_hoy y una misma ausencia no aparezca en las dos columnas.
+    # Ventana amplia para "proximas": arranca justo despues del rango filtrado. No basta con
+    # que la ventana de consulta no se traslape con [fi, ff] -- get_ausencias_activas hace un
+    # OVERLAPS contra fecha_inicio/fecha_fin de la solicitud completa, asi que una ausencia
+    # larga que ya empezo dentro de [fi, ff] pero termina despues tambien matchea esta segunda
+    # ventana. Se filtra en Python por fecha_inicio > ff para quedarnos solo con las que aun no
+    # empiezan -- las que ya estan en curso solo deben aparecer en "Actualmente ausentes".
     proximas_inicio = max(ff, hoy) + timedelta(days=1)
     proximas_fin = proximas_inicio + timedelta(days=89)
     ausencias_proximas = await vac_db.get_ausencias_activas(
         conn, proximas_inicio, proximas_fin, tipo_slug=tipo_slug
     )
+    ausencias_proximas = [a for a in ausencias_proximas if a["fecha_inicio"] > ff]
     tipos = await vac_db.get_tipos_ausencia(conn)
     tipos.append(TIPO_COMPENSATORIO)
     return templates.TemplateResponse(
