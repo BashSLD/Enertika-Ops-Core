@@ -356,6 +356,7 @@
                 busquedaProveedor: '',
                 mostrarResultadosProveedor: false,
                 proveedorSeleccionado: { id: null, nombre: '' },
+                folioProveedor: '',
                 guardando: false,
                 errorMsg: '',
                 rfqIdActivo: null,
@@ -384,6 +385,7 @@
                 _resetModal({
                     moneda = 'MXN', ivaPct = 16, busquedaProveedor = '',
                     proveedorSeleccionado = { id: null, nombre: '' },
+                    folioProveedor = '',
                     rfqId = null, rfqNombre = '',
                     editandoCotizacionId = null, editandoLockVersion = null,
                 } = {}) {
@@ -396,6 +398,7 @@
                     this.ivaPct = ivaPct;
                     this.busquedaProveedor = busquedaProveedor;
                     this.proveedorSeleccionado = proveedorSeleccionado;
+                    this.folioProveedor = folioProveedor;
                     this.errorMsg = '';
                     this.rfqIdActivo = rfqId;
                     this.rfqNombreActivo = rfqNombre;
@@ -414,6 +417,7 @@
                         ivaPct: cot.iva_pct || 16,
                         busquedaProveedor: cot.nombre_proveedor || '',
                         proveedorSeleccionado: { id: cot.proveedor_id || null, nombre: cot.nombre_proveedor || '' },
+                        folioProveedor: cot.folio_proveedor || '',
                         editandoCotizacionId: cot.id,
                         editandoLockVersion: cot.lock_version,
                     });
@@ -514,6 +518,7 @@
                         const body = {
                             proveedor_id: this.proveedorSeleccionado.id || null,
                             nombre_proveedor: this.proveedorSeleccionado.nombre || this.busquedaProveedor || null,
+                            folio_proveedor: this.folioProveedor || null,
                             moneda: this.moneda,
                             iva_pct: this.ivaPct,
                             notas: this.notas || null,

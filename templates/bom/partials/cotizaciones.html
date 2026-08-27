@@ -42,7 +42,7 @@
             title="Registrar la cotización que envió un proveedor"
             class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition shadow-sm">
             {{ icono_caja('w-4 h-4', '2') }}
-            Cargar Cotización
+            Capturar Cotización de Proveedor
         </button>
         </div>
         {% endif %}
@@ -96,6 +96,9 @@
                     <div class="flex items-center gap-3 mt-1 text-xs text-gray-400">
                         <span>{{ cot.total_items_cotizacion }} ítem{{ 's' if cot.total_items_cotizacion != 1 else '' }}</span>
                         <span>Por: {{ cot.creado_por_nombre or '—' }}</span>
+                        {% if cot.folio_proveedor %}
+                        <span>Folio: <span class="text-gray-600 font-medium">{{ cot.folio_proveedor }}</span></span>
+                        {% endif %}
                         {% if cot.notas %}
                         <span class="italic truncate max-w-xs" title="{{ cot.notas }}">{{ cot.notas[:60] }}{% if cot.notas|length > 60 %}...{% endif %}</span>
                         {% endif %}
@@ -174,6 +177,7 @@
                         'lock_version': cot.lock_version,
                         'proveedor_id': cot.proveedor_id | string if cot.proveedor_id else none,
                         'nombre_proveedor': cot.nombre_proveedor,
+                        'folio_proveedor': cot.folio_proveedor,
                         'moneda': cot.moneda,
                         'iva_pct': cot.iva_pct,
                         'notas': cot.notas,

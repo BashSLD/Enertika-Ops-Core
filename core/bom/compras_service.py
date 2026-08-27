@@ -329,6 +329,7 @@ class BomComprasServiceMixin:
         subtotal_externo: Optional[float] = None,
         bom_lock_version_esperado: Optional[int] = None,
         rfq_id: Optional[UUID] = None,
+        folio_proveedor: Optional[str] = None,
     ) -> dict:
         """
         Crea una cotización con sus ítems.
@@ -373,6 +374,7 @@ class BomComprasServiceMixin:
                 subtotal, iva, total, notas, creado_por,
                 rfq_id=rfq_id,
                 modo_simplificado=subtotal_externo is not None,
+                folio_proveedor=folio_proveedor,
             )
             await self.db.agregar_items_cotizacion(
                 conn, cotizacion['id'], id_bom, items_insert
@@ -391,6 +393,7 @@ class BomComprasServiceMixin:
         editado_por: UUID,
         subtotal_externo: Optional[float] = None,
         lock_version_esperado: Optional[int] = None,
+        folio_proveedor: Optional[str] = None,
     ) -> dict:
         """Edita una cotización existente (proveedor, moneda, items, notas).
 
@@ -433,6 +436,7 @@ class BomComprasServiceMixin:
                 conn, cotizacion_id, proveedor_id, nombre_proveedor, moneda,
                 subtotal, iva, total, notas, lock_version_esperado,
                 modo_simplificado=subtotal_externo is not None,
+                folio_proveedor=folio_proveedor,
             )
             if not actualizado:
                 raise ValueError("La cotizacion cambio; recarga la pestaña")
@@ -1758,49 +1762,25 @@ class BomComprasServiceMixin:
         )
         return {**rfq, "total_items": len(items_insert)}
 
-    async def _actualizar_campo_rfq_con_lock(
-        self, conn, rfq_id: UUID, lock_version_esperado: Optional[int], actualizar,
-    ) -> dict:
-        """Boilerplate compartido de optimistic locking para editar un campo
-        suelto del RFQ: valida que exista y traiga lock_version, delega el
-        UPDATE a `actualizar(rfq)`, y traduce un update sin filas (version
-        desincronizada) al mismo mensaje de error en todos los campos."""
-        rfq = await self.db.get_rfq_by_id(conn, rfq_id)
-        if not rfq:
-            raise ValueError("RFQ no encontrado")
-        if lock_version_esperado is None:
-            raise ValueError("El RFQ cambio; recarga la pestaña")
-        actualizado = await actualizar(rfq)
-        if not actualizado:
-            raise ValueError("El RFQ cambio; recarga la pestaña")
-        return actualizado
-
     async def renombrar_rfq(
         self, conn, rfq_id: UUID, nombre: str, lock_version_esperado: Optional[int] = None,
     ) -> dict:
         if not nombre or not nombre.strip():
             raise ValueError("El nombre no puede estar vacío")
+        if not await self.db.get_rfq_by_id(conn, rfq_id):
+            raise ValueError("RFQ no encontrado")
+        if lock_version_esperado is None:
+            raise ValueError("El RFQ cambio; recarga la pestaña")
 
-        async def _actualizar(rfq):
-            actualizado = await self.db.renombrar_rfq(conn, rfq_id, nombre.strip(), lock_version_esperado)
-            if not actualizado and await self.db.rfq_tiene_pago_asignado(conn, rfq_id):
+        actualizado = await self.db.renombrar_rfq(conn, rfq_id, nombre.strip(), lock_version_esperado)
+        if not actualizado:
+            if await self.db.rfq_tiene_pago_asignado(conn, rfq_id):
                 raise ValueError(
                     "Este RFQ ya tiene un pago asignado y los pagos se concilian por su "
                     "nombre; ya no puede renombrarse"
                 )
-            return actualizado
-
-        return await self._actualizar_campo_rfq_con_lock(conn, rfq_id, lock_version_esperado, _actualizar)
-
-    async def actualizar_folio_rfq(
-        self, conn, rfq_id: UUID, folio_proveedor: Optional[str], lock_version_esperado: Optional[int] = None,
-    ) -> dict:
-        folio_limpio = folio_proveedor.strip() if folio_proveedor else None
-
-        async def _actualizar(rfq):
-            return await self.db.actualizar_folio_rfq(conn, rfq_id, folio_limpio, lock_version_esperado)
-
-        return await self._actualizar_campo_rfq_con_lock(conn, rfq_id, lock_version_esperado, _actualizar)
+            raise ValueError("El RFQ cambio; recarga la pestaña")
+        return actualizado
 
     async def agregar_item_rfq(
         self, conn, rfq_id: UUID, bom_item_id: UUID, cantidad,

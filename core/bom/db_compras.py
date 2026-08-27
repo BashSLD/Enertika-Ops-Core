@@ -19,15 +19,18 @@ class BomComprasDBMixin:
         subtotal, iva, total, notas: Optional[str], creado_por: UUID,
         rfq_id: Optional[UUID] = None,
         modo_simplificado: bool = False,
+        folio_proveedor: Optional[str] = None,
     ) -> dict:
         row = await conn.fetchrow("""
             INSERT INTO tb_bom_cotizaciones
                 (bom_id, proveedor_id, nombre_proveedor, moneda,
-                 subtotal, iva, total, notas, creado_por, rfq_id, modo_simplificado)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                 subtotal, iva, total, notas, creado_por, rfq_id, modo_simplificado,
+                 folio_proveedor)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
             RETURNING *
         """, bom_id, proveedor_id, nombre_proveedor, moneda,
-            subtotal, iva, total, notas, creado_por, rfq_id, modo_simplificado)
+            subtotal, iva, total, notas, creado_por, rfq_id, modo_simplificado,
+            folio_proveedor)
         return dict(row)
 
     async def agregar_items_cotizacion(
@@ -282,17 +285,19 @@ class BomComprasDBMixin:
         subtotal, iva, total, notas: Optional[str],
         lock_version_esperado: int,
         modo_simplificado: bool = False,
+        folio_proveedor: Optional[str] = None,
     ) -> Optional[dict]:
         row = await conn.fetchrow("""
             UPDATE tb_bom_cotizaciones
             SET proveedor_id = $2, nombre_proveedor = $3, moneda = $4,
                 subtotal = $5, iva = $6, total = $7, notas = $8,
-                modo_simplificado = $10,
+                modo_simplificado = $10, folio_proveedor = $11,
                 actualizado_en = NOW(), lock_version = lock_version + 1
             WHERE id = $1 AND estatus IN ('BORRADOR', 'RECIBIDA') AND lock_version = $9
             RETURNING *
         """, cotizacion_id, proveedor_id, nombre_proveedor, moneda,
-            subtotal, iva, total, notas, lock_version_esperado, modo_simplificado)
+            subtotal, iva, total, notas, lock_version_esperado, modo_simplificado,
+            folio_proveedor)
         return dict(row) if row else None
 
     async def eliminar_attachment_huerfano(self, conn, doc_id: UUID) -> None:
@@ -1484,16 +1489,6 @@ class BomComprasDBMixin:
               )
             RETURNING *
         """, nombre, rfq_id, lock_version_esperado)
-        return dict(row) if row else None
-
-    async def actualizar_folio_rfq(
-        self, conn, rfq_id: UUID, folio_proveedor: Optional[str], lock_version_esperado: int,
-    ) -> Optional[dict]:
-        row = await conn.fetchrow("""
-            UPDATE tb_bom_rfq SET folio_proveedor = $1, lock_version = lock_version + 1, updated_at = NOW()
-            WHERE id = $2 AND lock_version = $3
-            RETURNING *
-        """, folio_proveedor, rfq_id, lock_version_esperado)
         return dict(row) if row else None
 
     async def agregar_items_rfq(self, conn, rfq_id: UUID, items: list) -> int:

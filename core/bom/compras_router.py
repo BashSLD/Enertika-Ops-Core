@@ -83,6 +83,7 @@ def _parse_cotizacion_payload(body: dict) -> dict:
         "notas": (body.get("notas") or "").strip() or None,
         "items_data": items_data,
         "subtotal_externo": float(subtotal_externo) if subtotal_externo is not None else None,
+        "folio_proveedor": (body.get("folio_proveedor") or "").strip() or None,
     }
 
 
@@ -305,6 +306,7 @@ async def crear_cotizacion(
                 int(bom_lock_version_raw) if bom_lock_version_raw is not None else None
             ),
             rfq_id=rfq_id,
+            folio_proveedor=parsed["folio_proveedor"],
         )
     except (ValueError, TypeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -338,6 +340,7 @@ async def editar_cotizacion(
             lock_version_esperado=(
                 int(lock_version_raw) if lock_version_raw is not None else None
             ),
+            folio_proveedor=parsed["folio_proveedor"],
         )
     except (ValueError, TypeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -614,31 +617,6 @@ async def renombrar_rfq(
     except asyncpg.PostgresError:
         logger.exception("Error de BD al renombrar RFQ %s", rfq_id)
         return _toast_response(request, "Error interno al renombrar el RFQ", "error", status_code=500)
-
-    return await _render_comparativa(request, conn, service, context, actualizado["bom_id"])
-
-
-@compras_router.post("/rfq/{rfq_id}/folio", include_in_schema=False)
-async def actualizar_folio_rfq(
-    request: Request,
-    rfq_id: UUID,
-    folio_proveedor: Optional[str] = Form(None),
-    lock_version: int = Form(...),
-    context=Depends(get_current_user_context),
-    conn=Depends(get_db_connection),
-    service: BomService = Depends(get_bom_service),
-    _=require_module_access("compras", "editor"),
-):
-    """Actualiza el folio/referencia que el proveedor asigno a su cotizacion (Compras)."""
-    try:
-        actualizado = await service.actualizar_folio_rfq(
-            conn, rfq_id, folio_proveedor, lock_version_esperado=lock_version,
-        )
-    except ValueError as e:
-        return _toast_response(request, str(e), "error", status_code=400)
-    except asyncpg.PostgresError:
-        logger.exception("Error de BD al actualizar folio del RFQ %s", rfq_id)
-        return _toast_response(request, "Error interno al actualizar el folio", "error", status_code=500)
 
     return await _render_comparativa(request, conn, service, context, actualizado["bom_id"])
 

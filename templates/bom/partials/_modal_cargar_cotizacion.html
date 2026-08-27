@@ -14,7 +14,7 @@
                     {{ icono_caja('w-5 h-5 text-white') }}
                 </div>
                 <div>
-                    <h2 class="text-base font-semibold text-white" x-text="editandoCotizacionId ? 'Editar Cotización' : 'Cargar Cotización'"></h2>
+                    <h2 class="text-base font-semibold text-white" x-text="editandoCotizacionId ? 'Editar Cotización' : 'Capturar Cotización de Proveedor'"></h2>
                     <p class="text-xs text-emerald-200">Selecciona ítems y captura el precio del proveedor</p>
                 </div>
             </div>
@@ -66,6 +66,15 @@
                         </svg>
                     </button>
                 </div>
+            </div>
+
+            {# Folio del proveedor #}
+            <div>
+                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Folio de proveedor</label>
+                <input type="text" x-model="folioProveedor"
+                    placeholder="Folio o referencia que el proveedor asignó a su cotización"
+                    class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+                <p class="text-[11px] text-gray-400 mt-1">Sirve para conciliar después contra la factura del proveedor.</p>
             </div>
 
             {# Moneda + IVA #}
@@ -171,7 +180,7 @@
                     <svg class="w-4 h-4" :class="{'animate-spin': guardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                     </svg>
-                    <span x-text="guardando ? 'Guardando...' : (editandoCotizacionId ? 'Guardar Cambios' : 'Cargar Cotización')"></span>
+                    <span x-text="guardando ? 'Guardando...' : (editandoCotizacionId ? 'Guardar Cambios' : 'Capturar Cotización de Proveedor')"></span>
                 </button>
             </div>
         </div>
