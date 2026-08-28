@@ -5,6 +5,7 @@ Mixin incluido en BomService; los metodos usan self.db y self.get_bom.
 
 import logging
 import re
+from collections import defaultdict
 from decimal import Decimal
 from uuid import UUID
 from typing import Optional, List
@@ -648,7 +649,17 @@ class BomComprasServiceMixin:
     # ─── AUTORIZACIONES (Fase D) ────────────────────────────
 
     async def listar_autorizaciones(self, conn, bom_id: UUID) -> list:
-        return await self.db.get_autorizaciones_by_bom(conn, bom_id)
+        autorizaciones = await self.db.get_autorizaciones_by_bom(conn, bom_id)
+        if not autorizaciones:
+            return autorizaciones
+        cotizacion_ids = [aut["cotizacion_id"] for aut in autorizaciones]
+        items = await self.db.get_items_by_cotizacion_ids(conn, cotizacion_ids)
+        items_por_cotizacion = defaultdict(list)
+        for item in items:
+            items_por_cotizacion[item["cotizacion_id"]].append(item)
+        for aut in autorizaciones:
+            aut["items"] = items_por_cotizacion.get(aut["cotizacion_id"], [])
+        return autorizaciones
 
     async def aprobar_obra(
         self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
@@ -703,55 +714,6 @@ class BomComprasServiceMixin:
             )
 
         logger.info("Autorización %s aprobada (obra) por usuario %s", autorizacion_id, user_id)
-        return updated
-
-    async def aprobar_direccion(
-        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
-        user_role: str, rol_org: Optional[str],
-        lock_version_esperado: Optional[int] = None,
-    ) -> dict:
-        """Aprueba paso 2 el aprobador de Dirección o su suplente activo."""
-        aut = await self.db.get_autorizacion_by_id(conn, autorizacion_id)
-        if not aut:
-            raise ValueError("Autorización no encontrada.")
-        if aut['estatus'] != 'AUTORIZADO_OBRA':
-            raise ValueError(f"La autorización está en estatus {aut['estatus']} y no puede aprobarse en este paso.")
-
-        aprobador_direccion = await self.db.get_aprobador_final_id(conn)
-        representados = await self.get_titulares_que_representa(conn, user_id)
-        if not aprobador_direccion or aprobador_direccion not in representados:
-            raise ValueError("Solo el aprobador de Direccion o su suplente puede aprobar este paso.")
-
-        if lock_version_esperado is None:
-            raise ValueError("La autorizacion cambio; recarga la pestaña")
-        bom = await self.db.get_bom_by_id(conn, aut["bom_id"])
-        async with conn.transaction():
-            bloqueada = await self.db.get_autorizacion_for_update(conn, autorizacion_id)
-            if (
-                not bloqueada or bloqueada["estatus"] != "AUTORIZADO_OBRA"
-                or bloqueada["lock_version"] != lock_version_esperado
-            ):
-                raise ValueError("La autorizacion ya cambio; recarga la pestaña")
-            updated_direccion = await self.db.update_autorizacion_paso_direccion(
-                conn, autorizacion_id, user_id, nota, lock_version_esperado
-            )
-            if not updated_direccion:
-                raise ValueError("La autorizacion ya cambio; recarga la pestaña")
-            await self.db.registrar_evento_outbox(
-                conn,
-                f"AUTORIZACION:{autorizacion_id}:{updated_direccion['lock_version']}:DIRECCION",
-                "AUTORIZACION_DIRECCION", aut["proyecto_id"], user_id,
-                {"id_autorizacion": str(autorizacion_id), "estatus": updated_direccion["estatus"]},
-                id_paquete=bom.get("id_paquete"), id_bom=aut["bom_id"],
-                id_documento=autorizacion_id,
-            )
-            updated = await self._avanzar_paso_finanzas(
-                conn, autorizacion_id, aut["cotizacion_id"], user_id, nota,
-                updated_direccion["lock_version"], aut["proyecto_id"], bom.get("id_paquete"),
-                aut["bom_id"], auto_avance=True,
-            )
-
-        logger.info("Autorización %s aprobada (dirección→finanzas) por usuario %s", autorizacion_id, user_id)
         return updated
 
     async def aprobar_finanzas(
@@ -853,14 +815,6 @@ class BomComprasServiceMixin:
             ):
                 raise ValueError(
                     "No hay coordinador de obra asignado. Solo el jefe de Construccion puede rechazar en este paso."
-                )
-        elif estatus == 'AUTORIZADO_OBRA':
-            paso = 'DIRECCION'
-            aprobador_direccion = await self.db.get_aprobador_final_id(conn)
-            representados = await self.get_titulares_que_representa(conn, user_id)
-            if not aprobador_direccion or aprobador_direccion not in representados:
-                raise ValueError(
-                    "Solo el aprobador de Direccion o su suplente puede rechazar en este paso."
                 )
         elif estatus == 'AUTORIZADO_DIRECCION':
             paso = 'FINANZAS'

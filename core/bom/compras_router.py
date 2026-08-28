@@ -1077,8 +1077,6 @@ async def _autorizacion_ctx(request, autorizaciones, bom, context, conn, service
     representados = (
         await service.get_titulares_que_representa(conn, user_id) if user_id else set()
     )
-    aprobador_direccion = await service.db.get_aprobador_final_id(conn)
-    es_director = bool(aprobador_direccion and aprobador_direccion in representados)
     coordinador_obra = bom.get("coordinador_obra") if bom else None
     es_coordinador_obra = (
         coordinador_obra in representados
@@ -1093,7 +1091,6 @@ async def _autorizacion_ctx(request, autorizaciones, bom, context, conn, service
         "bom": bom,
         "user_id": user_id,
         "es_admin": es_admin,
-        "es_director": es_director,
         "es_coordinador_obra": es_coordinador_obra,
         "es_finanzas": es_finanzas,
         "es_compras_editor": es_compras_editor,
@@ -1267,38 +1264,6 @@ async def aprobar_autorizacion_obra(
     )
 
 
-@compras_router.post("/autorizaciones/{autorizacion_id}/aprobar-direccion", include_in_schema=False)
-async def aprobar_autorizacion_direccion(
-    request: Request,
-    autorizacion_id: UUID,
-    nota: Optional[str] = Form(None),
-    lock_version: int = Form(...),
-    context=Depends(get_current_user_context),
-    conn=Depends(get_db_connection),
-    service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
-):
-    user_id = context.get("user_db_id")
-    user_role = context.get("role")
-    rol_org = context.get("rol_organizacional")
-    try:
-        aut = await service.aprobar_direccion(
-            conn, autorizacion_id, user_id, nota, user_role, rol_org,
-            lock_version,
-        )
-    except ValueError as e:
-        return _toast_response(request, str(e), "error", status_code=400)
-    except asyncpg.PostgresError:
-        return _toast_response(request, "Error al aprobar la autorización.", "error", status_code=500)
-
-    bom = await service.get_bom_by_id(conn, aut['bom_id'])
-    autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
-    return templates.TemplateResponse(
-        request, "bom/partials/autorizaciones.html",
-        await _autorizacion_ctx(request, autorizaciones, bom, context, conn, service),
-    )
-
-
 @compras_router.post("/autorizaciones/{autorizacion_id}/aprobar-finanzas", include_in_schema=False)
 async def aprobar_autorizacion_finanzas(
     request: Request,
@@ -1342,7 +1307,7 @@ async def rechazar_autorizacion(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
+    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"]),
 ):
     user_id = context.get("user_db_id")
     user_role = context.get("role")

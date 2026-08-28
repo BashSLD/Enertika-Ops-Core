@@ -471,6 +471,7 @@ class BomComprasDBMixin:
         rows = await conn.fetch("""
             SELECT a.*,
                    c.nombre_proveedor,
+                   c.pdf_url,
                    u1.nombre AS aprobador_obra_nombre,
                    u2.nombre AS aprobador_direccion_nombre,
                    u3.nombre AS aprobador_finanzas_nombre,

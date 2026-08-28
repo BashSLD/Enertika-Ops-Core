@@ -1,5 +1,6 @@
 {# templates/bom/partials/autorizaciones.html #}
 {# Tab de autorizaciones de compra — cargado lazy via HTMX #}
+{% from "bom/partials/_macros.html" import boton_ver_pdf_cotizacion %}
 
 <div id="tab-autorizaciones-content">
 
@@ -66,42 +67,18 @@
 
                     {# Paso 1: Obra #}
                     {% if aut.estatus == 'PENDIENTE' and es_coordinador_obra %}
-                    <form hx-post="/bom/autorizaciones/{{ aut.id }}/aprobar-obra"
-                          hx-target="#tab-autorizaciones" hx-swap="innerHTML">
-                        <input type="hidden" name="nota" value="">
-                        <input type="hidden" name="lock_version" value="{{ aut.lock_version }}">
-                        <button type="submit"
-                            class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition">
-                            Aprobar (Obra)
-                        </button>
-                    </form>
                     <button type="button"
                         x-data
                         @click="
-                            const motivo = prompt('Motivo de rechazo (obligatorio):');
-                            if (motivo && motivo.trim()) {
-                                htmx.ajax('POST', '/bom/autorizaciones/{{ aut.id }}/rechazar',
-                                    { target: '#tab-autorizaciones', source: $el, swap: 'innerHTML',
-                                      indicator: '#global-loading-overlay',
-                                      values: { motivo: motivo.trim(), lock_version: '{{ aut.lock_version }}' } });
-                            }
+                            const nota = prompt('Comentario (opcional):');
+                            htmx.ajax('POST', '/bom/autorizaciones/{{ aut.id }}/aprobar-obra',
+                                { target: '#tab-autorizaciones', source: $el, swap: 'innerHTML',
+                                  indicator: '#global-loading-overlay',
+                                  values: { nota: (nota || '').trim(), lock_version: '{{ aut.lock_version }}' } });
                         "
-                        class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-500 hover:bg-red-600 transition">
-                        Rechazar
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition">
+                        Aprobar (Obra)
                     </button>
-                    {% endif %}
-
-                    {# Paso 2: Dirección #}
-                    {% if aut.estatus == 'AUTORIZADO_OBRA' and es_director %}
-                    <form hx-post="/bom/autorizaciones/{{ aut.id }}/aprobar-direccion"
-                          hx-target="#tab-autorizaciones" hx-swap="innerHTML">
-                        <input type="hidden" name="nota" value="">
-                        <input type="hidden" name="lock_version" value="{{ aut.lock_version }}">
-                        <button type="submit"
-                            class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-violet-600 hover:bg-violet-700 transition">
-                            Aprobar (Dirección)
-                        </button>
-                    </form>
                     <button type="button"
                         x-data
                         @click="
@@ -143,6 +120,49 @@
                         class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-500 hover:bg-red-600 transition">
                         Rechazar
                     </button>
+                    {% endif %}
+                </div>
+            </div>
+
+            {# Detalle de cotización — PDF + ítems, sin costos (Gap 1: validación de Obra) #}
+            <div class="mt-3 border-t border-gray-200/70 pt-3" x-data="{ abierto: false }">
+                <button type="button" @click="abierto = !abierto"
+                    class="inline-flex items-center gap-1.5 text-xs font-medium text-[#00BABB] hover:text-[#009a9b]">
+                    <svg class="w-3.5 h-3.5 transition-transform" :class="{'rotate-90': abierto}"
+                         fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
+                    <span x-text="abierto ? 'Ocultar cotización y detalle de ítems' : 'Ver cotización y detalle de ítems (' + {{ aut.items | length }} + ')'"></span>
+                </button>
+                <div x-show="abierto" x-cloak class="mt-3">
+                    {% if aut.pdf_url %}
+                    {{ boton_ver_pdf_cotizacion(aut.cotizacion_id, 'inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 font-medium mb-2') }}
+                    {% else %}
+                    <p class="text-xs text-gray-400 mb-2">Esta cotización no tiene PDF adjunto.</p>
+                    {% endif %}
+                    {% if aut.items %}
+                    <div class="overflow-x-auto rounded-lg border border-gray-200">
+                        <table class="min-w-full text-xs">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-2.5 py-1.5 text-left font-bold text-gray-500 uppercase">Descripción</th>
+                                    <th class="px-2.5 py-1.5 text-right font-bold text-gray-500 uppercase">Cantidad</th>
+                                    <th class="px-2.5 py-1.5 text-left font-bold text-gray-500 uppercase">Unidad</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                {% for item in aut.items %}
+                                <tr>
+                                    <td class="px-2.5 py-1.5 text-gray-700">{{ item.descripcion or '—' }}</td>
+                                    <td class="px-2.5 py-1.5 text-right text-gray-700">{{ item.cantidad }}</td>
+                                    <td class="px-2.5 py-1.5 text-gray-500">{{ item.unidad_medida or '—' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-xs text-gray-400">Sin ítems registrados en esta cotización.</p>
                     {% endif %}
                 </div>
             </div>
