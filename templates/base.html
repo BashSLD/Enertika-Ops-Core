@@ -348,6 +348,7 @@
                 itemsDisponibles: [],
                 itemsSeleccionados: [],    // [{id_item, precio_unitario, cantidad, ...}]
                 precios: {},               // { id_item: precio_unitario }
+                cantidades: {},            // { id_item: cantidad a cotizar, tope = item.cantidad_pendiente }
                 moneda: 'MXN',
                 ivaPct: 16,
                 notas: '',
@@ -407,6 +408,7 @@
                 } = {}) {
                     this.itemsSeleccionados = [];
                     this.precios = {};
+                    this.cantidades = {};
                     this.notas = '';
                     this.modoSimplificado = false;
                     this.subtotalSimplificado = null;
@@ -454,6 +456,9 @@
                         const disponible = this.itemsDisponibles.find(d => d.id_item === it.id_item);
                         this.itemsSeleccionados.push(disponible ? { ...disponible } : { ...it });
                         this.precios[it.id_item] = it.precio_unitario || 0;
+                        // Prellenar con lo que esta cotizacion ya tenia capturado (no con
+                        // cantidad_pendiente): es el valor real de edicion, no un tope nuevo.
+                        this.cantidades[it.id_item] = it.cantidad;
                     });
                     this.$dispatch('cotizacion-modal-reset');
                 },
@@ -480,9 +485,13 @@
                     if (this.isSelected(item.id_item)) {
                         this.itemsSeleccionados = this.itemsSeleccionados.filter(i => i.id_item !== item.id_item);
                         delete this.precios[item.id_item];
+                        delete this.cantidades[item.id_item];
                     } else {
                         this.itemsSeleccionados.push({ ...item });
                         this.precios[item.id_item] = item.precio_unitario || 0;
+                        // Por default se cotiza todo el remanente disponible; el usuario
+                        // puede bajarlo para dejar el resto pendiente de otra cotizacion.
+                        this.cantidades[item.id_item] = item.cantidad_pendiente;
                     }
                 },
 
@@ -507,13 +516,28 @@
                     this.precios[id_item] = this.parseMoneda(val);
                 },
 
+                getCantidad(id_item) {
+                    return this.cantidades[id_item] || 0;
+                },
+
+                // tope: item.cantidad_pendiente -- lo que resta cubrir de ese item.
+                // Cotizar mas que el remanente lo rechaza el backend (_calcular_items_cotizacion),
+                // pero clampear aqui evita el viaje redondo con el error mas comun.
+                setCantidad(id_item, val, tope) {
+                    let cantidad = this.parseMoneda(val);
+                    if (tope !== undefined && tope !== null && cantidad > tope) {
+                        cantidad = tope;
+                    }
+                    this.cantidades[id_item] = cantidad;
+                },
+
                 get subtotal() {
                     if (this.modoSimplificado) {
                         return parseFloat(this.subtotalSimplificado) || 0;
                     }
                     return this.itemsSeleccionados.reduce((acc, item) => {
                         const p = parseFloat(this.precios[item.id_item]) || 0;
-                        const c = parseFloat(item.cantidad) || 0;
+                        const c = this.getCantidad(item.id_item);
                         return acc + p * c;
                     }, 0);
                 },
@@ -658,6 +682,10 @@
                         this.errorMsg = 'Selecciona al menos un ítem.';
                         return;
                     }
+                    if (this.itemsSeleccionados.some(item => this.getCantidad(item.id_item) <= 0)) {
+                        this.errorMsg = 'Captura una cantidad mayor a cero para cada ítem seleccionado.';
+                        return;
+                    }
                     if (this.modoSimplificado && !(parseFloat(this.subtotalSimplificado) > 0)) {
                         this.errorMsg = 'Captura el subtotal total de la cotización.';
                         return;
@@ -676,7 +704,7 @@
                             items: this.itemsSeleccionados.map(item => ({
                                 bom_item_id: item.id_item,
                                 precio_unitario: this.modoSimplificado ? 0 : (parseFloat(this.precios[item.id_item]) || 0),
-                                cantidad: parseFloat(item.cantidad),
+                                cantidad: this.getCantidad(item.id_item),
                             })),
                         };
                         if (this.modoSimplificado) {

@@ -14,7 +14,7 @@
 {% endmacro %}
 {% set tipo_origen_item = item.tipo_origen_item or 'BASE' %}
 {% set item_cerrado_compra = item.estatus_ejecucion in ['NO_ADQUIRIDO', 'REEMPLAZADO', 'CERRADO'] %}
-{% set item_compra_bloquea_adenda = item.estatus_compra in ['COTIZADO', 'AUTORIZADO', 'PAGADO', 'FACTURADO'] %}
+{% set item_compra_bloquea_adenda = item.estatus_compra in ['COTIZADO', 'AUTORIZADO', 'PAGADO', 'FACTURADO', 'PARCIALMENTE_COTIZADO'] %}
 {% set grupos_filtro = item.grupos_operativos if item.grupos_operativos else item.grupos %}
 {% set puede_adenda_item = not solo_lectura|default(false) and bom and bom.estatus == 'APROBADO_FINAL' and area_editor in ['construccion', 'compras'] and tipo_origen_item == 'BASE' and not item_cerrado_compra and not item_compra_bloquea_adenda and not item.bloqueado %}
 {% set puede_editar_item = capacidades.editar_base|default(false) or capacidades.editar_ejecucion|default(false) %}
@@ -274,6 +274,7 @@
             'bg-orange-100 text-orange-700' if ec == 'PAGADO' else
             'bg-blue-100 text-blue-700' if ec == 'AUTORIZADO' else
             'bg-amber-100 text-amber-700' if ec == 'COTIZADO' else
+            'bg-yellow-100 text-yellow-700' if ec == 'PARCIALMENTE_COTIZADO' else
             'bg-gray-100 text-gray-500'
         %}
         {% set label =
@@ -281,6 +282,7 @@
             'Pagado' if ec == 'PAGADO' else
             'Autorizado' if ec == 'AUTORIZADO' else
             'Cotizado' if ec == 'COTIZADO' else
+            'Cotizado parcial' if ec == 'PARCIALMENTE_COTIZADO' else
             'Pendiente'
         %}
         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {{ badge_class }}">

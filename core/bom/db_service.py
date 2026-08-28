@@ -1616,7 +1616,7 @@ class BomDBService(BomComprasDBMixin):
         """Obtiene varios items por lista de IDs. Solo items activos."""
         rows = await conn.fetch("""
             SELECT i.id_item, i.id_bom, i.id_paquete,
-                   i.descripcion, i.cantidad, i.moneda,
+                   i.descripcion, i.cantidad, i.cantidad_cubierta, i.moneda,
                    i.estatus_compra, i.activo, i.precio_unitario, i.origen_precio,
                    COALESCE(i.tipo_origen_item, 'BASE') AS tipo_origen_item,
                    i.id_item_reemplazado, i.creado_en_adenda,

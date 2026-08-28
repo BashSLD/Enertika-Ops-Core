@@ -392,6 +392,53 @@ class BomComprasDBMixin:
         """, estatus_compra, bom_item_ids)
         return int(result.split()[-1]) if result else 0
 
+    async def ajustar_cantidad_cubierta_items(
+        self, conn, ajustes: List[tuple],
+    ) -> List[dict]:
+        """Incrementa/decrementa cantidad_cubierta por item y deriva estatus_compra.
+
+        `ajustes`: lista de (bom_item_id, delta) -- delta positivo al adjudicar
+        una cotizacion, negativo al liberarla. El CHECK
+        tb_bom_items_cantidad_cubierta_check (0 <= cantidad_cubierta <= cantidad,
+        migracion 183) es la ultima linea de defensa contra un delta mal
+        calculado: si el resultado se sale de rango, el UPDATE falla completo.
+        """
+        if not ajustes:
+            return []
+        ids = [a[0] for a in ajustes]
+        deltas = [a[1] for a in ajustes]
+        rows = await conn.fetch("""
+            UPDATE tb_bom_items bi
+            SET cantidad_cubierta = bi.cantidad_cubierta + d.delta,
+                estatus_compra = CASE
+                    WHEN bi.cantidad_cubierta + d.delta <= 0 THEN 'SIN_COTIZAR'
+                    WHEN bi.cantidad_cubierta + d.delta >= bi.cantidad THEN 'COTIZADO'
+                    ELSE 'PARCIALMENTE_COTIZADO'
+                END,
+                lock_version = bi.lock_version + 1,
+                updated_at = NOW()
+            FROM UNNEST($1::uuid[], $2::numeric[]) AS d(bom_item_id, delta)
+            WHERE bi.id_item = d.bom_item_id
+            RETURNING bi.id_item, bi.estatus_compra, bi.cantidad_cubierta, bi.cantidad
+        """, ids, deltas)
+        return [dict(r) for r in rows]
+
+    async def get_items_con_cotizacion_activa(
+        self, conn, item_ids: List[UUID], excluir_cotizacion_id: Optional[UUID] = None,
+    ) -> List[UUID]:
+        """IDs de items que ya estan en otra cotizacion BORRADOR/RECIBIDA -- para
+        bloquear una 2a cotizacion activa compitiendo por el mismo remanente
+        parcial (decision de negocio 2026-08-27, plan seccion 3)."""
+        rows = await conn.fetch("""
+            SELECT DISTINCT ci.bom_item_id
+            FROM tb_bom_cotizacion_items ci
+            JOIN tb_bom_cotizaciones c ON c.id = ci.cotizacion_id
+            WHERE ci.bom_item_id = ANY($1::uuid[])
+              AND c.estatus IN ('BORRADOR', 'RECIBIDA')
+              AND ($2::uuid IS NULL OR c.id != $2)
+        """, item_ids, excluir_cotizacion_id)
+        return [r['bom_item_id'] for r in rows]
+
     async def get_proveedores_buscar(self, conn, q: str) -> List[dict]:
         rows = await conn.fetch("""
             SELECT id_proveedor, rfc, razon_social, nombre_comercial

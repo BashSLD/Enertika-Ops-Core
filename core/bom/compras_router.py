@@ -21,7 +21,7 @@ from core.permissions import require_module_access, require_any_module_access, u
 from core.config import settings
 from core.jinja_filters import register_timezone_filters
 from modules.shared.utils import content_disposition_header, is_htmx
-from .compras_service import ESTATUS_COTIZABLE, item_disponible_cotizacion
+from .compras_service import ESTATUS_COTIZABLE, cantidad_pendiente_item, item_disponible_cotizacion
 from .router import _toast_response
 from .schemas import EstatusBOM
 from .service import BomService, get_bom_service
@@ -55,6 +55,7 @@ def _item_cotizacion_json(item: dict) -> dict:
         "categoria_nombre": item.get("categoria_nombre"),
         "unidad_medida": item.get("unidad_medida"),
         "cantidad": float(cantidad) if cantidad is not None else None,
+        "cantidad_pendiente": float(cantidad_pendiente_item(item)),
         "precio_unitario": float(precio_unitario) if precio_unitario is not None else None,
     }
 

@@ -21,8 +21,28 @@ logger = logging.getLogger("BOM.Service")
 
 ESTATUS_COTIZABLE = {EstatusBOM.APROBADO_CONST, EstatusBOM.EN_REVISION_FINAL, EstatusBOM.APROBADO_FINAL}
 ESTATUS_ITEM_CERRADO_COMPRA = {"NO_ADQUIRIDO", "REEMPLAZADO", "CERRADO"}
-ESTATUS_COMPRA_BLOQUEA_ADENDA = {"COTIZADO", "AUTORIZADO", "PAGADO", "FACTURADO"}
+# Bloqueo de adenda (Ingenieria/Construccion editando un item ya comprometido en
+# compra) -- unico call site: service.py _validar_item_base_para_adenda. Incluye
+# PARCIALMENTE_COTIZADO: ya hay dinero/proveedor comprometido en la parte
+# cubierta, aunque el remanente si puede volver a cotizarse (ver constante
+# ESTATUS_COMPRA_CERRADO_COTIZACION, usada para esa elegibilidad).
+ESTATUS_COMPRA_BLOQUEA_ADENDA = {
+    "COTIZADO", "AUTORIZADO", "PAGADO", "FACTURADO", "PARCIALMENTE_COTIZADO",
+}
+# Estatus terminales de compra donde ya no puede quedar remanente real por
+# cotizar (a diferencia de PARCIALMENTE_COTIZADO/COTIZADO, que si pueden tener
+# cantidad_pendiente > 0 mientras la cotizacion que los cubre no se autoriza).
+# Derivado de ESTATUS_COMPRA_BLOQUEA_ADENDA (nunca a mano) para que un futuro
+# estatus nuevo no pueda quedar agregado a uno de los dos sets y no al otro.
+ESTATUS_COMPRA_CERRADO_COTIZACION = ESTATUS_COMPRA_BLOQUEA_ADENDA - {"PARCIALMENTE_COTIZADO"}
 ESTATUS_ADENDA_APROBADA = "APROBADA"
+
+
+def cantidad_pendiente_item(item: dict) -> Decimal:
+    """Cantidad del item BOM aun sin cubrir por ninguna cotizacion adjudicada."""
+    cantidad = Decimal(str(item.get("cantidad") or 0))
+    cubierta = Decimal(str(item.get("cantidad_cubierta") or 0))
+    return cantidad - cubierta
 
 
 def item_disponible_cotizacion(item: dict) -> bool:
@@ -30,7 +50,8 @@ def item_disponible_cotizacion(item: dict) -> bool:
     estatus_compra = item.get("estatus_compra", "SIN_COTIZAR")
     estatus_ejecucion = item.get("estatus_ejecucion")
     return (
-        estatus_compra not in ESTATUS_COMPRA_BLOQUEA_ADENDA
+        estatus_compra not in ESTATUS_COMPRA_CERRADO_COTIZACION
+        and cantidad_pendiente_item(item) > 0
         and estatus_ejecucion not in ESTATUS_ITEM_CERRADO_COMPRA
     )
 
@@ -95,8 +116,25 @@ class BomComprasServiceMixin:
         )
         raise ValueError(f"{mensaje}: {nombres}")
 
-    def _validar_items_cotizables(self, bom_items: list, accion: str) -> None:
-        """Valida que ningún item esté cerrado, en adenda pendiente, o ya comprometido en otra cotizacion."""
+    async def _validar_items_cotizables(
+        self, conn, bom_items: list, accion: str,
+        cotizacion_id_excluir: Optional[UUID] = None,
+        verificar_cotizacion_activa: bool = True,
+    ) -> None:
+        """Valida que ningún item esté cerrado, en adenda pendiente, en un estatus
+        terminal de compra sin remanente, o con otra cotizacion activa
+        compitiendo por el mismo remanente parcial (decision de negocio
+        2026-08-27: solo 1 cotizacion BORRADOR/RECIBIDA a la vez por remanente).
+
+        `cotizacion_id_excluir`: la cotizacion que se esta creando/editando/
+        adjudicando no debe autobloquearse por sus propios items.
+
+        `verificar_cotizacion_activa=False`: omite la consulta de "otra
+        cotizacion activa" -- cada flujo llama a este metodo dos veces (pre-check
+        sin lock, luego re-check con lock dentro de la transaccion); esa consulta
+        solo es autoritativa en el segundo paso, así que el primero la salta para
+        no duplicar el round trip.
+        """
         self._raise_si_items(
             [i for i in bom_items if i.get("estatus_ejecucion") in ESTATUS_ITEM_CERRADO_COMPRA],
             f"No se pueden {accion} items cerrados o reemplazados",
@@ -109,9 +147,22 @@ class BomComprasServiceMixin:
             f"No se pueden {accion} items de adendas pendientes de aprobacion",
         )
         self._raise_si_items(
-            [i for i in bom_items if i.get("estatus_compra") in ESTATUS_COMPRA_BLOQUEA_ADENDA],
+            [
+                i for i in bom_items
+                if i.get("estatus_compra") in ESTATUS_COMPRA_CERRADO_COTIZACION
+                or cantidad_pendiente_item(i) <= 0
+            ],
             f"No se pueden {accion} items ya cotizados, autorizados, pagados o facturados en otra cotizacion",
         )
+        parciales = [i for i in bom_items if i.get("estatus_compra") == "PARCIALMENTE_COTIZADO"]
+        if parciales and verificar_cotizacion_activa:
+            ids_bloqueados = set(await self.db.get_items_con_cotizacion_activa(
+                conn, [i["id_item"] for i in parciales], cotizacion_id_excluir,
+            ))
+            self._raise_si_items(
+                [i for i in parciales if i["id_item"] in ids_bloqueados],
+                f"No se pueden {accion} items que ya tienen otra cotización pendiente cubriendo su remanente",
+            )
 
     async def _actualizar_estatus_items_cotizacion(
         self, conn, cotizacion_id: UUID, nuevo_estatus: str,
@@ -130,14 +181,23 @@ class BomComprasServiceMixin:
                 conn, item_ids, nuevo_estatus
             )
 
-    async def _actualizar_estatus_items_por_ids(
-        self, conn, item_ids: list[UUID], nuevo_estatus: str,
-        updated_by: Optional[UUID] = None,
-    ) -> None:
-        """Serializa el espejo legacy y la ejecución con el lock exacto de cada ítem."""
+    async def _mutar_estatus_compra_items(
+        self, conn, item_ids: list[UUID], resolver, updated_by: Optional[UUID] = None,
+    ) -> list[dict]:
+        """Lock exacto por item + mirror del estatus_compra resultante hacia
+        estatus_ejecucion -- mecanismo compartido por
+        _actualizar_estatus_items_por_ids (estatus uniforme para todo el lote)
+        y _ajustar_cantidad_cubierta_items (estatus derivado por item de su
+        propio delta de cantidad_cubierta); ambos solo difieren en como se
+        calcula el estatus_compra de cada item.
+
+        `resolver(bloqueados) -> list[dict]`: recibe los items ya bloqueados
+        (con ejecucion_lock_version) y debe escribir su estatus_compra en BD,
+        devolviendo por cada uno {"id_item", "estatus_compra"} para el mirror.
+        """
         ids = sorted(set(item_ids), key=str)
         if not ids:
-            return
+            return []
         bloqueados = await self.db.lock_items_context_by_ids(conn, ids)
         if len(bloqueados) != len(ids):
             raise ValueError("Uno de los items cambió; recarga el paquete")
@@ -145,11 +205,13 @@ class BomComprasServiceMixin:
             str(item["id_item"]): int(item.get("ejecucion_lock_version") or 0)
             for item in bloqueados
         }
-        await self.db.actualizar_estatus_compra_items(conn, ids, nuevo_estatus)
-        estado_ejecucion = (
-            "PENDIENTE" if nuevo_estatus == "SIN_COTIZAR" else nuevo_estatus
-        )
-        for item_id in ids:
+        resultados = await resolver(bloqueados)
+        for r in resultados:
+            item_id = r["id_item"]
+            nuevo_estatus = r["estatus_compra"]
+            estado_ejecucion = (
+                "PENDIENTE" if nuevo_estatus == "SIN_COTIZAR" else nuevo_estatus
+            )
             ejecucion = await self.db.upsert_item_ejecucion(
                 conn,
                 item_id,
@@ -161,6 +223,35 @@ class BomComprasServiceMixin:
                 raise ValueError(
                     "La ejecución de un item cambió; recarga el paquete"
                 )
+        return resultados
+
+    async def _actualizar_estatus_items_por_ids(
+        self, conn, item_ids: list[UUID], nuevo_estatus: str,
+        updated_by: Optional[UUID] = None,
+    ) -> None:
+        """Serializa el espejo legacy y la ejecución con el lock exacto de cada ítem."""
+        async def resolver(bloqueados):
+            ids = [b["id_item"] for b in bloqueados]
+            await self.db.actualizar_estatus_compra_items(conn, ids, nuevo_estatus)
+            return [{"id_item": i, "estatus_compra": nuevo_estatus} for i in ids]
+
+        await self._mutar_estatus_compra_items(conn, item_ids, resolver, updated_by)
+
+    async def _ajustar_cantidad_cubierta_items(
+        self, conn, ajustes: dict, updated_by: Optional[UUID] = None,
+    ) -> None:
+        """Ajusta cantidad_cubierta por item (delta positivo al adjudicar,
+        negativo al liberar) y deriva el estatus_compra resultante por item
+        (en vez de uno uniforme para todo el lote).
+
+        `ajustes`: dict {bom_item_id: Decimal(delta)}.
+        """
+        async def resolver(bloqueados):
+            return await self.db.ajustar_cantidad_cubierta_items(
+                conn, [(b["id_item"], ajustes[b["id_item"]]) for b in bloqueados]
+            )
+
+        await self._mutar_estatus_compra_items(conn, list(ajustes.keys()), resolver, updated_by)
 
     # ─── COTIZACIONES ────────────────────────────────────────
 
@@ -206,6 +297,7 @@ class BomComprasServiceMixin:
         self, conn, id_bom: UUID, items_data: list, moneda: str,
         iva_pct: float, notas: Optional[str],
         subtotal_externo: Optional[float] = None,
+        cotizacion_id_excluir: Optional[UUID] = None,
     ) -> tuple:
         """Valida items_data contra el BOM y calcula items_insert/subtotal/iva/total.
 
@@ -232,7 +324,18 @@ class BomComprasServiceMixin:
             raise ValueError("La cotizacion contiene items invalidos o inactivos")
         if any(str(item.get("id_bom")) != str(id_bom) for item in bom_items_batch):
             raise ValueError("La cotizacion no puede mezclar items de otro paquete BOM")
-        self._validar_items_cotizables(bom_items_batch, "cotizar")
+        await self._validar_items_cotizables(
+            conn, bom_items_batch, "cotizar", cotizacion_id_excluir,
+            verificar_cotizacion_activa=False,
+        )
+        excedidos = [
+            bom_items_map_cot[str(i["bom_item_id"])]
+            for i, cantidad in zip(items_data, cantidades)
+            if cantidad > cantidad_pendiente_item(bom_items_map_cot[str(i["bom_item_id"])])
+        ]
+        self._raise_si_items(
+            excedidos, "La cantidad cotizada supera el remanente pendiente de los items"
+        )
 
         precios = [
             Decimal(str(i["precio_unitario"]))
@@ -377,7 +480,7 @@ class BomComprasServiceMixin:
                 raise ValueError(
                     "La cotizacion contiene items invalidos o de otro paquete BOM"
                 )
-            self._validar_items_cotizables(items_bloqueados, "cotizar")
+            await self._validar_items_cotizables(conn, items_bloqueados, "cotizar")
             cotizacion = await self.db.crear_cotizacion(
                 conn, id_bom, proveedor_id, nombre_proveedor, moneda,
                 subtotal, iva, total, notas, creado_por,
@@ -426,6 +529,7 @@ class BomComprasServiceMixin:
 
         items_insert, item_ids, subtotal, iva, total = await self._calcular_items_cotizacion(
             conn, id_bom, items_data, moneda, iva_pct, notas, subtotal_externo,
+            cotizacion_id_excluir=cotizacion_id,
         )
 
         async with conn.transaction():
@@ -440,7 +544,9 @@ class BomComprasServiceMixin:
                 raise ValueError(
                     "La cotizacion contiene items invalidos o de otro paquete BOM"
                 )
-            self._validar_items_cotizables(items_bloqueados, "cotizar")
+            await self._validar_items_cotizables(
+                conn, items_bloqueados, "cotizar", cotizacion_id
+            )
             actualizado = await self.db.actualizar_cotizacion(
                 conn, cotizacion_id, proveedor_id, nombre_proveedor, moneda,
                 subtotal, iva, total, notas, lock_version_esperado,
@@ -500,7 +606,10 @@ class BomComprasServiceMixin:
                 for item in bom_items
             ):
                 raise ValueError("La cotizacion contiene items de otro paquete BOM")
-            self._validar_items_cotizables(bom_items, "seleccionar cotizaciones con")
+            await self._validar_items_cotizables(
+                conn, bom_items, "seleccionar cotizaciones con", cotizacion_id,
+                verificar_cotizacion_activa=False,
+            )
 
         async with conn.transaction():
             bom_bloqueado = await self.db.get_bom_for_update(conn, cotizacion['bom_id'])
@@ -526,7 +635,9 @@ class BomComprasServiceMixin:
                 )
                 if len(bloqueados) != len(set(item_ids)):
                     raise ValueError("La cotizacion contiene items invalidos")
-                self._validar_items_cotizables(bloqueados, "seleccionar cotizaciones con")
+                await self._validar_items_cotizables(
+                    conn, bloqueados, "seleccionar cotizaciones con", cotizacion_id
+                )
                 locks_ejecucion = {
                     str(item["id_item"]): int(
                         item.get("ejecucion_lock_version") or 0
@@ -546,18 +657,30 @@ class BomComprasServiceMixin:
             if cotizacion['moneda'] == 'USD':
                 tc_resuelto = await self.resolver_tipo_cambio(conn, bom['id_proyecto'])
 
-            # Actualizar estatus_compra de los ítems cubiertos
+            # Actualizar estatus_compra de los ítems cubiertos: incrementa
+            # cantidad_cubierta por lo que esta cotizacion adjudica y deriva
+            # COTIZADO (remanente agotado) o PARCIALMENTE_COTIZADO (queda
+            # remanente) por item, en vez de fijar COTIZADO a secas.
             if items:
                 item_ids = [i['bom_item_id'] for i in items]
                 # items ya cargados arriba — llamada directa para evitar re-fetch en _actualizar_estatus_items_cotizacion
-                await self.db.actualizar_estatus_compra_items(conn, item_ids, 'COTIZADO')
+                resultados = await self.db.ajustar_cantidad_cubierta_items(
+                    conn,
+                    [
+                        (it['bom_item_id'], Decimal(str(it['cantidad'])))
+                        for it in items
+                    ],
+                )
+                estatus_resultante = {
+                    str(r['id_item']): r['estatus_compra'] for r in resultados
+                }
 
                 # Registrar costo/proveedor reales sin mutar el presupuesto base.
                 for it in items:
                     campos_reales = {
                         'id_proveedor_real': cotizacion.get('proveedor_id'),
                         'moneda_real': it.get('moneda') or cotizacion.get('moneda'),
-                        'estatus_ejecucion': 'COTIZADO',
+                        'estatus_ejecucion': estatus_resultante[str(it['bom_item_id'])],
                     }
                     if it.get('precio_unitario') is not None:
                         campos_reales['precio_real'] = it.get('precio_unitario')
@@ -871,15 +994,22 @@ class BomComprasServiceMixin:
     async def _liberar_cotizacion_rechazada(
         self, conn, cotizacion_id: UUID,
         resetear_estatus_cotizacion: bool = True,
-        item_ids: Optional[list] = None,
+        items: Optional[list] = None,
     ) -> None:
-        """Libera los items de una cotización a SIN_COTIZAR tras un rechazo o reemplazo.
+        """Libera los items de una cotización tras un rechazo o reemplazo,
+        decrementando cantidad_cubierta exactamente por lo que esta cotizacion
+        cubria (no resetea a SIN_COTIZAR a ciegas: si otra cotizacion previa ya
+        adjudico una parte del mismo item, el item vuelve a PARCIALMENTE_COTIZADO
+        en vez de perder esa cobertura).
 
         Por defecto regresa `tb_bom_cotizaciones.estatus` a RECIBIDA (rechazo
         normal, ## 7.3). `reemplazar_cotizacion_proveedor` pasa
         `resetear_estatus_cotizacion=False`: su CHECK no admite un valor de
         reemplazo, la cotización se conserva SELECCIONADA como evidencia
         histórica (## 7.4).
+
+        `items`: items de la cotizacion ya cargados (con `cantidad`) si el
+        caller los tiene a mano -- evita re-consultar `get_items_cotizacion`.
         """
         if resetear_estatus_cotizacion:
             cotizacion = await self.db.get_cotizacion_for_update(conn, cotizacion_id)
@@ -891,9 +1021,14 @@ class BomComprasServiceMixin:
             )
             if not actualizada:
                 raise ValueError("La cotizacion cambio; recarga la pestaña")
-        await self._actualizar_estatus_items_cotizacion(
-            conn, cotizacion_id, 'SIN_COTIZAR', item_ids=item_ids
-        )
+        if items is None:
+            items = await self.db.get_items_cotizacion(conn, cotizacion_id)
+        if not items:
+            return
+        ajustes = {
+            it['bom_item_id']: -Decimal(str(it['cantidad'])) for it in items
+        }
+        await self._ajustar_cantidad_cubierta_items(conn, ajustes)
 
     async def solicitar_aprobacion_cotizacion(
         self, conn, cotizacion_id: UUID, user_id: UUID,
@@ -1294,7 +1429,7 @@ class BomComprasServiceMixin:
 
             await self._liberar_cotizacion_rechazada(
                 conn, cotizacion_id,
-                resetear_estatus_cotizacion=False, item_ids=item_ids,
+                resetear_estatus_cotizacion=False, items=items_cot,
             )
 
             updated = await self.db.marcar_cotizacion_aprobacion_reemplazada(
@@ -1949,7 +2084,10 @@ class BomComprasServiceMixin:
                 for item in bom_items
             ):
                 raise ValueError("No se pueden asignar items de otro paquete BOM")
-            self._validar_items_cotizables(bom_items, "asignar en bulk a cotizaciones de")
+            await self._validar_items_cotizables(
+                conn, bom_items, "asignar en bulk a cotizaciones de", cotizacion_id,
+                verificar_cotizacion_activa=False,
+            )
         moneda_cotizacion = (cotizacion.get("moneda") or "").strip().upper()
         if moneda_cotizacion not in {"MXN", "USD"}:
             raise ValueError("La cotización no tiene una moneda válida")
@@ -1989,8 +2127,8 @@ class BomComprasServiceMixin:
                     for item in bloqueados
                 ):
                     raise ValueError("No se pueden asignar items de otro paquete BOM")
-                self._validar_items_cotizables(
-                    bloqueados, "asignar en bulk a cotizaciones de"
+                await self._validar_items_cotizables(
+                    conn, bloqueados, "asignar en bulk a cotizaciones de", cotizacion_id
                 )
             await self.db.bulk_replace_cotizacion_items(
                 conn, cotizacion_id, cotizacion["bom_id"], items

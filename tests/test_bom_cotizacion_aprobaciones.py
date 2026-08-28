@@ -127,7 +127,8 @@ class FakeAprobacionesDB:
                 "id_item": item["bom_item_id"],
                 "id_bom": self.bom["id_bom"],
                 "descripcion": "Item",
-                "cantidad": 1,
+                "cantidad": item.get("cantidad", 1),
+                "cantidad_cubierta": 0,
                 "precio_unitario": 100,
                 "estatus_compra": "SIN_COTIZAR",
                 "activo": True,
@@ -138,6 +139,24 @@ class FakeAprobacionesDB:
 
     async def lock_items_context_by_ids(self, conn, item_ids):
         return await self.get_items_by_ids(conn, item_ids)
+
+    async def get_items_con_cotizacion_activa(self, conn, item_ids, excluir_cotizacion_id=None):
+        return []
+
+    async def ajustar_cantidad_cubierta_items(self, conn, ajustes):
+        """Fake liviano: este archivo prueba el flujo de aprobaciones/autorizacion
+        (Fase D), no la aritmetica de cobertura parcial (ver test_bom_cotizacion_parcial.py)
+        -- solo deriva SIN_COTIZAR/COTIZADO por el signo del delta, suficiente para
+        que las aserciones existentes sobre items_estatus_updates sigan siendo validas."""
+        resultados = []
+        for item_id, delta in ajustes:
+            estatus = "SIN_COTIZAR" if delta < 0 else "COTIZADO"
+            self.items_estatus_updates.append(([item_id], estatus))
+            resultados.append({
+                "id_item": item_id, "estatus_compra": estatus,
+                "cantidad_cubierta": max(delta, 0), "cantidad": 1,
+            })
+        return resultados
 
     async def upsert_item_ejecucion(self, conn, item_id, updated_by=None, **campos):
         return {"id_item": item_id, **campos}
@@ -349,7 +368,7 @@ def build_escenario(
     autorizacion = (
         _autorizacion(cotizacion_id, bom_id, aut_estatus) if con_autorizacion else None
     )
-    items = [{"bom_item_id": uuid4()}, {"bom_item_id": uuid4()}]
+    items = [{"bom_item_id": uuid4(), "cantidad": 1}, {"bom_item_id": uuid4(), "cantidad": 1}]
     db = FakeAprobacionesDB(bom, cotizacion, autorizacion, items)
     svc, notificaciones = make_service(db)
     return svc, db, notificaciones, cotizacion_id

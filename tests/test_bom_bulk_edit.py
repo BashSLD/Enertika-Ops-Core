@@ -1,3 +1,4 @@
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -143,8 +144,24 @@ class FakeSeleccionCotizacionDB:
     def __init__(self, cotizacion, items):
         self.cotizacion = cotizacion
         self.items = items
-        self.estatus_items = []
         self.execution_updates = []
+        self.ajustes_cantidad_cubierta = []
+        # id_item -> {cantidad, cantidad_cubierta, estatus_compra, ...}; se
+        # inicializa en 0 cubierto salvo que el item ya traiga cantidad_cubierta.
+        self.bom_items = {}
+        for item in self.items:
+            item_id = item["bom_item_id"]
+            self.bom_items[item_id] = {
+                "id_item": item_id,
+                "id_bom": self.cotizacion["bom_id"],
+                "descripcion": item.get("descripcion", "Item"),
+                "cantidad": item.get("cantidad_bom", item.get("cantidad", 1)),
+                "cantidad_cubierta": item.get("cantidad_cubierta", 0),
+                "precio_unitario": item.get("precio_unitario"),
+                "estatus_ejecucion": item.get("estatus_ejecucion"),
+                "estatus_compra": item.get("estatus_compra", "SIN_COTIZAR"),
+                "activo": True,
+            }
 
     async def get_cotizacion_by_id(self, conn, cotizacion_id):
         return dict(self.cotizacion)
@@ -172,30 +189,37 @@ class FakeSeleccionCotizacionDB:
         return list(self.items)
 
     async def get_items_by_ids(self, conn, item_ids):
-        rows = []
-        for item_id in item_ids:
-            match = next(
-                (item for item in self.items if item["bom_item_id"] == item_id),
-                None,
-            )
-            if match:
-                rows.append({
-                    "id_item": item_id,
-                    "id_bom": self.cotizacion["bom_id"],
-                    "descripcion": match.get("descripcion", "Item"),
-                    "cantidad": match.get("cantidad", 1),
-                    "precio_unitario": match.get("precio_unitario"),
-                    "estatus_ejecucion": match.get("estatus_ejecucion"),
-                    "estatus_compra": match.get("estatus_compra", "SIN_COTIZAR"),
-                    "activo": True,
-                })
-        return rows
-
-    async def actualizar_estatus_compra_items(self, conn, item_ids, estatus):
-        self.estatus_items.append((list(item_ids), estatus))
+        return [dict(self.bom_items[i]) for i in item_ids if i in self.bom_items]
 
     async def lock_items_context_by_ids(self, conn, item_ids):
-        return await self.get_items_by_ids(conn, item_ids)
+        return [
+            {**self.bom_items[i], "ejecucion_lock_version": 0}
+            for i in item_ids if i in self.bom_items
+        ]
+
+    async def get_items_con_cotizacion_activa(self, conn, item_ids, excluir_cotizacion_id=None):
+        return []
+
+    async def ajustar_cantidad_cubierta_items(self, conn, ajustes):
+        resultados = []
+        for item_id, delta in ajustes:
+            bi = self.bom_items[item_id]
+            nueva_cubierta = Decimal(str(bi.get("cantidad_cubierta") or 0)) + delta
+            cantidad = Decimal(str(bi["cantidad"]))
+            if nueva_cubierta <= 0:
+                estatus = "SIN_COTIZAR"
+            elif nueva_cubierta >= cantidad:
+                estatus = "COTIZADO"
+            else:
+                estatus = "PARCIALMENTE_COTIZADO"
+            bi["cantidad_cubierta"] = nueva_cubierta
+            bi["estatus_compra"] = estatus
+            self.ajustes_cantidad_cubierta.append((item_id, delta))
+            resultados.append({
+                "id_item": item_id, "estatus_compra": estatus,
+                "cantidad_cubierta": nueva_cubierta, "cantidad": cantidad,
+            })
+        return resultados
 
     async def upsert_item_ejecucion(
         self, conn, item_id, updated_by=None, lock_version_esperado=None,
@@ -206,6 +230,9 @@ class FakeSeleccionCotizacionDB:
 
     async def get_autorizacion_by_cotizacion(self, conn, cotizacion_id):
         return {"id": uuid4()}
+
+    async def guardar_historial_cotizacion(self, *args, **kwargs):
+        return None
 
     async def get_bom_by_id(self, conn, bom_id):
         return {
@@ -744,6 +771,7 @@ async def test_seleccionar_cotizacion_registra_costo_real_sin_actualizar_base():
         [
             {
                 "bom_item_id": item_id,
+                "cantidad": 1,
                 "precio_unitario": 123,
                 "moneda": "MXN",
             }
@@ -754,7 +782,8 @@ async def test_seleccionar_cotizacion_registra_costo_real_sin_actualizar_base():
         FakeConn(), cotizacion_id, user_id, lock_version_esperado=0
     )
 
-    assert svc.db.estatus_items == [([item_id], "COTIZADO")]
+    assert svc.db.ajustes_cantidad_cubierta == [(item_id, Decimal("1"))]
+    assert svc.db.bom_items[item_id]["estatus_compra"] == "COTIZADO"
     assert svc.db.execution_updates == [
         (
             item_id,

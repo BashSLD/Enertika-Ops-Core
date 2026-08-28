@@ -4547,6 +4547,7 @@ class BomService(BomComprasServiceMixin):
         ESTADO_LABELS = {
             'FACTURADO': 'Facturado', 'PAGADO': 'Pagado',
             'AUTORIZADO': 'Autorizado', 'COTIZADO': 'Cotizado',
+            'PARCIALMENTE_COTIZADO': 'Cotizado parcial',
         }
 
         for col_num, header in enumerate(headers, 1):
