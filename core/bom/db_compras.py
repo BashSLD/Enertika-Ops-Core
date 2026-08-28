@@ -519,12 +519,15 @@ class BomComprasDBMixin:
             SELECT a.*,
                    c.nombre_proveedor,
                    c.pdf_url,
+                   c.folio_proveedor,
+                   r.nombre AS rfq_nombre,
                    u1.nombre AS aprobador_obra_nombre,
                    u2.nombre AS aprobador_direccion_nombre,
                    u3.nombre AS aprobador_finanzas_nombre,
                    u4.nombre AS rechazado_por_nombre
             FROM tb_bom_autorizaciones a
             JOIN tb_bom_cotizaciones c ON c.id = a.cotizacion_id
+            LEFT JOIN tb_bom_rfq r ON r.id = c.rfq_id
             LEFT JOIN tb_usuarios u1 ON u1.id_usuario = a.aprobador_obra_id
             LEFT JOIN tb_usuarios u2 ON u2.id_usuario = a.aprobador_direccion_id
             LEFT JOIN tb_usuarios u3 ON u3.id_usuario = a.aprobador_finanzas_id

@@ -1,6 +1,22 @@
 {# templates/bom/partials/autorizaciones.html #}
 {# Tab de autorizaciones de compra — cargado lazy via HTMX #}
-{% from "bom/partials/_macros.html" import boton_ver_pdf_cotizacion %}
+{% from "bom/partials/_macros.html" import boton_ver_pdf_cotizacion, paso_badge, tooltip_paso, paso_conector, modal_teleport_shell %}
+
+{% set badge_styles = {
+    'PENDIENTE':            'bg-amber-100 text-amber-800 border-amber-300',
+    'AUTORIZADO_OBRA':      'bg-blue-100 text-blue-800 border-blue-300',
+    'AUTORIZADO_DIRECCION': 'bg-violet-100 text-violet-800 border-violet-300',
+    'AUTORIZADO_FINANZAS':  'bg-emerald-100 text-emerald-800 border-emerald-300',
+    'RECHAZADO':            'bg-red-100 text-red-700 border-red-300',
+} %}
+{% set estatus_label = {
+    'PENDIENTE':            'Pendiente — Obra',
+    'AUTORIZADO_OBRA':      'Aprobado Obra — Esperando Dirección',
+    'AUTORIZADO_DIRECCION': 'Aprobado Dirección — Esperando Finanzas',
+    'AUTORIZADO_FINANZAS':  'Autorizado Completo',
+    'RECHAZADO':            'Rechazado',
+} %}
+{% set paso_rechazo_label = {'OBRA': 'Obra', 'DIRECCION': 'Dirección', 'FINANZAS': 'Finanzas'} %}
 
 <div id="tab-autorizaciones-content">
 
@@ -13,53 +29,50 @@
     </div>
 
     {% if autorizaciones %}
-    <div class="space-y-4">
+    <div class="space-y-3">
         {% for aut in autorizaciones %}
 
-        {% set estatus_styles = {
-            'PENDIENTE':            'bg-amber-50 border-amber-200',
-            'AUTORIZADO_OBRA':      'bg-blue-50 border-blue-200',
-            'AUTORIZADO_DIRECCION': 'bg-violet-50 border-violet-200',
-            'AUTORIZADO_FINANZAS':  'bg-emerald-50 border-emerald-200',
-            'RECHAZADO':            'bg-red-50 border-red-200',
-        } %}
-        {% set badge_styles = {
-            'PENDIENTE':            'bg-amber-100 text-amber-800 border-amber-300',
-            'AUTORIZADO_OBRA':      'bg-blue-100 text-blue-800 border-blue-300',
-            'AUTORIZADO_DIRECCION': 'bg-violet-100 text-violet-800 border-violet-300',
-            'AUTORIZADO_FINANZAS':  'bg-emerald-100 text-emerald-800 border-emerald-300',
-            'RECHAZADO':            'bg-red-100 text-red-700 border-red-300',
-        } %}
-        {% set estatus_label = {
-            'PENDIENTE':            'Pendiente — Obra',
-            'AUTORIZADO_OBRA':      'Aprobado Obra — Esperando Dirección',
-            'AUTORIZADO_DIRECCION': 'Aprobado Dirección — Esperando Finanzas',
-            'AUTORIZADO_FINANZAS':  'Autorizado Completo',
-            'RECHAZADO':            'Rechazado',
-        } %}
+        {# "ok" se basa en si el paso YA se aprobó (fecha_aprobacion_*), no en el estatus
+           actual del conjunto — así un rechazo en un paso posterior no borra visualmente
+           los pasos previos que sí quedaron aprobados. #}
+        {% set paso_obra_ok = aut.fecha_aprobacion_obra is not none %}
+        {% set paso_obra_rechazado = aut.estatus == 'RECHAZADO' and aut.rechazado_en_paso == 'OBRA' %}
+        {% set paso_obra_activo = aut.estatus == 'PENDIENTE' %}
 
-        <div class="rounded-xl border p-4 {{ estatus_styles.get(aut.estatus, 'bg-gray-50 border-gray-200') }}">
+        {% set paso_direccion_ok = aut.fecha_aprobacion_direccion is not none %}
+        {% set paso_direccion_pendiente = aut.estatus == 'AUTORIZADO_OBRA' %}
+        {% set paso_direccion_rechazado = aut.estatus == 'RECHAZADO' and aut.rechazado_en_paso == 'DIRECCION' %}
 
-            {# Cabecera #}
-            <div class="flex items-start justify-between gap-3 mb-3">
-                <div>
-                    <div class="flex items-center gap-2 flex-wrap">
-                        <span class="text-sm font-semibold text-gray-800">{{ aut.nombre_proveedor or 'Sin proveedor' }}</span>
-                        <span class="px-2 py-0.5 text-xs font-bold rounded-lg border {{ badge_styles.get(aut.estatus, '') }}">
-                            {{ estatus_label.get(aut.estatus, aut.estatus) }}
-                        </span>
-                    </div>
-                    <div class="flex items-center gap-4 mt-1 text-sm">
-                        <span class="text-gray-500">
-                            Monto:
-                            <span class="font-bold text-gray-800">
-                                ${{ "{:,.2f}".format(aut.monto_total | float) if aut.monto_total else '—' }} {{ aut.moneda }}
-                            </span>
-                        </span>
-                        {% if aut.tipo_cambio_snapshot %}
-                        <span class="text-xs text-gray-400">TC: ${{ "{:,.4f}".format(aut.tipo_cambio_snapshot | float) }} MXN/USD</span>
-                        {% endif %}
-                    </div>
+        {% set paso_finanzas_ok = aut.fecha_aprobacion_finanzas is not none %}
+        {% set paso_finanzas_pendiente = aut.estatus == 'AUTORIZADO_DIRECCION' %}
+        {% set paso_finanzas_rechazado = aut.estatus == 'RECHAZADO' and aut.rechazado_en_paso == 'FINANZAS' %}
+
+        <div class="rounded-xl border border-gray-200 bg-white p-4"
+            x-data="{ modalDetalle: false, modalConciliacion: false }">
+
+            {# Cabecera — todo en una fila, se parte solo si el ancho no alcanza #}
+            <div class="flex items-start justify-between gap-3 mb-2">
+                <div class="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span class="text-sm font-semibold text-gray-800">{{ aut.nombre_proveedor or 'Sin proveedor' }}</span>
+                    <span class="px-2 py-0.5 text-xs font-bold rounded-lg border {{ badge_styles.get(aut.estatus, '') }}">
+                        {{ estatus_label.get(aut.estatus, aut.estatus) }}
+                    </span>
+                    {% if aut.rfq_nombre %}
+                    <span class="text-gray-300">·</span>
+                    <span class="text-xs text-gray-500">RFQ: <span class="font-medium text-gray-700">{{ aut.rfq_nombre }}</span></span>
+                    {% endif %}
+                    {% if aut.folio_proveedor %}
+                    <span class="text-gray-300">·</span>
+                    <span class="text-xs text-gray-500">Folio proveedor: <span class="font-medium text-gray-700">{{ aut.folio_proveedor }}</span></span>
+                    {% endif %}
+                    <span class="text-gray-300">·</span>
+                    <span class="text-xs text-gray-500">
+                        Monto: <span class="font-bold text-gray-800">${{ "{:,.2f}".format(aut.monto_total | float) if aut.monto_total else '—' }} {{ aut.moneda }}</span>
+                    </span>
+                    {% if aut.tipo_cambio_snapshot %}
+                    <span class="text-gray-300">·</span>
+                    <span class="text-xs text-gray-400">TC: ${{ "{:,.4f}".format(aut.tipo_cambio_snapshot | float) }} MXN/USD</span>
+                    {% endif %}
                 </div>
 
                 {# Botones de acción según paso #}
@@ -124,168 +137,100 @@
                 </div>
             </div>
 
-            {# Detalle de cotización — PDF + ítems, sin costos (Gap 1: validación de Obra) #}
-            <div class="mt-3 border-t border-gray-200/70 pt-3" x-data="{ abierto: false }">
-                <button type="button" @click="abierto = !abierto"
-                    class="inline-flex items-center gap-1.5 text-xs font-medium text-[#00BABB] hover:text-[#009a9b]">
-                    <svg class="w-3.5 h-3.5 transition-transform" :class="{'rotate-90': abierto}"
-                         fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
-                    <span x-text="abierto ? 'Ocultar cotización y detalle de ítems' : 'Ver cotización y detalle de ítems (' + {{ aut['items'] | length }} + ')'"></span>
-                </button>
-                <div x-show="abierto" x-cloak class="mt-3">
-                    {% if aut.pdf_url %}
-                    {{ boton_ver_pdf_cotizacion(aut.cotizacion_id, 'inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 font-medium mb-2') }}
-                    {% else %}
-                    <p class="text-xs text-gray-400 mb-2">Esta cotización no tiene PDF adjunto.</p>
-                    {% endif %}
-                    {% if aut['items'] %}
-                    <div class="overflow-x-auto rounded-lg border border-gray-200">
-                        <table class="min-w-full text-xs">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-2.5 py-1.5 text-left font-bold text-gray-500 uppercase">Descripción</th>
-                                    <th class="px-2.5 py-1.5 text-right font-bold text-gray-500 uppercase">Cantidad</th>
-                                    <th class="px-2.5 py-1.5 text-left font-bold text-gray-500 uppercase">Unidad</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-100">
-                                {% for item in aut['items'] %}
-                                <tr>
-                                    <td class="px-2.5 py-1.5 text-gray-700">{{ item.descripcion or '—' }}</td>
-                                    <td class="px-2.5 py-1.5 text-right text-gray-700">{{ item.cantidad }}</td>
-                                    <td class="px-2.5 py-1.5 text-gray-500">{{ item.unidad_medida or '—' }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                    {% else %}
-                    <p class="text-xs text-gray-400">Sin ítems registrados en esta cotización.</p>
-                    {% endif %}
-                </div>
-            </div>
-
-            {# Progreso del flujo #}
-            <div class="grid grid-cols-3 gap-2 mt-2">
-
-                {# Paso 1 — Obra #}
-                {% if aut.estatus in ('AUTORIZADO_OBRA', 'AUTORIZADO_DIRECCION', 'AUTORIZADO_FINANZAS') %}
-                <div class="rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
-                    <p class="text-xs font-bold text-blue-700 uppercase">Obra</p>
-                    <p class="text-xs text-blue-600 mt-0.5">{{ aut.aprobador_obra_nombre or '—' }}</p>
-                    {% if aut.fecha_aprobacion_obra %}
-                    <p class="text-xs text-gray-400 mt-0.5">{{ aut.fecha_aprobacion_obra.strftime('%d/%m/%Y %H:%M') }}</p>
-                    {% endif %}
-                    {% if aut.nota_obra %}
-                    <p class="text-xs italic text-gray-500 mt-0.5 truncate" title="{{ aut.nota_obra }}">{{ aut.nota_obra[:50] }}</p>
-                    {% endif %}
-                </div>
-                {% elif aut.estatus == 'PENDIENTE' %}
-                <div class="rounded-lg bg-amber-50 border border-amber-200 border-dashed px-3 py-2">
-                    <p class="text-xs font-bold text-amber-600 uppercase">Obra</p>
-                    <p class="text-xs text-amber-500 mt-0.5">Pendiente</p>
-                </div>
-                {% elif aut.estatus == 'RECHAZADO' and aut.rechazado_en_paso == 'OBRA' %}
-                <div class="rounded-lg bg-red-50 border border-red-200 px-3 py-2">
-                    <p class="text-xs font-bold text-red-600 uppercase">Obra</p>
-                    <p class="text-xs text-red-500 mt-0.5">Rechazado</p>
-                </div>
-                {% else %}
-                <div class="rounded-lg bg-gray-50 border border-gray-200 border-dashed px-3 py-2">
-                    <p class="text-xs font-bold text-gray-400 uppercase">Obra</p>
-                    <p class="text-xs text-gray-400 mt-0.5">—</p>
-                </div>
-                {% endif %}
-
-                {# Paso 2 — Dirección #}
-                {% if aut.estatus in ('AUTORIZADO_DIRECCION', 'AUTORIZADO_FINANZAS') %}
-                <div class="rounded-lg bg-violet-50 border border-violet-200 px-3 py-2">
-                    <p class="text-xs font-bold text-violet-700 uppercase">Dirección</p>
-                    <p class="text-xs text-violet-600 mt-0.5">{{ aut.aprobador_direccion_nombre or '—' }}</p>
-                    {% if aut.fecha_aprobacion_direccion %}
-                    <p class="text-xs text-gray-400 mt-0.5">{{ aut.fecha_aprobacion_direccion.strftime('%d/%m/%Y %H:%M') }}</p>
-                    {% endif %}
-                    {% if aut.nota_direccion %}
-                    <p class="text-xs italic text-gray-500 mt-0.5 truncate" title="{{ aut.nota_direccion }}">{{ aut.nota_direccion[:50] }}</p>
-                    {% endif %}
-                </div>
-                {% elif aut.estatus == 'AUTORIZADO_OBRA' %}
-                <div class="rounded-lg bg-amber-50 border border-amber-200 border-dashed px-3 py-2">
-                    <p class="text-xs font-bold text-amber-600 uppercase">Dirección</p>
-                    <p class="text-xs text-amber-500 mt-0.5">Pendiente</p>
-                </div>
-                {% elif aut.estatus == 'RECHAZADO' and aut.rechazado_en_paso == 'DIRECCION' %}
-                <div class="rounded-lg bg-red-50 border border-red-200 px-3 py-2">
-                    <p class="text-xs font-bold text-red-600 uppercase">Dirección</p>
-                    <p class="text-xs text-red-500 mt-0.5">Rechazado</p>
-                </div>
-                {% else %}
-                <div class="rounded-lg bg-gray-50 border border-gray-200 border-dashed px-3 py-2">
-                    <p class="text-xs font-bold text-gray-400 uppercase">Dirección</p>
-                    <p class="text-xs text-gray-400 mt-0.5">—</p>
-                </div>
-                {% endif %}
-
-                {# Paso 3 — Finanzas #}
-                {% if aut.estatus == 'AUTORIZADO_FINANZAS' %}
-                <div class="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2">
-                    <p class="text-xs font-bold text-emerald-700 uppercase">Finanzas</p>
-                    <p class="text-xs text-emerald-600 mt-0.5">{{ aut.aprobador_finanzas_nombre or '—' }}</p>
-                    {% if aut.fecha_aprobacion_finanzas %}
-                    <p class="text-xs text-gray-400 mt-0.5">{{ aut.fecha_aprobacion_finanzas.strftime('%d/%m/%Y %H:%M') }}</p>
-                    {% endif %}
-                    {% if aut.nota_finanzas %}
-                    <p class="text-xs italic text-gray-500 mt-0.5 truncate" title="{{ aut.nota_finanzas }}">{{ aut.nota_finanzas[:50] }}</p>
-                    {% endif %}
-                </div>
-                {% elif aut.estatus == 'AUTORIZADO_DIRECCION' %}
-                <div class="rounded-lg bg-amber-50 border border-amber-200 border-dashed px-3 py-2">
-                    <p class="text-xs font-bold text-amber-600 uppercase">Finanzas</p>
-                    <p class="text-xs text-amber-500 mt-0.5">Pendiente</p>
-                </div>
-                {% elif aut.estatus == 'RECHAZADO' and aut.rechazado_en_paso == 'FINANZAS' %}
-                <div class="rounded-lg bg-red-50 border border-red-200 px-3 py-2">
-                    <p class="text-xs font-bold text-red-600 uppercase">Finanzas</p>
-                    <p class="text-xs text-red-500 mt-0.5">Rechazado</p>
-                </div>
-                {% else %}
-                <div class="rounded-lg bg-gray-50 border border-gray-200 border-dashed px-3 py-2">
-                    <p class="text-xs font-bold text-gray-400 uppercase">Finanzas</p>
-                    <p class="text-xs text-gray-400 mt-0.5">—</p>
-                </div>
-                {% endif %}
+            {# Stepper compacto del flujo de autorización — flecha entre pasos coloreada
+               una vez que el flujo ya pasó por ahí; "ping" pulsante en el paso que está
+               esperando acción de alguien ahora mismo. #}
+            <div class="flex items-center gap-1 mt-2">
+                {{ paso_badge('Obra', paso_obra_ok, paso_obra_rechazado, paso_obra_activo,
+                    'bg-blue-50 border-blue-200 text-blue-700',
+                    tooltip_paso(paso_obra_ok, aut.aprobador_obra_nombre, aut.fecha_aprobacion_obra, aut.nota_obra, paso_obra_rechazado, aut.rechazado_por_nombre, paso_obra_activo, 'Obra')) }}
+                {{ paso_conector(paso_obra_ok) }}
+                {{ paso_badge('Dirección', paso_direccion_ok, paso_direccion_rechazado, paso_direccion_pendiente,
+                    'bg-violet-50 border-violet-200 text-violet-700',
+                    tooltip_paso(paso_direccion_ok, aut.aprobador_direccion_nombre, aut.fecha_aprobacion_direccion, aut.nota_direccion, paso_direccion_rechazado, aut.rechazado_por_nombre, paso_direccion_pendiente, 'Dirección')) }}
+                {{ paso_conector(paso_direccion_ok) }}
+                {{ paso_badge('Finanzas', paso_finanzas_ok, paso_finanzas_rechazado, paso_finanzas_pendiente,
+                    'bg-emerald-50 border-emerald-200 text-emerald-700',
+                    tooltip_paso(paso_finanzas_ok, aut.aprobador_finanzas_nombre, aut.fecha_aprobacion_finanzas, aut.nota_finanzas, paso_finanzas_rechazado, aut.rechazado_por_nombre, paso_finanzas_pendiente, 'Finanzas')) }}
             </div>
 
             {# Detalle del rechazo #}
             {% if aut.estatus == 'RECHAZADO' %}
             <div class="mt-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                <p class="text-xs font-bold text-red-600">Rechazado en paso: {{ aut.rechazado_en_paso }}</p>
+                <p class="text-xs font-bold text-red-600">Rechazado en paso: {{ paso_rechazo_label.get(aut.rechazado_en_paso, aut.rechazado_en_paso) }}</p>
                 {% if aut.rechazado_por_nombre %}<p class="text-xs text-red-500">Por: {{ aut.rechazado_por_nombre }}</p>{% endif %}
                 {% if aut.motivo_rechazo %}<p class="text-xs text-red-600 mt-1 italic">Motivo: {{ aut.motivo_rechazo }}</p>{% endif %}
                 {% if aut.fecha_rechazo %}<p class="text-xs text-gray-400 mt-0.5">{{ aut.fecha_rechazo | time_mx }}</p>{% endif %}
             </div>
             {% endif %}
 
-            {# Conciliación de facturas (Compras) #}
-            {% if es_compras_editor and aut.estatus != 'RECHAZADO' %}
-            <div class="mt-3 border-t border-gray-200/70 pt-3" x-data="{ abierto: false }">
+            {# Acciones secundarias: detalle de cotización e ítems, conciliación #}
+            <div class="flex items-center gap-4 mt-3 pt-3 border-t border-gray-100">
+                <button type="button" @click="modalDetalle = true"
+                    class="inline-flex items-center gap-1.5 text-xs font-medium text-[#00BABB] hover:text-[#009a9b]">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    Ver cotización y detalle de ítems ({{ aut['items'] | length }})
+                </button>
+
+                {% if es_compras_editor and aut.estatus != 'RECHAZADO' %}
                 <button type="button"
-                    @click="abierto = !abierto"
+                    @click="modalConciliacion = true"
                     hx-get="/bom/autorizaciones/{{ aut.id }}/conciliacion"
                     hx-target="#conciliacion-wrap-{{ aut.id }}"
                     hx-swap="innerHTML"
                     hx-trigger="click once"
                     class="inline-flex items-center gap-1.5 text-xs font-medium text-[#00BABB] hover:text-[#009a9b]">
-                    <svg class="w-3.5 h-3.5 transition-transform" :class="{'rotate-90': abierto}"
-                         fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                     </svg>
-                    <span x-text="abierto ? 'Ocultar conciliación' : 'Conciliar facturas'"></span>
+                    Conciliar facturas
                 </button>
-                <div id="conciliacion-wrap-{{ aut.id }}" x-show="abierto" x-cloak class="mt-3"></div>
+                {% endif %}
             </div>
+
+            {# Modal: detalle de cotización (PDF) + ítems — sin costos (Gap 1: validación de Obra) #}
+            {% call modal_teleport_shell('modalDetalle', 'Cotización — ' ~ (aut.nombre_proveedor or 'Sin proveedor'), ('Folio proveedor: ' ~ aut.folio_proveedor) if aut.folio_proveedor else None) %}
+                {% if aut.pdf_url %}
+                {{ boton_ver_pdf_cotizacion(aut.cotizacion_id, 'inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 font-medium mb-3') }}
+                {% else %}
+                <p class="text-xs text-gray-400 mb-3">Esta cotización no tiene PDF adjunto.</p>
+                {% endif %}
+                {% if aut['items'] %}
+                <div class="overflow-x-auto rounded-lg border border-gray-200">
+                    <table class="min-w-full text-xs">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-2.5 py-1.5 text-left font-bold text-gray-500 uppercase">Descripción</th>
+                                <th class="px-2.5 py-1.5 text-right font-bold text-gray-500 uppercase">Cantidad</th>
+                                <th class="px-2.5 py-1.5 text-left font-bold text-gray-500 uppercase">Unidad</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            {% for item in aut['items'] %}
+                            <tr>
+                                <td class="px-2.5 py-1.5 text-gray-700">{{ item.descripcion or '—' }}</td>
+                                <td class="px-2.5 py-1.5 text-right text-gray-700">{{ item.cantidad }}</td>
+                                <td class="px-2.5 py-1.5 text-gray-500">{{ item.unidad_medida or '—' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-xs text-gray-400">Sin ítems registrados en esta cotización.</p>
+                {% endif %}
+            {% endcall %}
+
+            {# Modal: conciliación de facturas (Compras) #}
+            {% if es_compras_editor and aut.estatus != 'RECHAZADO' %}
+            {% call modal_teleport_shell('modalConciliacion', 'Conciliación de facturas — ' ~ (aut.nombre_proveedor or 'Sin proveedor'), max_width='max-w-4xl') %}
+                <div id="conciliacion-wrap-{{ aut.id }}">
+                    <div class="text-center py-6 text-gray-400 text-sm">Cargando conciliación...</div>
+                </div>
+            {% endcall %}
             {% endif %}
 
         </div>

@@ -46,3 +46,74 @@
     Adjudicar
 </button>
 {% endmacro %}
+
+{% macro ping_dot(color_class='bg-amber-500', size='h-2 w-2') %}
+<span class="relative flex {{ size }}">
+    <span class="animate-ping absolute inline-flex h-full w-full rounded-full {{ color_class }} opacity-75"></span>
+    <span class="relative inline-flex rounded-full {{ size }} {{ color_class }}"></span>
+</span>
+{% endmacro %}
+
+{% macro tooltip_paso(ok, aprobador, fecha, nota, rechazado, rechazado_por, pendiente, nombre_paso) -%}
+{%- if ok -%}
+Aprobado por {{ aprobador or '—' }}{% if fecha %} el {{ fecha.strftime('%d/%m/%Y %H:%M') }}{% endif %}{% if nota %} — {{ nota }}{% endif %}
+{%- elif rechazado -%}
+Rechazado{% if rechazado_por %} por {{ rechazado_por }}{% endif %}
+{%- elif pendiente -%}
+Pendiente de aprobación de {{ nombre_paso }}
+{%- else -%}
+Aún no aplica
+{%- endif -%}
+{%- endmacro %}
+
+{% macro paso_badge(nombre, ok, rechazado, pendiente, clase_ok, tooltip) %}
+<span class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium cursor-help
+    {{ clase_ok if ok else ('bg-red-50 border-red-200 text-red-600' if rechazado else ('bg-amber-50 border-amber-200 border-dashed text-amber-600' if pendiente else 'bg-gray-50 border-gray-200 border-dashed text-gray-400')) }}"
+    title="{{ tooltip | trim }}">
+    {% if ok %}
+    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+    {% elif rechazado %}
+    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+    {% elif pendiente %}
+    {{ ping_dot() }}
+    {% else %}
+    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>
+    {% endif %}
+    {{ nombre }}
+</span>
+{% endmacro %}
+
+{% macro paso_conector(activo) %}
+<svg class="w-3.5 h-3.5 shrink-0 {{ 'text-gray-400' if activo else 'text-gray-200' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+</svg>
+{% endmacro %}
+
+{# Shell de modal Alpine (x-teleport + x-show, persiste montado y solo se oculta al
+   cerrar — no vuelve a pedir datos al servidor la siguiente vez que se abre). Body vía
+   {% call %}. alpine_var es la variable booleana en el x-data del elemento padre. #}
+{% macro modal_teleport_shell(alpine_var, titulo, subtitulo=None, max_width='max-w-2xl') %}
+<template x-teleport="body">
+    <div x-show="{{ alpine_var }}" x-cloak @keydown.escape.window="{{ alpine_var }} = false"
+        class="modal-overlay-layer fixed inset-0 z-[10100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm"
+        @click.self="{{ alpine_var }} = false">
+        <div class="bg-white rounded-xl shadow-2xl {{ max_width }} w-full max-h-[90dvh] flex flex-col">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200 shrink-0">
+                <div>
+                    <h3 class="text-sm font-bold text-gray-800">{{ titulo }}</h3>
+                    {% if subtitulo %}<p class="text-xs text-gray-400 mt-0.5">{{ subtitulo }}</p>{% endif %}
+                </div>
+                <button type="button" @click="{{ alpine_var }} = false"
+                    class="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="flex-1 min-h-0 overflow-y-auto p-5">
+                {{ caller() }}
+            </div>
+        </div>
+    </div>
+</template>
+{% endmacro %}
