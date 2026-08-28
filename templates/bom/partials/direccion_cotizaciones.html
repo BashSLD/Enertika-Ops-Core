@@ -1,7 +1,8 @@
 {# templates/bom/partials/direccion_cotizaciones.html #}
 {# Dashboard de Direccion: cotizaciones post-BOM pendientes/aprobadas/rechazadas, todos los proyectos #}
 
-<div id="direccion-cotizaciones-content" class="w-full px-4 py-6 animate-fade-in-down" hx-history="false">
+<div id="direccion-cotizaciones-content" class="w-full px-4 py-6 animate-fade-in-down" hx-history="false"
+    x-data="direccionCotizacionesStandby()">
     <div class="mb-4">
         <h1 class="text-2xl font-bold text-gray-800">Aprobaciones de cotizaciones</h1>
         <p class="mt-1 text-sm text-gray-500">Cotizaciones de compra post-BOM que requieren aprobación de Dirección.</p>
@@ -14,6 +15,8 @@
             <label class="mb-1 block text-xs font-medium text-gray-600">Estatus</label>
             <select name="estatus" class="rounded-lg border-gray-300 text-sm" onchange="this.form.requestSubmit()">
                 <option value="PENDIENTE_DIRECCION" {{ 'selected' if estatus_filtro == 'PENDIENTE_DIRECCION' }}>Pendientes</option>
+                <option value="EN_STANDBY" {{ 'selected' if estatus_filtro == 'EN_STANDBY' }}>En espera</option>
+                <option value="PENDIENTE_VIGENCIA_COMPRAS" {{ 'selected' if estatus_filtro == 'PENDIENTE_VIGENCIA_COMPRAS' }}>Esperando confirmación de Compras</option>
                 <option value="APROBADA" {{ 'selected' if estatus_filtro == 'APROBADA' }}>Aprobadas</option>
                 <option value="RECHAZADA" {{ 'selected' if estatus_filtro == 'RECHAZADA' }}>Rechazadas</option>
                 <option value="" {{ 'selected' if not estatus_filtro }}>Todas</option>
@@ -51,6 +54,13 @@
                         'PENDIENTE_DIRECCION': 'bg-violet-100 text-violet-700 border-violet-300',
                         'APROBADA': 'bg-emerald-100 text-emerald-800 border-emerald-300',
                         'RECHAZADA': 'bg-red-100 text-red-700 border-red-300',
+                        'EN_STANDBY': 'bg-amber-100 text-amber-700 border-amber-300',
+                        'PENDIENTE_VIGENCIA_COMPRAS': 'bg-sky-100 text-sky-700 border-sky-300',
+                    } %}
+                    {% set estatus_labels = {
+                        'PENDIENTE_DIRECCION': 'PENDIENTE DIRECCIÓN',
+                        'EN_STANDBY': 'EN ESPERA',
+                        'PENDIENTE_VIGENCIA_COMPRAS': 'ESPERANDO A COMPRAS',
                     } %}
                     {% for a in aprobaciones %}
                     <tr class="hover:bg-gray-50">
@@ -69,10 +79,15 @@
                         </td>
                         <td class="px-4 py-3">
                             <span class="px-2 py-0.5 text-xs font-bold rounded-lg border {{ estatus_styles.get(a.aprobacion_estatus, 'bg-gray-100 text-gray-700 border-gray-300') }}">
-                                {{ a.aprobacion_estatus }}
+                                {{ estatus_labels.get(a.aprobacion_estatus, a.aprobacion_estatus) }}
                             </span>
                             {% if a.aprobacion_estatus == 'RECHAZADA' and a.motivo_rechazo %}
                             <span class="block mt-1 text-xs text-red-600">{{ a.motivo_rechazo }}</span>
+                            {% elif a.aprobacion_estatus in ('EN_STANDBY', 'PENDIENTE_VIGENCIA_COMPRAS') and a.motivo_standby %}
+                            <span class="block mt-1 text-xs text-amber-600">{{ a.motivo_standby }}</span>
+                            {% endif %}
+                            {% if a.aprobacion_estatus == 'EN_STANDBY' and a.fecha_recordatorio %}
+                            <span class="block mt-0.5 text-xs text-gray-400">Recordatorio: {{ a.fecha_recordatorio.strftime('%d/%m/%Y') }}</span>
                             {% endif %}
                         </td>
                         <td class="px-4 py-3 text-xs text-gray-500">
@@ -111,7 +126,44 @@
                                         Rechazar
                                     </button>
                                 </form>
+                                <button type="button"
+                                    @click="abrirStandby('standby-form-{{ a.cotizacion_id }}', {{ (a.nombre_proveedor or 'Sin proveedor') | tojson }}, false, '', '')"
+                                    class="rounded-lg bg-amber-500 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600">
+                                    Poner en espera
+                                </button>
                             </div>
+                            <form id="standby-form-{{ a.cotizacion_id }}" class="hidden"
+                                hx-post="/bom/direccion/cotizaciones/{{ a.cotizacion_id }}/standby"
+                                hx-target="#direccion-cotizaciones-content" hx-swap="outerHTML"
+                                hx-disabled-elt="find button[type='submit']" hx-sync="this:replace">
+                                <input type="hidden" name="motivo">
+                                <input type="hidden" name="fecha_recordatorio">
+                                <input type="hidden" name="aprobacion_lock_version" value="{{ a.aprobacion_lock_version }}">
+                                <input type="hidden" name="estatus" value="{{ estatus_filtro }}">
+                                <input type="hidden" name="id_proyecto" value="{{ id_proyecto_filtro }}">
+                                <input type="hidden" name="proveedor" value="{{ proveedor_filtro }}">
+                                <button type="submit" class="hidden"></button>
+                            </form>
+                            {% elif a.aprobacion_estatus == 'EN_STANDBY' %}
+                            <button type="button"
+                                @click="abrirStandby('standby-form-{{ a.cotizacion_id }}', {{ (a.nombre_proveedor or 'Sin proveedor') | tojson }}, true, {{ (a.motivo_standby or '') | tojson }}, {{ (a.fecha_recordatorio.isoformat() if a.fecha_recordatorio else '') | tojson }})"
+                                class="rounded-lg bg-amber-500 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600">
+                                Reprogramar
+                            </button>
+                            <form id="standby-form-{{ a.cotizacion_id }}" class="hidden"
+                                hx-post="/bom/direccion/cotizaciones/{{ a.cotizacion_id }}/reprogramar-standby"
+                                hx-target="#direccion-cotizaciones-content" hx-swap="outerHTML"
+                                hx-disabled-elt="find button[type='submit']" hx-sync="this:replace">
+                                <input type="hidden" name="motivo">
+                                <input type="hidden" name="fecha_recordatorio">
+                                <input type="hidden" name="aprobacion_lock_version" value="{{ a.aprobacion_lock_version }}">
+                                <input type="hidden" name="estatus" value="{{ estatus_filtro }}">
+                                <input type="hidden" name="id_proyecto" value="{{ id_proyecto_filtro }}">
+                                <input type="hidden" name="proveedor" value="{{ proveedor_filtro }}">
+                                <button type="submit" class="hidden"></button>
+                            </form>
+                            {% elif a.aprobacion_estatus == 'PENDIENTE_VIGENCIA_COMPRAS' %}
+                            <span class="text-xs text-gray-400">Esperando confirmación de Compras</span>
                             {% endif %}
                         </td>
                         {% endif %}
@@ -126,4 +178,47 @@
         <p class="text-sm font-medium text-gray-500">No hay cotizaciones con este filtro.</p>
     </div>
     {% endif %}
+
+    {# Modal standby / reprogramar standby #}
+    <div x-show="standbyModal.open" x-cloak
+        class="modal-overlay-layer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+        @keydown.escape.window="cerrarStandby()">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-md mx-3 max-h-[90dvh] flex flex-col">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0"
+                style="background: linear-gradient(135deg, #b45309 0%, #d97706 100%);">
+                <div>
+                    <h2 class="text-base font-semibold text-white" x-text="standbyModal.esReprogramacion ? 'Reprogramar espera' : 'Poner en espera'"></h2>
+                    <p class="text-xs text-amber-100" x-text="'Cotización de: ' + standbyModal.proveedor"></p>
+                </div>
+                <button @click="cerrarStandby()" class="text-white/60 hover:text-white transition-colors p-1">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="overflow-y-auto flex-1 min-h-0 px-5 py-4 space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Motivo (obligatorio)</label>
+                    <textarea x-model="standbyModal.motivo" rows="3"
+                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-500 resize-none"
+                        placeholder="Explica por qué se pone en espera esta cotización..."></textarea>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Fecha de recordatorio (obligatoria)</label>
+                    <input type="date" x-model="standbyModal.fecha"
+                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-500">
+                    <span x-show="standbyModal.fecha" x-text="standbyFechaFmt" x-cloak
+                        class="mt-1 block cursor-help text-xs text-gray-400"
+                        title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
+                </div>
+                <p x-show="standbyError" x-text="standbyError" class="text-sm text-red-600 font-medium"></p>
+            </div>
+            <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
+                <button type="button" @click="guardarStandby()"
+                    class="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-lg transition-colors bg-amber-600 hover:bg-amber-700">
+                    Confirmar
+                </button>
+            </div>
+        </div>
+    </div>
 </div>

@@ -47,6 +47,14 @@
         // Compartida entre sharepointFolderButton.abrirPicker() y el boton "Cambiar
         // carpeta" del mini-modal spSinMatch (store global, sin acceso al x-data del
         // boton que originó la busqueda) — una sola implementacion del round-trip.
+        // Tooltip dd/mm/yyyy para <input type="date"> (rules/06-ui-ux.md sección 5)
+        // -- fecha ISO (yyyy-mm-dd) de un date-picker vacio elegida client-side.
+        function formatFechaLocalDDMMYYYY(iso) {
+            if (!iso) return '';
+            const [y, m, d] = iso.split('-');
+            return `${d}/${m}/${y}`;
+        }
+
         function abrirPickerSharePoint(idProyecto, proyectoIdEstandar) {
             const params = new URLSearchParams({ proyecto_id_estandar: proyectoIdEstandar || '' });
             htmx.ajax('GET', '/integraciones/sharepoint/proyecto/' + idProyecto + '/modal-picker?' + params.toString(), {
@@ -388,6 +396,24 @@
                 reemplazoOverride: false,
                 reemplazoGuardando: false,
                 reemplazoError: '',
+
+                // Standby de Direccion (poner en espera / reprogramar)
+                modalStandbyAbierto: false,
+                standby: { cotizacionId: null, aprobacionLockVersion: null, proveedor: '', esReprogramacion: false },
+                standbyMotivo: '',
+                standbyFecha: '',
+                standbyGuardando: false,
+                standbyError: '',
+
+                // Confirmar vigencia (Punto B, reactivacion de standby)
+                modalVigenciaAbierto: false,
+                vigencia: { cotizacionId: null, aprobacionLockVersion: null, autorizacionLockVersion: null, cotizacionLockVersion: null, proveedor: '' },
+                vigenciaEsVigente: true,
+                vigenciaMotivo: '',
+                vigenciaNuevoTotal: '',
+                vigenciaArchivo: null,
+                vigenciaGuardando: false,
+                vigenciaError: '',
 
                 init() {
                     try {
@@ -792,7 +818,156 @@
                     } finally {
                         this.reemplazoGuardando = false;
                     }
+                },
+
+                abrirModalStandby(cotizacionId, aprobacionLockVersion, proveedor, esReprogramacion, motivoActual, fechaActual) {
+                    this.standby = { cotizacionId, aprobacionLockVersion, proveedor, esReprogramacion };
+                    this.standbyMotivo = esReprogramacion ? (motivoActual || '') : '';
+                    this.standbyFecha = esReprogramacion ? (fechaActual || '') : '';
+                    this.standbyError = '';
+                    this.modalStandbyAbierto = true;
+                },
+
+                cerrarModalStandby() { this.modalStandbyAbierto = false; },
+
+                get standbyFechaFmt() {
+                    return formatFechaLocalDDMMYYYY(this.standbyFecha);
+                },
+
+                async guardarStandby() {
+                    if (!this.standbyMotivo.trim()) {
+                        this.standbyError = 'El motivo es obligatorio.';
+                        return;
+                    }
+                    if (!this.standbyFecha) {
+                        this.standbyError = 'La fecha de recordatorio es obligatoria.';
+                        return;
+                    }
+                    this.standbyGuardando = true;
+                    this.standbyError = '';
+                    try {
+                        const url = this.standby.esReprogramacion
+                            ? `/bom/cotizaciones/${this.standby.cotizacionId}/reprogramar-standby`
+                            : `/bom/cotizaciones/${this.standby.cotizacionId}/standby-direccion`;
+                        const body = new URLSearchParams({
+                            motivo: this.standbyMotivo,
+                            fecha_recordatorio: this.standbyFecha,
+                            aprobacion_lock_version: this.standby.aprobacionLockVersion,
+                        });
+                        const resp = await fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'HX-Request': 'true' },
+                            body: body.toString(),
+                        });
+                        if (!resp.ok) {
+                            const err = await resp.json().catch(() => ({}));
+                            throw new Error(err.detail || 'Error al guardar el standby');
+                        }
+                        const html = await resp.text();
+                        swapTabCotizaciones(html);
+                        this.cerrarModalStandby();
+                    } catch(e) {
+                        this.standbyError = e.message;
+                    } finally {
+                        this.standbyGuardando = false;
+                    }
+                },
+
+                abrirModalVigencia(cotizacionId, aprobacionLockVersion, autorizacionLockVersion, cotizacionLockVersion, proveedor) {
+                    this.vigencia = { cotizacionId, aprobacionLockVersion, autorizacionLockVersion, cotizacionLockVersion, proveedor };
+                    this.vigenciaEsVigente = true;
+                    this.vigenciaMotivo = '';
+                    this.vigenciaNuevoTotal = '';
+                    this.vigenciaArchivo = null;
+                    this.vigenciaError = '';
+                    this.modalVigenciaAbierto = true;
+                },
+
+                cerrarModalVigencia() { this.modalVigenciaAbierto = false; },
+
+                async guardarVigencia() {
+                    if (!this.vigenciaEsVigente && !this.vigenciaMotivo.trim()) {
+                        this.vigenciaError = 'El motivo es obligatorio cuando la cotización ya no está vigente.';
+                        return;
+                    }
+                    this.vigenciaGuardando = true;
+                    this.vigenciaError = '';
+                    try {
+                        const form = new FormData();
+                        form.append('vigente', this.vigenciaEsVigente ? 'true' : 'false');
+                        if (this.vigenciaMotivo) form.append('motivo', this.vigenciaMotivo);
+                        if (this.vigenciaEsVigente && this.vigenciaNuevoTotal) {
+                            form.append('nuevo_total', this.vigenciaNuevoTotal);
+                        }
+                        if (this.vigenciaEsVigente && this.vigenciaArchivo) {
+                            form.append('archivo_vigencia', this.vigenciaArchivo);
+                        }
+                        form.append('aprobacion_lock_version', this.vigencia.aprobacionLockVersion);
+                        form.append('autorizacion_lock_version', this.vigencia.autorizacionLockVersion);
+                        if (this.vigencia.cotizacionLockVersion !== null) {
+                            form.append('cotizacion_lock_version', this.vigencia.cotizacionLockVersion);
+                        }
+                        const resp = await fetch(`/bom/cotizaciones/${this.vigencia.cotizacionId}/confirmar-vigencia`, {
+                            method: 'POST',
+                            headers: { 'HX-Request': 'true' },
+                            body: form,
+                        });
+                        if (!resp.ok) {
+                            const err = await resp.json().catch(() => ({}));
+                            throw new Error(err.detail || 'Error al confirmar vigencia');
+                        }
+                        const html = await resp.text();
+                        swapTabCotizaciones(html);
+                        this.cerrarModalVigencia();
+                    } catch(e) {
+                        this.vigenciaError = e.message;
+                    } finally {
+                        this.vigenciaGuardando = false;
+                    }
                 }
+            }));
+
+            // Modal de standby/reprogramar del dashboard de Direccion
+            // (templates/bom/partials/direccion_cotizaciones.html). Cada fila
+            // renderiza su propio <form hx-post> oculto (URL real conocida en
+            // Jinja); el modal solo captura motivo/fecha y llena esos hidden
+            // inputs antes de requestSubmit() -- htmx maneja el resto
+            // (hx-disabled-elt, _toast_response en error) igual que Aprobar/Rechazar.
+            Alpine.data('direccionCotizacionesStandby', () => ({
+                standbyModal: { open: false, esReprogramacion: false, formId: null, proveedor: '', motivo: '', fecha: '' },
+                standbyError: '',
+
+                abrirStandby(formId, proveedor, esReprogramacion, motivoActual, fechaActual) {
+                    this.standbyModal = {
+                        open: true, esReprogramacion, formId,
+                        proveedor: proveedor || 'Sin proveedor',
+                        motivo: esReprogramacion ? (motivoActual || '') : '',
+                        fecha: esReprogramacion ? (fechaActual || '') : '',
+                    };
+                    this.standbyError = '';
+                },
+
+                cerrarStandby() { this.standbyModal.open = false; },
+
+                get standbyFechaFmt() {
+                    return formatFechaLocalDDMMYYYY(this.standbyModal.fecha);
+                },
+
+                guardarStandby() {
+                    if (!this.standbyModal.motivo.trim()) {
+                        this.standbyError = 'El motivo es obligatorio.';
+                        return;
+                    }
+                    if (!this.standbyModal.fecha) {
+                        this.standbyError = 'La fecha de recordatorio es obligatoria.';
+                        return;
+                    }
+                    const form = document.getElementById(this.standbyModal.formId);
+                    form.querySelector('[name=motivo]').value = this.standbyModal.motivo.trim();
+                    form.querySelector('[name=fecha_recordatorio]').value = this.standbyModal.fecha;
+                    this.cerrarStandby();
+                    form.requestSubmit();
+                },
             }));
         });
 

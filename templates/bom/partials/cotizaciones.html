@@ -114,15 +114,38 @@
                 {# Acciones #}
                 {% if cot.estatus == 'SELECCIONADA'
                       and cot.autorizacion_estatus == 'AUTORIZADO_OBRA'
-                      and cot.aprobacion_estatus not in ('PENDIENTE_DIRECCION', 'APROBADA')
+                      and cot.aprobacion_estatus not in ('PENDIENTE_DIRECCION', 'APROBADA', 'EN_STANDBY', 'PENDIENTE_VIGENCIA_COMPRAS')
                       and es_compras_editor %}
-                <form class="flex shrink-0 items-center gap-2"
+                <form class="flex shrink-0 flex-col items-end gap-1.5" x-data="{ vigente: true }"
                     hx-post="/bom/cotizaciones/{{ cot.id }}/solicitar-aprobacion"
+                    hx-encoding="multipart/form-data"
                     hx-target="#tab-cotizaciones" hx-swap="innerHTML"
                     hx-disabled-elt="find button[type='submit']"
                     hx-sync="this:replace">
                     <input type="hidden" name="cotizacion_lock_version" value="{{ cot.lock_version }}">
                     <input type="hidden" name="autorizacion_lock_version" value="{{ cot.autorizacion_lock_version }}">
+                    <div class="flex items-center gap-2 text-xs text-gray-600">
+                        <span class="font-medium">¿Sigue vigente?</span>
+                        <label class="flex items-center gap-1"><input type="radio" name="vigente" x-model="vigente" :value="true"> Sí</label>
+                        <label class="flex items-center gap-1"><input type="radio" name="vigente" x-model="vigente" :value="false"> No</label>
+                    </div>
+                    <template x-if="!vigente">
+                        <textarea name="motivo_no_vigente" rows="2" required
+                            placeholder="Motivo: por qué ya no está vigente (obligatorio)"
+                            class="w-56 text-xs border border-gray-300 rounded-lg px-2 py-1.5 resize-none"></textarea>
+                    </template>
+                    <template x-if="vigente">
+                        <div class="flex items-center gap-1.5">
+                            <input type="number" name="nuevo_total" step="0.01" min="0"
+                                placeholder="Nuevo total (opcional)"
+                                class="w-32 text-xs border border-gray-300 rounded-lg px-2 py-1.5">
+                            <label class="text-xs text-gray-500 cursor-pointer px-2 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50"
+                                title="Reemplazar el PDF de la cotización (opcional)">
+                                PDF
+                                <input type="file" name="archivo_vigencia" accept="application/pdf" class="hidden">
+                            </label>
+                        </div>
+                    </template>
                     {% if reemplazables %}
                     <select name="reemplaza_aprobacion_id"
                         class="text-xs border border-gray-300 rounded-lg px-1.5 py-1.5 max-w-[11rem]"
@@ -138,6 +161,18 @@
                         Solicitar aprobación de Dirección
                     </button>
                 </form>
+                {% elif cot.aprobacion_estatus == 'PENDIENTE_VIGENCIA_COMPRAS' and es_compras_editor %}
+                <button type="button"
+                    @click="abrirModalVigencia('{{ cot.id }}', {{ cot.aprobacion_lock_version | tojson }}, {{ cot.autorizacion_lock_version | tojson }}, {{ cot.lock_version | tojson }}, {{ (cot.nombre_proveedor or 'Sin proveedor') | tojson }})"
+                    class="shrink-0 rounded-lg bg-sky-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-sky-700">
+                    Confirmar vigencia
+                </button>
+                {% elif cot.aprobacion_estatus == 'EN_STANDBY' and es_aprobador_direccion %}
+                <button type="button"
+                    @click="abrirModalStandby('{{ cot.id }}', {{ cot.aprobacion_lock_version | tojson }}, {{ (cot.nombre_proveedor or 'Sin proveedor') | tojson }}, true, {{ (cot.aprobacion_motivo_standby or '') | tojson }}, {{ (cot.aprobacion_fecha_recordatorio.isoformat() if cot.aprobacion_fecha_recordatorio else '') | tojson }})"
+                    class="shrink-0 rounded-lg bg-amber-500 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600">
+                    Reprogramar espera
+                </button>
                 {% elif cot.aprobacion_estatus == 'APROBADA' and es_compras_editor %}
                 <button type="button"
                     @click="abrirModalReemplazo('{{ cot.id }}', {{ cot.aprobacion_lock_version | tojson }}, {{ cot.autorizacion_lock_version | tojson }}, {{ (cot.nombre_proveedor or 'Sin proveedor') | tojson }})"
@@ -168,6 +203,11 @@
                             Rechazar
                         </button>
                     </form>
+                    <button type="button"
+                        @click="abrirModalStandby('{{ cot.id }}', {{ cot.aprobacion_lock_version | tojson }}, {{ (cot.nombre_proveedor or 'Sin proveedor') | tojson }}, false, '', '')"
+                        class="rounded-lg bg-amber-500 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600">
+                        Poner en espera
+                    </button>
                 </div>
                 {% elif es_compras_editor and cot.estatus not in ('SELECCIONADA', 'RECHAZADA') %}
                 <div class="flex items-center gap-2 shrink-0">
@@ -242,11 +282,17 @@
             <div class="mt-2 rounded-lg border px-2.5 py-1.5 text-xs
                 {% if cot.aprobacion_estatus == 'APROBADA' %}border-emerald-200 bg-emerald-50 text-emerald-700
                 {% elif cot.aprobacion_estatus == 'RECHAZADA' %}border-red-200 bg-red-50 text-red-700
+                {% elif cot.aprobacion_estatus in ('EN_STANDBY', 'PENDIENTE_VIGENCIA_COMPRAS') %}border-amber-200 bg-amber-50 text-amber-700
                 {% else %}border-violet-200 bg-violet-50 text-violet-700{% endif %}">
                 {% if cot.aprobacion_estatus == 'APROBADA' %}
                 Cotización aprobada por Dirección.
                 {% elif cot.aprobacion_estatus == 'RECHAZADA' %}
                 Rechazada por Dirección: {{ cot.aprobacion_motivo_rechazo or 'Sin motivo registrado' }}
+                {% elif cot.aprobacion_estatus == 'EN_STANDBY' %}
+                En espera de Dirección{% if cot.aprobacion_fecha_recordatorio %} — recordatorio: {{ cot.aprobacion_fecha_recordatorio.strftime('%d/%m/%Y') }}{% endif %}.
+                {% if cot.aprobacion_motivo_standby %}<span class="block mt-0.5">{{ cot.aprobacion_motivo_standby }}</span>{% endif %}
+                {% elif cot.aprobacion_estatus == 'PENDIENTE_VIGENCIA_COMPRAS' %}
+                Standby reactivado — Compras debe confirmar vigencia antes de que la cotización regrese a Dirección.
                 {% else %}
                 Aprobación de Dirección pendiente.
                 {% endif %}
@@ -323,6 +369,117 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                 </svg>
                 <span x-text="reemplazoGuardando ? 'Guardando...' : 'Confirmar reemplazo'"></span>
+            </button>
+        </div>
+    </div>
+</div>
+
+{# Modal Standby / Reprogramar espera de Dirección #}
+<div x-show="modalStandbyAbierto" x-cloak
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm modal-overlay-layer"
+    @keydown.escape.window="cerrarModalStandby()">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-md mx-3 max-h-[90dvh] flex flex-col">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0"
+            style="background: linear-gradient(135deg, #b45309 0%, #d97706 100%);">
+            <div>
+                <h2 class="text-base font-semibold text-white" x-text="standby.esReprogramacion ? 'Reprogramar espera' : 'Poner en espera'"></h2>
+                <p class="text-xs text-amber-100" x-text="'Cotización de: ' + standby.proveedor"></p>
+            </div>
+            <button @click="cerrarModalStandby()" class="text-white/60 hover:text-white transition-colors p-1">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div class="overflow-y-auto flex-1 min-h-0 px-5 py-4 space-y-4">
+            <div>
+                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Motivo (obligatorio)</label>
+                <textarea x-model="standbyMotivo" rows="3"
+                    class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-500 resize-none"
+                    placeholder="Explica por qué se pone en espera esta cotización..."></textarea>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Fecha de recordatorio (obligatoria)</label>
+                <input type="date" x-model="standbyFecha"
+                    class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-500">
+                <span x-show="standbyFecha" x-text="standbyFechaFmt" x-cloak
+                    class="mt-1 block cursor-help text-xs text-gray-400"
+                    title="Formato dia/mes/anio - puede no coincidir con el orden que muestra el calendario del navegador"></span>
+            </div>
+            <p x-show="standbyError" x-text="standbyError" class="text-sm text-red-600 font-medium"></p>
+        </div>
+        <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
+            <button type="button" @click="guardarStandby()" :disabled="standbyGuardando"
+                class="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed bg-amber-600 hover:bg-amber-700">
+                <svg class="w-4 h-4" :class="{'animate-spin': standbyGuardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+                <span x-text="standbyGuardando ? 'Guardando...' : 'Confirmar'"></span>
+            </button>
+        </div>
+    </div>
+</div>
+
+{# Modal Confirmar vigencia (Punto B, reactivacion de standby) #}
+<div x-show="modalVigenciaAbierto" x-cloak
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm modal-overlay-layer"
+    @keydown.escape.window="cerrarModalVigencia()">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-md mx-3 max-h-[90dvh] flex flex-col">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0"
+            style="background: linear-gradient(135deg, #0369a1 0%, #0ea5e9 100%);">
+            <div>
+                <h2 class="text-base font-semibold text-white">Confirmar vigencia</h2>
+                <p class="text-xs text-sky-100" x-text="'Cotización de: ' + vigencia.proveedor"></p>
+            </div>
+            <button @click="cerrarModalVigencia()" class="text-white/60 hover:text-white transition-colors p-1">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div class="overflow-y-auto flex-1 min-h-0 px-5 py-4 space-y-4">
+            <p class="text-sm text-gray-600">
+                El standby de esta cotización venció. Confirma si el precio y las condiciones del
+                proveedor siguen vigentes antes de regresarla a Dirección.
+            </p>
+            <div class="flex items-center gap-2 text-sm text-gray-700">
+                <span class="font-medium">¿Sigue vigente?</span>
+                <label class="flex items-center gap-1"><input type="radio" x-model="vigenciaEsVigente" :value="true"> Sí</label>
+                <label class="flex items-center gap-1"><input type="radio" x-model="vigenciaEsVigente" :value="false"> No</label>
+            </div>
+            <template x-if="!vigenciaEsVigente">
+                <div>
+                    <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Motivo (obligatorio)</label>
+                    <textarea x-model="vigenciaMotivo" rows="3"
+                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-sky-500 resize-none"
+                        placeholder="Explica por qué ya no está vigente..."></textarea>
+                </div>
+            </template>
+            <template x-if="vigenciaEsVigente">
+                <div class="space-y-2">
+                    <p class="text-xs text-gray-500">
+                        Solo se actualiza el total agregado -- el detalle por ítem se recalcula en una
+                        recotización completa si aplica.
+                    </p>
+                    <input type="number" x-model="vigenciaNuevoTotal" step="0.01" min="0"
+                        placeholder="Nuevo total (opcional)"
+                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2">
+                    <label class="block text-xs text-gray-500 cursor-pointer">
+                        Reemplazar PDF (opcional)
+                        <input type="file" @change="vigenciaArchivo = $event.target.files[0] || null" accept="application/pdf"
+                            class="mt-1 block w-full text-xs">
+                    </label>
+                </div>
+            </template>
+            <p x-show="vigenciaError" x-text="vigenciaError" class="text-sm text-red-600 font-medium"></p>
+        </div>
+        <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
+            <button type="button" @click="guardarVigencia()" :disabled="vigenciaGuardando"
+                class="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed bg-sky-600 hover:bg-sky-700">
+                <svg class="w-4 h-4" :class="{'animate-spin': vigenciaGuardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+                <span x-text="vigenciaGuardando ? 'Guardando...' : 'Confirmar'"></span>
             </button>
         </div>
     </div>

@@ -6,6 +6,8 @@ Incluido desde core/bom/router.py via router.include_router(compras_router).
 from fastapi import APIRouter, Depends, Request, HTTPException, Form, File, UploadFile
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, Response
+from datetime import date
+from decimal import Decimal, InvalidOperation
 from uuid import UUID
 from typing import Optional
 import asyncpg
@@ -799,6 +801,26 @@ async def preview_pdf_cotizacion(
 # APROBACIONES DE COTIZACION (post-BOM)
 # ========================================
 
+async def _subir_pdf_vigencia_opcional(
+    conn, archivo: Optional[UploadFile], cotizacion_id: UUID, user_id: UUID,
+) -> Optional[str]:
+    """Sube a SharePoint el PDF opcional del gate de vigencia (Puntos A y B) y
+    devuelve la url_sharepoint, o None si no se adjuntó archivo. Mismo patron que
+    subir_pdf_cotizacion (upload fuera de la transaccion de negocio)."""
+    if archivo is None or not archivo.filename:
+        return None
+    from modules.compras.service import ComprasService
+
+    upload_result = await ComprasService().subir_pdf_mensual(
+        conn, archivo, categoria='bom/cotizaciones',
+        origen_slug='cotizacion_bom', user_id=user_id,
+        id_bom_cotizacion=cotizacion_id,
+    )
+    if not upload_result or not upload_result.get('url_sharepoint'):
+        raise ValueError("No se pudo subir el PDF a SharePoint")
+    return upload_result['url_sharepoint']
+
+
 @compras_router.post("/cotizaciones/{cotizacion_id}/solicitar-aprobacion", include_in_schema=False)
 async def solicitar_aprobacion_cotizacion(
     request: Request,
@@ -807,22 +829,44 @@ async def solicitar_aprobacion_cotizacion(
     cotizacion_lock_version: int = Form(...),
     autorizacion_lock_version: int = Form(...),
     reemplaza_aprobacion_id: Optional[str] = Form(None),
+    vigente: bool = Form(True),
+    motivo_no_vigente: Optional[str] = Form(None),
+    nuevo_total: Optional[str] = Form(None),
+    archivo_vigencia: Optional[UploadFile] = File(None),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
     _=require_module_access("compras", "editor"),
 ):
-    """Solicita aprobación de Dirección para una cotización seleccionada (post-BOM)."""
+    """Solicita aprobación de Dirección para una cotización seleccionada (post-BOM).
+
+    Punto A del gate de vigencia: si `vigente=False`, no se crea aprobación --
+    se rechaza la autorización Fase D directamente (RECHAZO_VIGENCIA).
+    """
     user_id = context.get("user_db_id")
     try:
         reemplaza_id = UUID(reemplaza_aprobacion_id) if reemplaza_aprobacion_id else None
     except ValueError:
         return _toast_response(request, "reemplaza_aprobacion_id inválido", "error", status_code=400)
     try:
+        # nuevo_total: Optional[str] en vez de Optional[Decimal] -- un input
+        # numerico vacio llega como "" via multipart, y Pydantic no lo trata
+        # como None para un Optional[Decimal] (422 antes de llegar al try).
+        nuevo_total_dec = Decimal(nuevo_total) if nuevo_total else None
+    except (InvalidOperation, ValueError):
+        return _toast_response(request, "Nuevo total inválido.", "error", status_code=400)
+    try:
+        # Si no vigente, el archivo (si vino) se descarta -- evita el upload a
+        # SharePoint de un PDF que nunca se va a referenciar.
+        nuevo_pdf_url = await _subir_pdf_vigencia_opcional(
+            conn, archivo_vigencia if vigente else None, cotizacion_id, user_id,
+        )
         aprobacion = await service.solicitar_aprobacion_cotizacion(
             conn, cotizacion_id, user_id, comentarios,
             cotizacion_lock_version, autorizacion_lock_version,
             reemplaza_aprobacion_id=reemplaza_id,
+            vigente=vigente, motivo_no_vigente=motivo_no_vigente,
+            nuevo_total=nuevo_total_dec, nuevo_pdf_url=nuevo_pdf_url,
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -889,6 +933,106 @@ async def rechazar_cotizacion_direccion(
     except asyncpg.PostgresError:
         logger.exception("Error de BD al rechazar cotización por Dirección")
         return _toast_response(request, "Error al rechazar la cotización.", "error", status_code=500)
+
+    return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
+
+
+@compras_router.post("/cotizaciones/{cotizacion_id}/standby-direccion", include_in_schema=False)
+async def standby_cotizacion_direccion(
+    request: Request,
+    cotizacion_id: UUID,
+    motivo: str = Form(...),
+    fecha_recordatorio: date = Form(...),
+    aprobacion_lock_version: int = Form(...),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    """Dirección pone en espera ("standby") una cotización pendiente de su aprobación.
+
+    Invocado via fetch() manual (modal de cotizacionesBom()) -- errores como
+    HTTPException con detail, no _toast_response (el caller ya lee err.detail).
+    """
+    user_id = context.get("user_db_id")
+    try:
+        aprobacion = await service.standby_cotizacion_direccion(
+            conn, cotizacion_id, user_id, motivo, fecha_recordatorio,
+            aprobacion_lock_version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al poner en standby la cotización")
+        raise HTTPException(status_code=500, detail="Error al poner en standby la cotización.")
+
+    return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
+
+
+@compras_router.post("/cotizaciones/{cotizacion_id}/reprogramar-standby", include_in_schema=False)
+async def reprogramar_standby_cotizacion(
+    request: Request,
+    cotizacion_id: UUID,
+    motivo: str = Form(...),
+    fecha_recordatorio: date = Form(...),
+    aprobacion_lock_version: int = Form(...),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    """Reprograma un standby ya activo (nuevo motivo/fecha). Invocado via fetch()
+    manual -- errores como HTTPException, no _toast_response."""
+    user_id = context.get("user_db_id")
+    try:
+        aprobacion = await service.reprogramar_standby_direccion(
+            conn, cotizacion_id, user_id, motivo, fecha_recordatorio,
+            aprobacion_lock_version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al reprogramar el standby de la cotización")
+        raise HTTPException(status_code=500, detail="Error al reprogramar el standby.")
+
+    return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
+
+
+@compras_router.post("/cotizaciones/{cotizacion_id}/confirmar-vigencia", include_in_schema=False)
+async def confirmar_vigencia_cotizacion(
+    request: Request,
+    cotizacion_id: UUID,
+    vigente: bool = Form(...),
+    motivo: Optional[str] = Form(None),
+    nuevo_total: Optional[Decimal] = Form(None),
+    archivo_vigencia: Optional[UploadFile] = File(None),
+    aprobacion_lock_version: int = Form(...),
+    autorizacion_lock_version: int = Form(...),
+    cotizacion_lock_version: Optional[int] = Form(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Compras confirma vigencia tras la reactivación del standby (Punto B).
+    Invocado via fetch() manual -- errores como HTTPException, no _toast_response."""
+    user_id = context.get("user_db_id")
+    try:
+        # Si no vigente, el archivo (si vino) se descarta -- evita el upload a
+        # SharePoint de un PDF que nunca se va a referenciar.
+        nuevo_pdf_url = await _subir_pdf_vigencia_opcional(
+            conn, archivo_vigencia if vigente else None, cotizacion_id, user_id,
+        )
+        aprobacion = await service.confirmar_vigencia_reactivacion(
+            conn, cotizacion_id, user_id, vigente, motivo,
+            nuevo_total, nuevo_pdf_url,
+            aprobacion_lock_version, autorizacion_lock_version, cotizacion_lock_version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al confirmar vigencia de cotización")
+        raise HTTPException(status_code=500, detail="Error al confirmar vigencia.")
 
     return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
 
@@ -1019,6 +1163,70 @@ async def dashboard_rechazar_cotizacion(
     except asyncpg.PostgresError:
         logger.exception("Error de BD al rechazar cotización desde el dashboard de Dirección")
         return _toast_response(request, "Error al rechazar la cotización.", "error", status_code=500)
+    ctx = await _dashboard_direccion_ctx(
+        conn, service, context, estatus, _parse_id_proyecto_filtro(id_proyecto), proveedor
+    )
+    return templates.TemplateResponse(request, "bom/partials/direccion_cotizaciones.html", ctx)
+
+
+@compras_router.post("/direccion/cotizaciones/{cotizacion_id}/standby", include_in_schema=False)
+async def dashboard_standby_cotizacion(
+    request: Request,
+    cotizacion_id: UUID,
+    motivo: str = Form(...),
+    fecha_recordatorio: date = Form(...),
+    aprobacion_lock_version: int = Form(...),
+    estatus: Optional[str] = Form(None),
+    id_proyecto: Optional[str] = Form(None),
+    proveedor: Optional[str] = Form(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    user_id = context.get("user_db_id")
+    try:
+        await service.standby_cotizacion_direccion(
+            conn, cotizacion_id, user_id, motivo, fecha_recordatorio,
+            aprobacion_lock_version,
+        )
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al poner en standby desde el dashboard de Dirección")
+        return _toast_response(request, "Error al poner en standby la cotización.", "error", status_code=500)
+    ctx = await _dashboard_direccion_ctx(
+        conn, service, context, estatus, _parse_id_proyecto_filtro(id_proyecto), proveedor
+    )
+    return templates.TemplateResponse(request, "bom/partials/direccion_cotizaciones.html", ctx)
+
+
+@compras_router.post("/direccion/cotizaciones/{cotizacion_id}/reprogramar-standby", include_in_schema=False)
+async def dashboard_reprogramar_standby_cotizacion(
+    request: Request,
+    cotizacion_id: UUID,
+    motivo: str = Form(...),
+    fecha_recordatorio: date = Form(...),
+    aprobacion_lock_version: int = Form(...),
+    estatus: Optional[str] = Form(None),
+    id_proyecto: Optional[str] = Form(None),
+    proveedor: Optional[str] = Form(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"], allow_org_roles={"director"}),
+):
+    user_id = context.get("user_db_id")
+    try:
+        await service.reprogramar_standby_direccion(
+            conn, cotizacion_id, user_id, motivo, fecha_recordatorio,
+            aprobacion_lock_version,
+        )
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al reprogramar standby desde el dashboard de Dirección")
+        return _toast_response(request, "Error al reprogramar el standby.", "error", status_code=500)
     ctx = await _dashboard_direccion_ctx(
         conn, service, context, estatus, _parse_id_proyecto_filtro(id_proyecto), proveedor
     )
