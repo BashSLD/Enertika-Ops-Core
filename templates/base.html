@@ -1797,6 +1797,27 @@
         </div>
     </div>
 
+    <!-- Vista Previa de Documento (PDF/imagen) -->
+    <div id="modal-vista-previa-archivo"
+        class="modal-overlay-layer fixed inset-0 bg-gray-900/80 backdrop-blur-sm z-[10500] hidden flex items-center justify-center p-4"
+        onclick="cerrarVistaPreviaArchivo()">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[90dvh] flex flex-col" onclick="event.stopPropagation()">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 shrink-0">
+                <h3 class="text-sm font-semibold text-gray-800">Vista previa</h3>
+                <button type="button" onclick="cerrarVistaPreviaArchivo()"
+                    class="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="flex-1 min-h-0">
+                <iframe id="modal-vista-previa-archivo-iframe" src="about:blank"
+                    class="w-full h-full rounded-b-xl" title="Vista previa de documento"></iframe>
+            </div>
+        </div>
+    </div>
+
     <script>
         // === IDENTIDAD DE SESION (cliente) ===
         // No todos los templates pasan el email del usuario a base.html; en vez de
@@ -1817,6 +1838,36 @@
         function closeSessionModal() {
             document.getElementById('session-modal').classList.add('hidden');
             showSessionModalMessage('');
+        }
+
+        // === VISTA PREVIA DE ARCHIVO (PDF/imagen) EN MODAL ===
+        function esDispositivoTactil() {
+            return window.matchMedia('(pointer: coarse)').matches;
+        }
+
+        function abrirVistaPreviaArchivo(url) {
+            const modal = document.getElementById('modal-vista-previa-archivo');
+            const iframe = document.getElementById('modal-vista-previa-archivo-iframe');
+            if (!modal || !iframe) return;
+            iframe.src = url;
+            modal.classList.remove('hidden');
+        }
+
+        function cerrarVistaPreviaArchivo() {
+            const modal = document.getElementById('modal-vista-previa-archivo');
+            const iframe = document.getElementById('modal-vista-previa-archivo-iframe');
+            if (!modal || !iframe) return;
+            iframe.src = 'about:blank';
+            modal.classList.add('hidden');
+        }
+
+        // En touch/mobile se deja el comportamiento nativo del <a target="_blank">
+        // (nueva pestana o descarga segun el dispositivo) en vez del modal, porque
+        // un iframe de PDF no es usable en la mayoria de navegadores moviles.
+        function abrirPreviewSiEscritorio(event, url) {
+            if (esDispositivoTactil()) return;
+            event.preventDefault();
+            abrirVistaPreviaArchivo(url);
         }
 
         // Usado por fetch() manuales (fuera de HTMX) que reciben el mismo
@@ -2958,6 +3009,7 @@
         // Close with ESC
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape') {
+                cerrarVistaPreviaArchivo();
                 const overlay = document.getElementById('modal-overlay');
                 if (overlay && !overlay.classList.contains('hidden')) {
                     // Call closeModal without event to force close

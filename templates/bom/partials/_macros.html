@@ -25,6 +25,7 @@
 
 {% macro boton_ver_pdf_cotizacion(cotizacion_id, css_class='inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 font-medium') %}
 <a href="/bom/cotizaciones/{{ cotizacion_id }}/preview" target="_blank" rel="noopener"
+    onclick="abrirPreviewSiEscritorio(event, this.href)"
     class="{{ css_class }}">
     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
