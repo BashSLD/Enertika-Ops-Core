@@ -181,6 +181,19 @@ class FakeCotizacionParcialDB:
             item["estatus_ejecucion"] = campos["estatus_ejecucion"]
         return dict(item)
 
+    async def actualizar_estatus_ejecucion_batch(self, conn, filas):
+        """Insert-o-actualiza con CAS, mismo comportamiento que la sentencia
+        real (INSERT...ON CONFLICT DO UPDATE...WHERE lock_version = esperado)."""
+        logrados = []
+        for item_id, estatus_ejecucion, updated_by, lock_version_esperado in filas:
+            item = self.items[item_id]
+            if lock_version_esperado != item.get("ejecucion_lock_version", 0):
+                continue
+            item["ejecucion_lock_version"] = lock_version_esperado + 1
+            item["estatus_ejecucion"] = estatus_ejecucion
+            logrados.append(item_id)
+        return logrados
+
     async def get_autorizacion_by_cotizacion(self, conn, cotizacion_id):
         for aut in self.autorizaciones.values():
             if aut["cotizacion_id"] == cotizacion_id:

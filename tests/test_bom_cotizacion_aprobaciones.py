@@ -161,6 +161,9 @@ class FakeAprobacionesDB:
     async def upsert_item_ejecucion(self, conn, item_id, updated_by=None, **campos):
         return {"id_item": item_id, **campos}
 
+    async def actualizar_estatus_ejecucion_batch(self, conn, filas):
+        return [f[0] for f in filas]
+
     async def registrar_evento_outbox(self, conn, id_evento, tipo_evento, *args, **kwargs):
         self.eventos_outbox.append({
             "id_evento": id_evento,

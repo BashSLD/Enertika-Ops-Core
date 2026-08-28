@@ -206,23 +206,20 @@ class BomComprasServiceMixin:
             for item in bloqueados
         }
         resultados = await resolver(bloqueados)
-        for r in resultados:
-            item_id = r["id_item"]
-            nuevo_estatus = r["estatus_compra"]
-            estado_ejecucion = (
-                "PENDIENTE" if nuevo_estatus == "SIN_COTIZAR" else nuevo_estatus
+
+        filas = [
+            (
+                r["id_item"],
+                "PENDIENTE" if r["estatus_compra"] == "SIN_COTIZAR" else r["estatus_compra"],
+                updated_by,
+                locks_ejecucion[str(r["id_item"])],
             )
-            ejecucion = await self.db.upsert_item_ejecucion(
-                conn,
-                item_id,
-                updated_by=updated_by,
-                lock_version_esperado=locks_ejecucion[str(item_id)],
-                estatus_ejecucion=estado_ejecucion,
-            )
-            if not ejecucion:
-                raise ValueError(
-                    "La ejecución de un item cambió; recarga el paquete"
-                )
+            for r in resultados
+        ]
+        logrados = set(await self.db.actualizar_estatus_ejecucion_batch(conn, filas))
+        faltantes = {r["id_item"] for r in resultados} - logrados
+        if faltantes:
+            raise ValueError("La ejecución de un item cambió; recarga el paquete")
         return resultados
 
     async def _actualizar_estatus_items_por_ids(
@@ -1886,7 +1883,7 @@ class BomComprasServiceMixin:
             )
 
         items_insert = [
-            {"bom_item_id": i["id_item"], "cantidad": Decimal(str(i["cantidad"]))}
+            {"bom_item_id": i["id_item"], "cantidad": cantidad_pendiente_item(i)}
             for i in items_disponibles
         ]
         async with conn.transaction():
@@ -1945,10 +1942,10 @@ class BomComprasServiceMixin:
                 "Este item ya está autorizado, pagado o facturado y no puede agregarse al RFQ"
             )
         cantidad_decimal = Decimal(str(cantidad))
-        cantidad_bom = items_bd[0].get("cantidad")
-        if cantidad_bom is not None and cantidad_decimal > Decimal(str(cantidad_bom)):
+        cantidad_pendiente = cantidad_pendiente_item(items_bd[0])
+        if cantidad_decimal > cantidad_pendiente:
             raise ValueError(
-                f"La cantidad no puede superar la cantidad del item en el BOM ({cantidad_bom})"
+                f"La cantidad no puede superar el remanente pendiente del item ({cantidad_pendiente})"
             )
         async with conn.transaction():
             actualizado = await self.db.incrementar_lock_rfq(conn, rfq_id, lock_version_esperado)

@@ -61,6 +61,10 @@ class FakeDB:
         )
         return {"id_item": item_id, "lock_version": lock_version_esperado + 1}
 
+    async def actualizar_estatus_ejecucion_batch(self, conn, filas):
+        self.ejecucion_calls.extend(filas)
+        return [f[0] for f in filas]
+
 
 def _svc():
     svc = BomService()
@@ -78,9 +82,7 @@ async def test_asignar_marca_item_facturado():
     assert res["id_bom_item"] == item
     assert svc.db.confirm_calls == [(hist, item, None, 0, None)]
     assert svc.db.estatus_calls == [([item], "FACTURADO")]
-    assert svc.db.ejecucion_calls == [
-        (item, None, 0, {"estatus_ejecucion": "FACTURADO"})
-    ]
+    assert svc.db.ejecucion_calls == [(item, "FACTURADO", None, 0)]
 
 
 @pytest.mark.asyncio

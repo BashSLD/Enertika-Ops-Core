@@ -1809,6 +1809,45 @@ class BomDBService(BomComprasDBMixin):
         )
         return dict(row) if row else None
 
+    async def actualizar_estatus_ejecucion_batch(
+        self, conn, filas: List[tuple],
+    ) -> List[UUID]:
+        """Batch de `estatus_ejecucion`: crea la fila si no existe o la
+        actualiza con CAS por lock_version si existe, en una sola sentencia --
+        version acotada de upsert_item_ejecucion (un solo campo, sin merge
+        parcial de JSON) para el mirror masivo de _mutar_estatus_compra_items
+        (core/bom/compras_service.py), evitando N upserts de una sola fila.
+
+        `filas`: lista de (id_item, estatus_ejecucion, updated_by, lock_version_esperado).
+        El truco: `EXCLUDED.lock_version` es `lock_version_esperado + 1` (columna
+        real del INSERT, por eso visible en el WHERE del DO UPDATE -- a diferencia
+        de otras columnas de la fuente UNNEST, que ON CONFLICT no expone). Eso
+        permite una sola sentencia para crear (sin conflicto) o hacer CAS en
+        conflicto, sin distinguir los dos casos en Python. Verificado con los
+        3 casos (alta, CAS exitoso, CAS obsoleto) contra DEV antes de aplicar.
+        Retorna los id_item cuyo insert/CAS aplico.
+        """
+        if not filas:
+            return []
+        ids = [f[0] for f in filas]
+        estatus = [f[1] for f in filas]
+        updated_by = [f[2] for f in filas]
+        locks = [f[3] for f in filas]
+        rows = await conn.fetch("""
+            INSERT INTO tb_bom_item_ejecucion (id_item, estatus_ejecucion, updated_by, lock_version)
+            SELECT d.id_item, d.estatus_ejecucion, d.updated_by, d.lock_version_esperado + 1
+            FROM UNNEST($1::uuid[], $2::varchar[], $3::uuid[], $4::int[])
+                AS d(id_item, estatus_ejecucion, updated_by, lock_version_esperado)
+            ON CONFLICT (id_item) DO UPDATE
+            SET estatus_ejecucion = EXCLUDED.estatus_ejecucion,
+                updated_by = EXCLUDED.updated_by,
+                lock_version = EXCLUDED.lock_version,
+                updated_at = NOW()
+            WHERE tb_bom_item_ejecucion.lock_version = EXCLUDED.lock_version - 1
+            RETURNING id_item
+        """, ids, estatus, updated_by, locks)
+        return [r["id_item"] for r in rows]
+
     async def soft_delete_item(self, conn, id_item: UUID) -> dict:
         """Marca un item como inactivo (soft delete)."""
         row = await conn.fetchrow("""
