@@ -130,12 +130,22 @@
                                 <span class="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">{{ paquete.estado_paquete }}</span>
                                 {% endif %}
                                 {% if paquete.estatus_trabajo in estatus_fase_compras %}
-                                <a href="/bom/paquetes/{{ paquete.id_paquete }}/compras"
-                                    hx-get="/bom/paquetes/{{ paquete.id_paquete }}/compras"
-                                    hx-target="#main-content" hx-push-url="true"
+                                {% if puede_ver_resumen_compra %}
+                                <button type="button"
+                                    hx-get="/bom/{{ paquete.cabeza_trabajo_id }}/resumen-compra/modal"
+                                    hx-target="#bom-modal-container" hx-swap="innerHTML"
                                     class="rounded bg-blue-50 px-1.5 py-0.5 font-medium text-blue-700 hover:bg-blue-100">
-                                    Ver compras
-                                </a>
+                                    Resumen de compra
+                                </button>
+                                {% endif %}
+                                {% if paquete.id_paquete in ids_paquete_coordinador_obra and paquete.cabeza_trabajo_id in boms_con_autorizacion_pendiente %}
+                                <button type="button"
+                                    hx-get="/bom/{{ paquete.cabeza_trabajo_id }}/autorizacion-obra/modal"
+                                    hx-target="#bom-modal-container" hx-swap="innerHTML"
+                                    class="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700 hover:bg-amber-100">
+                                    Autorizar compra
+                                </button>
+                                {% endif %}
                                 {% endif %}
                             </div>
                         </td>
@@ -264,4 +274,7 @@
             </form>
         </div>
     </div>
+
+    {# Container para modales dinamicos (Resumen de compra / Autorizar compra) #}
+    <div id="bom-modal-container"></div>
 </div>

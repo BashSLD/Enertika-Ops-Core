@@ -537,6 +537,24 @@ class BomComprasDBMixin:
         """, bom_id)
         return [dict(r) for r in rows]
 
+    async def get_bom_ids_con_autorizacion_pendiente(
+        self, conn, bom_ids: List[UUID],
+    ) -> set:
+        """Batch: subconjunto de bom_ids con al menos una autorizacion PENDIENTE
+        (paso Obra). Usado para decidir visibilidad del boton "Autorizar compra"
+        en el hub de paquetes sin N+1 (una query para todo el proyecto)."""
+        if not bom_ids:
+            return set()
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT bom_id
+            FROM tb_bom_autorizaciones
+            WHERE estatus = 'PENDIENTE' AND bom_id = ANY($1::uuid[])
+            """,
+            bom_ids,
+        )
+        return {r["bom_id"] for r in rows}
+
     async def update_autorizacion_paso_obra(
         self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
         lock_version_esperado: int,

@@ -69,6 +69,7 @@ class BomDBService(BomComprasDBMixin):
                 trabajo.version AS version_trabajo,
                 trabajo.estatus AS estatus_trabajo,
                 trabajo.lock_version AS bom_lock_version,
+                trabajo.coordinador_obra AS coordinador_obra_trabajo,
                 oficial.version AS version_oficial,
                 oficial.fecha_aprobacion_final AS fecha_aprobacion_oficial,
                 COALESCE(items.total_items, 0) AS total_items,
@@ -708,10 +709,12 @@ class BomDBService(BomComprasDBMixin):
         id_paquete: Optional[UUID] = None, id_bom: Optional[UUID] = None,
         id_item: Optional[UUID] = None, id_documento: Optional[UUID] = None,
     ) -> dict:
-        url_destino = (
-            f"/bom/paquetes/{id_paquete}/ui"
-            if id_paquete else f"/bom/{id_proyecto}/ui"
-        )
+        if tipo_evento == "COTIZACION_APROBACION_SOLICITADA" and id_paquete:
+            url_destino = f"/bom/paquetes/{id_paquete}/compras"
+        elif id_paquete:
+            url_destino = f"/bom/paquetes/{id_paquete}/ui"
+        else:
+            url_destino = f"/bom/{id_proyecto}/ui"
         paquete_codigo = await conn.fetchval(
             """
             SELECT codigo FROM tb_bom_paquetes

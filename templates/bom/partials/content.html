@@ -199,15 +199,27 @@
                         Adendas
                     </button>
                     {% endif %}
-                    {% if fase_compras and paquete %}
+                    {% if fase_compras %}
+                    {% if puede_ver_resumen_compra %}
                     <button type="button" @click="open = false"
-                        hx-get="/bom/paquetes/{{ paquete.id_paquete }}/compras" hx-target="#main-content" hx-push-url="true"
+                        hx-get="/bom/{{ bom.id_bom }}/resumen-compra/modal" hx-target="#bom-modal-container" hx-swap="innerHTML"
                         class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
                         </svg>
-                        Ver compras
+                        Resumen de compra
                     </button>
+                    {% endif %}
+                    {% if es_coordinador_obra_paso and autorizacion_obra_pendiente %}
+                    <button type="button" @click="open = false"
+                        hx-get="/bom/{{ bom.id_bom }}/autorizacion-obra/modal" hx-target="#bom-modal-container" hx-swap="innerHTML"
+                        class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        Autorizar compra
+                    </button>
+                    {% endif %}
                     {% endif %}
                 </div>
             </div>

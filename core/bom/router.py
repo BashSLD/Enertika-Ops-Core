@@ -47,6 +47,27 @@ def _puede_gestionar_tc_manual(context: dict) -> bool:
         or context.get("rol_organizacional") == "director"
     )
 
+
+def _puede_ver_resumen_compra(context: dict) -> bool:
+    """Compras (cualquier rol de modulo) o Direccion -- mismo criterio que gatea
+    el endpoint GET /{id_bom}/resumen-compra/modal."""
+    return (
+        context.get("role") == "ADMIN"
+        or bool(context.get("module_roles", {}).get("compras"))
+        or context.get("rol_organizacional") == "director"
+    )
+
+
+def _es_coordinador_obra(
+    coordinador_obra: Optional[UUID], representados: set, rol_organizacional: Optional[str],
+) -> bool:
+    """Coordinador de obra asignado al BOM (o su suplente activo, via `representados`);
+    si el BOM no tiene coordinador asignado, cae al jefe de Construccion. Misma regla
+    que usan aprobar_obra()/rechazar_autorizacion() en compras_service.py."""
+    if coordinador_obra:
+        return coordinador_obra in representados
+    return rol_organizacional == "jefe_construccion"
+
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
 
@@ -360,6 +381,29 @@ async def bom_hub_ui(
     if not proyecto:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     paquetes = await service.listar_paquetes(conn, id_proyecto)
+
+    # Botones "Resumen de compra" / "Autorizar compra" por paquete: Compras/Direccion
+    # ven el primero, el coordinador de obra el segundo (solo si tiene algo PENDIENTE).
+    # Batch para todo el proyecto -- sin N+1 por paquete.
+    puede_ver_resumen_compra = _puede_ver_resumen_compra(context)
+    rol_organizacional = context.get("rol_organizacional")
+    boms_con_autorizacion_pendiente = set()
+    ids_paquete_coordinador_obra = set()
+    ids_bom_fase_compras = [
+        p["cabeza_trabajo_id"] for p in paquetes
+        if p.get("cabeza_trabajo_id") and p.get("estatus_trabajo") in _ESTATUS_FASE_COMPRAS
+    ]
+    if ids_bom_fase_compras:
+        representados_obra = await service.get_titulares_que_representa(conn, context.get("user_db_id"))
+        boms_con_autorizacion_pendiente = await service.db.get_bom_ids_con_autorizacion_pendiente(
+            conn, ids_bom_fase_compras
+        )
+        ids_paquete_coordinador_obra = {
+            p["id_paquete"] for p in paquetes
+            if p.get("cabeza_trabajo_id") and p.get("estatus_trabajo") in _ESTATUS_FASE_COMPRAS
+            and _es_coordinador_obra(p.get("coordinador_obra_trabajo"), representados_obra, rol_organizacional)
+        }
+
     estado = await service.get_estado_conjunto(conn, id_proyecto)
     metricas_fv = await service.get_metricas_paneles(conn, id_proyecto)
     # todos_paquetes/estado NO se reusan aqui: se leen fuera del snapshot
@@ -405,6 +449,9 @@ async def bom_hub_ui(
         "es_admin": role == "ADMIN",
         "clave_idempotencia_paquete": str(uuid4()),
         "estatus_fase_compras": _ESTATUS_FASE_COMPRAS,
+        "puede_ver_resumen_compra": puede_ver_resumen_compra,
+        "boms_con_autorizacion_pendiente": boms_con_autorizacion_pendiente,
+        "ids_paquete_coordinador_obra": ids_paquete_coordinador_obra,
     }
     template = "bom/partials/hub.html" if is_htmx(request) else "bom/hub.html"
     return templates.TemplateResponse(request, template, ctx)
@@ -670,6 +717,9 @@ async def paquete_ui(
     es_rol_bom = False
     puede_aprobar = False
     puede_versionar = False
+    puede_ver_resumen_compra = False
+    es_coordinador_obra_paso = False
+    autorizacion_obra_pendiente = False
     puede_administrar_paquete = await service.puede_administrar_paquete(
         conn, id_proyecto, user_id_ctx, context.get("role")
     )
@@ -705,6 +755,20 @@ async def paquete_ui(
         # Incluye APROBADO_CONST: enviar a final lo hace el jefe de construccion.
         puede_aprobar = capacidades["editar_base"]
 
+        # Botones "Resumen de compra" / "Autorizar compra" del menu del BOM: solo
+        # tiene sentido calcularlos en fase de compras (antes no hay autorizaciones
+        # ni datos de compra que mostrar).
+        if bom["estatus"] in _ESTATUS_FASE_COMPRAS:
+            puede_ver_resumen_compra = _puede_ver_resumen_compra(context)
+            es_coordinador_obra_paso = _es_coordinador_obra(
+                bom.get("coordinador_obra"), representados, context.get("rol_organizacional"),
+            )
+            if es_coordinador_obra_paso:
+                boms_pendientes = await service.db.get_bom_ids_con_autorizacion_pendiente(
+                    conn, [bom["id_bom"]]
+                )
+                autorizacion_obra_pendiente = bom["id_bom"] in boms_pendientes
+
     ctx = _build_bom_context(
         request, context, bom,
         proyecto=proyecto,
@@ -722,6 +786,9 @@ async def paquete_ui(
         puede_versionar=puede_versionar,
         puede_gestionar_bom_ingenieria=puede_gestionar_bom_ingenieria,
         puede_administrar_paquete=puede_administrar_paquete,
+        puede_ver_resumen_compra=puede_ver_resumen_compra,
+        es_coordinador_obra_paso=es_coordinador_obra_paso,
+        autorizacion_obra_pendiente=autorizacion_obra_pendiente,
     )
 
     template = "bom/partials/content.html" if is_htmx(request) else "bom/dashboard.html"
@@ -2124,6 +2191,47 @@ async def get_adendas_modal(
     return await _get_modal_log_or_toast(
         request, id_bom, service, conn,
         "modal-log-adendas", "Adendas", "adendas", "tab-adendas",
+    )
+
+
+@router.get("/{id_bom}/resumen-compra/modal", include_in_schema=False)
+async def get_resumen_compra_modal(
+    request: Request,
+    id_bom: UUID,
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["compras"], "viewer", allow_org_roles={"director"}),
+):
+    """Vista rapida del Resumen de compra desde el menu del BOM (Compras/Direccion),
+    sin navegar a la pagina completa de Compras (que ambos ya alcanzan por su propia
+    ruta: /compras/proyectos-bom para Compras, notificacion directa para Direccion)."""
+    return await _get_modal_log_or_toast(
+        request, id_bom, service, conn,
+        "modal-log-resumen-compra", "Resumen de compra", "resumen-compra", "tab-resumen-compra-modal",
+    )
+
+
+@router.get("/{id_bom}/autorizacion-obra/modal", include_in_schema=False)
+async def get_autorizacion_obra_modal(
+    request: Request,
+    id_bom: UUID,
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_any_module_access(["construccion"], "viewer"),
+):
+    """Modal de autorizacion de compra para el coordinador de obra: reusa el mismo
+    endpoint/partial de la tab Autorizaciones de la pagina de Compras, sin que
+    Construccion tenga que navegar a esa pagina completa (pensada para Compras/
+    Direccion, que si usan las 3 tabs).
+
+    body_id debe ser exactamente "tab-autorizaciones": los botones Aprobar/Rechazar
+    dentro de autorizaciones.html tienen ese target hardcodeado (htmx.ajax target:
+    '#tab-autorizaciones', igual que en compras_paquete.html) — si el id del wrapper
+    del modal no coincide, esos botones fallan silenciosamente al no encontrar el
+    elemento destino."""
+    return await _get_modal_log_or_toast(
+        request, id_bom, service, conn,
+        "modal-log-autorizacion-obra", "Autorizar compra", "autorizaciones", "tab-autorizaciones",
     )
 
 
