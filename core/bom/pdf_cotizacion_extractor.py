@@ -11,6 +11,12 @@ captura. Mismo enfoque sin OCR que modules/compras/pdf_extractor.py
 un comprobante de pago (necesita solo texto de la pagina 1); aqui se listan
 renglones de una tabla de items (necesita el objeto pdf completo, multi-pagina,
 para extract_tables()) -- por eso no reusa su apertura+manejo de errores.
+
+Tambien es importado desde core/materials/pdf_captura.py (captura asistida de
+precios del catalogo interno) -- invierte la convencion establecida de que
+core.bom importa core.materials y no al reves. Mientras esto siga siendo asi,
+este archivo debe permanecer libre de cualquier import a core.bom o
+core.materials (agregar uno crearia un ciclo real).
 """
 
 import pdfplumber
@@ -22,6 +28,21 @@ from pdfminer.pdfexceptions import PSException
 from modules.compras.pdf_extractor import clean_text
 
 logger = logging.getLogger("BOM.PDFCotizacionExtractor")
+
+def validar_pdf_cotizacion(content_type: str, tamano_bytes: int, max_size_mb: int) -> None:
+    """Valida que un archivo subido sea un PDF real y no exceda el tamano maximo.
+
+    Compartida por BOM (core/bom/compras_service.py) y por la captura asistida
+    de precios del catalogo interno (core/materials/pdf_captura.py) -- vive
+    aqui, no en BomComprasServiceMixin, porque core.materials no puede
+    importar ese mixin sin arrastrar el resto de core.bom.service (ver
+    docstring del modulo)."""
+    tipo = (content_type or "").split(";")[0].strip().lower()
+    if tipo != "application/pdf":
+        raise ValueError("El archivo debe ser un PDF")
+    if tamano_bytes / (1024 * 1024) > max_size_mb:
+        raise ValueError(f"El PDF supera el tamaño máximo permitido ({max_size_mb}MB)")
+
 
 _MAX_CANDIDATOS = 50
 _PRECIO_EN_TEXTO_RE = re.compile(r'\$?\s*([\d,]+\.\d{2})\s*$')

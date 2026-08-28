@@ -14,7 +14,7 @@
         class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent"
         placeholder="Descripción oficial de la empresa">
     {% if not modo_edicion|default(false) %}
-    <div class="material-similar-results mt-1 text-xs"></div>
+    <div class="material-similar-results mt-1 text-xs" @material-interno-elegido="usarMaterialHomologado($event.detail)"></div>
     {% endif %}
     {% if not puede_editar_costos %}
     <span class="text-xs text-amber-600 mt-0.5" x-show="{{ costo_bloqueado_expr }}" x-cloak>

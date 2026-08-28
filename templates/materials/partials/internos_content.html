@@ -1,3 +1,4 @@
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 <div
     class="animate-fade-in-down px-4"
     x-data="{
@@ -61,12 +62,123 @@
             }
         },
         modalImportar: false,
-        modalPrecios: false
+        modalPrecios: false,
+        modalPdfInterno: false,
+        extrayendoPdf: false,
+        guardandoPdf: false,
+        pdfIntentado: false,
+        pdfError: null,
+        pdfInternoErrorMsg: null,
+        candidatosPdf: [],
+        get asignadosPdfCount() {
+            return this.candidatosPdf.filter(c => c.asignado).length;
+        },
+        reprocesarCandidatosHtmx() {
+            // x-for/x-if insertan estas filas via reactividad de Alpine, no via
+            // swap de htmx -- hay que reprocesar sus atributos hx-* a mano (mismo
+            // patron que swapTabCotizaciones en base.html).
+            this.$nextTick(() => {
+                const el = document.getElementById('candidatos-pdf-lista');
+                if (el && typeof htmx !== 'undefined') htmx.process(el);
+            });
+        },
+        abrirModalPdfInterno() {
+            this.candidatosPdf = [];
+            this.pdfError = null;
+            this.pdfInternoErrorMsg = null;
+            this.pdfIntentado = false;
+            this.modalPdfInterno = true;
+        },
+        cerrarModalPdfInterno() {
+            const pendientes = this.candidatosPdf.filter(c => !c.asignado).length;
+            if (pendientes > 0 && !confirm(`Tienes ${pendientes} precio(s) sin asignar. ¿Cerrar de todas formas? Se perderán.`)) {
+                return;
+            }
+            this.modalPdfInterno = false;
+        },
+        async onPdfInternoSeleccionado(file) {
+            if (!file) return;
+            this.extrayendoPdf = true;
+            this.pdfIntentado = true;
+            this.pdfError = null;
+            this.candidatosPdf = [];
+            try {
+                const formData = new FormData();
+                formData.append('archivo', file);
+                const resp = await fetch('/materials/internos/pdf-captura/extraer', { method: 'POST', body: formData });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    this.pdfError = err.detail || 'No se pudo leer el PDF';
+                    return;
+                }
+                const data = await resp.json();
+                if (data.error) {
+                    this.pdfError = data.error;
+                    return;
+                }
+                this.candidatosPdf = (data.candidatos || []).map(c => ({
+                    texto: c.texto,
+                    precio: c.precio,
+                    moneda: data.moneda_detectada || 'MXN',
+                    asignado: null
+                }));
+                this.reprocesarCandidatosHtmx();
+            } catch (e) {
+                this.pdfError = 'Error de red al subir el PDF';
+            } finally {
+                this.extrayendoPdf = false;
+            }
+        },
+        idsPdfYaAsignados(exceptIdx) {
+            return this.candidatosPdf.filter((c, j) => j !== exceptIdx && c.asignado).map(c => c.asignado.id);
+        },
+        asignarCandidatoPdf(idx, material) {
+            if (this.idsPdfYaAsignados(idx).includes(material.id)) {
+                this.pdfInternoErrorMsg = 'Ese material ya fue asignado a otro renglón.';
+                return;
+            }
+            this.pdfInternoErrorMsg = null;
+            this.candidatosPdf[idx].asignado = material;
+        },
+        quitarAsignacionPdf(idx) {
+            this.candidatosPdf[idx].asignado = null;
+            this.reprocesarCandidatosHtmx();
+        },
+        async guardarPdfInterno() {
+            const asignados = this.candidatosPdf.filter(c => c.asignado);
+            if (asignados.length === 0) return;
+            this.guardandoPdf = true;
+            this.pdfInternoErrorMsg = null;
+            try {
+                const payload = asignados.map(c => ({ id_material: c.asignado.id, precio: c.precio, moneda: c.moneda }));
+                const resp = await fetch('/materials/internos/pdf-captura/guardar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    this.pdfInternoErrorMsg = err.detail || 'No se pudo guardar';
+                    return;
+                }
+                const data = await resp.json();
+                this.modalPdfInterno = false;
+                window.dispatchEvent(new CustomEvent('internos-importados'));
+                if (data.actualizados < data.enviados) {
+                    alert(`Se actualizaron ${data.actualizados} de ${data.enviados} materiales enviados (los demás pueden estar desactivados).`);
+                }
+            } catch (e) {
+                this.pdfInternoErrorMsg = 'Error de red al guardar';
+            } finally {
+                this.guardandoPdf = false;
+            }
+        }
     }"
-    @keydown.escape.window="modalAbierto = false; modalImportar = false; modalPrecios = false"
+    @keydown.escape.window="modalAbierto = false; modalImportar = false; modalPrecios = false; if (modalPdfInterno) cerrarModalPdfInterno()"
     @open-interno-create.window="abrirCrear()"
     @open-interno-importar.window="modalImportar = true"
     @open-interno-precios.window="modalPrecios = true"
+    @open-interno-pdf-captura.window="abrirModalPdfInterno()"
 >
     <!-- MOVIL: acciones -->
     <div id="mobile-actions-template" style="display:none">
@@ -92,6 +204,13 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
             Actualizar precios
+        </button>
+        <button onclick="window.dispatchEvent(new CustomEvent('open-interno-pdf-captura'))"
+            class="bg-purple-600 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            Cargar PDF de cotización
         </button>
         {% endif %}
         {% endif %}
@@ -152,6 +271,13 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                             </svg>
                             Actualizar precios
+                        </button>
+                        <button type="button" @click="open = false; abrirModalPdfInterno()"
+                            class="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                            </svg>
+                            Cargar PDF de cotización
                         </button>
                         {% endif %}
                     </div>
@@ -360,6 +486,107 @@
                     </button>
                     <div id="resultado-precios"></div>
                 </form>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Modal Cargar PDF de cotización (captura asistida) -->
+    {% if puede_editar_costos %}
+    <div x-show="modalPdfInterno" x-cloak
+        class="modal-overlay-layer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+        @click.self="cerrarModalPdfInterno()">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90dvh] flex flex-col">
+            <div class="flex items-center justify-between px-6 py-4 border-b flex-shrink-0">
+                <div>
+                    <h3 class="text-lg font-semibold text-[#123456]">Cargar PDF de cotización</h3>
+                    <p class="text-xs text-gray-500">Extrae precios candidatos y asígnalos manualmente a materiales del catálogo.</p>
+                </div>
+                <button @click="cerrarModalPdfInterno()" class="text-gray-400 hover:text-gray-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3">
+                <template x-if="candidatosPdf.length === 0">
+                    <div class="space-y-3">
+                        <label class="flex items-center justify-center gap-2 border-2 border-dashed border-gray-300 rounded-lg py-8 cursor-pointer hover:border-[#00BABB] transition-colors"
+                            :class="{ 'opacity-60 pointer-events-none': extrayendoPdf }">
+                            {{ spinner_icon(size='w-5 h-5', color='text-[#00BABB]', attrs='x-show="extrayendoPdf" x-cloak') }}
+                            <svg x-show="!extrayendoPdf" class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                            </svg>
+                            <span class="text-sm text-gray-600" x-text="extrayendoPdf ? 'Leyendo PDF...' : 'Selecciona un PDF de cotización'"></span>
+                            <input type="file" accept="application/pdf" class="hidden"
+                                @change="onPdfInternoSeleccionado($event.target.files[0]); $event.target.value = ''">
+                        </label>
+                        <p x-show="pdfError" x-cloak class="text-sm text-red-600" x-text="pdfError"></p>
+                        <p x-show="pdfIntentado && !extrayendoPdf && !pdfError && candidatosPdf.length === 0" x-cloak class="text-sm text-gray-500">
+                            No se detectaron precios en este PDF.
+                        </p>
+                    </div>
+                </template>
+
+                <template x-if="candidatosPdf.length > 0">
+                    <div id="candidatos-pdf-lista" class="space-y-3">
+                        <p class="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                            Verifica que el precio mostrado sea unitario y no el importe total del renglón antes de asignarlo.
+                        </p>
+                        <template x-for="(c, idx) in candidatosPdf" :key="idx">
+                            <div class="border rounded-lg p-3 space-y-2" :class="c.asignado ? 'border-green-200 bg-green-50' : 'border-gray-200'">
+                                <p class="text-xs text-gray-500" x-text="c.texto"></p>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-[10px] font-medium text-gray-500 mb-0.5">Precio</label>
+                                        <input type="number" step="0.01" min="0" x-model.number="c.precio"
+                                            class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-medium text-gray-500 mb-0.5">Moneda</label>
+                                        <select x-model="c.moneda" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                            <option value="MXN">MXN</option>
+                                            <option value="USD">USD</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <template x-if="!c.asignado">
+                                    <div>
+                                        <input type="text" name="q" placeholder="Buscar material del catálogo..." autocomplete="off"
+                                            hx-get="/materials/similares-internos"
+                                            hx-trigger="keyup[target.value.length >= 3] changed delay:400ms"
+                                            hx-target="next .material-similar-results"
+                                            hx-swap="innerHTML"
+                                            class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                        <div class="material-similar-results mt-1 text-xs"
+                                            @material-interno-elegido="asignarCandidatoPdf(idx, $event.detail)"></div>
+                                    </div>
+                                </template>
+                                <template x-if="c.asignado">
+                                    <div class="flex items-center justify-between bg-white border border-green-300 rounded px-2 py-1.5">
+                                        <span class="text-xs text-green-800 truncate" x-text="c.asignado.descripcion"></span>
+                                        <button type="button" class="text-xs text-red-600 shrink-0 ml-2" @click="quitarAsignacionPdf(idx)">Quitar</button>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+            <div class="flex items-center justify-between gap-3 px-6 py-4 border-t flex-shrink-0">
+                <div class="text-xs min-w-0">
+                    <p x-show="pdfInternoErrorMsg" x-cloak class="text-red-600" x-text="pdfInternoErrorMsg"></p>
+                    <p x-show="!pdfInternoErrorMsg && candidatosPdf.length > 0" class="text-gray-500">
+                        <span x-text="asignadosPdfCount"></span> de <span x-text="candidatosPdf.length"></span> asignados
+                    </p>
+                </div>
+                <button type="button" x-show="candidatosPdf.length > 0" x-cloak
+                    @click="guardarPdfInterno()"
+                    :disabled="guardandoPdf || asignadosPdfCount === 0"
+                    class="flex items-center gap-2 bg-[#00BABB] hover:bg-[#009999] disabled:opacity-60 disabled:cursor-not-allowed text-white px-5 py-2 rounded-lg text-sm font-semibold shrink-0">
+                    {{ spinner_icon(size='w-4 h-4', attrs='x-show="guardandoPdf" x-cloak') }}
+                    <span x-text="guardandoPdf ? 'Guardando...' : 'Guardar todo'"></span>
+                </button>
             </div>
         </div>
     </div>

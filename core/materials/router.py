@@ -850,3 +850,10 @@ async def post_confirmar_match_interno(
         request, "materials/partials/conciliacion_xml_lista.html",
         {"conceptos": conceptos}
     )
+
+
+# Captura asistida por PDF de precios del catalogo interno (submodulo propio,
+# ver core/materials/pdf_captura.py -- router.py/service.py ya superan el
+# umbral de refactor y esta logica es una unidad cohesiva separable).
+from .pdf_captura import pdf_captura_router
+router.include_router(pdf_captura_router)

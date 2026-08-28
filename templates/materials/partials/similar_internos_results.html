@@ -10,7 +10,7 @@
         data-precio="{{ r.precio_referencia if r.precio_referencia else '' }}"
         data-moneda="{{ r.moneda or 'MXN' }}"
         data-unidad="{{ r.unidad_codigo or '' }}"
-        @click="usarMaterialHomologado({
+        @click="$dispatch('material-interno-elegido', {
             id: $el.dataset.id,
             descripcion: $el.dataset.descripcion,
             clave: $el.dataset.clave,

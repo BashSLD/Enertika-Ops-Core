@@ -3,7 +3,7 @@
 Schemas Pydantic para el modulo de Materiales compartido.
 """
 
-from typing import Optional, List
+from typing import Optional
 from datetime import date
 from uuid import UUID
 from decimal import Decimal
@@ -152,6 +152,22 @@ class MaterialInternoUpdate(BaseModel):
     @classmethod
     def strip_desc(cls, v):
         return v.strip() if v else v
+
+
+class MaterialPdfAsignacion(BaseModel):
+    """Un candidato de precio (extraido de un PDF de cotizacion) asignado a un
+    material del catalogo interno, listo para actualizar en lote."""
+    id_material: UUID
+    precio: Decimal = Field(..., ge=0)
+    moneda: str = "MXN"
+
+    @field_validator('moneda', mode='before')
+    @classmethod
+    def validate_moneda(cls, v):
+        v = (v or "MXN").upper()
+        if v not in ("MXN", "USD"):
+            raise ValueError("Moneda debe ser MXN o USD")
+        return v
 
 
 class MaterialInternoFilter(BaseModel):
