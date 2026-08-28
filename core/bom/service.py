@@ -955,6 +955,14 @@ class BomService(BomComprasServiceMixin):
             bloqueado = await self.db.get_paquete_for_update(conn, id_paquete)
             if not bloqueado:
                 raise ValueError("Paquete BOM no encontrado")
+            if nuevo_estado in ("ARCHIVADO", "CANCELADO") and await self.db.get_paquete_tiene_standby_activo(
+                conn, id_paquete
+            ):
+                raise ValueError(
+                    "El paquete tiene una cotización en standby o pendiente de "
+                    "confirmación de vigencia de Dirección; resuélvela antes de "
+                    "archivar o cancelar el paquete."
+                )
             if nuevo_estado == "ACTIVO":
                 paquetes = await self.db.listar_paquetes_proyecto(
                     conn, bloqueado["id_proyecto"]

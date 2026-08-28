@@ -107,6 +107,8 @@ class BomComprasDBMixin:
                    ap.comentarios_solicitud,
                    ap.comentarios_direccion,
                    ap.motivo_rechazo AS aprobacion_motivo_rechazo,
+                   ap.motivo_standby AS aprobacion_motivo_standby,
+                   ap.fecha_recordatorio AS aprobacion_fecha_recordatorio,
                    a.id AS autorizacion_id,
                    a.estatus AS autorizacion_estatus,
                    a.lock_version AS autorizacion_lock_version
@@ -155,6 +157,7 @@ class BomComprasDBMixin:
                 ap.lock_version AS aprobacion_lock_version,
                 ap.solicitado_en, ap.aprobado_en, ap.rechazado_en,
                 ap.comentarios_solicitud, ap.comentarios_direccion, ap.motivo_rechazo,
+                ap.motivo_standby, ap.fecha_recordatorio,
                 c.id AS cotizacion_id, c.lock_version AS cotizacion_lock_version,
                 c.nombre_proveedor, c.total, c.moneda, c.pdf_url,
                 b.id_bom, b.version AS bom_version,
@@ -718,12 +721,16 @@ class BomComprasDBMixin:
         return [dict(r) for r in rows]
 
     async def get_cotizacion_aprobacion_activa(self, conn, cotizacion_id: UUID) -> Optional[dict]:
-        """Aprobacion activa (pendiente o aprobada) de una cotizacion; maximo una por indice unico parcial."""
+        """Aprobacion activa (pendiente, en standby, o aprobada) de una cotizacion;
+        maximo una por indice unico parcial uq_bom_cot_aprob_activa (migracion 184)."""
         row = await conn.fetchrow("""
             SELECT ap.*
             FROM tb_bom_cotizacion_aprobaciones ap
             WHERE ap.cotizacion_id = $1
-              AND ap.estatus IN ('PENDIENTE_DIRECCION', 'APROBADA')
+              AND ap.estatus IN (
+                  'PENDIENTE_DIRECCION', 'APROBADA',
+                  'EN_STANDBY', 'PENDIENTE_VIGENCIA_COMPRAS'
+              )
         """, cotizacion_id)
         return dict(row) if row else None
 
@@ -772,6 +779,171 @@ class BomComprasDBMixin:
             RETURNING *
         """, aprobacion_id, user_id, motivo, lock_version_esperado)
         return dict(row) if row else None
+
+    # ─── STANDBY DE DIRECCION Y VIGENCIA (COMPRAS) ──────────
+
+    async def poner_en_standby_db(
+        self, conn, aprobacion_id: UUID, motivo_standby: str,
+        fecha_recordatorio: date, lock_version_esperado: int,
+    ) -> Optional[dict]:
+        """PENDIENTE_DIRECCION -> EN_STANDBY. Resetea recordatorio_enviado_at para
+        que el worker vuelva a considerar esta fila elegible."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_cotizacion_aprobaciones
+            SET estatus = 'EN_STANDBY',
+                motivo_standby = $2,
+                fecha_recordatorio = $3,
+                recordatorio_enviado_at = NULL,
+                updated_at = NOW(),
+                lock_version = lock_version + 1
+            WHERE id = $1 AND estatus = 'PENDIENTE_DIRECCION'
+              AND lock_version = $4
+            RETURNING *
+        """, aprobacion_id, motivo_standby, fecha_recordatorio, lock_version_esperado)
+        return dict(row) if row else None
+
+    async def reprogramar_standby_db(
+        self, conn, aprobacion_id: UUID, motivo_standby: str,
+        fecha_recordatorio: date, lock_version_esperado: int,
+    ) -> Optional[dict]:
+        """EN_STANDBY -> EN_STANDBY con nuevo motivo/fecha; resetea el dedupe del worker."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_cotizacion_aprobaciones
+            SET motivo_standby = $2,
+                fecha_recordatorio = $3,
+                recordatorio_enviado_at = NULL,
+                updated_at = NOW(),
+                lock_version = lock_version + 1
+            WHERE id = $1 AND estatus = 'EN_STANDBY'
+              AND lock_version = $4
+            RETURNING *
+        """, aprobacion_id, motivo_standby, fecha_recordatorio, lock_version_esperado)
+        return dict(row) if row else None
+
+    async def reclamar_standbys_vencidos_db(
+        self, conn, hoy: date, limite: int = 50,
+    ) -> List[dict]:
+        """Reclama con FOR UPDATE SKIP LOCKED las aprobaciones EN_STANDBY cuyo
+        recordatorio ya vencio y aun no fue enviado (dedupe por
+        recordatorio_enviado_at), y las transiciona a PENDIENTE_VIGENCIA_COMPRAS
+        marcando el envio en la misma sentencia -- un tick concurrente nunca
+        vuelve a tomar la misma fila (patron de core/bom/outbox_worker.py)."""
+        rows = await conn.fetch("""
+            WITH candidatas AS (
+                SELECT id, bom_id
+                FROM tb_bom_cotizacion_aprobaciones
+                WHERE estatus = 'EN_STANDBY'
+                  AND fecha_recordatorio <= $1
+                  AND recordatorio_enviado_at IS NULL
+                ORDER BY fecha_recordatorio, id
+                FOR UPDATE SKIP LOCKED
+                LIMIT $2
+            )
+            UPDATE tb_bom_cotizacion_aprobaciones ap
+            SET estatus = 'PENDIENTE_VIGENCIA_COMPRAS',
+                recordatorio_enviado_at = NOW(),
+                updated_at = NOW(),
+                lock_version = lock_version + 1
+            FROM candidatas
+            JOIN tb_bom b ON b.id_bom = candidatas.bom_id
+            WHERE ap.id = candidatas.id
+            RETURNING ap.*, b.id_paquete
+        """, hoy, limite)
+        return [dict(r) for r in rows]
+
+    async def confirmar_vigencia_reactiva_direccion_db(
+        self, conn, aprobacion_id: UUID, lock_version_esperado: int,
+    ) -> Optional[dict]:
+        """PENDIENTE_VIGENCIA_COMPRAS -> PENDIENTE_DIRECCION (vigente): limpia el
+        rastro de standby resuelto y regresa la cotizacion a la cola de Direccion."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_cotizacion_aprobaciones
+            SET estatus = 'PENDIENTE_DIRECCION',
+                motivo_standby = NULL,
+                fecha_recordatorio = NULL,
+                recordatorio_enviado_at = NULL,
+                updated_at = NOW(),
+                lock_version = lock_version + 1
+            WHERE id = $1 AND estatus = 'PENDIENTE_VIGENCIA_COMPRAS'
+              AND lock_version = $2
+            RETURNING *
+        """, aprobacion_id, lock_version_esperado)
+        return dict(row) if row else None
+
+    async def rechazar_cotizacion_aprobacion_vigencia_db(
+        self, conn, aprobacion_id: UUID, user_id: UUID, motivo: str,
+        lock_version_esperado: int,
+    ) -> Optional[dict]:
+        """PENDIENTE_VIGENCIA_COMPRAS -> RECHAZADA: camino "no vigente" desde la
+        reactivacion (Punto B). Espejo de rechazar_cotizacion_aprobacion_db con
+        estado-origen distinto (Gap #9: CAS literal, no parametrizado)."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_cotizacion_aprobaciones
+            SET estatus = 'RECHAZADA',
+                rechazado_por = $2,
+                rechazado_en = NOW(),
+                motivo_rechazo = $3,
+                updated_at = NOW(),
+                lock_version = lock_version + 1
+            WHERE id = $1 AND estatus = 'PENDIENTE_VIGENCIA_COMPRAS'
+              AND lock_version = $4
+            RETURNING *
+        """, aprobacion_id, user_id, motivo, lock_version_esperado)
+        return dict(row) if row else None
+
+    async def actualizar_total_pdf_cotizacion_vigencia(
+        self, conn, cotizacion_id: UUID, nuevo_total, nuevo_pdf_url: Optional[str],
+        lock_version_esperado: int,
+    ) -> Optional[dict]:
+        """Actualiza solo el total agregado (y opcionalmente el PDF) de una
+        cotizacion SELECCIONADA sin tocarle estatus -- decision de alcance
+        2026-08-28: no reabre el detalle por item (bulk_replace_cotizacion_items).
+        No reutiliza actualizar_cotizacion/actualizar_pdf_cotizacion: ambas exigen
+        estatus IN ('BORRADOR','RECIBIDA') y la segunda ademas fuerza
+        estatus='RECIBIDA' como efecto secundario."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_cotizaciones
+            SET total = $2,
+                pdf_url = COALESCE($3, pdf_url),
+                actualizado_en = NOW(),
+                lock_version = lock_version + 1
+            WHERE id = $1 AND estatus = 'SELECCIONADA' AND lock_version = $4
+            RETURNING *
+        """, cotizacion_id, nuevo_total, nuevo_pdf_url, lock_version_esperado)
+        return dict(row) if row else None
+
+    async def sincronizar_monto_autorizacion_db(
+        self, conn, autorizacion_id: UUID, monto_total, lock_version_esperado: int,
+    ) -> Optional[dict]:
+        """Sincroniza tb_bom_autorizaciones.monto_total tras una actualizacion de
+        vigencia, en la misma transaccion que actualizar_total_pdf_cotizacion_vigencia.
+        Sin este paso, el CONSTRAINT TRIGGER DEFERRED fn_bom_validar_documento_cotizacion
+        (migraciones 160/177) revienta con RAISE EXCEPTION en cualquier UPDATE futuro
+        no relacionado de tb_bom_autorizaciones, al comparar contra el total ya
+        desincronizado (Gap #7)."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_autorizaciones
+            SET monto_total = $2,
+                lock_version = lock_version + 1
+            WHERE id = $1 AND lock_version = $3
+            RETURNING *
+        """, autorizacion_id, monto_total, lock_version_esperado)
+        return dict(row) if row else None
+
+    async def get_paquete_tiene_standby_activo(self, conn, id_paquete: UUID) -> bool:
+        """True si el paquete tiene alguna cotizacion con aprobacion en
+        EN_STANDBY/PENDIENTE_VIGENCIA_COMPRAS -- guard de cambiar_estado_paquete
+        (Gap #11)."""
+        existe = await conn.fetchval("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM tb_bom_cotizacion_aprobaciones ap
+                JOIN tb_bom b ON b.id_bom = ap.bom_id
+                WHERE b.id_paquete = $1
+                  AND ap.estatus IN ('EN_STANDBY', 'PENDIENTE_VIGENCIA_COMPRAS')
+            )
+        """, id_paquete)
+        return bool(existe)
 
     # ─── TRAZABILIDAD BOM ↔ COMPRAS ─────────────────────────
 

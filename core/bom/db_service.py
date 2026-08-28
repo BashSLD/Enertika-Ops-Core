@@ -804,6 +804,15 @@ class BomDBService(BomComprasDBMixin):
                                  'APROBACION_FINAL', 'ADENDA_APROBADA')
                           AND rol IN ('INGENIERO', 'RESPONSABLE_ING',
                                       'COORDINADOR_OBRA', 'JEFE_CONSTRUCCION'))
+                      -- Standby/vigencia (2026-08-28): un rechazo de autorizacion
+                      -- por RECHAZO_VIGENCIA invalida el AUTORIZADO_OBRA previo de
+                      -- Obra; se distingue via payload (no via $7) para no alterar
+                      -- el resto de rechazos de AUTORIZACION_RECHAZADA (paso OBRA o
+                      -- FINANZAS en el flujo standalone), que hoy no notifican a
+                      -- Obra.
+                      OR ($7 = 'AUTORIZACION_RECHAZADA'
+                          AND ($6::jsonb->>'motivo_paso') = 'RECHAZO_VIGENCIA'
+                          AND rol = 'JEFE_CONSTRUCCION')
                   )
                 UNION
                 SELECT titular_id
@@ -824,7 +833,8 @@ class BomDBService(BomComprasDBMixin):
                 FROM tb_bom_cotizacion_aprobaciones aprobacion
                 WHERE aprobacion.id = $8
                   AND $7 IN ('COTIZACION_APROBACION_APROBADA',
-                             'COTIZACION_APROBACION_RECHAZADA')
+                             'COTIZACION_APROBACION_RECHAZADA',
+                             'COTIZACION_STANDBY_RECORDATORIO')
                 UNION
                 SELECT adenda.creado_por
                 FROM tb_bom_adendas adenda

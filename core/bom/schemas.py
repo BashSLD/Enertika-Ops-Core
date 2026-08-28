@@ -310,12 +310,15 @@ class EstatusAutorizacion(str, Enum):
 
 
 class EstatusCotizacionAprobacion(str, Enum):
-    """Estados de tb_bom_cotizacion_aprobaciones (mismo dominio que el CHECK de la migracion 137)."""
+    """Estados de tb_bom_cotizacion_aprobaciones (mismo dominio que el CHECK de la
+    migracion 137, extendido por la migracion 184 con standby/vigencia)."""
     PENDIENTE_DIRECCION = "PENDIENTE_DIRECCION"
     APROBADA = "APROBADA"
     RECHAZADA = "RECHAZADA"
     REEMPLAZADA = "REEMPLAZADA"
     CANCELADA_PROVEEDOR = "CANCELADA_PROVEEDOR"
+    EN_STANDBY = "EN_STANDBY"
+    PENDIENTE_VIGENCIA_COMPRAS = "PENDIENTE_VIGENCIA_COMPRAS"
 
 
 class BomAutorizacionRead(BaseModel):
