@@ -34,6 +34,7 @@ from core.tasks import (
     verificar_recordatorios_horas_extra_periodically,
     verificar_periodos_por_expirar_periodically,
     verificar_solicitudes_vencidas_periodically,
+    verificar_recordatorios_standby_periodically,
 )
 from modules.asistencia.service import sync_biotime_periodically
 from modules.cfe.service import procesar_descargas_cfe_periodically
@@ -145,6 +146,7 @@ async def main():
         asyncio.create_task(_supervise("sync_biotime", sync_biotime_periodically)),
         asyncio.create_task(_supervise("procesar_descargas_cfe", procesar_descargas_cfe_periodically)),
         asyncio.create_task(_supervise("procesar_bom_outbox", procesar_bom_outbox_periodically)),
+        asyncio.create_task(_supervise("verificar_recordatorios_standby", verificar_recordatorios_standby_periodically)),
     ]
 
     logger.info("[WORKER] %d tareas activas", len(tasks))

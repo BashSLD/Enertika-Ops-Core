@@ -1408,3 +1408,84 @@ async def sat_inbox_cleanup_periodically(interval_seconds: int = 604800):
             logger.error("[SAT Cleanup] Error BD en limpieza: %s", e)
         except (RuntimeError, TypeError, ValueError) as e:
             logger.error("[SAT Cleanup] Error inesperado en limpieza: %s", e, exc_info=True)
+
+
+async def verificar_recordatorios_standby_periodically(interval_seconds: int = 3600):
+    """
+    Tarea periodica que reactiva standbys de Direccion vencidos
+    (tb_bom_cotizacion_aprobaciones.EN_STANDBY -> PENDIENTE_VIGENCIA_COMPRAS) y
+    notifica a Compras para que confirme vigencia -- plan
+    _Planes_Activos/PLAN_STANDBY_DIRECCION_VIGENCIA_COMPRAS_BOM.md paso 4.
+
+    Reclamo con FOR UPDATE SKIP LOCKED (core/bom/db_compras.py
+    reclamar_standbys_vencidos_db): la revalidacion de fecha_recordatorio/estatus
+    ocurre atomicamente en la misma sentencia UPDATE del reclamo, no en un SELECT
+    previo desacoplado, así que una reprogramacion manual concurrente nunca puede
+    pisar ni leerse a medias (Gap #13, TOCTOU). Dedupe con la columna simple
+    recordatorio_enviado_at en vez de una tabla auxiliar 1:muchos (Gap #5). El
+    reclamo y las notificaciones comparten una sola transaccion: si notificar
+    falla, el reclamo se revierte y la fila vuelve a EN_STANDBY para reintentarse
+    en el siguiente tick, en vez de quedar "reactivada pero nunca notificada".
+    """
+    logger.info(
+        "[BOM_STANDBY_RECORDATORIO] Tarea inicializada (intervalo: %sh)",
+        interval_seconds // 3600,
+    )
+
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            from core.database import get_db_pool
+            from core.timezone import today_mx
+            from core.bom.db_service import BomDBService
+
+            pool = await get_db_pool()
+            db = BomDBService()
+
+            async with pool.acquire() as conn:
+                hoy = today_mx()
+                async with conn.transaction():
+                    reclamadas = await db.reclamar_standbys_vencidos_db(conn, hoy)
+                    if not reclamadas:
+                        continue
+
+                    actor_id = await db.get_aprobador_final_id(conn)
+                    for aprobacion in reclamadas:
+                        if not actor_id or actor_id == aprobacion["solicitado_por"]:
+                            # registrar_evento_outbox excluye al propio actor_id
+                            # de los destinatarios (COALESCE(...) <> $4); sin un
+                            # actor distinto del destinatario real (Compras), la
+                            # notificacion saldria vacia en silencio (Gap #14). La
+                            # reactivacion de estatus ya ocurrio; solo se omite el
+                            # recordatorio para esta fila.
+                            logger.warning(
+                                "[BOM_STANDBY_RECORDATORIO] Sin actor valido distinto "
+                                "del destinatario para aprobacion=%s; se omite notificacion",
+                                aprobacion["id"],
+                            )
+                            continue
+                        await db.registrar_evento_outbox(
+                            conn,
+                            f"COTIZACION_APROBACION:{aprobacion['id']}:"
+                            f"{aprobacion['lock_version']}:STANDBY_RECORDATORIO",
+                            "COTIZACION_STANDBY_RECORDATORIO", aprobacion["proyecto_id"],
+                            actor_id,
+                            {
+                                "id_cotizacion": str(aprobacion["cotizacion_id"]),
+                                "id_aprobacion": str(aprobacion["id"]),
+                                "estatus": aprobacion["estatus"],
+                            },
+                            id_paquete=aprobacion.get("id_paquete"),
+                            id_bom=aprobacion["bom_id"],
+                            id_documento=aprobacion["id"],
+                        )
+                        logger.info(
+                            "[BOM_STANDBY_RECORDATORIO] Standby reactivado a "
+                            "PENDIENTE_VIGENCIA_COMPRAS: aprobacion=%s",
+                            aprobacion["id"],
+                        )
+
+        except asyncpg.PostgresError as e:
+            logger.error("[BOM_STANDBY_RECORDATORIO] Error de BD: %s", e)
+        except TASK_ROW_RUNTIME_ERRORS as e:
+            logger.error("[BOM_STANDBY_RECORDATORIO] Error inesperado: %s", e, exc_info=True)
