@@ -521,7 +521,9 @@ class MaterialsDBService:
         payload = [
             {
                 "id": str(r["id"]),
-                "precio_referencia": r["precio_referencia"],
+                "precio_referencia": (
+                    float(r["precio_referencia"]) if r["precio_referencia"] is not None else None
+                ),
                 "moneda": r["moneda"],
                 "actualizado_por": (
                     str(r["actualizado_por"]) if r.get("actualizado_por") else None
