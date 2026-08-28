@@ -1,6 +1,10 @@
-{% macro boton_previsualizar_documento(id_proveedor, doc_id) %}
+{% macro boton_previsualizar_documento(id_proveedor, doc_id, drive_item_id=None) %}
+{# Sin drive_item_id el endpoint responde 303 a la URL externa de SharePoint
+   (modules/proveedores/service.py:_descargar_documento) — un iframe cross-origin
+   puede quedar en blanco si SharePoint deniega el framing. En ese caso se deja
+   el target=_blank nativo (navegacion real) en vez de interceptar el click. #}
 <a href="/proveedores/{{ id_proveedor }}/documentos/{{ doc_id }}/preview" target="_blank" rel="noopener"
-    onclick="abrirPreviewSiEscritorio(event, this.href)"
+    {% if drive_item_id %}onclick="abrirPreviewSiEscritorio(event, this.href)"{% endif %}
     class="rounded p-1.5 text-gray-500 transition hover:bg-blue-50 hover:text-blue-700"
     title="Previsualizar">
     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
