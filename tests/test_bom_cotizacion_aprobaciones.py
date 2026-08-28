@@ -5,11 +5,13 @@ en tb_bom_cotizacion_aprobaciones, auto-avance de Fase D via _avanzar_paso_finan
 y cancelacion en cascada con paso RECHAZO_COTIZACION.
 """
 
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
 
 from core.bom.service import BomService
+from core.timezone import today_mx
 
 
 class FakeConn:
@@ -307,6 +309,7 @@ class FakeAprobacionesDB:
         for ap in self.aprobaciones.values():
             if ap["cotizacion_id"] == cotizacion_id and ap["estatus"] in (
                 "PENDIENTE_DIRECCION", "APROBADA",
+                "EN_STANDBY", "PENDIENTE_VIGENCIA_COMPRAS",
             ):
                 return dict(ap)
         return None
@@ -350,6 +353,110 @@ class FakeAprobacionesDB:
             "lock_version": lock_version_esperado + 1,
         })
         return dict(ap)
+
+    # ── Standby / vigencia (2026-08-28) ──
+    async def poner_en_standby_db(
+        self, conn, aprobacion_id, motivo_standby, fecha_recordatorio, lock_version_esperado,
+    ):
+        ap = self.aprobaciones.get(aprobacion_id)
+        if (
+            not ap
+            or ap["estatus"] != "PENDIENTE_DIRECCION"
+            or ap["lock_version"] != lock_version_esperado
+        ):
+            return None
+        ap.update({
+            "estatus": "EN_STANDBY",
+            "motivo_standby": motivo_standby,
+            "fecha_recordatorio": fecha_recordatorio,
+            "recordatorio_enviado_at": None,
+            "lock_version": lock_version_esperado + 1,
+        })
+        return dict(ap)
+
+    async def reprogramar_standby_db(
+        self, conn, aprobacion_id, motivo_standby, fecha_recordatorio, lock_version_esperado,
+    ):
+        ap = self.aprobaciones.get(aprobacion_id)
+        if (
+            not ap
+            or ap["estatus"] != "EN_STANDBY"
+            or ap["lock_version"] != lock_version_esperado
+        ):
+            return None
+        ap.update({
+            "motivo_standby": motivo_standby,
+            "fecha_recordatorio": fecha_recordatorio,
+            "recordatorio_enviado_at": None,
+            "lock_version": lock_version_esperado + 1,
+        })
+        return dict(ap)
+
+    async def confirmar_vigencia_reactiva_direccion_db(
+        self, conn, aprobacion_id, lock_version_esperado,
+    ):
+        ap = self.aprobaciones.get(aprobacion_id)
+        if (
+            not ap
+            or ap["estatus"] != "PENDIENTE_VIGENCIA_COMPRAS"
+            or ap["lock_version"] != lock_version_esperado
+        ):
+            return None
+        ap.update({
+            "estatus": "PENDIENTE_DIRECCION",
+            "motivo_standby": None,
+            "fecha_recordatorio": None,
+            "recordatorio_enviado_at": None,
+            "lock_version": lock_version_esperado + 1,
+        })
+        return dict(ap)
+
+    async def rechazar_cotizacion_aprobacion_vigencia_db(
+        self, conn, aprobacion_id, user_id, motivo, lock_version_esperado,
+    ):
+        ap = self.aprobaciones.get(aprobacion_id)
+        if (
+            not ap
+            or ap["estatus"] != "PENDIENTE_VIGENCIA_COMPRAS"
+            or ap["lock_version"] != lock_version_esperado
+        ):
+            return None
+        ap.update({
+            "estatus": "RECHAZADA",
+            "rechazado_por": user_id,
+            "motivo_rechazo": motivo,
+            "lock_version": lock_version_esperado + 1,
+        })
+        return dict(ap)
+
+    async def actualizar_total_pdf_cotizacion_vigencia(
+        self, conn, cotizacion_id, nuevo_total, nuevo_pdf_url, lock_version_esperado,
+    ):
+        cot = self.cotizaciones.get(cotizacion_id)
+        if (
+            not cot
+            or cot["estatus"] != "SELECCIONADA"
+            or cot["lock_version"] != lock_version_esperado
+        ):
+            return None
+        cot.update({
+            "total": nuevo_total,
+            "pdf_url": nuevo_pdf_url or cot["pdf_url"],
+            "lock_version": lock_version_esperado + 1,
+        })
+        return dict(cot)
+
+    async def sincronizar_monto_autorizacion_db(
+        self, conn, autorizacion_id, monto_total, lock_version_esperado,
+    ):
+        aut = self.autorizaciones.get(autorizacion_id)
+        if not aut or aut["lock_version"] != lock_version_esperado:
+            return None
+        aut.update({
+            "monto_total": monto_total,
+            "lock_version": lock_version_esperado + 1,
+        })
+        return dict(aut)
 
 
 def make_service(db):
@@ -957,3 +1064,242 @@ async def test_seleccionar_revalida_items_tras_adquirir_locks():
             FakeConn(), cotizacion_id, uuid4(),
             lock_version_esperado=db.cotizaciones[cotizacion_id]["lock_version"],
         )
+
+
+# ─── STANDBY DE DIRECCION Y VIGENCIA (COMPRAS) ──────────────
+# Plan _Planes_Activos/PLAN_STANDBY_DIRECCION_VIGENCIA_COMPRAS_BOM.md
+
+@pytest.mark.asyncio
+async def test_standby_pone_cotizacion_en_espera():
+    svc, db, _, cotizacion_id = build_escenario()
+    aprobacion = await _solicitar(svc, db, cotizacion_id)
+    fecha = today_mx() + timedelta(days=5)
+
+    resultado = await svc.standby_cotizacion_direccion(
+        FakeConn(), cotizacion_id, db.aprobador_direccion_id,
+        "Esperando confirmación del cliente", fecha,
+        aprobacion_lock_version_esperado=aprobacion["lock_version"],
+    )
+
+    assert resultado["estatus"] == "EN_STANDBY"
+    assert resultado["motivo_standby"] == "Esperando confirmación del cliente"
+    assert resultado["fecha_recordatorio"] == fecha
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    assert autorizacion["estatus"] == "AUTORIZADO_OBRA"
+
+
+@pytest.mark.asyncio
+async def test_standby_falla_sin_motivo():
+    svc, db, _, cotizacion_id = build_escenario()
+    aprobacion = await _solicitar(svc, db, cotizacion_id)
+
+    with pytest.raises(ValueError, match="motivo"):
+        await svc.standby_cotizacion_direccion(
+            FakeConn(), cotizacion_id, db.aprobador_direccion_id,
+            "   ", today_mx() + timedelta(days=1),
+            aprobacion_lock_version_esperado=aprobacion["lock_version"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_standby_falla_fecha_en_pasado():
+    svc, db, _, cotizacion_id = build_escenario()
+    aprobacion = await _solicitar(svc, db, cotizacion_id)
+
+    with pytest.raises(ValueError, match="pasado"):
+        await svc.standby_cotizacion_direccion(
+            FakeConn(), cotizacion_id, db.aprobador_direccion_id,
+            "Motivo valido", today_mx() - timedelta(days=1),
+            aprobacion_lock_version_esperado=aprobacion["lock_version"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_standby_falla_si_no_es_aprobador_direccion():
+    svc, db, _, cotizacion_id = build_escenario()
+    aprobacion = await _solicitar(svc, db, cotizacion_id)
+
+    with pytest.raises(ValueError, match="Dirección"):
+        await svc.standby_cotizacion_direccion(
+            FakeConn(), cotizacion_id, uuid4(),
+            "Motivo valido", today_mx() + timedelta(days=1),
+            aprobacion_lock_version_esperado=aprobacion["lock_version"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_reprogramar_standby_actualiza_motivo_y_fecha():
+    svc, db, _, cotizacion_id = build_escenario()
+    aprobacion = await _solicitar(svc, db, cotizacion_id)
+    en_standby = await svc.standby_cotizacion_direccion(
+        FakeConn(), cotizacion_id, db.aprobador_direccion_id,
+        "Motivo original", today_mx() + timedelta(days=3),
+        aprobacion_lock_version_esperado=aprobacion["lock_version"],
+    )
+
+    nueva_fecha = today_mx() + timedelta(days=10)
+    resultado = await svc.reprogramar_standby_direccion(
+        FakeConn(), cotizacion_id, db.aprobador_direccion_id,
+        "Motivo actualizado", nueva_fecha,
+        aprobacion_lock_version_esperado=en_standby["lock_version"],
+    )
+
+    assert resultado["estatus"] == "EN_STANDBY"
+    assert resultado["motivo_standby"] == "Motivo actualizado"
+    assert resultado["fecha_recordatorio"] == nueva_fecha
+
+
+@pytest.mark.asyncio
+async def test_reprogramar_standby_falla_si_no_esta_en_standby():
+    svc, db, _, cotizacion_id = build_escenario()
+    aprobacion = await _solicitar(svc, db, cotizacion_id)
+
+    with pytest.raises(ValueError, match="standby"):
+        await svc.reprogramar_standby_direccion(
+            FakeConn(), cotizacion_id, db.aprobador_direccion_id,
+            "Motivo", today_mx() + timedelta(days=1),
+            aprobacion_lock_version_esperado=aprobacion["lock_version"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_solicitar_no_vigente_rechaza_autorizacion_sin_crear_aprobacion():
+    """Punto A, camino 'no vigente': no debe quedar ninguna aprobacion creada, y
+    la autorizacion Fase D debe quedar RECHAZADO (no huerfana en AUTORIZADO_OBRA,
+    Gap #4)."""
+    svc, db, _, cotizacion_id = build_escenario()
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+
+    resultado = await svc.solicitar_aprobacion_cotizacion(
+        FakeConn(), cotizacion_id, uuid4(),
+        cotizacion_lock_version_esperado=db.cotizaciones[cotizacion_id]["lock_version"],
+        autorizacion_lock_version_esperado=autorizacion["lock_version"],
+        vigente=False, motivo_no_vigente="El proveedor subió el precio",
+    )
+
+    assert resultado["estatus"] == "RECHAZADO"
+    assert resultado["rechazado_en_paso"] == "RECHAZO_VIGENCIA"
+    assert db.aprobaciones == {}
+    autorizacion_final = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    assert autorizacion_final["estatus"] == "RECHAZADO"
+
+
+@pytest.mark.asyncio
+async def test_solicitar_no_vigente_falla_sin_motivo():
+    svc, db, _, cotizacion_id = build_escenario()
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+
+    with pytest.raises(ValueError, match="motivo"):
+        await svc.solicitar_aprobacion_cotizacion(
+            FakeConn(), cotizacion_id, uuid4(),
+            cotizacion_lock_version_esperado=db.cotizaciones[cotizacion_id]["lock_version"],
+            autorizacion_lock_version_esperado=autorizacion["lock_version"],
+            vigente=False,
+        )
+
+
+async def _llevar_a_pendiente_vigencia(svc, db, cotizacion_id):
+    """Solicitar + standby + reactivar (simulando al worker) para dejar la
+    aprobacion en PENDIENTE_VIGENCIA_COMPRAS."""
+    aprobacion = await _solicitar(svc, db, cotizacion_id)
+    en_standby = await svc.standby_cotizacion_direccion(
+        FakeConn(), cotizacion_id, db.aprobador_direccion_id,
+        "Esperando", today_mx() + timedelta(days=1),
+        aprobacion_lock_version_esperado=aprobacion["lock_version"],
+    )
+    ap = db.aprobaciones[en_standby["id"]]
+    ap["estatus"] = "PENDIENTE_VIGENCIA_COMPRAS"
+    ap["lock_version"] += 1
+    return dict(ap)
+
+
+@pytest.mark.asyncio
+async def test_confirmar_vigencia_vigente_regresa_a_pendiente_direccion():
+    svc, db, _, cotizacion_id = build_escenario()
+    reactivada = await _llevar_a_pendiente_vigencia(svc, db, cotizacion_id)
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    cotizacion = db.cotizaciones[cotizacion_id]
+
+    resultado = await svc.confirmar_vigencia_reactivacion(
+        FakeConn(), cotizacion_id, uuid4(), vigente=True,
+        aprobacion_lock_version_esperado=reactivada["lock_version"],
+        autorizacion_lock_version_esperado=autorizacion["lock_version"],
+        cotizacion_lock_version_esperado=cotizacion["lock_version"],
+    )
+
+    assert resultado["estatus"] == "PENDIENTE_DIRECCION"
+    assert resultado["motivo_standby"] is None
+    autorizacion_final = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    assert autorizacion_final["estatus"] == "AUTORIZADO_OBRA"
+
+
+@pytest.mark.asyncio
+async def test_confirmar_vigencia_no_vigente_rechaza_aprobacion_y_autorizacion():
+    """Punto B, camino 'no vigente': la aprobacion queda RECHAZADA y la
+    autorizacion Fase D queda RECHAZADO (no huerfana en AUTORIZADO_OBRA)."""
+    svc, db, _, cotizacion_id = build_escenario()
+    reactivada = await _llevar_a_pendiente_vigencia(svc, db, cotizacion_id)
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    cotizacion = db.cotizaciones[cotizacion_id]
+
+    resultado = await svc.confirmar_vigencia_reactivacion(
+        FakeConn(), cotizacion_id, uuid4(), vigente=False,
+        motivo="El proveedor ya no puede cumplir",
+        aprobacion_lock_version_esperado=reactivada["lock_version"],
+        autorizacion_lock_version_esperado=autorizacion["lock_version"],
+        cotizacion_lock_version_esperado=cotizacion["lock_version"],
+    )
+
+    assert resultado["estatus"] == "RECHAZADA"
+    autorizacion_final = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    assert autorizacion_final["estatus"] == "RECHAZADO"
+    assert autorizacion_final["rechazado_en_paso"] == "RECHAZO_VIGENCIA"
+
+
+@pytest.mark.asyncio
+async def test_confirmar_vigencia_bloqueado_por_pago():
+    """Gap #10: replica bajo lock el guard bloqueado_por_pago -- simula la
+    carrera donde el pago se registra justo entre la pre-lectura (AUTORIZADO_OBRA,
+    pasa el guard de entrada) y la relectura bajo FOR UPDATE (ya PAGADO). Sin este
+    guard bajo lock, "por construccion" ya no alcanza para bloquear la carrera."""
+    svc, db, _, cotizacion_id = build_escenario()
+    reactivada = await _llevar_a_pendiente_vigencia(svc, db, cotizacion_id)
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    cotizacion = db.cotizaciones[cotizacion_id]
+
+    original_for_update = db.get_autorizacion_for_update
+
+    async def get_autorizacion_for_update_pagada(conn, autorizacion_id):
+        db.autorizaciones[autorizacion_id]["estatus"] = "PAGADO"
+        return await original_for_update(conn, autorizacion_id)
+    db.get_autorizacion_for_update = get_autorizacion_for_update_pagada
+
+    with pytest.raises(ValueError, match="pago"):
+        await svc.confirmar_vigencia_reactivacion(
+            FakeConn(), cotizacion_id, uuid4(), vigente=True,
+            aprobacion_lock_version_esperado=reactivada["lock_version"],
+            autorizacion_lock_version_esperado=autorizacion["lock_version"],
+            cotizacion_lock_version_esperado=cotizacion["lock_version"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_confirmar_vigencia_sincroniza_monto_autorizacion():
+    """Gap #7: si se actualiza el total, tb_bom_autorizaciones.monto_total debe
+    sincronizarse en la misma operacion (evita el RAISE EXCEPTION del trigger
+    DEFERRED fn_bom_validar_documento_cotizacion en un UPDATE futuro)."""
+    svc, db, _, cotizacion_id = build_escenario()
+    reactivada = await _llevar_a_pendiente_vigencia(svc, db, cotizacion_id)
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    cotizacion = db.cotizaciones[cotizacion_id]
+
+    await svc.confirmar_vigencia_reactivacion(
+        FakeConn(), cotizacion_id, uuid4(), vigente=True,
+        nuevo_total=1500.0,
+        aprobacion_lock_version_esperado=reactivada["lock_version"],
+        autorizacion_lock_version_esperado=autorizacion["lock_version"],
+        cotizacion_lock_version_esperado=cotizacion["lock_version"],
+    )
+
+    assert db.cotizaciones[cotizacion_id]["total"] == 1500.0
+    assert db.autorizaciones[autorizacion["id"]]["monto_total"] == 1500.0
