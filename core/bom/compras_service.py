@@ -773,8 +773,10 @@ class BomComprasServiceMixin:
 
     # ─── AUTORIZACIONES (Fase D) ────────────────────────────
 
-    async def listar_autorizaciones(self, conn, bom_id: UUID) -> list:
-        autorizaciones = await self.db.get_autorizaciones_by_bom(conn, bom_id)
+    async def _adjuntar_items_a_autorizaciones(self, conn, autorizaciones: list) -> list:
+        """Batch de items de cotizacion para una lista de autorizaciones (evita N+1).
+        Comun a listar_autorizaciones (por-BOM) y listar_pendientes_popup_coordinador
+        (cross-BOM)."""
         if not autorizaciones:
             return autorizaciones
         cotizacion_ids = [aut["cotizacion_id"] for aut in autorizaciones]
@@ -785,6 +787,23 @@ class BomComprasServiceMixin:
         for aut in autorizaciones:
             aut["items"] = items_por_cotizacion.get(aut["cotizacion_id"], [])
         return autorizaciones
+
+    async def listar_autorizaciones(self, conn, bom_id: UUID) -> list:
+        autorizaciones = await self.db.get_autorizaciones_by_bom(conn, bom_id)
+        return await self._adjuntar_items_a_autorizaciones(conn, autorizaciones)
+
+    async def listar_pendientes_popup_coordinador(
+        self, conn, user_id: UUID, rol_organizacional: Optional[str],
+    ) -> list:
+        """Autorizaciones de Obra pendientes que el usuario (titular o suplente)
+        puede aprobar, para el banner de pendientes al entrar a la app
+        (PLAN_popup_pendientes_autorizacion_obra.md §1/§2). Una sola resolucion
+        de titulares + una query cross-BOM + un batch de items -- nunca por-BOM."""
+        representados = list(await self.get_titulares_que_representa(conn, user_id))
+        autorizaciones = await self.db.get_autorizaciones_pendientes_por_coordinador(
+            conn, representados, rol_organizacional,
+        )
+        return await self._adjuntar_items_a_autorizaciones(conn, autorizaciones)
 
     async def aprobar_obra(
         self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],

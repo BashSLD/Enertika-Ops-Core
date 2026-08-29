@@ -558,6 +558,43 @@ class BomComprasDBMixin:
         )
         return {r["bom_id"] for r in rows}
 
+    async def get_autorizaciones_pendientes_por_coordinador(
+        self, conn, representados: List[UUID], rol_organizacional: Optional[str],
+    ) -> List[dict]:
+        """Autorizaciones PENDIENTE (paso Obra) de cualquier BOM cuyo coordinador
+        de obra sea alguno de los `representados` (titular o suplente activo), o
+        -- si el paquete no tiene coordinador asignado -- el usuario tenga el rol
+        organizacional jefe_construccion (mismo fallback que usa aprobar_obra).
+        Cross-BOM en una sola query para alimentar el popup de pendientes al
+        entrar a la app (PLAN_popup_pendientes_autorizacion_obra.md §2)."""
+        rows = await conn.fetch("""
+            SELECT a.*,
+                   c.nombre_proveedor,
+                   c.pdf_url,
+                   c.folio_proveedor,
+                   r.nombre AS rfq_nombre,
+                   b.id_paquete,
+                   paq.codigo AS paquete_codigo,
+                   paq.nombre AS paquete_nombre,
+                   o.nombre_proyecto AS proyecto_nombre,
+                   p.proyecto_id_estandar
+            FROM tb_bom_autorizaciones a
+            JOIN tb_bom_cotizaciones c ON c.id = a.cotizacion_id
+            JOIN tb_bom b ON b.id_bom = a.bom_id
+            JOIN tb_bom_paquetes paq ON paq.id_paquete = b.id_paquete
+            LEFT JOIN tb_bom_rfq r ON r.id = c.rfq_id
+            LEFT JOIN tb_proyectos_gate p ON p.id_proyecto = b.id_proyecto
+            LEFT JOIN tb_oportunidades o ON o.id_oportunidad = p.id_oportunidad
+            WHERE a.estatus = 'PENDIENTE'
+              AND (
+                  b.coordinador_obra = ANY($1::uuid[])
+                  OR (b.coordinador_obra IS NULL AND $2 = 'jefe_construccion')
+              )
+            ORDER BY a.creado_en ASC
+            LIMIT 20
+        """, representados, rol_organizacional)
+        return [dict(r) for r in rows]
+
     async def update_autorizacion_paso_obra(
         self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
         lock_version_esperado: int,
