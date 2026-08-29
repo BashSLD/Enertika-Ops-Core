@@ -1469,6 +1469,20 @@
     </div>
     {% endif %}
 
+    <!-- === BANNER: Autorizaciones de Obra pendientes (coordinador de obra) === -->
+    <!-- Banner en flujo normal (no overlay fixed): no compite en z-index/timing con
+         eco-welcome. El x-init corre una sola vez por carga real de documento (no en
+         cada swap de #main-content), cubriendo los ~12 dashboards de entrada sin tocar
+         ninguno de sus routers. htmx.ajax incluye source para no activar
+         .htmx-indicator globales colgados de document.body (regla CLAUDE.md). -->
+    <div id="popup-pendientes-obra-anchor" x-data x-init="
+        let snoozeUntil = 0;
+        try { snoozeUntil = parseInt(localStorage.getItem('popup_pendientes_obra_snooze_until') || '0', 10); } catch (e) {}
+        if (Date.now() > snoozeUntil) {
+            htmx.ajax('GET', '/bom/popup-pendientes-obra', { target: '#popup-pendientes-obra-anchor', source: $el, swap: 'innerHTML' });
+        }
+    "></div>
+
     <!-- === BANNER GLOBAL: Estado descarga SAT === -->
     <!-- Solo visible para usuarios con acceso a compras -->
     {% if role == 'ADMIN' or (module_roles or {}).get('compras') in ['editor', 'admin'] %}

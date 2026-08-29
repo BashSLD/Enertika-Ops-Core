@@ -1,0 +1,91 @@
+{# templates/bom/partials/popup_pendientes_obra.html #}
+{# Banner de autorizaciones de Obra pendientes al aterrizar en la app -- cargado
+   lazy via HTMX desde el anchor en base.html. Respuesta vacia = sin banner. #}
+{% from "bom/partials/_macros.html" import boton_ver_pdf_cotizacion, modal_teleport_shell %}
+
+<div x-data="{ verModal: false, oculto: false }" x-show="!oculto" x-cloak>
+    <div class="flex flex-wrap items-center justify-between gap-3 bg-amber-50 border-b border-amber-200 px-4 py-2 text-sm text-amber-800">
+        <div class="flex items-center gap-2">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+            </svg>
+            <span>
+                Tienes {{ autorizaciones | length }} autorización{{ 'es' if autorizaciones | length != 1 else '' }} de compra
+                pendiente{{ 's' if autorizaciones | length != 1 else '' }} de tu aprobación como coordinador de obra.
+            </span>
+        </div>
+        <div class="flex items-center gap-3 shrink-0">
+            <button type="button" @click="verModal = true" class="font-semibold underline hover:no-underline">Ver</button>
+            <button type="button" @click="oculto = true" class="text-amber-700 hover:text-amber-900">Descartar</button>
+            <button type="button" class="text-amber-700 hover:text-amber-900" @click="
+                try { localStorage.setItem('popup_pendientes_obra_snooze_until', String(Date.now() + 24 * 3600 * 1000)); } catch (e) {}
+                oculto = true;
+            ">No volver a mostrar (24h)</button>
+        </div>
+    </div>
+
+    {% call modal_teleport_shell('verModal', 'Autorizaciones de compra pendientes', 'Solo lectura — usa "Ver y aprobar" para actuar', max_width='max-w-3xl') %}
+    <div class="space-y-3">
+        {% for aut in autorizaciones %}
+        <div class="rounded-xl border border-gray-200 bg-white p-4">
+            <div class="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+                <span class="text-sm font-semibold text-gray-800">{{ aut.nombre_proveedor or 'Sin proveedor' }}</span>
+                {% if aut.rfq_nombre %}
+                <span class="text-gray-300">·</span>
+                <span class="text-xs text-gray-500">RFQ: <span class="font-medium text-gray-700">{{ aut.rfq_nombre }}</span></span>
+                {% endif %}
+                <span class="text-gray-300">·</span>
+                <span class="text-xs text-gray-500">
+                    Monto: <span class="font-bold text-gray-800">${{ "{:,.2f}".format(aut.monto_total | float) if aut.monto_total else '—' }} {{ aut.moneda }}</span>
+                </span>
+            </div>
+            <p class="text-xs text-gray-400 mb-2">
+                {{ aut.proyecto_id_estandar or '' }} {{ aut.proyecto_nombre or '' }}
+                <span class="mx-1 text-gray-300">/</span>
+                {{ aut.paquete_codigo }} - {{ aut.paquete_nombre }}
+            </p>
+            {% if aut.pdf_url %}
+            {{ boton_ver_pdf_cotizacion(aut.cotizacion_id, 'inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 font-medium mb-2') }}
+            {% endif %}
+            {% if aut['items'] %}
+            <div class="overflow-x-auto rounded-lg border border-gray-200 mb-3">
+                <table class="min-w-full text-xs">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-2.5 py-1.5 text-left font-bold text-gray-500 uppercase">Descripción</th>
+                            <th class="px-2.5 py-1.5 text-right font-bold text-gray-500 uppercase">Cantidad</th>
+                            <th class="px-2.5 py-1.5 text-left font-bold text-gray-500 uppercase">Unidad</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% for item in aut['items'] %}
+                        <tr>
+                            <td class="px-2.5 py-1.5 text-gray-700">{{ item.descripcion or '—' }}</td>
+                            <td class="px-2.5 py-1.5 text-right text-gray-700">{{ item.cantidad }}</td>
+                            <td class="px-2.5 py-1.5 text-gray-500">{{ item.unidad_medida or '—' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+            <a href="/bom/paquetes/{{ aut.id_paquete }}/compras#tab-autorizaciones"
+                class="inline-flex items-center gap-1.5 text-xs font-semibold text-[#00BABB] hover:text-[#009a9b]">
+                Ver y aprobar
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 8.25L21 12m0 0l-3.75 3.75M21 12H3"/>
+                </svg>
+            </a>
+        </div>
+        {% endfor %}
+        {% if autorizaciones | length >= 20 %}
+        <p class="text-xs text-gray-400 text-center pt-2">
+            Mostrando las 20 más antiguas —
+            <a href="/bom/paquetes/{{ autorizaciones[0].id_paquete }}/compras#tab-autorizaciones" class="text-[#00BABB] hover:underline">
+                puede haber más pendientes
+            </a>.
+        </p>
+        {% endif %}
+    </div>
+    {% endcall %}
+</div>

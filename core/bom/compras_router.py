@@ -19,7 +19,10 @@ import logging
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
-from core.permissions import require_module_access, require_any_module_access, user_has_module_access
+from core.permissions import (
+    require_module_access, require_any_module_access, require_authenticated_session,
+    user_has_module_access,
+)
 from core.config import settings
 from core.jinja_filters import register_timezone_filters
 from modules.shared.utils import content_disposition_header, is_htmx
@@ -216,8 +219,78 @@ async def _render_modal_cotizacion_rfq(
 
 
 # ========================================
+# POPUP DE PENDIENTES AL ENTRAR A LA APP (Autorizaciones de Obra)
+# ========================================
+
+@compras_router.get("/popup-pendientes-obra", include_in_schema=False)
+async def popup_pendientes_obra(
+    request: Request,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_authenticated_session(),
+):
+    """Banner lazy-load montado en base.html, fuera de #main-content: si el
+    usuario no tiene autorizaciones de Obra pendientes -- o la consulta falla --
+    no se renderiza nada. Unico punto con try/except del flujo: nunca debe
+    tumbar el aterrizaje a la app (PLAN_popup_pendientes_autorizacion_obra.md §1)."""
+    user_id = context.get("user_db_id")
+    if not user_id:
+        return HTMLResponse("")
+    try:
+        autorizaciones = await service.listar_pendientes_popup_coordinador(
+            conn, user_id, context.get("rol_organizacional"),
+        )
+    except asyncpg.PostgresError:
+        logger.exception("Error consultando popup de pendientes de Obra")
+        return HTMLResponse("")
+    if not autorizaciones:
+        return HTMLResponse("")
+    return templates.TemplateResponse(
+        request, "bom/partials/popup_pendientes_obra.html",
+        {"autorizaciones": autorizaciones},
+    )
+
+
+# ========================================
 # PAGINA "COMPRAS DEL PAQUETE" (Resumen de compra + Cotizaciones + Autorizaciones)
 # ========================================
+
+_MODULOS_PAQUETE_COMPRAS = ("ingenieria", "construccion", "compras", "finanzas")
+
+
+async def _autorizar_acceso_paquete_o_coordinador_obra(
+    context: dict, conn, service: BomService, bom: Optional[dict],
+) -> None:
+    """OR entre acceso de modulo (ingenieria/construccion/compras/finanzas, o rol
+    Direccion) y ser coordinador de obra -- titular o suplente activo -- del BOM
+    del paquete. `coordinador_obra` viene del equipo de proyecto, un sistema
+    independiente de tb_permisos_modulos: sin este OR, un coordinador de obra
+    sin acceso de modulo recibe 403 al entrar desde el popup de pendientes
+    (PLAN_popup_pendientes_autorizacion_obra.md §4)."""
+    if context.get("role") == "ADMIN" or context.get("rol_organizacional") == "director":
+        return
+    if any(user_has_module_access(slug, context) for slug in _MODULOS_PAQUETE_COMPRAS):
+        return
+    user_id = context.get("user_db_id")
+    if user_id and bom:
+        representados = await service.get_titulares_que_representa(conn, user_id)
+        coordinador_obra = bom.get("coordinador_obra")
+        es_coordinador_obra = (
+            coordinador_obra in representados
+            if coordinador_obra
+            else context.get("rol_organizacional") == "jefe_construccion"
+        )
+        if es_coordinador_obra:
+            return
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "No tienes acceso a ninguno de los módulos requeridos: "
+            f"{list(_MODULOS_PAQUETE_COMPRAS)}. Contacta al administrador."
+        ),
+    )
+
 
 @compras_router.get("/paquetes/{id_paquete}/compras", include_in_schema=False)
 async def compras_paquete_ui(
@@ -226,9 +299,7 @@ async def compras_paquete_ui(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(
-        ["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}
-    ),
+    _=require_authenticated_session(),
 ):
     """Pagina dedicada de Compras para un paquete: resuelve server-side el BOM
     cotizable vigente (cabeza de trabajo, u oficial si hay retrabajo en curso) y
@@ -238,6 +309,7 @@ async def compras_paquete_ui(
         bom = await service.resolver_bom_cotizable(conn, id_paquete)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await _autorizar_acceso_paquete_o_coordinador_obra(context, conn, service, bom)
     proyecto = await service.get_proyecto_info(conn, paquete["id_proyecto"])
     if not proyecto:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
@@ -767,11 +839,14 @@ async def preview_pdf_cotizacion(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(
-        ["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}
-    ),
+    _=require_authenticated_session(),
 ):
     """Streamea el PDF mas reciente de la cotización para verlo inline en el navegador."""
+    cotizacion = await service.get_cotizacion_by_id(conn, cotizacion_id)
+    if not cotizacion:
+        raise HTTPException(status_code=404, detail="Cotización no encontrada")
+    bom = await service.get_bom_by_id(conn, cotizacion["bom_id"])
+    await _autorizar_acceso_paquete_o_coordinador_obra(context, conn, service, bom)
     try:
         nombre_archivo, _media_type, contenido = await service.get_pdf_cotizacion_bytes(
             conn, cotizacion_id
