@@ -979,6 +979,19 @@ class BomComprasServiceMixin:
                 raise ValueError(
                     "No hay coordinador de obra asignado. Solo el jefe de Construccion puede rechazar en este paso."
                 )
+        elif estatus == 'AUTORIZADO_OBRA':
+            paso = 'DIRECCION'
+            await self._require_direccion_titular(conn, user_id, "rechazar")
+            # Si Compras ya solicito la aprobacion documental (tb_bom_cotizacion_
+            # aprobaciones), este atajo generico debe ceder el paso a
+            # rechazar_cotizacion_direccion: ese es el unico camino que resuelve
+            # tambien la aprobacion (PENDIENTE_DIRECCION -> RECHAZADA) ademas de
+            # la autorizacion -- seguir por aqui la dejaria huerfana para siempre.
+            if await self.db.get_cotizacion_aprobacion_activa(conn, aut['cotizacion_id']):
+                raise ValueError(
+                    "Compras ya solicitó la aprobación de esta cotización; "
+                    "recházala desde la tab Cotizaciones."
+                )
         elif estatus == 'AUTORIZADO_DIRECCION':
             paso = 'FINANZAS'
             es_finanzas = finanzas_role in ('editor', 'admin')

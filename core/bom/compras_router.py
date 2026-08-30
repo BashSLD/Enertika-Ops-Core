@@ -151,13 +151,7 @@ async def _render_cotizaciones_tab(
     module_roles = context.get("module_roles", {})
     es_compras_editor = role == "ADMIN" or module_roles.get("compras") in ("editor", "admin")
     user_id = context.get("user_db_id")
-    aprobador_direccion = await service.db.get_aprobador_final_id(conn)
-    representados = (
-        await service.get_titulares_que_representa(conn, user_id) if user_id else set()
-    )
-    es_aprobador_direccion = bool(
-        aprobador_direccion and aprobador_direccion in representados
-    )
+    es_aprobador_direccion = await service.es_aprobador_direccion(conn, user_id)
     # Solo aplica cuando existe una cotizacion lista para solicitar aprobacion
     # (mismo gate que el formulario en cotizaciones.html) — evita la consulta
     # en el caso comun (BOM sin cotizaciones o sin ninguna en ese punto exacto).
@@ -1135,11 +1129,7 @@ async def _dashboard_direccion_ctx(
         conn, estatus=estatus or None, id_proyecto=id_proyecto, nombre_proveedor=proveedor,
     )
     user_id = context.get("user_db_id")
-    aprobador_direccion = await service.db.get_aprobador_final_id(conn)
-    representados = (
-        await service.get_titulares_que_representa(conn, user_id) if user_id else set()
-    )
-    es_aprobador_direccion = bool(aprobador_direccion and aprobador_direccion in representados)
+    es_aprobador_direccion = await service.es_aprobador_direccion(conn, user_id)
     return {
         "aprobaciones": aprobaciones,
         "estatus_filtro": estatus or "",
@@ -1380,6 +1370,11 @@ async def _autorizacion_ctx(request, autorizaciones, bom, context, conn, service
     )
     es_finanzas = finanzas_role in ("editor", "admin")
     es_compras_editor = es_admin or module_roles.get("compras") in ("editor", "admin")
+    # `representados` ya se calculo arriba para es_coordinador_obra -- se reusa
+    # aqui en vez de llamar service.es_aprobador_direccion() para no repetir esa
+    # consulta (tb_bom_suplencias) dos veces en la misma request.
+    aprobador_direccion = await service.db.get_aprobador_final_id(conn)
+    es_aprobador_direccion = bool(aprobador_direccion and aprobador_direccion in representados)
 
     return {
         "autorizaciones": autorizaciones,
@@ -1389,6 +1384,7 @@ async def _autorizacion_ctx(request, autorizaciones, bom, context, conn, service
         "es_coordinador_obra": es_coordinador_obra,
         "es_finanzas": es_finanzas,
         "es_compras_editor": es_compras_editor,
+        "es_aprobador_direccion": es_aprobador_direccion,
     }
 
 
@@ -1602,7 +1598,9 @@ async def rechazar_autorizacion(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"]),
+    _=require_any_module_access(
+        ["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"},
+    ),
 ):
     user_id = context.get("user_db_id")
     user_role = context.get("role")

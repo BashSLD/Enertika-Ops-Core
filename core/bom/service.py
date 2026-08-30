@@ -3649,6 +3649,20 @@ class BomService(BomComprasServiceMixin):
         result.add(user_id)
         return result
 
+    async def es_aprobador_direccion(self, conn, user_id: Optional[UUID]) -> bool:
+        """True si user_id es el aprobador final de Direccion (o su suplente activo).
+
+        Extraido del computo duplicado en cada context-builder que necesita mostrar
+        u ocultar acciones de Direccion (cotizaciones.html, dashboard Direccion,
+        tab Autorizaciones) -- version boolean de _require_direccion_titular
+        (core/bom/compras_service.py), que en vez de esto levanta ValueError con un
+        mensaje por-accion cuando necesita bloquear la escritura."""
+        aprobador_direccion = await self.db.get_aprobador_final_id(conn)
+        if not aprobador_direccion:
+            return False
+        representados = await self.get_titulares_que_representa(conn, user_id)
+        return aprobador_direccion in representados
+
     async def tiene_acceso_paquete_compras(
         self, conn, context: dict, bom: Optional[dict],
     ) -> bool:

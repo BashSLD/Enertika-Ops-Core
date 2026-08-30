@@ -108,6 +108,27 @@
                     </button>
                     {% endif %}
 
+                    {# Paso 2: Dirección — mientras Compras no solicita su aprobación
+                       documental (tb_bom_cotizacion_aprobaciones), Dirección solo puede
+                       rechazar aquí para no dejar la autorización atorada indefinidamente;
+                       aprobar sigue siendo exclusivo del flujo documental en la tab Cotizaciones. #}
+                    {% if aut.estatus == 'AUTORIZADO_OBRA' and es_aprobador_direccion %}
+                    <button type="button"
+                        x-data
+                        @click="
+                            const motivo = prompt('Motivo de rechazo (obligatorio):');
+                            if (motivo && motivo.trim()) {
+                                htmx.ajax('POST', '/bom/autorizaciones/{{ aut.id }}/rechazar',
+                                    { target: '#tab-autorizaciones', source: $el, swap: 'innerHTML',
+                                      indicator: '#global-loading-overlay',
+                                      values: { motivo: motivo.trim(), lock_version: '{{ aut.lock_version }}' } });
+                            }
+                        "
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-500 hover:bg-red-600 transition">
+                        Rechazar
+                    </button>
+                    {% endif %}
+
                     {# Paso 3: Finanzas — usuario con rol finanzas editor+ #}
                     {% if aut.estatus == 'AUTORIZADO_DIRECCION' and es_finanzas %}
                     <form hx-post="/bom/autorizaciones/{{ aut.id }}/aprobar-finanzas"

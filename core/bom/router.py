@@ -2247,12 +2247,11 @@ async def get_autorizacion_obra_modal(
     if not bom:
         return _toast_response(request, "BOM no encontrado", "error", status_code=404)
     if not await service.tiene_acceso_paquete_compras(conn, context, bom):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "No tienes acceso a ninguno de los módulos requeridos: "
-                f"{list(MODULOS_PAQUETE_COMPRAS)}. Contacta al administrador."
-            ),
+        return _toast_response(
+            request,
+            "No tienes acceso a ninguno de los módulos requeridos: "
+            f"{list(MODULOS_PAQUETE_COMPRAS)}. Contacta al administrador.",
+            "error", status_code=403,
         )
     return _modal_log_response(
         request, "modal-log-autorizacion-obra", "Autorizar compra",
