@@ -437,13 +437,11 @@ class BomComprasDBMixin:
         siempre (item_disponible_cotizacion lo excluye una vez en ese estatus)."""
         rows = await conn.fetch("""
             UPDATE tb_bom_items
-            SET estatus_compra = CASE
-                    WHEN cantidad_cubierta >= cantidad THEN 'AUTORIZADO'
-                    ELSE estatus_compra
-                END,
+            SET estatus_compra = 'AUTORIZADO',
                 lock_version = lock_version + 1,
                 updated_at = NOW()
             WHERE id_item = ANY($1::uuid[])
+              AND cantidad_cubierta >= cantidad
             RETURNING id_item, estatus_compra
         """, bom_item_ids)
         return [dict(r) for r in rows]

@@ -18,45 +18,33 @@ SET cantidad_cubierta = cantidad
 WHERE estatus_compra IN ('COTIZADO', 'AUTORIZADO', 'PAGADO', 'FACTURADO');
 
 -- 3. CHECK de rango: 0 <= cantidad_cubierta <= cantidad
-DO $$
-BEGIN
-    ALTER TABLE tb_bom_items
-        DROP CONSTRAINT IF EXISTS tb_bom_items_cantidad_cubierta_check;
-    ALTER TABLE tb_bom_items
-        ADD CONSTRAINT tb_bom_items_cantidad_cubierta_check
-        CHECK (cantidad_cubierta >= 0 AND cantidad_cubierta <= cantidad);
-EXCEPTION WHEN others THEN
-    NULL;
-END $$;
+-- DROP ... IF EXISTS ya hace idempotente el bloque completo; no se envuelve en
+-- DO $$ ... EXCEPTION WHEN others (silenciaria tambien una violacion real del
+-- CHECK, no solo "ya existe").
+ALTER TABLE tb_bom_items
+    DROP CONSTRAINT IF EXISTS tb_bom_items_cantidad_cubierta_check;
+ALTER TABLE tb_bom_items
+    ADD CONSTRAINT tb_bom_items_cantidad_cubierta_check
+    CHECK (cantidad_cubierta >= 0 AND cantidad_cubierta <= cantidad);
 
 -- 4. Ampliar CHECK de estatus_compra en tb_bom_items
-DO $$
-BEGIN
-    ALTER TABLE tb_bom_items
-        DROP CONSTRAINT IF EXISTS tb_bom_items_estatus_compra_check;
-    ALTER TABLE tb_bom_items
-        ADD CONSTRAINT tb_bom_items_estatus_compra_check
-        CHECK (estatus_compra IN (
-            'SIN_COTIZAR', 'PARCIALMENTE_COTIZADO', 'COTIZADO',
-            'AUTORIZADO', 'PAGADO', 'FACTURADO'
-        ));
-EXCEPTION WHEN others THEN
-    NULL;
-END $$;
+ALTER TABLE tb_bom_items
+    DROP CONSTRAINT IF EXISTS tb_bom_items_estatus_compra_check;
+ALTER TABLE tb_bom_items
+    ADD CONSTRAINT tb_bom_items_estatus_compra_check
+    CHECK (estatus_compra IN (
+        'SIN_COTIZAR', 'PARCIALMENTE_COTIZADO', 'COTIZADO',
+        'AUTORIZADO', 'PAGADO', 'FACTURADO'
+    ));
 
 -- 5. Ampliar CHECK de estatus_ejecucion en tb_bom_item_ejecucion (espejo 1:1)
-DO $$
-BEGIN
-    ALTER TABLE tb_bom_item_ejecucion
-        DROP CONSTRAINT IF EXISTS tb_bom_item_ejecucion_estatus_check;
-    ALTER TABLE tb_bom_item_ejecucion
-        ADD CONSTRAINT tb_bom_item_ejecucion_estatus_check
-        CHECK (estatus_ejecucion IN (
-            'PENDIENTE', 'SIN_COTIZAR', 'PARCIALMENTE_COTIZADO', 'COTIZADO',
-            'AUTORIZADO', 'COMPRADO', 'FACTURADO', 'PAGADO',
-            'RECIBIDO_PARCIAL', 'RECIBIDO_TOTAL', 'NO_ADQUIRIDO',
-            'REEMPLAZADO', 'CERRADO'
-        ));
-EXCEPTION WHEN others THEN
-    NULL;
-END $$;
+ALTER TABLE tb_bom_item_ejecucion
+    DROP CONSTRAINT IF EXISTS tb_bom_item_ejecucion_estatus_check;
+ALTER TABLE tb_bom_item_ejecucion
+    ADD CONSTRAINT tb_bom_item_ejecucion_estatus_check
+    CHECK (estatus_ejecucion IN (
+        'PENDIENTE', 'SIN_COTIZAR', 'PARCIALMENTE_COTIZADO', 'COTIZADO',
+        'AUTORIZADO', 'COMPRADO', 'FACTURADO', 'PAGADO',
+        'RECIBIDO_PARCIAL', 'RECIBIDO_TOTAL', 'NO_ADQUIRIDO',
+        'REEMPLAZADO', 'CERRADO'
+    ));

@@ -3,6 +3,7 @@ BOM – Compras: cotizaciones, RFQ, autorizaciones Fase D, conciliacion y match.
 Mixin incluido en BomService; los metodos usan self.db y self.get_bom.
 """
 
+import asyncio
 import logging
 import re
 from collections import defaultdict
@@ -2052,7 +2053,9 @@ class BomComprasServiceMixin:
         max_size_mb = settings.PDF_MAX_UPLOAD_SIZE_MB
         if len(content) / (1024 * 1024) > max_size_mb:
             raise ValueError(f"El PDF supera el tamaño máximo permitido ({max_size_mb}MB)")
-        return extraer_costos_cotizacion(content, file.filename or "cotizacion.pdf")
+        return await asyncio.to_thread(
+            extraer_costos_cotizacion, content, file.filename or "cotizacion.pdf"
+        )
 
     async def get_pdf_cotizacion_bytes(
         self, conn, cotizacion_id: UUID, doc_id: Optional[UUID] = None,

@@ -75,28 +75,29 @@ def _agregar_candidato(candidatos: list, texto: str, precio: float) -> None:
 def _candidatos_de_tablas(pdf) -> list:
     """Extrae (texto, precio) de tablas detectadas por pdfplumber.
 
-    Por fila, toma como precio la ultima celda que parsea como numero con
-    centavos y concatena el resto de celdas no vacias como descripcion.
-    Corta en cuanto se alcanza _MAX_CANDIDATOS -- evita seguir corriendo
-    extract_tables() (costoso) sobre paginas cuyo resultado se descartaria.
+    Por fila, toma como precio SOLO la ultima celda no vacia (columna
+    Importe/Total tipica) y concatena el resto de celdas no vacias como
+    descripcion. No hay forma confiable de mapear columnas sin encabezado --
+    si esa celda no parsea como precio, la fila se descarta en vez de
+    seguir buscando hacia la izquierda: cascadear hacia otras columnas
+    (ej. Cantidad) produce un precio incorrecto sin ningun error visible,
+    peor que perder el candidato (el usuario lo asigna manualmente de todos
+    modos, ver docstring del modulo). Corta en cuanto se alcanza
+    _MAX_CANDIDATOS -- evita seguir corriendo extract_tables() (costoso)
+    sobre paginas cuyo resultado se descartaria.
     """
     candidatos = []
     for page in pdf.pages:
         for tabla in page.extract_tables():
             for fila in tabla:
-                celdas = [c.strip() for c in fila if c and c.strip()]
+                celdas = [(i, c.strip()) for i, c in enumerate(fila) if c and c.strip()]
                 if len(celdas) < 2:
                     continue
-                precio = None
-                idx_precio = None
-                for i in range(len(celdas) - 1, -1, -1):
-                    precio = _parse_precio(celdas[i])
-                    if precio is not None:
-                        idx_precio = i
-                        break
+                idx_precio, texto_precio = celdas[-1]
+                precio = _parse_precio(texto_precio)
                 if precio is None:
                     continue
-                texto = clean_text(" ".join(c for j, c in enumerate(celdas) if j != idx_precio))
+                texto = clean_text(" ".join(c for i, c in celdas if i != idx_precio))
                 _agregar_candidato(candidatos, texto, precio)
                 if len(candidatos) >= _MAX_CANDIDATOS:
                     return candidatos
@@ -120,9 +121,10 @@ def _candidatos_de_texto(paginas_texto: list) -> list:
 
 
 def _detectar_moneda(raw_text: str):
-    if any(x in raw_text for x in ["USD", "Dólares", "DOLARES", "US$"]):
+    texto = raw_text.upper()
+    if any(x in texto for x in ["USD", "DÓLARES", "DOLARES", "US$"]):
         return "USD"
-    if any(x in raw_text for x in ["MXN", "Pesos", "M.N."]):
+    if any(x in texto for x in ["MXN", "PESOS", "M.N."]):
         return "MXN"
     return None
 

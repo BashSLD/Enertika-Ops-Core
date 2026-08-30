@@ -874,12 +874,13 @@ async def _subir_pdf_vigencia_opcional(
 
 async def _sin_pdf_huerfano(conn, service: BomService, upload_result: Optional[dict], coro):
     """Await `coro` (la llamada al service del gate de vigencia); si levanta
-    ValueError -- el CAS de lock_version/estatus fallo -- borra el PDF que
-    _subir_pdf_vigencia_opcional ya subio a SharePoint para que no quede huerfano
-    ligado a la cotizacion, y relanza. Compartido por los Puntos A y B."""
+    ValueError -- el CAS de lock_version/estatus fallo -- o asyncpg.PostgresError
+    -- la transaccion no se aplico -- borra el PDF que _subir_pdf_vigencia_opcional
+    ya subio a SharePoint para que no quede huerfano ligado a la cotizacion, y
+    relanza. Compartido por los Puntos A y B."""
     try:
         return await coro
-    except ValueError:
+    except (ValueError, asyncpg.PostgresError):
         if upload_result:
             doc_id = upload_result.get('id_documento_attachment')
             if doc_id:
