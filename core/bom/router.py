@@ -29,6 +29,7 @@ from .service import (
     get_bom_service,
     CAMPOS_AFECTAN_COSTO_ESTIMADO,
     MONEDAS_VALIDAS,
+    MODULOS_PAQUETE_COMPRAS,
     FLAG_ACTUALIZACION_PRECIOS_COMPRAS,
     ESTATUS_FUERA_DE_PRECIOS_PENDIENTES_COMPRAS,
 )
@@ -2215,23 +2216,48 @@ async def get_resumen_compra_modal(
 async def get_autorizacion_obra_modal(
     request: Request,
     id_bom: UUID,
+    context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["construccion"], "viewer"),
+    _=require_authenticated_session(),
 ):
     """Modal de autorizacion de compra para el coordinador de obra: reusa el mismo
     endpoint/partial de la tab Autorizaciones de la pagina de Compras, sin que
     Construccion tenga que navegar a esa pagina completa (pensada para Compras/
     Direccion, que si usan las 3 tabs).
 
+    Gate OR modulo/coordinador de obra (no solo modulo construccion): el boton que
+    abre este modal se muestra via _es_coordinador_obra(), que incluye al suplente
+    activo y a jefe_construccion por rol organizacional -- ninguno de los dos
+    implica el modulo construccion, y sin este OR reciben 403 al hacer click
+    (ultrareview 2026-08-29). BomService.tiene_acceso_paquete_compras es el mismo
+    check que usa compras_router.py -- vive en service.py, no en ninguno de los
+    dos routers, para que ambos lo importen top-level sin ciclo.
+
+    Un solo fetch de BOM (get_bom_by_id, ya trae paquete_codigo/version) arma el
+    subtitulo directo en vez de pasar por _get_modal_log_or_toast, que repetiria
+    la consulta via get_bom_subtitulo.
+
     body_id debe ser exactamente "tab-autorizaciones": los botones Aprobar/Rechazar
     dentro de autorizaciones.html tienen ese target hardcodeado (htmx.ajax target:
     '#tab-autorizaciones', igual que en compras_paquete.html) — si el id del wrapper
     del modal no coincide, esos botones fallan silenciosamente al no encontrar el
     elemento destino."""
-    return await _get_modal_log_or_toast(
-        request, id_bom, service, conn,
-        "modal-log-autorizacion-obra", "Autorizar compra", "autorizaciones", "tab-autorizaciones",
+    bom = await service.get_bom_by_id(conn, id_bom)
+    if not bom:
+        return _toast_response(request, "BOM no encontrado", "error", status_code=404)
+    if not await service.tiene_acceso_paquete_compras(conn, context, bom):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "No tienes acceso a ninguno de los módulos requeridos: "
+                f"{list(MODULOS_PAQUETE_COMPRAS)}. Contacta al administrador."
+            ),
+        )
+    return _modal_log_response(
+        request, "modal-log-autorizacion-obra", "Autorizar compra",
+        f"/bom/{id_bom}/autorizaciones", "tab-autorizaciones",
+        subtitulo=f"{bom.get('paquete_codigo', '')} v{bom.get('version', '')}",
     )
 
 

@@ -32,8 +32,13 @@ from core.materials.service import MaterialsService
 from core.notifications.service import get_notifications_service
 from core.timezone import now_mx, today_mx
 from core.config_service import ConfigService
+from core.permissions import user_has_module_access
 
 logger = logging.getLogger("BOM.Service")
+
+# Modulos cuyo acceso habilita la pagina/modal de Compras de un paquete BOM
+# (ver BomService.tiene_acceso_paquete_compras).
+MODULOS_PAQUETE_COMPRAS = ("ingenieria", "construccion", "compras", "finanzas")
 
 # Campos que puede editar cada area
 CAMPOS_INGENIERIA = {'id_categoria', 'descripcion', 'cantidad', 'unidad_medida', 'precio_unitario', 'origen_precio', 'tipo_partida', 'moneda'}
@@ -3643,6 +3648,30 @@ class BomService(BomComprasServiceMixin):
         result = set(titulares)
         result.add(user_id)
         return result
+
+    async def tiene_acceso_paquete_compras(
+        self, conn, context: dict, bom: Optional[dict],
+    ) -> bool:
+        """OR entre acceso de modulo (MODULOS_PAQUETE_COMPRAS, o rol organizacional
+        Direccion) y ser coordinador de obra -- titular o suplente activo -- del BOM
+        del paquete. `coordinador_obra` viene del equipo de proyecto, un sistema
+        independiente de tb_permisos_modulos: sin este OR, un coordinador de obra
+        sin acceso de modulo quedaria bloqueado de la pagina/modal de Compras del
+        paquete (PLAN_popup_pendientes_autorizacion_obra.md §4). Compartido por los
+        routers de BOM y Compras -- ambos importan este metodo en vez de cada uno
+        reimplementar el check o depender del otro (ciclo de imports)."""
+        if context.get("role") == "ADMIN" or context.get("rol_organizacional") == "director":
+            return True
+        if any(user_has_module_access(slug, context) for slug in MODULOS_PAQUETE_COMPRAS):
+            return True
+        user_id = context.get("user_db_id")
+        if not (user_id and bom):
+            return False
+        representados = await self.get_titulares_que_representa(conn, user_id)
+        coordinador_obra = bom.get("coordinador_obra")
+        if coordinador_obra:
+            return coordinador_obra in representados
+        return context.get("rol_organizacional") == "jefe_construccion"
 
     async def es_bom_role(
         self, conn, bom: dict, user_id: UUID,

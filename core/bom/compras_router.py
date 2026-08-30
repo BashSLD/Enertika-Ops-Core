@@ -29,7 +29,7 @@ from modules.shared.utils import content_disposition_header, is_htmx
 from .compras_service import ESTATUS_COTIZABLE, cantidad_pendiente_item, item_disponible_cotizacion
 from .router import _toast_response
 from .schemas import EstatusBOM
-from .service import BomService, get_bom_service
+from .service import BomService, get_bom_service, MODULOS_PAQUETE_COMPRAS
 
 logger = logging.getLogger("BOM.ComprasRouter")
 
@@ -256,38 +256,18 @@ async def popup_pendientes_obra(
 # PAGINA "COMPRAS DEL PAQUETE" (Resumen de compra + Cotizaciones + Autorizaciones)
 # ========================================
 
-_MODULOS_PAQUETE_COMPRAS = ("ingenieria", "construccion", "compras", "finanzas")
-
-
 async def _autorizar_acceso_paquete_o_coordinador_obra(
     context: dict, conn, service: BomService, bom: Optional[dict],
 ) -> None:
-    """OR entre acceso de modulo (ingenieria/construccion/compras/finanzas, o rol
-    Direccion) y ser coordinador de obra -- titular o suplente activo -- del BOM
-    del paquete. `coordinador_obra` viene del equipo de proyecto, un sistema
-    independiente de tb_permisos_modulos: sin este OR, un coordinador de obra
-    sin acceso de modulo recibe 403 al entrar desde el popup de pendientes
-    (PLAN_popup_pendientes_autorizacion_obra.md §4)."""
-    if context.get("role") == "ADMIN" or context.get("rol_organizacional") == "director":
+    """Traduce a 403 el check compartido BomService.tiene_acceso_paquete_compras
+    (modulo o coordinador de obra) -- ver ese metodo para el detalle del OR."""
+    if await service.tiene_acceso_paquete_compras(conn, context, bom):
         return
-    if any(user_has_module_access(slug, context) for slug in _MODULOS_PAQUETE_COMPRAS):
-        return
-    user_id = context.get("user_db_id")
-    if user_id and bom:
-        representados = await service.get_titulares_que_representa(conn, user_id)
-        coordinador_obra = bom.get("coordinador_obra")
-        es_coordinador_obra = (
-            coordinador_obra in representados
-            if coordinador_obra
-            else context.get("rol_organizacional") == "jefe_construccion"
-        )
-        if es_coordinador_obra:
-            return
     raise HTTPException(
         status_code=403,
         detail=(
             "No tienes acceso a ninguno de los módulos requeridos: "
-            f"{list(_MODULOS_PAQUETE_COMPRAS)}. Contacta al administrador."
+            f"{list(MODULOS_PAQUETE_COMPRAS)}. Contacta al administrador."
         ),
     )
 
