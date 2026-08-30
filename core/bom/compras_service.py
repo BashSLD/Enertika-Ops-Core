@@ -1348,6 +1348,34 @@ class BomComprasServiceMixin:
             ),
         }
 
+    @staticmethod
+    def mensaje_alerta_variacion_costo(alerta: dict) -> str:
+        """Texto del toast no bloqueante de _alerta_variacion_costo (Gap #12) --
+        antes se calculaba pero el router descartaba el dict, sin llegar nunca
+        a la UI."""
+        moneda = alerta.get("moneda") or "MXN"
+        variacion_pct = Decimal(alerta["variacion_pct"]) * 100
+        total_anterior = Decimal(alerta["total_anterior"])
+        total_nuevo = Decimal(alerta["total_nuevo"])
+        return (
+            f"El total pasó de {moneda} {total_anterior:,.2f} a {moneda} {total_nuevo:,.2f} "
+            f"({variacion_pct:+.1f}%). Revisa antes de continuar."
+        )
+
+    @classmethod
+    def bulk_toast_variacion_costo(cls, aprobacion: dict) -> Optional[dict]:
+        """bulk_toast (warning) para el gate de vigencia si trae alerta_variacion_costo,
+        o None si no aplica -- compartido por los dos call sites del Punto A/B
+        (solicitar_aprobacion_cotizacion, confirmar_vigencia_cotizacion)."""
+        alerta = aprobacion.get("alerta_variacion_costo")
+        if not alerta:
+            return None
+        return {
+            "type": "warning",
+            "title": "Variación de costo",
+            "message": cls.mensaje_alerta_variacion_costo(alerta),
+        }
+
     async def aprobar_cotizacion_direccion(
         self, conn, cotizacion_id: UUID, user_id: UUID,
         user_role: str, rol_org: Optional[str],

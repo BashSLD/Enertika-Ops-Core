@@ -858,10 +858,12 @@ async def preview_pdf_cotizacion(
 
 async def _subir_pdf_vigencia_opcional(
     conn, archivo: Optional[UploadFile], cotizacion_id: UUID, user_id: UUID,
-) -> Optional[str]:
+) -> Optional[dict]:
     """Sube a SharePoint el PDF opcional del gate de vigencia (Puntos A y B) y
-    devuelve la url_sharepoint, o None si no se adjuntó archivo. Mismo patron que
-    subir_pdf_cotizacion (upload fuera de la transaccion de negocio)."""
+    devuelve el upload_result completo (url_sharepoint + id_documento_attachment,
+    este ultimo para poder limpiar el attachment si el CAS del service falla
+    despues -- mismo patron que subir_pdf_cotizacion), o None si no se adjuntó
+    archivo. Upload fuera de la transaccion de negocio, igual que ese sibling."""
     if archivo is None or not archivo.filename:
         return None
     from modules.compras.service import ComprasService
@@ -873,7 +875,22 @@ async def _subir_pdf_vigencia_opcional(
     )
     if not upload_result or not upload_result.get('url_sharepoint'):
         raise ValueError("No se pudo subir el PDF a SharePoint")
-    return upload_result['url_sharepoint']
+    return upload_result
+
+
+async def _sin_pdf_huerfano(conn, service: BomService, upload_result: Optional[dict], coro):
+    """Await `coro` (la llamada al service del gate de vigencia); si levanta
+    ValueError -- el CAS de lock_version/estatus fallo -- borra el PDF que
+    _subir_pdf_vigencia_opcional ya subio a SharePoint para que no quede huerfano
+    ligado a la cotizacion, y relanza. Compartido por los Puntos A y B."""
+    try:
+        return await coro
+    except ValueError:
+        if upload_result:
+            doc_id = upload_result.get('id_documento_attachment')
+            if doc_id:
+                await service.db.eliminar_attachment_huerfano(conn, doc_id)
+        raise
 
 
 @compras_router.post("/cotizaciones/{cotizacion_id}/solicitar-aprobacion", include_in_schema=False)
@@ -913,15 +930,19 @@ async def solicitar_aprobacion_cotizacion(
     try:
         # Si no vigente, el archivo (si vino) se descarta -- evita el upload a
         # SharePoint de un PDF que nunca se va a referenciar.
-        nuevo_pdf_url = await _subir_pdf_vigencia_opcional(
+        upload_result = await _subir_pdf_vigencia_opcional(
             conn, archivo_vigencia if vigente else None, cotizacion_id, user_id,
         )
-        aprobacion = await service.solicitar_aprobacion_cotizacion(
-            conn, cotizacion_id, user_id, comentarios,
-            cotizacion_lock_version, autorizacion_lock_version,
-            reemplaza_aprobacion_id=reemplaza_id,
-            vigente=vigente, motivo_no_vigente=motivo_no_vigente,
-            nuevo_total=nuevo_total_dec, nuevo_pdf_url=nuevo_pdf_url,
+        nuevo_pdf_url = upload_result['url_sharepoint'] if upload_result else None
+        aprobacion = await _sin_pdf_huerfano(
+            conn, service, upload_result,
+            service.solicitar_aprobacion_cotizacion(
+                conn, cotizacion_id, user_id, comentarios,
+                cotizacion_lock_version, autorizacion_lock_version,
+                reemplaza_aprobacion_id=reemplaza_id,
+                vigente=vigente, motivo_no_vigente=motivo_no_vigente,
+                nuevo_total=nuevo_total_dec, nuevo_pdf_url=nuevo_pdf_url,
+            ),
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -929,7 +950,10 @@ async def solicitar_aprobacion_cotizacion(
         logger.exception("Error de BD al solicitar aprobación de cotización")
         return _toast_response(request, "Error al solicitar la aprobación.", "error", status_code=500)
 
-    return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
+    return await _render_cotizaciones_tab(
+        request, conn, service, context, aprobacion['bom_id'],
+        bulk_toast=service.bulk_toast_variacion_costo(aprobacion),
+    )
 
 
 @compras_router.post("/cotizaciones/{cotizacion_id}/aprobar-direccion", include_in_schema=False)
@@ -1075,13 +1099,17 @@ async def confirmar_vigencia_cotizacion(
     try:
         # Si no vigente, el archivo (si vino) se descarta -- evita el upload a
         # SharePoint de un PDF que nunca se va a referenciar.
-        nuevo_pdf_url = await _subir_pdf_vigencia_opcional(
+        upload_result = await _subir_pdf_vigencia_opcional(
             conn, archivo_vigencia if vigente else None, cotizacion_id, user_id,
         )
-        aprobacion = await service.confirmar_vigencia_reactivacion(
-            conn, cotizacion_id, user_id, vigente, motivo,
-            nuevo_total, nuevo_pdf_url,
-            aprobacion_lock_version, autorizacion_lock_version, cotizacion_lock_version,
+        nuevo_pdf_url = upload_result['url_sharepoint'] if upload_result else None
+        aprobacion = await _sin_pdf_huerfano(
+            conn, service, upload_result,
+            service.confirmar_vigencia_reactivacion(
+                conn, cotizacion_id, user_id, vigente, motivo,
+                nuevo_total, nuevo_pdf_url,
+                aprobacion_lock_version, autorizacion_lock_version, cotizacion_lock_version,
+            ),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1089,7 +1117,10 @@ async def confirmar_vigencia_cotizacion(
         logger.exception("Error de BD al confirmar vigencia de cotización")
         raise HTTPException(status_code=500, detail="Error al confirmar vigencia.")
 
-    return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
+    return await _render_cotizaciones_tab(
+        request, conn, service, context, aprobacion['bom_id'],
+        bulk_toast=service.bulk_toast_variacion_costo(aprobacion),
+    )
 
 
 # ========================================
