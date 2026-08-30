@@ -59,16 +59,6 @@ def _puede_ver_resumen_compra(context: dict) -> bool:
     )
 
 
-def _es_coordinador_obra(
-    coordinador_obra: Optional[UUID], representados: set, rol_organizacional: Optional[str],
-) -> bool:
-    """Coordinador de obra asignado al BOM (o su suplente activo, via `representados`);
-    si el BOM no tiene coordinador asignado, cae al jefe de Construccion. Misma regla
-    que usan aprobar_obra()/rechazar_autorizacion() en compras_service.py."""
-    if coordinador_obra:
-        return coordinador_obra in representados
-    return rol_organizacional == "jefe_construccion"
-
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
 
@@ -402,7 +392,7 @@ async def bom_hub_ui(
         ids_paquete_coordinador_obra = {
             p["id_paquete"] for p in paquetes
             if p.get("cabeza_trabajo_id") and p.get("estatus_trabajo") in _ESTATUS_FASE_COMPRAS
-            and _es_coordinador_obra(p.get("coordinador_obra_trabajo"), representados_obra, rol_organizacional)
+            and BomService.es_coordinador_obra(p.get("coordinador_obra_trabajo"), representados_obra, rol_organizacional)
         }
 
     estado = await service.get_estado_conjunto(conn, id_proyecto)
@@ -761,7 +751,7 @@ async def paquete_ui(
         # ni datos de compra que mostrar).
         if bom["estatus"] in _ESTATUS_FASE_COMPRAS:
             puede_ver_resumen_compra = _puede_ver_resumen_compra(context)
-            es_coordinador_obra_paso = _es_coordinador_obra(
+            es_coordinador_obra_paso = BomService.es_coordinador_obra(
                 bom.get("coordinador_obra"), representados, context.get("rol_organizacional"),
             )
             if es_coordinador_obra_paso:
@@ -2227,7 +2217,7 @@ async def get_autorizacion_obra_modal(
     Direccion, que si usan las 3 tabs).
 
     Gate OR modulo/coordinador de obra (no solo modulo construccion): el boton que
-    abre este modal se muestra via _es_coordinador_obra(), que incluye al suplente
+    abre este modal se muestra via BomService.es_coordinador_obra(), que incluye al suplente
     activo y a jefe_construccion por rol organizacional -- ninguno de los dos
     implica el modulo construccion, y sin este OR reciben 403 al hacer click
     (ultrareview 2026-08-29). BomService.tiene_acceso_paquete_compras es el mismo

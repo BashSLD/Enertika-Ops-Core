@@ -17,6 +17,7 @@ import asyncpg
 from core.bom.pdf_cotizacion_extractor import extraer_costos_cotizacion
 from core.bom.schemas import EstatusBOM, EstatusCotizacionAprobacion
 from core.config import settings
+from core.config_service import ConfigService
 from core.timezone import today_mx
 
 logger = logging.getLogger("BOM.Service")
@@ -41,6 +42,8 @@ ESTATUS_ADENDA_APROBADA = "APROBADA"
 # Umbral no bloqueante del gate de vigencia (standby/vigencia 2026-08-28): a
 # partir de esta variacion porcentual del total, la respuesta del servicio
 # incluye una alerta para que la UI la muestre -- nunca impide la operacion.
+# Default de _alerta_variacion_costo(); el valor real, ajustable sin deploy,
+# vive en tb_configuracion_global (clave bom_umbral_alerta_variacion_costo_pct).
 UMBRAL_ALERTA_VARIACION_COSTO_PCT = Decimal("0.05")
 
 
@@ -121,6 +124,22 @@ class BomComprasServiceMixin:
             (i.get("descripcion") or "Item sin descripcion")[:60] for i in items[:3]
         )
         raise ValueError(f"{mensaje}: {nombres}")
+
+    def _raise_si_excede_pendiente(
+        self, items_con_cantidad: list, items_map: dict, mensaje: str,
+    ) -> None:
+        """items_con_cantidad: lista de (item_data, cantidad_solicitada: Decimal).
+        items_map: dict id_item (str) -> fila de bom_item (con cantidad/cantidad_cubierta).
+        Levanta ValueError con `mensaje` si algun item excede su remanente
+        pendiente. Compartido por _calcular_items_cotizacion (validacion al
+        crear/editar) y seleccionar_cotizacion (revalidacion bajo lock antes
+        de adjudicar) -- mismo predicado, dos momentos distintos del flujo."""
+        excedidos = [
+            items_map[str(it["bom_item_id"])]
+            for it, cantidad in items_con_cantidad
+            if cantidad > cantidad_pendiente_item(items_map[str(it["bom_item_id"])])
+        ]
+        self._raise_si_items(excedidos, mensaje)
 
     async def _validar_items_cotizables(
         self, conn, bom_items: list, accion: str,
@@ -350,13 +369,9 @@ class BomComprasServiceMixin:
             conn, bom_items_batch, "cotizar", cotizacion_id_excluir,
             verificar_cotizacion_activa=False,
         )
-        excedidos = [
-            bom_items_map_cot[str(i["bom_item_id"])]
-            for i, cantidad in zip(items_data, cantidades)
-            if cantidad > cantidad_pendiente_item(bom_items_map_cot[str(i["bom_item_id"])])
-        ]
-        self._raise_si_items(
-            excedidos, "La cantidad cotizada supera el remanente pendiente de los items"
+        self._raise_si_excede_pendiente(
+            list(zip(items_data, cantidades)), bom_items_map_cot,
+            "La cantidad cotizada supera el remanente pendiente de los items",
         )
 
         precios = [
@@ -660,6 +675,19 @@ class BomComprasServiceMixin:
                 await self._validar_items_cotizables(
                     conn, bloqueados, "seleccionar cotizaciones con", cotizacion_id
                 )
+                # Recheck bajo lock: _validar_items_cotizables solo confirma que
+                # queda remanente > 0, no que la cantidad de ESTA cotizacion siga
+                # cabiendo en el remanente actual. Sin esto, dos cotizaciones que
+                # individualmente cupieron al crearse (remanente aun no tocado en
+                # ese momento) pueden violar tb_bom_items_cantidad_cubierta_check
+                # si ambas se seleccionan (la segunda ve el remanente ya reducido
+                # por la primera, recien liberado el lock de fila).
+                bloqueados_map = {str(it["id_item"]): it for it in bloqueados}
+                self._raise_si_excede_pendiente(
+                    [(it, Decimal(str(it["cantidad"]))) for it in items], bloqueados_map,
+                    "La cantidad de esta cotizacion ya no cabe en el remanente pendiente "
+                    "(otra cotizacion cubrio parte del remanente mientras tanto)",
+                )
                 locks_ejecucion = {
                     str(item["id_item"]): int(
                         item.get("ejecucion_lock_version") or 0
@@ -825,9 +853,30 @@ class BomComprasServiceMixin:
         )
         return await self._adjuntar_items_a_autorizaciones(conn, autorizaciones)
 
+    def _exigir_coordinador_obra(
+        self, coordinador_obra: Optional[UUID], representados: set,
+        rol_organizacional: Optional[str], accion: str,
+    ) -> None:
+        """Levanta ValueError si el usuario no es el coordinador de obra
+        (titular o suplente) ni, en su ausencia, jefe de Construccion.
+        `accion` es el verbo infinitivo del paso (ej. "aprobar", "rechazar"),
+        usado para armar el mensaje. Comparte el predicado con
+        BomService.es_coordinador_obra(); este helper solo agrega el
+        envoltorio de error compartido entre aprobar_obra/rechazar_autorizacion."""
+        if self.es_coordinador_obra(coordinador_obra, representados, rol_organizacional):
+            return
+        if coordinador_obra:
+            raise ValueError(
+                f"Solo el coordinador de obra del proyecto o su suplente puede {accion} este paso."
+            )
+        raise ValueError(
+            f"No hay coordinador de obra asignado. Solo el jefe de Construccion puede {accion} este paso."
+        )
+
     async def aprobar_obra(
         self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
         user_role: str, lock_version_esperado: Optional[int] = None,
+        rol_organizacional: Optional[str] = None,
     ) -> dict:
         """Aprueba paso 1 el controlador de Obra o su suplente activo."""
         aut = await self.db.get_autorizacion_by_id(conn, autorizacion_id)
@@ -843,17 +892,7 @@ class BomComprasServiceMixin:
         # en Fase D), y el fallback es NULL-check en coordinador_obra, no rol_org global.
         representados = await self.get_titulares_que_representa(conn, user_id)
         coordinador_obra = bom.get('coordinador_obra')
-        if coordinador_obra:
-            if coordinador_obra not in representados:
-                raise ValueError(
-                    "Solo el coordinador de obra del proyecto o su suplente puede aprobar este paso."
-                )
-        elif not await self.db.usuario_tiene_rol_org(
-            conn, user_id, "jefe_construccion"
-        ):
-            raise ValueError(
-                "No hay coordinador de obra asignado. Solo el jefe de Construccion puede aprobar este paso."
-            )
+        self._exigir_coordinador_obra(coordinador_obra, representados, rol_organizacional, "aprobar")
 
         if lock_version_esperado is None:
             raise ValueError("La autorizacion cambio; recarga la pestaña")
@@ -969,17 +1008,7 @@ class BomComprasServiceMixin:
             bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
             representados = await self.get_titulares_que_representa(conn, user_id)
             coordinador_obra = bom.get('coordinador_obra')
-            if coordinador_obra:
-                if coordinador_obra not in representados:
-                    raise ValueError(
-                        "Solo el coordinador de obra o su suplente puede rechazar en este paso."
-                    )
-            elif not await self.db.usuario_tiene_rol_org(
-                conn, user_id, "jefe_construccion"
-            ):
-                raise ValueError(
-                    "No hay coordinador de obra asignado. Solo el jefe de Construccion puede rechazar en este paso."
-                )
+            self._exigir_coordinador_obra(coordinador_obra, representados, rol_org, "rechazar")
         elif estatus == 'AUTORIZADO_OBRA':
             paso = 'DIRECCION'
             await self._require_direccion_titular(conn, user_id, "rechazar")
@@ -1326,8 +1355,8 @@ class BomComprasServiceMixin:
         if nuevo_total is None:
             return None
 
-        alerta_variacion = self._alerta_variacion_costo(
-            total_anterior, Decimal(str(nuevo_total)), autorizacion_bloqueada,
+        alerta_variacion = await self._alerta_variacion_costo(
+            conn, total_anterior, Decimal(str(nuevo_total)), autorizacion_bloqueada,
         )
         sincronizada = await self.db.sincronizar_monto_autorizacion_db(
             conn, autorizacion_id, nuevo_total, autorizacion_lock_version_esperado,
@@ -1336,11 +1365,12 @@ class BomComprasServiceMixin:
             raise ValueError("La autorización cambió; recarga la pestaña.")
         return alerta_variacion
 
-    def _alerta_variacion_costo(
-        self, total_anterior: Decimal, total_nuevo: Decimal, autorizacion: dict,
+    async def _alerta_variacion_costo(
+        self, conn, total_anterior: Decimal, total_nuevo: Decimal, autorizacion: dict,
     ) -> Optional[dict]:
         """Alerta no bloqueante (Gap #12) si el total actualizado en el gate de
-        vigencia se aparta >= UMBRAL_ALERTA_VARIACION_COSTO_PCT del total previo.
+        vigencia se aparta >= umbral configurado (tb_configuracion_global,
+        default UMBRAL_ALERTA_VARIACION_COSTO_PCT) del total previo.
         Comparacion siempre en la moneda propia de la cotizacion (nunca se mezcla
         MXN/USD crudos): ambos montos ya estan en esa moneda por construccion, el
         trigger fn_bom_validar_documento_cotizacion exige NEW.moneda = cotizacion.moneda.
@@ -1349,7 +1379,11 @@ class BomComprasServiceMixin:
         if total_anterior <= 0:
             return None
         variacion_pct = (total_nuevo - total_anterior) / total_anterior
-        if abs(variacion_pct) < UMBRAL_ALERTA_VARIACION_COSTO_PCT:
+        umbral = Decimal(str(await ConfigService.get_global_config(
+            conn, "bom_umbral_alerta_variacion_costo_pct",
+            float(UMBRAL_ALERTA_VARIACION_COSTO_PCT), float,
+        )))
+        if abs(variacion_pct) < umbral:
             return None
         return {
             "total_anterior": str(total_anterior),
@@ -1998,6 +2032,44 @@ class BomComprasServiceMixin:
         )
         return updated
 
+    async def _subir_pdf_sharepoint_o_raise(
+        self, conn, file, user_id: UUID, cotizacion_id: UUID,
+    ) -> dict:
+        """Sube un PDF de cotizacion a SharePoint (categoria/origen/relacion fijos
+        de este dominio) y valida que el upload haya devuelto url_sharepoint.
+
+        El upload a SharePoint (round-trip de red) se hace fuera de la
+        transaccion de negocio para no mantener una conexion del pool abierta
+        durante esa llamada externa (mismo criterio que
+        FinanzasService.registrar_pago). Compartido por subir_pdf_cotizacion
+        (Fase C) y el gate de vigencia Puntos A/B en compras_router.py -- antes
+        cada uno reimplementaba esta misma llamada."""
+        from modules.compras.service import ComprasService
+
+        upload_result = await ComprasService().subir_pdf_mensual(
+            conn, file, categoria='bom/cotizaciones',
+            origen_slug='cotizacion_bom', user_id=user_id,
+            id_bom_cotizacion=cotizacion_id,
+        )
+        if not upload_result or not upload_result.get('url_sharepoint'):
+            raise ValueError("No se pudo subir el PDF a SharePoint")
+        return upload_result
+
+    async def _con_cleanup_pdf_huerfano(self, conn, upload_result: Optional[dict], coro):
+        """Await `coro`; si levanta ValueError (CAS de lock_version/estatus
+        fallido) o asyncpg.PostgresError (la transaccion no se aplico), borra el
+        PDF que `upload_result` ya subio a SharePoint para que no quede
+        huerfano ligado a la cotizacion, y relanza. Compartido por
+        subir_pdf_cotizacion y el gate de vigencia Puntos A/B."""
+        try:
+            return await coro
+        except (ValueError, asyncpg.PostgresError):
+            if upload_result:
+                doc_id = upload_result.get('id_documento_attachment')
+                if doc_id:
+                    await self.db.eliminar_attachment_huerfano(conn, doc_id)
+            raise
+
     async def subir_pdf_cotizacion(
         self, conn, cotizacion_id: UUID, file, user_id: UUID,
         lock_version_esperado: Optional[int] = None,
@@ -2015,30 +2087,13 @@ class BomComprasServiceMixin:
             )
         self._validar_content_type_pdf(file)
 
-        from modules.compras.service import ComprasService
-
-        # El upload a SharePoint (round-trip de red) se hace fuera de la
-        # transaccion para no mantener una conexion del pool abierta durante
-        # esa llamada externa (mismo criterio que FinanzasService.registrar_pago).
-        # Si el CAS de abajo falla, se borra el attachment recien creado para
-        # que no quede huerfano y termine sirviendose por error en el preview.
-        upload_result = await ComprasService().subir_pdf_mensual(
-            conn, file, categoria='bom/cotizaciones',
-            origen_slug='cotizacion_bom', user_id=user_id,
-            id_bom_cotizacion=cotizacion_id,
-        )
-        if not upload_result or not upload_result.get('url_sharepoint'):
-            raise ValueError("No se pudo subir el PDF a SharePoint")
-
-        try:
-            return await self.actualizar_pdf_cotizacion(
+        upload_result = await self._subir_pdf_sharepoint_o_raise(conn, file, user_id, cotizacion_id)
+        return await self._con_cleanup_pdf_huerfano(
+            conn, upload_result,
+            self.actualizar_pdf_cotizacion(
                 conn, cotizacion_id, upload_result['url_sharepoint'], lock_version_esperado
-            )
-        except ValueError:
-            doc_id = upload_result.get('id_documento_attachment')
-            if doc_id:
-                await self.db.eliminar_attachment_huerfano(conn, doc_id)
-            raise
+            ),
+        )
 
     async def extraer_costos_pdf_cotizacion(self, file) -> dict:
         """Extrae precios candidatos de un PDF de cotizacion de proveedor para

@@ -584,7 +584,12 @@ class BomComprasDBMixin:
         """Autorizaciones PENDIENTE (paso Obra) de cualquier BOM cuyo coordinador
         de obra sea alguno de los `representados` (titular o suplente activo), o
         -- si el paquete no tiene coordinador asignado -- el usuario tenga el rol
-        organizacional jefe_construccion (mismo fallback que usa aprobar_obra).
+        organizacional jefe_construccion. Mismo predicado que
+        BomService.es_coordinador_obra() (service.py), duplicado aqui en SQL a
+        proposito: es un filtro cross-BOM (`b.coordinador_obra = ANY($1)`) sobre
+        potencialmente muchos paquetes a la vez; resolverlo trayendo candidatos a
+        Python y filtrando en memoria implicaria un N+1 o una query igual de
+        grande. Si esta regla cambia, actualizar ambos lugares.
         Cross-BOM en una sola query para alimentar el popup de pendientes al
         entrar a la app (PLAN_popup_pendientes_autorizacion_obra.md §2)."""
         rows = await conn.fetch("""

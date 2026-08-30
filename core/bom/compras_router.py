@@ -29,7 +29,7 @@ from modules.shared.utils import content_disposition_header, is_htmx
 from .compras_service import ESTATUS_COTIZABLE, cantidad_pendiente_item, item_disponible_cotizacion
 from .router import _toast_response
 from .schemas import EstatusBOM
-from .service import BomService, get_bom_service, MODULOS_PAQUETE_COMPRAS
+from .service import BomService, get_bom_service
 
 logger = logging.getLogger("BOM.ComprasRouter")
 
@@ -45,22 +45,79 @@ def _js_str(value: str) -> str:
     return html.escape(json.dumps(value), quote=True)
 
 
-def _item_cotizacion_json(item: dict) -> dict:
+def _parse_decimal_form(valor: Optional[str]) -> Optional[Decimal]:
+    """Parsea `nuevo_total` de un form-field opcional a Decimal.
+
+    Optional[str] en vez de Optional[Decimal] en el parametro del endpoint --
+    un input numerico vacio llega como "" via multipart, y Pydantic no lo
+    trata como None para un Optional[Decimal] (422 antes de poder manejarlo
+    limpio). Levanta ValueError si el valor no es un decimal valido; cada
+    caller decide como envolver ese error (toast vs HTTPException) segun si
+    su endpoint se invoca via hx-* o via fetch() manual.
+
+    Rechaza explicitamente NaN/Infinity: Decimal("nan")/Decimal("inf") no
+    levantan InvalidOperation al parsear (a diferencia de lo que hacia
+    Pydantic para el Optional[Decimal] previo, que los rechazaba con 422 via
+    su validador finite_number), y un total no finito hace explotar
+    _alerta_variacion_costo mas adelante (comparacion/quantize sobre NaN o
+    Infinity) con un decimal.InvalidOperation sin capturar."""
+    if not valor:
+        return None
+    try:
+        parsed = Decimal(valor)
+    except InvalidOperation as exc:
+        raise ValueError("Nuevo total inválido.") from exc
+    if not parsed.is_finite():
+        raise ValueError("Nuevo total inválido.")
+    return parsed
+
+
+async def _exigir_acceso_paquete_o_403(
+    service: BomService, conn, context: dict, bom: dict,
+    tiene_acceso_modulo: bool, recurso: str,
+) -> None:
+    """Levanta 403 si el usuario no tiene acceso de modulo NI es coordinador
+    de obra del paquete. `tiene_acceso_modulo` viene ya calculado por el
+    caller (gate barato temprano, ver compras_paquete_ui/preview_pdf_cotizacion)
+    -- se pasa a tiene_acceso_paquete_compras para no recalcularlo. Mismo
+    mensaje/status que la rama "no existe" del caller: evita que un usuario
+    sin acceso de modulo distinga "no existe" de "existe pero no tengo
+    acceso" comparando la respuesta."""
+    if tiene_acceso_modulo:
+        return
+    if await service.tiene_acceso_paquete_compras(
+        conn, context, bom, tiene_acceso_modulo=tiene_acceso_modulo,
+    ):
+        return
+    raise HTTPException(status_code=403, detail=f"No tienes acceso a {recurso}.")
+
+
+def _item_cotizacion_json(item: dict, *, cantidad_pendiente=None) -> dict:
     """Proyeccion minima y JSON-safe del item para el selector del modal de cotizacion.
 
     El dict completo de tb_bom_items trae columnas Decimal/UUID/datetime que
     `tojson` no puede serializar; el JS del modal (cotizacionesBom()) solo lee
     estos 6 campos.
+
+    `cantidad_pendiente`: por default se deriva de `item` con
+    `cantidad_pendiente_item()` (items_disponibles, donde `item` SI es una fila
+    de tb_bom_items). Al armar items_json para el modal de EDITAR (donde `item`
+    es una fila de tb_bom_cotizacion_items -- `cantidad` ahi es lo que ESTA
+    cotizacion ya capturo, no el total del item BOM, y no trae
+    cantidad_cubierta) hay que pasarlo ya calculado desde el item BOM real; ver
+    _render_cotizaciones_tab.
     """
     cantidad = item.get("cantidad")
     precio_unitario = item.get("precio_unitario")
+    if cantidad_pendiente is None:
+        cantidad_pendiente = cantidad_pendiente_item(item)
     return {
         "id_item": str(item["id_item"]),
         "descripcion": item.get("descripcion"),
         "categoria_nombre": item.get("categoria_nombre"),
         "unidad_medida": item.get("unidad_medida"),
         "cantidad": float(cantidad) if cantidad is not None else None,
-        "cantidad_pendiente": float(cantidad_pendiente_item(item)),
+        "cantidad_pendiente": float(cantidad_pendiente),
         "precio_unitario": float(precio_unitario) if precio_unitario is not None else None,
     }
 
@@ -134,14 +191,30 @@ async def _render_cotizaciones_tab(
         raise HTTPException(status_code=404, detail="BOM no encontrado")
     cotizaciones = await service.listar_cotizaciones(conn, bom_id)
     cot_ids = [c["id"] for c in cotizaciones]
+    items = await service.get_items(conn, bom_id)
+    bom_items_map = {str(i["id_item"]): i for i in items}
     cot_items_raw = await service.db.get_items_by_cotizacion_ids(conn, cot_ids) if cot_ids else []
     cot_items_json: dict = {}
     for it in cot_items_raw:
         key = str(it["cotizacion_id"])
-        cot_items_json.setdefault(key, []).append(_item_cotizacion_json(it))
+        bom_item = bom_items_map.get(str(it["bom_item_id"]))
+        # Remanente real del item BOM (cantidad - cantidad_cubierta), no el de
+        # `it` (fila de tb_bom_cotizacion_items: sin cantidad_cubierta, y su
+        # "cantidad" es lo que esta cotizacion ya capturo) -- ver docstring de
+        # _item_cotizacion_json. Si el item BOM ya no esta activo (soft-delete,
+        # bom_items_map solo trae activos), no cae a None -- eso reactivaria el
+        # bug original (_item_cotizacion_json recalcularia sobre `it`, sin
+        # cantidad_cubierta). Pendiente 0: un item inactivo no deberia poder
+        # cotizarse mas, el modal lo clampea en vez de mostrar el remanente
+        # completo original.
+        cot_items_json.setdefault(key, []).append(_item_cotizacion_json(
+            it,
+            cantidad_pendiente=(
+                cantidad_pendiente_item(bom_item) if bom_item else Decimal("0")
+            ),
+        ))
     for cot in cotizaciones:
         cot["items_json"] = cot_items_json.get(str(cot["id"]), [])
-    items = await service.get_items(conn, bom_id)
     items_disponibles = [
         _item_cotizacion_json(i) for i in items if item_disponible_cotizacion(i)
     ]
@@ -250,22 +323,6 @@ async def popup_pendientes_obra(
 # PAGINA "COMPRAS DEL PAQUETE" (Resumen de compra + Cotizaciones + Autorizaciones)
 # ========================================
 
-async def _autorizar_acceso_paquete_o_coordinador_obra(
-    context: dict, conn, service: BomService, bom: Optional[dict],
-) -> None:
-    """Traduce a 403 el check compartido BomService.tiene_acceso_paquete_compras
-    (modulo o coordinador de obra) -- ver ese metodo para el detalle del OR."""
-    if await service.tiene_acceso_paquete_compras(conn, context, bom):
-        return
-    raise HTTPException(
-        status_code=403,
-        detail=(
-            "No tienes acceso a ninguno de los módulos requeridos: "
-            f"{list(MODULOS_PAQUETE_COMPRAS)}. Contacta al administrador."
-        ),
-    )
-
-
 @compras_router.get("/paquetes/{id_paquete}/compras", include_in_schema=False)
 async def compras_paquete_ui(
     request: Request,
@@ -278,12 +335,19 @@ async def compras_paquete_ui(
     """Pagina dedicada de Compras para un paquete: resuelve server-side el BOM
     cotizable vigente (cabeza de trabajo, u oficial si hay retrabajo en curso) y
     embebe Resumen de compra/Cotizaciones/Autorizaciones sin depender de un modal."""
+    # Gate barato (sin query) primero -- ver mismo patron en preview_pdf_cotizacion:
+    # sin acceso de modulo, "el paquete no existe" y "existe pero no tengo
+    # acceso" deben responder igual, o el 404/403 distinto filtra que IDs de
+    # paquete son validos a quien no tiene ningun acceso de modulo.
+    tiene_acceso_modulo = BomService.tiene_acceso_modulo_compras(context)
     try:
         paquete = await service.get_paquete(conn, id_paquete)
         bom = await service.resolver_bom_cotizable(conn, id_paquete)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    await _autorizar_acceso_paquete_o_coordinador_obra(context, conn, service, bom)
+        if tiene_acceso_modulo:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=403, detail="No tienes acceso a este paquete.") from exc
+    await _exigir_acceso_paquete_o_403(service, conn, context, bom, tiene_acceso_modulo, "este paquete")
     proyecto = await service.get_proyecto_info(conn, paquete["id_proyecto"])
     if not proyecto:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
@@ -730,6 +794,11 @@ async def seleccionar_cotizacion(
         )
     except (TypeError, ValueError) as e:
         return _toast_response(request, str(e), "error", status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al seleccionar cotización %s", cotizacion_id)
+        return _toast_response(
+            request, "Error al adjudicar la cotización.", "error", status_code=500
+        )
     if not cotizacion:
         return _toast_response(request, "Cotización no encontrada", "error", status_code=404)
     return await _render_cotizaciones_tab(request, conn, service, context, cotizacion['bom_id'])
@@ -816,11 +885,21 @@ async def preview_pdf_cotizacion(
     _=require_authenticated_session(),
 ):
     """Streamea el PDF mas reciente de la cotización para verlo inline en el navegador."""
+    # Gate barato (sin query) primero: usuarios con acceso de modulo/Direccion/
+    # ADMIN nunca filtran nada. Solo quien no lo tiene depende del fetch para
+    # saber si califica como coordinador de obra -- para ese grupo, "no existe"
+    # y "existe pero sin acceso" deben verse identicos (mismo 403) para no
+    # filtrar que IDs de cotizacion son validos.
+    tiene_acceso_modulo = BomService.tiene_acceso_modulo_compras(context)
     cotizacion = await service.get_cotizacion_by_id(conn, cotizacion_id)
     if not cotizacion:
-        raise HTTPException(status_code=404, detail="Cotización no encontrada")
+        if tiene_acceso_modulo:
+            raise HTTPException(status_code=404, detail="Cotización no encontrada")
+        raise HTTPException(status_code=403, detail="No tienes acceso a esta cotización.")
     bom = await service.get_bom_by_id(conn, cotizacion["bom_id"])
-    await _autorizar_acceso_paquete_o_coordinador_obra(context, conn, service, bom)
+    await _exigir_acceso_paquete_o_403(
+        service, conn, context, bom, tiene_acceso_modulo, "esta cotización",
+    )
     try:
         nombre_archivo, _media_type, contenido = await service.get_pdf_cotizacion_bytes(
             conn, cotizacion_id
@@ -851,41 +930,21 @@ async def preview_pdf_cotizacion(
 # ========================================
 
 async def _subir_pdf_vigencia_opcional(
-    conn, archivo: Optional[UploadFile], cotizacion_id: UUID, user_id: UUID,
+    conn, service: BomService, archivo: Optional[UploadFile], cotizacion_id: UUID, user_id: UUID,
 ) -> Optional[dict]:
-    """Sube a SharePoint el PDF opcional del gate de vigencia (Puntos A y B) y
-    devuelve el upload_result completo (url_sharepoint + id_documento_attachment,
-    este ultimo para poder limpiar el attachment si el CAS del service falla
-    despues -- mismo patron que subir_pdf_cotizacion), o None si no se adjuntó
-    archivo. Upload fuera de la transaccion de negocio, igual que ese sibling."""
+    """Sube a SharePoint el PDF opcional del gate de vigencia (Puntos A y B) via
+    BomService._subir_pdf_sharepoint_o_raise (misma orquestacion que
+    subir_pdf_cotizacion -- el router no reimplementa la llamada a
+    ComprasService), o None si no se adjuntó archivo."""
     if archivo is None or not archivo.filename:
         return None
-    from modules.compras.service import ComprasService
-
-    upload_result = await ComprasService().subir_pdf_mensual(
-        conn, archivo, categoria='bom/cotizaciones',
-        origen_slug='cotizacion_bom', user_id=user_id,
-        id_bom_cotizacion=cotizacion_id,
-    )
-    if not upload_result or not upload_result.get('url_sharepoint'):
-        raise ValueError("No se pudo subir el PDF a SharePoint")
-    return upload_result
+    return await service._subir_pdf_sharepoint_o_raise(conn, archivo, user_id, cotizacion_id)
 
 
 async def _sin_pdf_huerfano(conn, service: BomService, upload_result: Optional[dict], coro):
-    """Await `coro` (la llamada al service del gate de vigencia); si levanta
-    ValueError -- el CAS de lock_version/estatus fallo -- o asyncpg.PostgresError
-    -- la transaccion no se aplico -- borra el PDF que _subir_pdf_vigencia_opcional
-    ya subio a SharePoint para que no quede huerfano ligado a la cotizacion, y
-    relanza. Compartido por los Puntos A y B."""
-    try:
-        return await coro
-    except (ValueError, asyncpg.PostgresError):
-        if upload_result:
-            doc_id = upload_result.get('id_documento_attachment')
-            if doc_id:
-                await service.db.eliminar_attachment_huerfano(conn, doc_id)
-        raise
+    """Delega en BomService._con_cleanup_pdf_huerfano (misma limpieza que usa
+    subir_pdf_cotizacion). Compartido por los Puntos A y B."""
+    return await service._con_cleanup_pdf_huerfano(conn, upload_result, coro)
 
 
 @compras_router.post("/cotizaciones/{cotizacion_id}/solicitar-aprobacion", include_in_schema=False)
@@ -916,17 +975,14 @@ async def solicitar_aprobacion_cotizacion(
     except ValueError:
         return _toast_response(request, "reemplaza_aprobacion_id inválido", "error", status_code=400)
     try:
-        # nuevo_total: Optional[str] en vez de Optional[Decimal] -- un input
-        # numerico vacio llega como "" via multipart, y Pydantic no lo trata
-        # como None para un Optional[Decimal] (422 antes de llegar al try).
-        nuevo_total_dec = Decimal(nuevo_total) if nuevo_total else None
-    except (InvalidOperation, ValueError):
+        nuevo_total_dec = _parse_decimal_form(nuevo_total)
+    except ValueError:
         return _toast_response(request, "Nuevo total inválido.", "error", status_code=400)
     try:
         # Si no vigente, el archivo (si vino) se descarta -- evita el upload a
         # SharePoint de un PDF que nunca se va a referenciar.
         upload_result = await _subir_pdf_vigencia_opcional(
-            conn, archivo_vigencia if vigente else None, cotizacion_id, user_id,
+            conn, service, archivo_vigencia if vigente else None, cotizacion_id, user_id,
         )
         nuevo_pdf_url = upload_result['url_sharepoint'] if upload_result else None
         aprobacion = await _sin_pdf_huerfano(
@@ -1078,7 +1134,7 @@ async def confirmar_vigencia_cotizacion(
     cotizacion_id: UUID,
     vigente: bool = Form(...),
     motivo: Optional[str] = Form(None),
-    nuevo_total: Optional[Decimal] = Form(None),
+    nuevo_total: Optional[str] = Form(None),
     archivo_vigencia: Optional[UploadFile] = File(None),
     aprobacion_lock_version: int = Form(...),
     autorizacion_lock_version: int = Form(...),
@@ -1092,17 +1148,21 @@ async def confirmar_vigencia_cotizacion(
     Invocado via fetch() manual -- errores como HTTPException, no _toast_response."""
     user_id = context.get("user_db_id")
     try:
+        nuevo_total_dec = _parse_decimal_form(nuevo_total)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Nuevo total inválido.")
+    try:
         # Si no vigente, el archivo (si vino) se descarta -- evita el upload a
         # SharePoint de un PDF que nunca se va a referenciar.
         upload_result = await _subir_pdf_vigencia_opcional(
-            conn, archivo_vigencia if vigente else None, cotizacion_id, user_id,
+            conn, service, archivo_vigencia if vigente else None, cotizacion_id, user_id,
         )
         nuevo_pdf_url = upload_result['url_sharepoint'] if upload_result else None
         aprobacion = await _sin_pdf_huerfano(
             conn, service, upload_result,
             service.confirmar_vigencia_reactivacion(
                 conn, cotizacion_id, user_id, vigente, motivo,
-                nuevo_total, nuevo_pdf_url,
+                nuevo_total_dec, nuevo_pdf_url,
                 aprobacion_lock_version, autorizacion_lock_version, cotizacion_lock_version,
             ),
         )
@@ -1541,7 +1601,8 @@ async def aprobar_autorizacion_obra(
     user_role = context.get("role")
     try:
         aut = await service.aprobar_obra(
-            conn, autorizacion_id, user_id, nota, user_role, lock_version
+            conn, autorizacion_id, user_id, nota, user_role, lock_version,
+            rol_organizacional=context.get("rol_organizacional"),
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)

@@ -11,7 +11,24 @@ from uuid import uuid4
 import pytest
 
 from core.bom.service import BomService
+from core.config_service import ConfigService
 from core.timezone import today_mx
+
+
+@pytest.fixture(autouse=True)
+def _config_sin_db(monkeypatch):
+    """_alerta_variacion_costo() (gate de vigencia) lee el umbral via
+    ConfigService.get_global_config, que golpea BD si no hay cache -- FakeConn
+    de este archivo no implementa fetchrow. Los tests aqui no ejercen ese
+    ajuste de configuracion, solo el default."""
+    async def _get_global_config(cls, conn, clave, default, tipo=str):
+        return default
+
+    monkeypatch.setattr(
+        ConfigService,
+        "get_global_config",
+        classmethod(_get_global_config),
+    )
 
 
 class FakeConn:

@@ -11,7 +11,7 @@ import pytest
 from fastapi import HTTPException
 
 import core.bom.router  # noqa: F401 -- fuerza el orden de import (evita circular import con compras_router)
-from core.bom.compras_router import _autorizar_acceso_paquete_o_coordinador_obra
+from core.bom.compras_router import _exigir_acceso_paquete_o_403
 from core.bom.service import BomService
 
 
@@ -139,6 +139,15 @@ def _context(role="USER", module_roles=None, rol_organizacional=None, user_db_id
     }
 
 
+async def _exigir(svc, context, bom):
+    """Replica el gate real: el caller (router) calcula tiene_acceso_modulo
+    primero y se lo pasa ya resuelto a _exigir_acceso_paquete_o_403."""
+    tiene_acceso_modulo = BomService.tiene_acceso_modulo_compras(context)
+    await _exigir_acceso_paquete_o_403(
+        svc, FakeConn(), context, bom, tiene_acceso_modulo, "este paquete",
+    )
+
+
 @pytest.mark.asyncio
 async def test_gate_permite_coordinador_de_obra_sin_acceso_de_modulo():
     user_id = uuid4()
@@ -147,9 +156,7 @@ async def test_gate_permite_coordinador_de_obra_sin_acceso_de_modulo():
     svc.db = FakeGateDB(titulares=[])
 
     # No lanza HTTPException: coordinador de obra directo, sin ningun modulo asignado.
-    await _autorizar_acceso_paquete_o_coordinador_obra(
-        _context(role="USER", module_roles={}, user_db_id=user_id), FakeConn(), svc, bom,
-    )
+    await _exigir(svc, _context(role="USER", module_roles={}, user_db_id=user_id), bom)
 
 
 @pytest.mark.asyncio
@@ -160,9 +167,7 @@ async def test_gate_permite_suplente_del_coordinador_de_obra():
     svc = BomService()
     svc.db = FakeGateDB(titulares=[titular_id])
 
-    await _autorizar_acceso_paquete_o_coordinador_obra(
-        _context(role="USER", module_roles={}, user_db_id=suplente_id), FakeConn(), svc, bom,
-    )
+    await _exigir(svc, _context(role="USER", module_roles={}, user_db_id=suplente_id), bom)
 
 
 @pytest.mark.asyncio
@@ -171,9 +176,8 @@ async def test_gate_permite_jefe_construccion_si_paquete_sin_coordinador():
     svc = BomService()
     svc.db = FakeGateDB(titulares=[])
 
-    await _autorizar_acceso_paquete_o_coordinador_obra(
-        _context(role="USER", module_roles={}, rol_organizacional="jefe_construccion"),
-        FakeConn(), svc, bom,
+    await _exigir(
+        svc, _context(role="USER", module_roles={}, rol_organizacional="jefe_construccion"), bom,
     )
 
 
@@ -182,9 +186,7 @@ async def test_gate_permite_acceso_de_modulo_normal_sin_consultar_bom():
     svc = BomService()
     svc.db = FakeGateDB(titulares=[])
 
-    await _autorizar_acceso_paquete_o_coordinador_obra(
-        _context(role="USER", module_roles={"compras": "editor"}), FakeConn(), svc, None,
-    )
+    await _exigir(svc, _context(role="USER", module_roles={"compras": "editor"}), None)
 
 
 @pytest.mark.asyncio
@@ -194,7 +196,5 @@ async def test_gate_rechaza_usuario_sin_modulo_ni_coordinacion():
     svc.db = FakeGateDB(titulares=[])
 
     with pytest.raises(HTTPException) as exc_info:
-        await _autorizar_acceso_paquete_o_coordinador_obra(
-            _context(role="USER", module_roles={}), FakeConn(), svc, bom,
-        )
+        await _exigir(svc, _context(role="USER", module_roles={}), bom)
     assert exc_info.value.status_code == 403

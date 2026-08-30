@@ -325,7 +325,7 @@ async def test_rechazo_de_cotizacion_parcial_decrementa_sin_resetear_cobertura_p
     # Rechazar la autorizacion de la 2a cotizacion libera solo lo que ella cubria.
     aut2 = await svc.db.get_autorizacion_by_cotizacion(None, cot2["id"])
     await svc.rechazar_autorizacion(
-        FakeConn(), aut2["id"], uuid4(), "Proveedor incumplio", "ADMIN", None,
+        FakeConn(), aut2["id"], uuid4(), "Proveedor incumplio", "ADMIN", "jefe_construccion",
         lock_version_esperado=aut2["lock_version"],
     )
 
