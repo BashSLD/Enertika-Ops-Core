@@ -109,7 +109,7 @@
                                         {% include "materials/partials/_similar_internos_hx_attrs.html" %}
                                         class="w-full rounded-lg border-gray-300 text-xs"
                                         placeholder="Buscar en catalogo para evitar duplicados">
-                                    <div class="material-similar-results text-xs mt-1"></div>
+                                    <div class="material-similar-results text-xs mt-1" @material-interno-elegido="usarMaterialHomologado($event.detail)"></div>
                                 </div>
                             </div>
                         </div>

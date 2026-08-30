@@ -1090,7 +1090,7 @@
                                 autocomplete="off"
                                 class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none"
                                 placeholder="Detalle del material o equipo">
-                            <div class="material-similar-results text-xs"></div>
+                            <div class="material-similar-results text-xs" @material-interno-elegido="usarMaterialHomologado($event.detail)"></div>
 
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
