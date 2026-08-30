@@ -762,11 +762,16 @@
                             const trigger = JSON.parse(resp.headers.get('HX-Trigger') || '{}');
                             cotGuardada = trigger['cotizacion-guardada'] || null;
                         } catch (e) { /* sin trigger valido -- no se encadena la subida del PDF */ }
-                        const html = await resp.text();
-                        swapTabCotizaciones(html);
                         this.cerrarModal();
                         if (this.pdfPendiente && cotGuardada) {
+                            // No se lee resp.text() aqui: la subida del PDF que sigue
+                            // vuelve a renderizar el tab completo de inmediato, así que
+                            // parsear y pintar este body solo produce un parpadeo doble
+                            // sin beneficio (se descartaría en milisegundos en cuanto
+                            // llega la 2a respuesta).
                             this._subirPdfPendiente(cotGuardada.id, cotGuardada.lock_version);
+                        } else {
+                            swapTabCotizaciones(await resp.text());
                         }
                     } catch(e) {
                         this.errorMsg = e.message;
@@ -975,7 +980,26 @@
         // (fetch manual, no hx-swap) y reprocesa sus atributos hx-* con htmx.
         function swapTabCotizaciones(html) {
             const tabCotizaciones = document.getElementById('tab-cotizaciones');
-            tabCotizaciones.innerHTML = html;
+            // hx-swap-oob (ej. el toast de "PDF actualizado", ver templates/shared/
+            // toast.html) solo lo interpreta htmx cuando su propio pipeline de swap
+            // procesa la respuesta (hx-get/hx-post o su API JS de peticiones). Esta
+            // funcion inserta la respuesta con innerHTML directo (fetch() manual) --
+            // sin extraerlo a mano, el fragmento OOB queda pegado como hijo literal
+            // del tab en vez de reubicarse en su contenedor destino
+            // (ej. #global-toast-container).
+            const parsed = new DOMParser().parseFromString(html, 'text/html');
+            parsed.querySelectorAll('[hx-swap-oob]').forEach(oobEl => {
+                const [style, selector] = (oobEl.getAttribute('hx-swap-oob') || '').split(':');
+                const target = selector && document.querySelector(selector);
+                oobEl.removeAttribute('hx-swap-oob');
+                if (target && style === 'afterbegin') {
+                    target.insertAdjacentHTML('afterbegin', oobEl.outerHTML);
+                } else if (target && style === 'beforeend') {
+                    target.insertAdjacentHTML('beforeend', oobEl.outerHTML);
+                }
+                oobEl.remove();
+            });
+            tabCotizaciones.innerHTML = parsed.body.innerHTML;
             htmx.process(tabCotizaciones);
         }
 
@@ -1476,24 +1500,35 @@
          ninguno de sus routers. htmx.ajax incluye source para no activar
          .htmx-indicator globales colgados de document.body (regla CLAUDE.md).
          No se gatea por role/module_roles: ser coordinador de obra o su suplente no
-         implica ningun modulo (ver docstring de _es_coordinador_obra en bom/router.py),
-         asi que cualquier gate de permisos aqui excluiria falsamente a un coordinador
-         legitimo sin acceso a modulos. En su lugar, cachea en sessionStorage un
-         resultado vacio por unos minutos para no repetir la consulta (titulares +
-         join cross-BOM) en cada dashboard de entrada dentro de la misma pestaña. -->
+         implica ningun modulo (ver docstring de BomService.es_coordinador_obra en
+         bom/service.py), asi que cualquier gate de permisos aqui excluiria falsamente
+         a un coordinador legitimo sin acceso a modulos. En su lugar, cachea en
+         sessionStorage un resultado vacio por unos minutos para no repetir la consulta
+         (titulares + join cross-BOM) en cada dashboard de entrada dentro de la misma
+         pestaña. revisarPendientesObra() se repite cada 5 min (setInterval, no
+         hx-trigger="every") para poder re-evaluar el gate de snooze/cache en cada
+         tick -- si el coordinador resuelve el pendiente en otra pestaña, o aparece uno
+         nuevo, el banner de esta pestaña deja de estar desactualizado hasta el proximo
+         recargar/navegar. Se salta el tick si document.hidden (pestaña en background)
+         para no golpear la BD cada 5 min de forma indefinida sin nadie mirando. -->
     <div id="popup-pendientes-obra-anchor" x-data x-init="
         const readTs = (store, key) => { try { return parseInt(store.getItem(key) || '0', 10); } catch (e) { return 0; } };
-        const snoozeUntil = readTs(localStorage, 'popup_pendientes_obra_snooze_until');
-        const emptyUntil = readTs(sessionStorage, 'popup_pendientes_obra_empty_until');
-        if (Date.now() > snoozeUntil && Date.now() > emptyUntil) {
-            htmx.ajax('GET', '/bom/popup-pendientes-obra', { target: '#popup-pendientes-obra-anchor', source: $el, swap: 'innerHTML' }).then(() => {
-                try {
-                    if (!$el.innerHTML.trim()) {
-                        sessionStorage.setItem('popup_pendientes_obra_empty_until', String(Date.now() + 5 * 60 * 1000));
-                    }
-                } catch (e) {}
-            });
-        }
+        const revisarPendientesObra = () => {
+            if (document.hidden) return;
+            const snoozeUntil = readTs(localStorage, 'popup_pendientes_obra_snooze_until');
+            const emptyUntil = readTs(sessionStorage, 'popup_pendientes_obra_empty_until');
+            if (Date.now() > snoozeUntil && Date.now() > emptyUntil) {
+                htmx.ajax('GET', '/bom/popup-pendientes-obra', { target: '#popup-pendientes-obra-anchor', source: $el, swap: 'innerHTML' }).then(() => {
+                    try {
+                        if (!$el.innerHTML.trim()) {
+                            sessionStorage.setItem('popup_pendientes_obra_empty_until', String(Date.now() + 5 * 60 * 1000));
+                        }
+                    } catch (e) {}
+                });
+            }
+        };
+        revisarPendientesObra();
+        setInterval(revisarPendientesObra, 5 * 60 * 1000);
     "></div>
 
     <!-- === BANNER GLOBAL: Estado descarga SAT === -->
