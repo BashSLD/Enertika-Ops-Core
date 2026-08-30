@@ -426,6 +426,28 @@ class BomComprasDBMixin:
         """, ids, deltas)
         return [dict(r) for r in rows]
 
+    async def autorizar_items_cotizacion_por_cobertura(
+        self, conn, bom_item_ids: List[UUID],
+    ) -> List[dict]:
+        """Promueve a AUTORIZADO solo los items totalmente cubiertos (cantidad_cubierta
+        >= cantidad); el remanente sin cubrir por ninguna cotizacion se queda en su
+        estatus_compra actual (PARCIALMENTE_COTIZADO) para seguir siendo elegible a
+        una nueva cotizacion -- antes, avanzar Fase D marcaba AUTORIZADO al lote
+        completo de la cotizacion sin mirar cobertura, bloqueando el remanente para
+        siempre (item_disponible_cotizacion lo excluye una vez en ese estatus)."""
+        rows = await conn.fetch("""
+            UPDATE tb_bom_items
+            SET estatus_compra = CASE
+                    WHEN cantidad_cubierta >= cantidad THEN 'AUTORIZADO'
+                    ELSE estatus_compra
+                END,
+                lock_version = lock_version + 1,
+                updated_at = NOW()
+            WHERE id_item = ANY($1::uuid[])
+            RETURNING id_item, estatus_compra
+        """, bom_item_ids)
+        return [dict(r) for r in rows]
+
     async def get_items_con_cotizacion_activa(
         self, conn, item_ids: List[UUID], excluir_cotizacion_id: Optional[UUID] = None,
     ) -> List[UUID]:

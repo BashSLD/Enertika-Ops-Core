@@ -186,6 +186,25 @@ class BomComprasServiceMixin:
                 conn, item_ids, nuevo_estatus
             )
 
+    async def _autorizar_items_cotizacion(
+        self, conn, cotizacion_id: UUID, item_ids: Optional[list] = None,
+    ) -> None:
+        """Avanza Fase D: promueve a AUTORIZADO solo los items de la cotizacion
+        totalmente cubiertos; el remanente sin cubrir se queda en
+        PARCIALMENTE_COTIZADO (ver autorizar_items_cotizacion_por_cobertura) para
+        no bloquear una nueva cotizacion sobre ese remanente."""
+        if item_ids is None:
+            items = await self.db.get_items_cotizacion(conn, cotizacion_id)
+            item_ids = [i['bom_item_id'] for i in items]
+        if not item_ids:
+            return
+
+        async def resolver(bloqueados):
+            ids = [b["id_item"] for b in bloqueados]
+            return await self.db.autorizar_items_cotizacion_por_cobertura(conn, ids)
+
+        await self._mutar_estatus_compra_items(conn, item_ids, resolver)
+
     async def _mutar_estatus_compra_items(
         self, conn, item_ids: list[UUID], resolver, updated_by: Optional[UUID] = None,
     ) -> list[dict]:
@@ -916,7 +935,7 @@ class BomComprasServiceMixin:
         )
         if not updated:
             raise ValueError("La autorizacion ya cambio; recarga la pestaña")
-        await self._actualizar_estatus_items_cotizacion(conn, cotizacion_id, 'AUTORIZADO')
+        await self._autorizar_items_cotizacion(conn, cotizacion_id)
         await self.db.registrar_evento_outbox(
             conn, f"AUTORIZACION:{autorizacion_id}:{updated['lock_version']}:FINANZAS",
             "AUTORIZACION_FINANZAS", proyecto_id, user_id,
