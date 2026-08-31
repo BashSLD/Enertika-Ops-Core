@@ -955,6 +955,9 @@ class MaterialsService:
             c_pre.protection = Protection(locked=False)
 
         ws.protection.sheet = True
+        ws.protection.formatCells = False
+        ws.protection.formatColumns = False
+        ws.protection.formatRows = False
         ws.freeze_panes = "A2"
 
         buffer = BytesIO()
