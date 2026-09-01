@@ -614,9 +614,6 @@ async def paquete_ui(
     role = context.get("role")
     is_admin = role == "ADMIN"
     tiene_ingenieria = is_admin or bool(module_roles.get("ingenieria"))
-    tiene_construccion = is_admin or bool(module_roles.get("construccion"))
-    tiene_compras = is_admin or bool(module_roles.get("compras"))
-    tiene_finanzas = is_admin or bool(module_roles.get("finanzas"))
     es_director = context.get("rol_organizacional") == "director"
     # Equivalente a any([tiene_ingenieria, tiene_construccion, tiene_compras,
     # tiene_finanzas]) or es_director, pero via el predicado compartido (ya usado
@@ -697,10 +694,17 @@ async def paquete_ui(
                 "El BOM aún no está disponible para Compras o Finanzas. Espera a que sea aprobado por Construcción.",
             )
 
+    # Coordinador de obra / jefe de Construccion sin acceso de modulo llega
+    # aqui solo via el OR imperativo de tiene_acceso_paquete_compras (linea
+    # 643) -- si tiene_acceso_modulo es False, el acceso ya confirmado solo
+    # pudo venir de ese OR. Es un rol exclusivo del lado Construccion (ver
+    # tiene_acceso_autorizaciones_obra), asi que debe quedar sujeto al mismo
+    # gate por etapa que module_roles["construccion"], no saltarselo.
+    es_coordinador_sin_modulo = not tiene_acceso_modulo
     is_construccion_only = (
         not is_admin
         and not module_roles.get("ingenieria")
-        and module_roles.get("construccion")
+        and (module_roles.get("construccion") or es_coordinador_sin_modulo)
     )
     if is_construccion_only and bom and bom['estatus'] not in [
         'EN_REVISION_OBRA', 'EN_REVISION_CONST',
@@ -3020,7 +3024,9 @@ async def get_modal_suplencia(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "construccion"], "viewer"),
+    _=require_any_module_access(
+        ["ingenieria", "construccion"], "viewer", allow_org_roles={"jefe_construccion"},
+    ),
 ):
     """Modal para configurar suplente del usuario actual."""
     user_id = context.get("user_db_id")
@@ -3040,7 +3046,9 @@ async def configurar_suplencia(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "construccion"], "viewer"),
+    _=require_any_module_access(
+        ["ingenieria", "construccion"], "viewer", allow_org_roles={"jefe_construccion"},
+    ),
 ):
     """Configura suplente para el usuario actual."""
     form = await request.form()
@@ -3074,7 +3082,9 @@ async def eliminar_suplencia(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "construccion"], "viewer"),
+    _=require_any_module_access(
+        ["ingenieria", "construccion"], "viewer", allow_org_roles={"jefe_construccion"},
+    ),
 ):
     """Elimina la suplencia activa del usuario actual."""
     user_id = context.get("user_db_id")

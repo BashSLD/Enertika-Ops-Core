@@ -3691,6 +3691,18 @@ class BomService(BomComprasServiceMixin):
         return aprobador_direccion in representados
 
     @staticmethod
+    def _tiene_acceso_modulos(context: dict, modulos: tuple) -> bool:
+        """ADMIN global, Direccion, o acceso a alguno de `modulos`. Extraido de
+        tiene_acceso_modulo_compras/tiene_acceso_indicador_pendientes_proyecto
+        -- mismo carve-out de ADMIN/Direccion, difieren solo en que tupla de
+        modulos iteran."""
+        return (
+            context.get("role") == "ADMIN"
+            or context.get("rol_organizacional") == "director"
+            or any(user_has_module_access(slug, context) for slug in modulos)
+        )
+
+    @staticmethod
     def tiene_acceso_modulo_compras(context: dict) -> bool:
         """Parte "barata" (sin conn, sin queries) de tiene_acceso_paquete_compras:
         ADMIN global, Direccion, o acceso a alguno de MODULOS_PAQUETE_COMPRAS.
@@ -3698,11 +3710,7 @@ class BomService(BomComprasServiceMixin):
         de un recurso antes de esta verificacion filtraria informacion (404 vs
         403) a un usuario sin ningun acceso de modulo -- ver
         preview_pdf_cotizacion/compras_paquete_ui en compras_router.py."""
-        return (
-            context.get("role") == "ADMIN"
-            or context.get("rol_organizacional") == "director"
-            or any(user_has_module_access(slug, context) for slug in MODULOS_PAQUETE_COMPRAS)
-        )
+        return BomService._tiene_acceso_modulos(context, MODULOS_PAQUETE_COMPRAS)
 
     @staticmethod
     def tiene_acceso_indicador_pendientes_proyecto(context: dict) -> bool:
@@ -3710,14 +3718,7 @@ class BomService(BomComprasServiceMixin):
         global, Direccion, o acceso a alguno de MODULOS_INDICADOR_PENDIENTES_PROYECTO.
         Mas estricto que tiene_acceso_modulo_compras -- ver comentario de la
         constante para el porque de excluir ingenieria aqui."""
-        return (
-            context.get("role") == "ADMIN"
-            or context.get("rol_organizacional") == "director"
-            or any(
-                user_has_module_access(slug, context)
-                for slug in MODULOS_INDICADOR_PENDIENTES_PROYECTO
-            )
-        )
+        return BomService._tiene_acceso_modulos(context, MODULOS_INDICADOR_PENDIENTES_PROYECTO)
 
     @staticmethod
     def puede_tener_rol_bom(context: dict) -> bool:
@@ -3728,9 +3729,20 @@ class BomService(BomComprasServiceMixin):
         recaen en Ingenieria/Construccion (o ADMIN), nunca en Compras/
         Finanzas/RH/etc. Evita 2 queries de BD extra (suplencias + roles BOM)
         en cada render/keystroke de proyectos/ui para usuarios que nunca
-        podrian pasar el filtro."""
+        podrian pasar el filtro.
+
+        `rol_organizacional == "jefe_construccion"` se checa aparte de
+        module_roles porque jefe_construccion es autoridad permanente sobre
+        BOM (ver es_coordinador_obra) incluso sin acceso de modulo a
+        Construccion -- sin este OR, ese jefe queda fuera del filtro barato
+        y nunca llega a `anexar_acceso_suplencia`. coordinador_obra en
+        cambio es una asignacion por proyecto en tb_proyecto_usuarios (sin
+        equivalente en context ni en rol_organizacional), asi que un
+        coordinador_obra sin acceso de modulo y sin ser jefe_construccion
+        sigue sin poder pasar este filtro barato -- limitacion conocida."""
         return (
             context.get("role") == "ADMIN"
+            or context.get("rol_organizacional") == "jefe_construccion"
             or user_has_module_access("ingenieria", context)
             or user_has_module_access("construccion", context)
         )
