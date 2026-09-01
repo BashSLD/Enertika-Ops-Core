@@ -1,6 +1,9 @@
 <div class="w-full px-4 py-6" hx-history="false">
     <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
+            <button type="button" onclick="history.back()"
+                class="text-sm font-medium text-blue-700 hover:underline">Atrás</button>
+            <span class="mx-1 text-gray-300">·</span>
             <a href="/bom/paquetes/{{ paquete.id_paquete }}/ui" hx-get="/bom/paquetes/{{ paquete.id_paquete }}/ui"
                 hx-target="#main-content" hx-push-url="true"
                 class="text-sm font-medium text-blue-700 hover:underline">Volver al paquete</a>
