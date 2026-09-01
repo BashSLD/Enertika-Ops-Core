@@ -17,7 +17,7 @@ from core.permissions import require_module_access, require_any_module_access, u
 from core.database import get_db_connection
 from core.bom.service import BomService, get_bom_service
 from .service import ProyectosService, get_service, ROLES_EQUIPO, RESPONSABLE_POR_AREA
-from core.projects.router import check_puede_crear_proyecto
+from core.projects.router import check_puede_crear_proyecto, _toast_response
 
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
@@ -198,15 +198,15 @@ async def get_pendientes_partial(
     bom_service: BomService = Depends(get_bom_service),
 ):
     if not BomService.tiene_acceso_indicador_pendientes_proyecto(context):
-        raise HTTPException(status_code=403, detail="No tienes acceso a las aprobaciones de BOM de este proyecto")
+        return _toast_response(request, "No tienes acceso a las aprobaciones de BOM de este proyecto")
     try:
         proyecto = await service.get_proyecto_detalle(conn, id_proyecto)
         conteo = await bom_service.get_conteo_pendientes_por_proyecto(conn, [id_proyecto])
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        return _toast_response(request, str(e))
     except asyncpg.PostgresError:
         logger.exception("Error de BD al obtener pendientes de proyecto")
-        raise HTTPException(status_code=500, detail="Error interno al obtener los pendientes")
+        return _toast_response(request, "Error interno al obtener los pendientes", type_="error", title="Error")
 
     return templates.TemplateResponse(request, "proyectos/partials/pendientes_modal.html", {
         "proyecto": proyecto,
