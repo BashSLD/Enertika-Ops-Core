@@ -54,7 +54,7 @@ async def get_proyectos_ui(
 ):
     kpis = await service.get_kpis(conn)
     proyectos = await service.get_proyectos(conn, area, status, q)
-    if BomService.tiene_acceso_modulo_compras(context):
+    if BomService.tiene_acceso_indicador_pendientes_proyecto(context):
         await service.anexar_conteo_pendientes(conn, proyectos, bom_service)
     proyectos_split = _separar_proyectos_globales(proyectos, area)
     puede_crear_proyecto = check_puede_crear_proyecto(context)
@@ -104,7 +104,7 @@ async def get_proyectos_partial(
     bom_service: BomService = Depends(get_bom_service),
 ):
     proyectos = await service.get_proyectos(conn, area, status, q, limit)
-    if BomService.tiene_acceso_modulo_compras(context):
+    if BomService.tiene_acceso_indicador_pendientes_proyecto(context):
         await service.anexar_conteo_pendientes(conn, proyectos, bom_service)
     proyectos_split = _separar_proyectos_globales(proyectos, area)
 
@@ -187,7 +187,7 @@ async def get_pendientes_partial(
     service: ProyectosService = Depends(get_service),
     bom_service: BomService = Depends(get_bom_service),
 ):
-    if not BomService.tiene_acceso_modulo_compras(context):
+    if not BomService.tiene_acceso_indicador_pendientes_proyecto(context):
         raise HTTPException(status_code=403, detail="No tienes acceso a las aprobaciones de BOM de este proyecto")
     try:
         proyecto = await service.get_proyecto_detalle(conn, id_proyecto)

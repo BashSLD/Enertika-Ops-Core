@@ -40,6 +40,15 @@ logger = logging.getLogger("BOM.Service")
 # (ver BomService.tiene_acceso_paquete_compras).
 MODULOS_PAQUETE_COMPRAS = ("ingenieria", "construccion", "compras", "finanzas")
 
+# Subconjunto de MODULOS_PAQUETE_COMPRAS para el indicador de pendientes de
+# proyectos/ui (ver BomService.tiene_acceso_indicador_pendientes_proyecto).
+# Excluye "ingenieria" a peticion del usuario 2026-09-02: ese modulo tiene
+# visibilidad de lectura de todo el pipeline de Compras porque es quien origina
+# el BOM (precedente ya establecido, ver MODULOS_PAQUETE_COMPRAS), pero no
+# participa en la accion de aprobar cotizaciones/autorizaciones de compra --
+# ese acceso mas amplio no aplica a este indicador puntual.
+MODULOS_INDICADOR_PENDIENTES_PROYECTO = ("construccion", "compras", "finanzas")
+
 # Campos que puede editar cada area
 CAMPOS_INGENIERIA = {'id_categoria', 'descripcion', 'cantidad', 'unidad_medida', 'precio_unitario', 'origen_precio', 'tipo_partida', 'moneda'}
 CAMPOS_CONSTRUCCION_BASE = {'fecha_requerida'}
@@ -3689,6 +3698,21 @@ class BomService(BomComprasServiceMixin):
             context.get("role") == "ADMIN"
             or context.get("rol_organizacional") == "director"
             or any(user_has_module_access(slug, context) for slug in MODULOS_PAQUETE_COMPRAS)
+        )
+
+    @staticmethod
+    def tiene_acceso_indicador_pendientes_proyecto(context: dict) -> bool:
+        """Acceso al icono+contador de pendientes de BOM en proyectos/ui: ADMIN
+        global, Direccion, o acceso a alguno de MODULOS_INDICADOR_PENDIENTES_PROYECTO.
+        Mas estricto que tiene_acceso_modulo_compras -- ver comentario de la
+        constante para el porque de excluir ingenieria aqui."""
+        return (
+            context.get("role") == "ADMIN"
+            or context.get("rol_organizacional") == "director"
+            or any(
+                user_has_module_access(slug, context)
+                for slug in MODULOS_INDICADOR_PENDIENTES_PROYECTO
+            )
         )
 
     async def tiene_acceso_paquete_compras(

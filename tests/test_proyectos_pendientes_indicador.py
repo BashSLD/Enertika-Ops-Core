@@ -60,6 +60,17 @@ def _admin_context():
     }
 
 
+def _module_context(*module_slugs):
+    return {
+        "email": "user@example.com",
+        "user_name": "Test User",
+        "role": "USER",
+        "rol_organizacional": None,
+        "module_roles": {"proyectos": "viewer", **{slug: "viewer" for slug in module_slugs}},
+        "user_db_id": uuid4(),
+    }
+
+
 def _build_client(service, bom_service, context):
     app = FastAPI()
     app.include_router(router)
@@ -113,3 +124,49 @@ def test_error_bd_en_conteo_no_tumba_la_pagina_ni_muestra_indicador(caplog):
     assert response.status_code == 200
     assert 'text-[10px] font-bold"' not in response.text
     assert any("pendientes" in r.message.lower() for r in caplog.records)
+
+
+def test_ingenieria_no_ve_el_indicador():
+    """Ingenieria tiene acceso de lectura a /bom/direccion/cotizaciones y al
+    paquete de Compras (MODULOS_PAQUETE_COMPRAS) por ser quien origina el BOM,
+    pero no participa en aprobar cotizaciones/autorizaciones -- ese indicador
+    puntual usa el set mas estricto MODULOS_INDICADOR_PENDIENTES_PROYECTO, que
+    la excluye a peticion del usuario 2026-09-02."""
+    proyecto_id = uuid4()
+    proyectos = [{
+        "id_proyecto": proyecto_id, "nombre_proyecto": "Proyecto Test",
+        "nombre_corto": "Test", "proyecto_id_estandar": "MX-1-FV",
+        "area_actual": "CONSTRUCCION", "cliente_nombre": "Cliente Test",
+        "sharepoint_url": None, "created_at": datetime.now(), "dias_en_area": 0,
+    }]
+    bom_service = FakeBomService(
+        conteos={proyecto_id: {"compras_obra": 2, "cotizaciones_direccion": 1}}
+    )
+    service = _fake_proyectos_service(proyectos)
+    client = _build_client(service, bom_service, _module_context("ingenieria"))
+
+    response = client.get("/proyectos/ui")
+
+    assert response.status_code == 200
+    assert 'text-[10px] font-bold"' not in response.text
+    assert bom_service.calls == []
+
+
+def test_construccion_si_ve_el_indicador():
+    proyecto_id = uuid4()
+    proyectos = [{
+        "id_proyecto": proyecto_id, "nombre_proyecto": "Proyecto Test",
+        "nombre_corto": "Test", "proyecto_id_estandar": "MX-1-FV",
+        "area_actual": "CONSTRUCCION", "cliente_nombre": "Cliente Test",
+        "sharepoint_url": None, "created_at": datetime.now(), "dias_en_area": 0,
+    }]
+    bom_service = FakeBomService(
+        conteos={proyecto_id: {"compras_obra": 2, "cotizaciones_direccion": 1}}
+    )
+    service = _fake_proyectos_service(proyectos)
+    client = _build_client(service, bom_service, _module_context("construccion"))
+
+    response = client.get("/proyectos/ui")
+
+    assert response.status_code == 200
+    assert 'text-[10px] font-bold">3<' in response.text
