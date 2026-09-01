@@ -263,7 +263,7 @@ async def test_agregar_item_rfq_agrega_y_registra_historial():
     nuevo_id = uuid4()
     svc = make_service(_bom(bom_id), [
         _bom_item(inicial_id, bom_id),
-        _bom_item(nuevo_id, bom_id),
+        _bom_item(nuevo_id, bom_id, cantidad=5),
     ])
     rfq = await svc.crear_rfq(FakeConn(), bom_id, [inicial_id], uuid4())
 

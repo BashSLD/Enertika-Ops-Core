@@ -162,6 +162,18 @@ class FakeAprobacionesDB:
     async def get_items_con_cotizacion_activa(self, conn, item_ids, excluir_cotizacion_id=None):
         return []
 
+    async def autorizar_items_cotizacion_por_cobertura(self, conn, bom_item_ids):
+        """Espejo del UPDATE real (solo promueve items con cantidad_cubierta >=
+        cantidad). get_items_by_ids fija cantidad_cubierta=0, asi que en este
+        archivo (Fase D, no aritmetica de cobertura) nunca promueve nada -- ver
+        test_bom_cotizacion_parcial.py para la aritmetica real."""
+        items = await self.get_items_by_ids(conn, bom_item_ids)
+        return [
+            {"id_item": item["id_item"], "estatus_compra": "AUTORIZADO"}
+            for item in items
+            if item["cantidad_cubierta"] >= item["cantidad"]
+        ]
+
     async def ajustar_cantidad_cubierta_items(self, conn, ajustes):
         """Fake liviano: este archivo prueba el flujo de aprobaciones/autorizacion
         (Fase D), no la aritmetica de cobertura parcial (ver test_bom_cotizacion_parcial.py)

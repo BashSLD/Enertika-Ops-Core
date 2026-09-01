@@ -22,6 +22,12 @@ class FakeConn:
     def transaction(self):
         return FakeTransaction()
 
+    async def fetchrow(self, query, id_proyecto):
+        """Stub de TransferDBService.get_proyecto_detalle: estos tests solo
+        ejercitan get_equipo_proyecto (que reusa ese lookup para el header del
+        modal), no el contenido de 'proyecto' en si."""
+        return {"id_proyecto": id_proyecto}
+
 
 class FakeProyectosDB:
     def __init__(self, asignacion_actual=None, responsable=None, jefes=None,
