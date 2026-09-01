@@ -870,6 +870,30 @@ class BomComprasServiceMixin:
         )
         return autorizaciones, total
 
+    async def get_conteo_pendientes_por_proyecto(
+        self, conn, proyecto_ids: List[UUID],
+    ) -> dict:
+        """Conteo de pendientes de BOM por proyecto, para el indicador de
+        proyectos/ui: {proyecto_id: {"compras_obra": n, "cotizaciones_direccion": n}}.
+        Dos queries independientes (una por tipo) combinadas en memoria -- no hay
+        un solo agregado compartido porque cada tipo cuenta contra una tabla y un
+        estatus distintos."""
+        if not proyecto_ids:
+            return {}
+        conteo_obra = await self.db.get_conteo_autorizaciones_pendientes_por_proyecto(
+            conn, proyecto_ids,
+        )
+        conteo_direccion = await self.db.get_conteo_cotizaciones_pendientes_direccion_por_proyecto(
+            conn, proyecto_ids,
+        )
+        resultado = {}
+        for proyecto_id in set(conteo_obra) | set(conteo_direccion):
+            resultado[proyecto_id] = {
+                "compras_obra": conteo_obra.get(proyecto_id, 0),
+                "cotizaciones_direccion": conteo_direccion.get(proyecto_id, 0),
+            }
+        return resultado
+
     def _exigir_coordinador_obra(
         self, coordinador_obra: Optional[UUID], representados: set,
         rol_organizacional: Optional[str], accion: str,

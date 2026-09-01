@@ -15,6 +15,7 @@ logger = logging.getLogger("Proyectos.Router")
 from core.security import get_current_user_context
 from core.permissions import require_module_access, require_any_module_access, user_has_module_access
 from core.database import get_db_connection
+from core.bom.service import BomService, get_bom_service
 from .service import ProyectosService, get_service, ROLES_EQUIPO, RESPONSABLE_POR_AREA
 from core.projects.router import check_puede_crear_proyecto
 
@@ -49,9 +50,12 @@ async def get_proyectos_ui(
     _=require_module_access("proyectos"),
     conn=Depends(get_db_connection),
     service: ProyectosService = Depends(get_service),
+    bom_service: BomService = Depends(get_bom_service),
 ):
     kpis = await service.get_kpis(conn)
     proyectos = await service.get_proyectos(conn, area, status, q)
+    if BomService.tiene_acceso_modulo_compras(context):
+        await service.anexar_conteo_pendientes(conn, proyectos, bom_service)
     proyectos_split = _separar_proyectos_globales(proyectos, area)
     puede_crear_proyecto = check_puede_crear_proyecto(context)
     puede_editar_ingenieria = user_has_module_access("ingenieria", context, min_role="editor")
@@ -97,8 +101,11 @@ async def get_proyectos_partial(
     _=require_module_access("proyectos"),
     conn=Depends(get_db_connection),
     service: ProyectosService = Depends(get_service),
+    bom_service: BomService = Depends(get_bom_service),
 ):
     proyectos = await service.get_proyectos(conn, area, status, q, limit)
+    if BomService.tiene_acceso_modulo_compras(context):
+        await service.anexar_conteo_pendientes(conn, proyectos, bom_service)
     proyectos_split = _separar_proyectos_globales(proyectos, area)
 
     return templates.TemplateResponse(request, "shared/partials/lista_proyectos.html", {"proyectos": proyectos,
@@ -168,6 +175,34 @@ async def get_equipo_partial(
         "proyectos/partials/equipo_modal.html",
         _equipo_template_data(request, id_proyecto, data, permisos),
     )
+
+
+@router.get("/partials/pendientes/{id_proyecto}", include_in_schema=False)
+async def get_pendientes_partial(
+    request: Request,
+    id_proyecto: UUID,
+    context=Depends(get_current_user_context),
+    _=require_module_access("proyectos"),
+    conn=Depends(get_db_connection),
+    service: ProyectosService = Depends(get_service),
+    bom_service: BomService = Depends(get_bom_service),
+):
+    if not BomService.tiene_acceso_modulo_compras(context):
+        raise HTTPException(status_code=403, detail="No tienes acceso a las aprobaciones de BOM de este proyecto")
+    try:
+        proyecto = await service.get_proyecto_detalle(conn, id_proyecto)
+        conteo = await bom_service.get_conteo_pendientes_por_proyecto(conn, [id_proyecto])
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al obtener pendientes de proyecto")
+        raise HTTPException(status_code=500, detail="Error interno al obtener los pendientes")
+
+    return templates.TemplateResponse(request, "proyectos/partials/pendientes_modal.html", {
+        "proyecto": proyecto,
+        "id_proyecto": id_proyecto,
+        "pendientes": conteo.get(id_proyecto, {"compras_obra": 0, "cotizaciones_direccion": 0}),
+    })
 
 
 @router.post("/equipo/{id_proyecto}", include_in_schema=False)

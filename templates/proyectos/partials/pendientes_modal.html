@@ -1,0 +1,52 @@
+{# templates/proyectos/partials/pendientes_modal.html #}
+{# Detalle de aprobaciones pendientes de BOM para un proyecto, disparado desde
+   el nombre del proyecto en card_proyecto.html (pendientes_indicator). Modal
+   global lazy en #modal-action-container, mismo patron que equipo_modal.html.
+   Solo lectura: "ver todas" enlaza a los dashboards existentes en vez de
+   reimplementar un tercer listado de BOM. #}
+<div id="modal-pendientes-proyecto"
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+    _="on keyup[key=='Escape'] from window remove me">
+    <div class="relative bg-white rounded-xl shadow-2xl max-w-md w-full flex flex-col max-h-[90dvh]">
+        <div class="flex items-center justify-between gap-3 p-5 border-b shrink-0 bg-amber-500 rounded-t-xl">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="p-2 bg-white/15 rounded-lg shrink-0">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                    </svg>
+                </div>
+                <div class="min-w-0">
+                    <h2 class="text-base font-semibold text-white">Pendientes del proyecto</h2>
+                    <p class="text-xs text-amber-100 truncate">
+                        {{ proyecto.proyecto_id_estandar or '' }} — {{ proyecto.nombre_proyecto or proyecto.nombre_corto or '' }}
+                    </p>
+                </div>
+            </div>
+            <button @click="document.getElementById('modal-pendientes-proyecto').remove()"
+                class="text-white/60 hover:text-white transition-colors p-1 shrink-0">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+
+        {% macro _tarjeta_pendiente(n, singular, plural, descripcion, href) %}
+        {% if n %}
+        <div class="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+            <div class="min-w-0">
+                <p class="text-sm font-medium text-gray-800">{{ n }} {{ singular if n == 1 else plural }} pendiente{{ 's' if n != 1 else '' }}</p>
+                <p class="text-xs text-gray-500">{{ descripcion }}</p>
+            </div>
+            <a href="{{ href }}" class="text-xs font-semibold text-[#00BABB] hover:underline whitespace-nowrap shrink-0">Ver todas</a>
+        </div>
+        {% endif %}
+        {% endmacro %}
+        <div class="p-5 flex-1 min-h-0 overflow-y-auto space-y-3">
+            {{ _tarjeta_pendiente(pendientes.compras_obra, 'compra', 'compras', 'Autorización de Obra sobre cotizaciones de compra', '/bom/obra/autorizaciones') }}
+            {{ _tarjeta_pendiente(pendientes.cotizaciones_direccion, 'cotización', 'cotizaciones', 'En espera de aprobación de Dirección', '/bom/direccion/cotizaciones?id_proyecto=' ~ id_proyecto) }}
+            {% if not pendientes.compras_obra and not pendientes.cotizaciones_direccion %}
+            <p class="text-sm text-gray-500 text-center py-4">Sin pendientes en este momento.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>

@@ -130,6 +130,27 @@ class ProyectosService:
             conn, area_filter, status_filter, q, limit
         )
 
+    async def anexar_conteo_pendientes(self, conn, proyectos: List[Dict[str, Any]], bom_service) -> None:
+        """Enriquece cada proyecto en memoria con `pendientes`
+        ({"compras_obra": n, "cotizaciones_direccion": n}) para el indicador de
+        proyectos/ui. Es un adorno secundario de la fila: ante un error de BD no
+        propaga ni tumba /proyectos/ui, solo omite el indicador y loggea
+        estructurado (a diferencia del popup de BOM, aqui el silencio seria
+        indistinguible de "0 pendientes reales" dentro del mismo request que
+        arma toda la lista)."""
+        proyecto_ids = [p["id_proyecto"] for p in proyectos if p.get("id_proyecto")]
+        if not proyecto_ids:
+            return
+        try:
+            conteos = await bom_service.get_conteo_pendientes_por_proyecto(conn, proyecto_ids)
+        except asyncpg.PostgresError:
+            logger.error("Error al calcular conteo de pendientes por proyecto", exc_info=True)
+            return
+        for p in proyectos:
+            conteo = conteos.get(p.get("id_proyecto"))
+            if conteo:
+                p["pendientes"] = conteo
+
     async def get_kpis(self, conn) -> Dict[str, Any]:
         return await self.transfers.get_kpis_global(conn)
 

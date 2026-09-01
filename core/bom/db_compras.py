@@ -7,7 +7,7 @@ import json
 from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 
 class BomComprasDBMixin:
@@ -640,6 +640,40 @@ class BomComprasDBMixin:
                   OR (b.coordinador_obra IS NULL AND $2 = 'jefe_construccion')
               )
         """, representados, rol_organizacional)
+
+    async def get_conteo_autorizaciones_pendientes_por_proyecto(
+        self, conn, proyecto_ids: List[UUID],
+    ) -> Dict[UUID, int]:
+        """Conteo agrupado por proyecto de autorizaciones PENDIENTE (paso Obra),
+        para el indicador de pendientes en proyectos/ui. proyecto_id ya esta
+        denormalizado en tb_bom_autorizaciones -- sin JOIN a tb_bom/tb_bom_paquetes.
+        Sin LIMIT: es un agregado, no un listado top-N."""
+        if not proyecto_ids:
+            return {}
+        rows = await conn.fetch("""
+            SELECT proyecto_id, COUNT(*) AS n
+            FROM tb_bom_autorizaciones
+            WHERE estatus = 'PENDIENTE' AND proyecto_id = ANY($1::uuid[])
+            GROUP BY proyecto_id
+        """, proyecto_ids)
+        return {r["proyecto_id"]: r["n"] for r in rows}
+
+    async def get_conteo_cotizaciones_pendientes_direccion_por_proyecto(
+        self, conn, proyecto_ids: List[UUID],
+    ) -> Dict[UUID, int]:
+        """Conteo agrupado por proyecto de cotizaciones PENDIENTE_DIRECCION (paso
+        Direccion). Mismo criterio que dashboard_direccion_cotizaciones: excluye
+        EN_STANDBY/PENDIENTE_VIGENCIA_COMPRAS (ya revisadas, en espera de un
+        tercero, no de la accion de Direccion)."""
+        if not proyecto_ids:
+            return {}
+        rows = await conn.fetch("""
+            SELECT proyecto_id, COUNT(*) AS n
+            FROM tb_bom_cotizacion_aprobaciones
+            WHERE estatus = 'PENDIENTE_DIRECCION' AND proyecto_id = ANY($1::uuid[])
+            GROUP BY proyecto_id
+        """, proyecto_ids)
+        return {r["proyecto_id"]: r["n"] for r in rows}
 
     async def update_autorizacion_paso_obra(
         self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
