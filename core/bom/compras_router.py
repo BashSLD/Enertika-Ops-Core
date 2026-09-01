@@ -92,6 +92,25 @@ async def _exigir_acceso_paquete_o_403(
     raise HTTPException(status_code=403, detail=f"No tienes acceso a {recurso}.")
 
 
+async def _exigir_acceso_autorizacion_o_403(
+    service: BomService, conn, context: dict, autorizacion_id: UUID, recurso: str,
+) -> None:
+    """Variante de _exigir_acceso_paquete_o_403 para endpoints que reciben
+    autorizacion_id en vez de id_bom/id_paquete (aprobar-obra, rechazar): resuelve
+    el BOM de la autorizacion solo cuando hace falta (el usuario no tiene ya
+    acceso de modulo) para poder evaluar el OR de coordinador de obra. Si la
+    autorizacion no existe, no hace nada -- el metodo de servicio que sigue
+    (aprobar_obra/rechazar_autorizacion) ya reporta 'Autorizacion no encontrada'
+    con su propio mensaje/status, y no hay BOM que resolver para el OR."""
+    if BomService.tiene_acceso_modulo_compras(context):
+        return
+    aut = await service.db.get_autorizacion_by_id(conn, autorizacion_id)
+    if not aut:
+        return
+    bom = await service.get_bom_by_id(conn, aut["bom_id"])
+    await _exigir_acceso_paquete_o_403(service, conn, context, bom, False, recurso)
+
+
 def _item_cotizacion_json(item: dict, *, cantidad_pendiente=None) -> dict:
     """Proyeccion minima y JSON-safe del item para el selector del modal de cotizacion.
 
@@ -379,16 +398,24 @@ async def get_cotizaciones_tab(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(
-        ["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}
-    ),
+    _=require_authenticated_session(),
 ):
     """Tab de cotizaciones — cargado lazy con HTMX intersect.
 
     rfq_id (opcional): al llegar desde el boton "Pasar a Cotizacion" de una
     tarjeta RFQ, responde solo el modal standalone (ver _render_modal_cotizacion_rfq)
     en vez de reemplazar el tab completo, para no perder la vista de RFQs debajo.
+
+    Gate: require_any_module_access reemplazado por chequeo imperativo (OR
+    coordinador de obra) -- un coordinador sin ningun modulo asignado recibia
+    403 al abrir este tab (PLAN 2026-08-31, seccion 5).
     """
+    tiene_acceso_modulo = BomService.tiene_acceso_modulo_compras(context)
+    if not tiene_acceso_modulo:
+        await _exigir_acceso_paquete_o_403(
+            service, conn, context, await service.get_bom_by_id(conn, id_bom),
+            tiene_acceso_modulo, "este BOM",
+        )
     if rfq_id:
         preset_rfq = await service.db.get_rfq_by_id(conn, rfq_id)
         if not preset_rfq:
@@ -1456,11 +1483,15 @@ async def get_autorizaciones_tab(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"}),
+    _=require_authenticated_session(),
 ):
+    # Gate: require_any_module_access reemplazado por chequeo imperativo (OR
+    # coordinador de obra) -- ver PLAN 2026-08-31, seccion 5.
+    tiene_acceso_modulo = BomService.tiene_acceso_modulo_compras(context)
     bom = await service.get_bom_by_id(conn, id_bom)  # autorizaciones tab
     if not bom:
         raise HTTPException(status_code=404, detail="BOM no encontrado")
+    await _exigir_acceso_paquete_o_403(service, conn, context, bom, tiene_acceso_modulo, "este BOM")
     autorizaciones = await service.listar_autorizaciones(conn, id_bom)
     return templates.TemplateResponse(
         request, "bom/partials/autorizaciones.html",
@@ -1595,8 +1626,12 @@ async def aprobar_autorizacion_obra(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "construccion", "compras", "finanzas"]),
+    _=require_authenticated_session(),
 ):
+    # Gate: require_any_module_access reemplazado por chequeo imperativo (OR
+    # coordinador de obra) -- ver PLAN 2026-08-31, seccion 5. service.aprobar_obra
+    # ya revalida identidad de coordinador con datos frescos (_exigir_coordinador_obra).
+    await _exigir_acceso_autorizacion_o_403(service, conn, context, autorizacion_id, "esta autorización")
     user_id = context.get("user_db_id")
     user_role = context.get("role")
     try:
@@ -1660,10 +1695,16 @@ async def rechazar_autorizacion(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(
-        ["ingenieria", "construccion", "compras", "finanzas"], allow_org_roles={"director"},
-    ),
+    _=require_authenticated_session(),
 ):
+    # Gate: require_any_module_access reemplazado por chequeo imperativo (OR
+    # coordinador de obra) -- ver PLAN 2026-08-31, seccion 5. Ruta compartida por
+    # los 3 pasos (Obra/Direccion/Finanzas): el OR solo abre la puerta de entrada,
+    # service.rechazar_autorizacion revalida el paso exacto (PENDIENTE -> exige
+    # coordinador; AUTORIZADO_OBRA -> exige titular Direccion; AUTORIZADO_DIRECCION
+    # -> exige rol Finanzas) con datos frescos, asi que un coordinador de obra sin
+    # modulo no puede rechazar los pasos de Direccion/Finanzas via este OR.
+    await _exigir_acceso_autorizacion_o_403(service, conn, context, autorizacion_id, "esta autorización")
     user_id = context.get("user_db_id")
     user_role = context.get("role")
     rol_org = context.get("rol_organizacional")

@@ -618,19 +618,32 @@ async def paquete_ui(
     tiene_compras = is_admin or bool(module_roles.get("compras"))
     tiene_finanzas = is_admin or bool(module_roles.get("finanzas"))
     es_director = context.get("rol_organizacional") == "director"
-    tiene_acceso_bom = any([tiene_ingenieria, tiene_construccion, tiene_compras, tiene_finanzas]) or es_director
+    # Equivalente a any([tiene_ingenieria, tiene_construccion, tiene_compras,
+    # tiene_finanzas]) or es_director, pero via el predicado compartido (ya usado
+    # en compras_router.py) en vez de re-derivarlo aqui: si MODULOS_PAQUETE_COMPRAS
+    # o el carve-out de Direccion cambian, este sitio los sigue automaticamente.
+    tiene_acceso_modulo = BomService.tiene_acceso_modulo_compras(context)
+    sin_acceso_msg = (
+        "El BOM solo lo pueden abrir Ingeniería, Construcción, Compras, Finanzas "
+        "o el coordinador de obra del proyecto."
+    )
 
-    if not tiene_acceso_bom:
-        return _toast_response(
-            request,
-            "El BOM solo lo pueden abrir Ingeniería, Construcción, Compras o Finanzas.",
-        )
-
+    # Gate: chequeo declarativo por modulo reemplazado por OR imperativo con
+    # coordinador de obra (PLAN 2026-08-31, seccion 5) -- ver mismo patron en
+    # compras_paquete_ui/_exigir_acceso_paquete_o_403 (compras_router.py). Sin
+    # acceso de modulo, "no existe" y "existe pero no tengo acceso" responden
+    # igual para no filtrar que IDs de paquete son validos.
     try:
         paquete = await service.get_paquete(conn, id_paquete)
         bom = await service.get_bom_cabeza_trabajo(conn, id_paquete)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if tiene_acceso_modulo:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return _toast_response(request, sin_acceso_msg)
+    if not await service.tiene_acceso_paquete_compras(
+        conn, context, bom, tiene_acceso_modulo=tiene_acceso_modulo,
+    ):
+        return _toast_response(request, sin_acceso_msg)
     id_proyecto = paquete["id_proyecto"]
     proyecto = await service.get_proyecto_info(conn, id_proyecto)
     if not proyecto:

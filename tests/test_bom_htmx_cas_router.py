@@ -131,6 +131,12 @@ class FakePackageService:
     async def puede_administrar_paquete(self, *args, **kwargs):
         return True
 
+    async def tiene_acceso_paquete_compras(self, conn, context, bom, *, tiene_acceso_modulo=None):
+        """Este test usa contexto ADMIN -- tiene_acceso_modulo ya viene True desde
+        el router (PLAN 2026-08-31, seccion 5), asi que el real BomService
+        retornaria True sin tocar bom/db."""
+        return True
+
     async def get_catalogos(self, conn):
         return {}
 
