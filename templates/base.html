@@ -1494,8 +1494,9 @@
     {% endif %}
 
     <!-- === BANNER: Autorizaciones de Obra pendientes (coordinador de obra) === -->
-    <!-- Banner en flujo normal (no overlay fixed): no compite en z-index/timing con
-         eco-welcome. El x-init corre una sola vez por carga real de documento (no en
+    <!-- Banner flotante (position:fixed, ver <style> abajo) -- persiste visible aunque
+         se haga scroll de la pagina completa (feedback QA 2026-08-31: se perdia al
+         llegar al final). El x-init corre una sola vez por carga real de documento (no en
          cada swap de #main-content), cubriendo los ~12 dashboards de entrada sin tocar
          ninguno de sus routers. htmx.ajax incluye source para no activar
          .htmx-indicator globales colgados de document.body (regla CLAUDE.md).
@@ -1510,7 +1511,24 @@
          tick -- si el coordinador resuelve el pendiente en otra pestaña, o aparece uno
          nuevo, el banner de esta pestaña deja de estar desactualizado hasta el proximo
          recargar/navegar. Se salta el tick si document.hidden (pestaña en background)
-         para no golpear la BD cada 5 min de forma indefinida sin nadie mirando. -->
+         para no golpear la BD cada 5 min de forma indefinida sin nadie mirando.
+         position:fixed (no flujo normal): el contenedor raiz del layout
+         (.flex.h-screen.overflow-hidden, unas lineas abajo) tiene altura fija de
+         viewport; este anchor vive ANTES de ese contenedor, asi que si se deja en
+         flujo normal empuja la altura total de la pagina mas alla de 100vh y se va
+         con el resto al hacer scroll de pagina completa. z-index 95: debajo del
+         splash #eco-welcome (9999, cubre momentaneamente sin conflicto real) y del
+         banner de entorno (100, arriba en el DOM) -- top se desplaza si ese banner
+         esta presente para no encimarse. -->
+    <style>
+        #popup-pendientes-obra-anchor {
+            position: fixed; left: 0; right: 0; z-index: 95;
+            top: {{ '26px' if entorno_label else '0' }};
+        }
+        @media (max-width: 767px) {
+            #popup-pendientes-obra-anchor { top: {{ '82px' if entorno_label else '56px' }}; }
+        }
+    </style>
     <div id="popup-pendientes-obra-anchor" x-data x-init="
         const readTs = (store, key) => { try { return parseInt(store.getItem(key) || '0', 10); } catch (e) { return 0; } };
         const revisarPendientesObra = () => {

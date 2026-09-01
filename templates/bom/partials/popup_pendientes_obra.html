@@ -4,7 +4,7 @@
 {% from "bom/partials/_macros.html" import boton_ver_pdf_cotizacion, modal_teleport_shell %}
 
 <div x-data="{ verModal: false, oculto: false }" x-show="!oculto" x-cloak>
-    <div class="flex flex-wrap items-center justify-between gap-3 bg-amber-50 border-b border-amber-200 px-4 py-2 text-sm text-amber-800">
+    <div class="flex flex-wrap items-center justify-between gap-3 bg-amber-100 border-b border-amber-400 px-4 py-2 text-sm text-amber-900 shadow-sm">
         <div class="flex items-center gap-2">
             <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
@@ -16,8 +16,10 @@
         </div>
         <div class="flex items-center gap-3 shrink-0">
             <button type="button" @click="verModal = true" class="font-semibold underline hover:no-underline">Ver</button>
-            <button type="button" @click="oculto = true" class="text-amber-700 hover:text-amber-900">Descartar</button>
-            <button type="button" class="text-amber-700 hover:text-amber-900" @click="
+            <button type="button" @click="oculto = true" class="text-amber-700 hover:text-amber-900 cursor-help"
+                title="Solo oculta el banner en esta vista. Vuelve a aparecer al recargar la página o en el próximo chequeo automático (cada 5 min).">Descartar</button>
+            <button type="button" class="text-amber-700 hover:text-amber-900 cursor-help"
+                title="No se mostrará en este navegador durante 24 horas, aunque tengas autorizaciones pendientes." @click="
                 try { localStorage.setItem('popup_pendientes_obra_snooze_until', String(Date.now() + 24 * 3600 * 1000)); } catch (e) {}
                 oculto = true;
             ">No volver a mostrar (24h)</button>
