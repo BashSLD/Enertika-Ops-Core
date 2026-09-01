@@ -1,0 +1,120 @@
+{# templates/bom/partials/obra_autorizaciones.html #}
+{# Tabla cross-proyecto de autorizaciones de Obra pendientes -- ver
+   _Planes_Activos/2026-08-31-plan-tabla-autorizaciones-obra-cross-proyecto.md #}
+{% from "bom/partials/_macros.html" import boton_ver_pdf_cotizacion %}
+
+{% macro _boton_paginacion(habilitado, url, etiqueta) %}
+<button type="button"
+    {% if habilitado %}
+    hx-get="{{ url }}" hx-target="#obra-autorizaciones-content" hx-swap="outerHTML" hx-push-url="true"
+    class="rounded border border-gray-300 bg-white px-3 py-1 text-xs text-gray-700 transition hover:bg-gray-50"
+    {% else %}
+    disabled class="rounded border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-400 cursor-not-allowed"
+    {% endif %}>
+    {{ etiqueta | safe }}
+</button>
+{% endmacro %}
+
+<div id="obra-autorizaciones-content" class="w-full px-4 py-6 animate-fade-in-down" hx-history="false">
+    <div class="mb-4">
+        <h1 class="text-2xl font-bold text-gray-800">Mis Autorizaciones</h1>
+        <p class="mt-1 text-sm text-gray-500">Autorizaciones de compra (paso Obra) pendientes en todos tus proyectos.</p>
+    </div>
+
+    {% if autorizaciones %}
+    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <tr>
+                        <th class="px-4 py-3">Proyecto</th>
+                        <th class="px-4 py-3">BOM</th>
+                        <th class="px-4 py-3">Proveedor</th>
+                        <th class="px-4 py-3 text-right">Total</th>
+                        <th class="px-4 py-3">Fecha</th>
+                        <th class="px-4 py-3 text-right">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% for a in autorizaciones %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3 text-sm">
+                            <span class="font-mono font-semibold text-gray-800">{{ a.proyecto_id_estandar or '—' }}</span>
+                            <span class="block text-xs text-gray-500">{{ a.proyecto_nombre or '' }}</span>
+                        </td>
+                        <td class="px-4 py-3 text-sm text-gray-700">
+                            {{ a.paquete_codigo }} · v{{ a.bom_version }}
+                            <span class="block text-xs text-gray-400">{{ a.paquete_nombre }}</span>
+                        </td>
+                        <td class="px-4 py-3 text-sm text-gray-800">{{ a.nombre_proveedor or 'Sin proveedor' }}</td>
+                        <td class="px-4 py-3 text-right font-mono text-sm text-gray-800">
+                            {{ a.moneda }} ${{ "{:,.2f}".format(a.monto_total | float) if a.monto_total else '—' }}
+                        </td>
+                        <td class="px-4 py-3 text-xs text-gray-500">{{ a.creado_en | time_mx if a.creado_en else '—' }}</td>
+                        <td class="px-4 py-3 text-right">
+                            <div class="flex flex-wrap justify-end items-center gap-2">
+                                <a href="/bom/paquetes/{{ a.id_paquete }}/compras"
+                                    hx-get="/bom/paquetes/{{ a.id_paquete }}/compras"
+                                    hx-target="#main-content" hx-push-url="true"
+                                    class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50">
+                                    Ir al BOM
+                                </a>
+                                {% if a.pdf_url %}
+                                {{ boton_ver_pdf_cotizacion(a.cotizacion_id, 'rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50') }}
+                                {% endif %}
+                                <form hx-post="/bom/obra/autorizaciones/{{ a.id }}/aprobar"
+                                    hx-target="#obra-autorizaciones-content" hx-swap="outerHTML"
+                                    hx-disabled-elt="find button[type='submit']" hx-sync="this:replace">
+                                    <input type="hidden" name="lock_version" value="{{ a.lock_version }}">
+                                    <input type="hidden" name="limit" value="{{ limit }}">
+                                    <input type="hidden" name="offset" value="{{ offset }}">
+                                    <button type="submit"
+                                        class="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60">
+                                        Aprobar
+                                    </button>
+                                </form>
+                                <form hx-post="/bom/obra/autorizaciones/{{ a.id }}/rechazar"
+                                    hx-target="#obra-autorizaciones-content" hx-swap="outerHTML"
+                                    hx-disabled-elt="find button[type='submit']" hx-sync="this:replace"
+                                    onsubmit="const m = prompt('Motivo de rechazo (obligatorio):'); if(!m || !m.trim()){ event.preventDefault(); return false; } this.querySelector('input[name=motivo]').value = m.trim(); return true;">
+                                    <input type="hidden" name="motivo" value="">
+                                    <input type="hidden" name="lock_version" value="{{ a.lock_version }}">
+                                    <input type="hidden" name="limit" value="{{ limit }}">
+                                    <input type="hidden" name="offset" value="{{ offset }}">
+                                    <button type="submit"
+                                        class="rounded-lg bg-red-500 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-red-600 disabled:cursor-wait disabled:opacity-60">
+                                        Rechazar
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="flex items-center justify-between px-1 py-3 mt-2">
+        <span class="text-xs text-gray-500">{{ total }} autorización{{ 'es' if total != 1 else '' }} en total</span>
+        <div class="flex items-center gap-2">
+            {{ _boton_paginacion(offset > 0,
+                "/bom/obra/autorizaciones?limit=" ~ limit ~ "&offset=" ~ ([offset - limit, 0] | max),
+                "&lsaquo; Anterior") }}
+            {{ _boton_paginacion(offset + limit < total,
+                "/bom/obra/autorizaciones?limit=" ~ limit ~ "&offset=" ~ (offset + limit),
+                "Siguiente &rsaquo;") }}
+        </div>
+    </div>
+
+    {% else %}
+    <div class="rounded-xl border border-dashed border-gray-300 bg-gray-50 py-14 text-center">
+        <svg class="mx-auto w-10 h-10 text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <p class="text-sm font-medium text-gray-500">Sin autorizaciones pendientes</p>
+        <p class="text-xs text-gray-400 mt-1">No tienes autorizaciones de compra esperando tu aprobación.</p>
+    </div>
+    {% endif %}
+</div>

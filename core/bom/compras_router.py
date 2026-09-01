@@ -508,7 +508,7 @@ async def editar_cotizacion(
     return _con_trigger_cotizacion_guardada(resp, actualizado)
 
 
-@compras_router.post("/{id_bom}/rfq-rapido", include_in_schema=False)
+@compras_router.post("/{id_bom:uuid}/rfq-rapido", include_in_schema=False)
 async def crear_rfq_rapido(
     request: Request,
     id_bom: UUID,
@@ -582,7 +582,7 @@ async def solicitar_aclaracion(
     return await _render_cotizaciones_tab(request, conn, service, context, cotizacion['bom_id'])
 
 
-@compras_router.get("/{id_bom}/cotizaciones/comparativa", include_in_schema=False)
+@compras_router.get("/{id_bom:uuid}/cotizaciones/comparativa", include_in_schema=False)
 async def get_comparativa(
     request: Request,
     id_bom: UUID,
@@ -1476,7 +1476,7 @@ async def _autorizacion_ctx(request, autorizaciones, bom, context, conn, service
     }
 
 
-@compras_router.get("/{id_bom}/autorizaciones", include_in_schema=False)
+@compras_router.get("/{id_bom:uuid}/autorizaciones", include_in_schema=False)
 async def get_autorizaciones_tab(
     request: Request,
     id_bom: UUID,
@@ -1499,7 +1499,7 @@ async def get_autorizaciones_tab(
     )
 
 
-@compras_router.get("/{id_bom}/resumen-compra", include_in_schema=False)
+@compras_router.get("/{id_bom:uuid}/resumen-compra", include_in_schema=False)
 async def get_resumen_compra_tab(
     request: Request,
     id_bom: UUID,
@@ -1724,6 +1724,142 @@ async def rechazar_autorizacion(
     return templates.TemplateResponse(
         request, "bom/partials/autorizaciones.html",
         await _autorizacion_ctx(request, autorizaciones, bom, context, conn, service),
+    )
+
+
+# ========================================
+# TABLA CROSS-PROYECTO: MIS AUTORIZACIONES (Obra)
+# PLAN 2026-08-31-plan-tabla-autorizaciones-obra-cross-proyecto.md
+# ========================================
+
+async def _obra_autorizaciones_ctx(
+    conn, service: BomService, context: dict, limit: int, offset: int,
+) -> dict:
+    autorizaciones, total = await service.listar_autorizaciones_obra_coordinador(
+        conn, context.get("user_db_id"), context.get("rol_organizacional"),
+        limit=limit, offset=offset,
+    )
+    return {"autorizaciones": autorizaciones, "total": total, "limit": limit, "offset": offset}
+
+
+@compras_router.api_route("/obra/autorizaciones", methods=["GET", "HEAD"], include_in_schema=False)
+async def obra_autorizaciones_ui(
+    request: Request,
+    limit: int = 20,
+    offset: int = 0,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_authenticated_session(),
+):
+    """Vista cross-proyecto de autorizaciones de Obra pendientes que el usuario
+    (coordinador de obra titular/suplente, o jefe_construccion en paquetes sin
+    coordinador asignado) puede aprobar -- reemplaza el acceso "solo popup"
+    (plan seccion 1). Gate deliberadamente solo de sesion, nombrado /obra/... y
+    no /construccion/...: coordinador_obra es un rol de equipo de proyecto
+    independiente del modulo construccion (BomService.es_coordinador_obra) --
+    el filtro real vive en el WHERE de la query (representados + fallback
+    jefe_construccion), igual que dashboard_direccion_cotizaciones. Nunca gatear
+    con require_any_module_access aqui: bloquearia con 403 exactamente al
+    usuario objetivo. A diferencia del popup (que traga errores de BD en
+    silencio por ser un fragmento lazy no solicitado), aqui el usuario navego
+    deliberadamente a buscar sus pendientes: un error de query debe verse."""
+    ctx = await _obra_autorizaciones_ctx(conn, service, context, limit, offset)
+    ctx.update({
+        "user_name": context.get("user_name"),
+        "role": context.get("role"),
+        "module_roles": context.get("module_roles", {}),
+        "user_id": context.get("user_db_id"),
+    })
+    if is_htmx(request):
+        return templates.TemplateResponse(request, "bom/partials/obra_autorizaciones.html", ctx)
+    return templates.TemplateResponse(request, "bom/obra_autorizaciones.html", ctx)
+
+
+async def _obra_autorizaciones_accion_o_toast(
+    request: Request, conn, service: BomService, context: dict, limit: int, offset: int,
+    accion, log_msg: str, toast_msg: str,
+):
+    """Comun a aprobar/rechazar de la tabla cross-proyecto: ejecuta `accion`
+    (closure de cero argumentos que llama al metodo de servicio ya resuelto con
+    sus propios argumentos) y, si tiene exito, re-renderiza la tabla completa;
+    si falla, devuelve el toast correspondiente. `log_msg`/`toast_msg`
+    distinguen aprobar de rechazar en el log y en el toast de error 500."""
+    try:
+        await accion()
+    except ValueError as e:
+        return _toast_response(request, str(e), "error", status_code=400)
+    except asyncpg.PostgresError:
+        logger.exception(log_msg)
+        return _toast_response(request, toast_msg, "error", status_code=500)
+
+    ctx = await _obra_autorizaciones_ctx(conn, service, context, limit, offset)
+    return templates.TemplateResponse(request, "bom/partials/obra_autorizaciones.html", ctx)
+
+
+@compras_router.post("/obra/autorizaciones/{autorizacion_id}/aprobar", include_in_schema=False)
+async def obra_autorizaciones_aprobar(
+    request: Request,
+    autorizacion_id: UUID,
+    nota: Optional[str] = Form(None),
+    lock_version: int = Form(...),
+    limit: int = Form(20),
+    offset: int = Form(0),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_authenticated_session(),
+):
+    """Aprueba (paso Obra) desde la tabla cross-proyecto. Mismo metodo de
+    servicio que aprobar_autorizacion_obra (endpoint por-BOM) -- la logica de
+    negocio y el CAS no cambian -- pero re-renderiza la tabla completa en vez
+    de bom/partials/autorizaciones.html, que depende de un #tab-autorizaciones
+    inexistente en esta pagina (plan seccion 3). Gate: solo sesion --
+    service.aprobar_obra ya revalida es_coordinador_obra con datos frescos
+    (_exigir_coordinador_obra), asi que un extrano sin relacion con el BOM
+    recibe el ValueError de ese chequeo, no un 403 generico."""
+    user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    return await _obra_autorizaciones_accion_o_toast(
+        request, conn, service, context, limit, offset,
+        lambda: service.aprobar_obra(
+            conn, autorizacion_id, user_id, nota, user_role, lock_version,
+            rol_organizacional=context.get("rol_organizacional"),
+        ),
+        "Error de BD al aprobar autorización desde la tabla cross-proyecto de Obra",
+        "Error al aprobar la autorización.",
+    )
+
+
+@compras_router.post("/obra/autorizaciones/{autorizacion_id}/rechazar", include_in_schema=False)
+async def obra_autorizaciones_rechazar(
+    request: Request,
+    autorizacion_id: UUID,
+    motivo: str = Form(...),
+    lock_version: int = Form(...),
+    limit: int = Form(20),
+    offset: int = Form(0),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_authenticated_session(),
+):
+    """Rechaza (paso Obra) desde la tabla cross-proyecto -- ver docstring de
+    obra_autorizaciones_aprobar. Reusa service.rechazar_autorizacion (la misma
+    ruta compartida por-BOM tambien la usa para Direccion/Finanzas), pero esta
+    ruta nueva solo se expone desde filas en paso PENDIENTE de la tabla."""
+    user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
+    finanzas_role = context.get("module_roles", {}).get("finanzas")
+    return await _obra_autorizaciones_accion_o_toast(
+        request, conn, service, context, limit, offset,
+        lambda: service.rechazar_autorizacion(
+            conn, autorizacion_id, user_id, motivo, user_role, rol_org,
+            finanzas_role, lock_version,
+        ),
+        "Error de BD al rechazar autorización desde la tabla cross-proyecto de Obra",
+        "Error al rechazar la autorización.",
     )
 
 
