@@ -20,27 +20,39 @@ class FakeConn:
 
 
 class FakePopupDB:
-    def __init__(self, titulares=None, autorizaciones=None, items=None):
+    def __init__(self, titulares=None, autorizaciones=None, items=None, total=None):
         self.titulares = titulares or []
         self.autorizaciones = autorizaciones or []
         self.items = items or []
+        self.total = total if total is not None else len(self.autorizaciones)
         self.llamadas_autorizaciones = 0
         self.llamadas_items = 0
+        self.llamadas_count = 0
         self.representados_recibidos = None
         self.rol_org_recibido = None
+        self.limit_recibido = None
+        self.offset_recibido = None
 
     async def get_titulares_que_representa(self, conn, suplente_id):
         return self.titulares
 
-    async def get_autorizaciones_pendientes_por_coordinador(self, conn, representados, rol_organizacional):
+    async def get_autorizaciones_pendientes_por_coordinador(
+        self, conn, representados, rol_organizacional, limit=20, offset=0,
+    ):
         self.llamadas_autorizaciones += 1
         self.representados_recibidos = set(representados)
         self.rol_org_recibido = rol_organizacional
+        self.limit_recibido = limit
+        self.offset_recibido = offset
         return self.autorizaciones
 
     async def get_items_by_cotizacion_ids(self, conn, cotizacion_ids):
         self.llamadas_items += 1
         return self.items
+
+    async def contar_autorizaciones_pendientes_por_coordinador(self, conn, representados, rol_organizacional):
+        self.llamadas_count += 1
+        return self.total
 
 
 def _autorizacion(cotizacion_id, id_paquete, **extra):
@@ -118,6 +130,60 @@ async def test_listar_pendientes_vacio_no_llama_a_items():
 
     assert resultado == []
     assert db.llamadas_items == 0
+
+
+# ─── Variante paginada cross-proyecto: listar_autorizaciones_obra_coordinador ───
+
+@pytest.mark.asyncio
+async def test_popup_usa_defaults_limit_20_offset_0_sin_tocarlos():
+    """El popup (listar_pendientes_popup_coordinador) no pasa limit/offset --
+    debe preservar exactamente el LIMIT 20 fijo que tenia antes de la extension
+    de la query (plan Ronda A, seccion 2)."""
+    db = FakePopupDB(titulares=[], autorizaciones=[])
+    svc = BomService()
+    svc.db = db
+
+    await svc.listar_pendientes_popup_coordinador(FakeConn(), uuid4(), None)
+
+    assert db.limit_recibido == 20
+    assert db.offset_recibido == 0
+
+
+@pytest.mark.asyncio
+async def test_listar_autorizaciones_obra_coordinador_no_llama_a_items():
+    cotizacion_id = uuid4()
+    db = FakePopupDB(
+        titulares=[],
+        autorizaciones=[_autorizacion(cotizacion_id, uuid4())],
+        items=[{"cotizacion_id": cotizacion_id, "descripcion": "Item A"}],
+    )
+    svc = BomService()
+    svc.db = db
+
+    autorizaciones, total = await svc.listar_autorizaciones_obra_coordinador(
+        FakeConn(), uuid4(), None,
+    )
+
+    assert len(autorizaciones) == 1
+    assert "items" not in autorizaciones[0]
+    assert db.llamadas_items == 0
+    assert total == 1
+
+
+@pytest.mark.asyncio
+async def test_listar_autorizaciones_obra_coordinador_propaga_paginacion_y_total_real():
+    db = FakePopupDB(titulares=[], autorizaciones=[], total=57)
+    svc = BomService()
+    svc.db = db
+
+    autorizaciones, total = await svc.listar_autorizaciones_obra_coordinador(
+        FakeConn(), uuid4(), None, limit=25, offset=50,
+    )
+
+    assert db.limit_recibido == 25
+    assert db.offset_recibido == 50
+    assert db.llamadas_count == 1
+    assert total == 57
 
 
 # ─── Gate de acceso extendido (§4): compras_paquete_ui / preview_pdf_cotizacion ───

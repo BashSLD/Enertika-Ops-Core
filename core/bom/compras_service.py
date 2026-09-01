@@ -853,6 +853,23 @@ class BomComprasServiceMixin:
         )
         return await self._adjuntar_items_a_autorizaciones(conn, autorizaciones)
 
+    async def listar_autorizaciones_obra_coordinador(
+        self, conn, user_id: UUID, rol_organizacional: Optional[str],
+        limit: int = 20, offset: int = 0,
+    ) -> tuple[list, int]:
+        """Variante paginada de listar_pendientes_popup_coordinador para la tabla
+        cross-proyecto de "Mis Autorizaciones": a diferencia del popup, NO adjunta
+        items (_adjuntar_items_a_autorizaciones) porque la tabla no los muestra y
+        ningun endpoint de aprobar/rechazar los lee. Devuelve (autorizaciones, total)."""
+        representados = list(await self.get_titulares_que_representa(conn, user_id))
+        autorizaciones = await self.db.get_autorizaciones_pendientes_por_coordinador(
+            conn, representados, rol_organizacional, limit=limit, offset=offset,
+        )
+        total = await self.db.contar_autorizaciones_pendientes_por_coordinador(
+            conn, representados, rol_organizacional,
+        )
+        return autorizaciones, total
+
     def _exigir_coordinador_obra(
         self, coordinador_obra: Optional[UUID], representados: set,
         rol_organizacional: Optional[str], accion: str,

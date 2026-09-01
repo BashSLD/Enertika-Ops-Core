@@ -580,6 +580,7 @@ class BomComprasDBMixin:
 
     async def get_autorizaciones_pendientes_por_coordinador(
         self, conn, representados: List[UUID], rol_organizacional: Optional[str],
+        limit: int = 20, offset: int = 0,
     ) -> List[dict]:
         """Autorizaciones PENDIENTE (paso Obra) de cualquier BOM cuyo coordinador
         de obra sea alguno de los `representados` (titular o suplente activo), o
@@ -591,7 +592,9 @@ class BomComprasDBMixin:
         Python y filtrando en memoria implicaria un N+1 o una query igual de
         grande. Si esta regla cambia, actualizar ambos lugares.
         Cross-BOM en una sola query para alimentar el popup de pendientes al
-        entrar a la app (PLAN_popup_pendientes_autorizacion_obra.md §2)."""
+        entrar a la app (PLAN_popup_pendientes_autorizacion_obra.md §2) y la
+        tabla cross-proyecto de "Mis Autorizaciones" (con `limit`/`offset` reales;
+        el default de 20/0 preserva el LIMIT 20 fijo que tenia el popup)."""
         rows = await conn.fetch("""
             SELECT a.*,
                    c.nombre_proveedor,
@@ -599,6 +602,7 @@ class BomComprasDBMixin:
                    c.folio_proveedor,
                    r.nombre AS rfq_nombre,
                    b.id_paquete,
+                   b.version AS bom_version,
                    paq.codigo AS paquete_codigo,
                    paq.nombre AS paquete_nombre,
                    o.nombre_proyecto AS proyecto_nombre,
@@ -616,9 +620,26 @@ class BomComprasDBMixin:
                   OR (b.coordinador_obra IS NULL AND $2 = 'jefe_construccion')
               )
             ORDER BY a.creado_en ASC
-            LIMIT 20
-        """, representados, rol_organizacional)
+            LIMIT $3 OFFSET $4
+        """, representados, rol_organizacional, limit, offset)
         return [dict(r) for r in rows]
+
+    async def contar_autorizaciones_pendientes_por_coordinador(
+        self, conn, representados: List[UUID], rol_organizacional: Optional[str],
+    ) -> int:
+        """Total real (sin LIMIT/OFFSET) para la paginacion de la tabla
+        cross-proyecto de "Mis Autorizaciones" -- mismo predicado que
+        get_autorizaciones_pendientes_por_coordinador."""
+        return await conn.fetchval("""
+            SELECT COUNT(*)
+            FROM tb_bom_autorizaciones a
+            JOIN tb_bom b ON b.id_bom = a.bom_id
+            WHERE a.estatus = 'PENDIENTE'
+              AND (
+                  b.coordinador_obra = ANY($1::uuid[])
+                  OR (b.coordinador_obra IS NULL AND $2 = 'jefe_construccion')
+              )
+        """, representados, rol_organizacional)
 
     async def update_autorizacion_paso_obra(
         self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
