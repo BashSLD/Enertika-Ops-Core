@@ -13,17 +13,18 @@
 {% macro form_campo_editable_rfq(rfq_id, alpine_var, endpoint, lock_version, campo, valor, placeholder, css_width='w-40', required=false) %}
 <form x-show="{{ alpine_var }}" x-cloak @click.stop
     hx-post="/bom/rfq/{{ rfq_id }}/{{ endpoint }}" hx-target="#comparativa-container" hx-swap="outerHTML"
+    hx-disabled-elt="find button[type='submit']" hx-sync="this:replace"
     class="flex items-center gap-1.5">
     <input type="hidden" name="lock_version" value="{{ lock_version }}">
     <input type="text" name="{{ campo }}" value="{{ valor or '' }}"{{ ' required' if required else '' }}
         placeholder="{{ placeholder }}" class="{{ css_width }} rounded border-gray-300 text-xs">
-    <button type="submit" class="text-xs font-medium text-indigo-600 hover:text-indigo-800">Guardar</button>
+    <button type="submit" class="text-xs font-medium text-indigo-600 hover:text-indigo-800 disabled:cursor-wait disabled:opacity-60">Guardar</button>
     <button type="button" @click="{{ alpine_var }} = false"
         class="text-xs text-gray-400 hover:text-gray-600">Cancelar</button>
 </form>
 {% endmacro %}
 
-{% macro boton_ver_pdf_cotizacion(cotizacion_id, css_class='inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 font-medium') %}
+{% macro boton_ver_pdf_cotizacion(cotizacion_id, css_class='inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 font-medium', texto='Ver cotización proveedor') %}
 <a href="/bom/cotizaciones/{{ cotizacion_id }}/preview" target="_blank" rel="noopener"
     onclick="abrirPreviewSiEscritorio(event, this.href)"
     class="{{ css_class }}">
@@ -31,7 +32,7 @@
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
     </svg>
-    Ver cotización proveedor
+    {{ texto }}
 </a>
 {% endmacro %}
 
@@ -41,8 +42,9 @@
     hx-vals='{"lock_version": "{{ lock_version }}"}'
     hx-target="#tab-cotizaciones" hx-swap="innerHTML"
     hx-confirm="{{ confirm_msg }}"
+    hx-disabled-elt="this" hx-sync="this:replace"
     title="Marca esta cotización como la elegida, actualiza los ítems cubiertos y genera la autorización de compra para el coordinador de obra."
-    class="{{ css_class }}">
+    class="{{ css_class }} disabled:cursor-wait disabled:opacity-60">
     Adjudicar
 </button>
 {% endmacro %}

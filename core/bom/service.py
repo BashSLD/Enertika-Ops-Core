@@ -3664,12 +3664,16 @@ class BomService(BomComprasServiceMixin):
         rol_organizacional: Optional[str],
     ) -> bool:
         """Coordinador de obra asignado al BOM (o su suplente activo, via
-        `representados`); si el BOM no tiene coordinador asignado, cae al jefe
-        de Construccion. Predicado unico -- reemplaza las copias que existian
+        `representados`), o jefe de Construccion siempre -- autoridad
+        permanente, no solo fallback cuando el BOM no tiene coordinador
+        asignado: jefe_construccion es el superior organizacional directo
+        de coordinador_obra, y cubre el caso donde el CO no puede ingresar
+        y no configuro un suplente (decision de negocio confirmada
+        2026-09-02). Predicado unico -- reemplaza las copias que existian
         en router.py, tiene_acceso_paquete_compras() y
         compras_service.py (aprobar_obra/rechazar_autorizacion)."""
-        if coordinador_obra:
-            return coordinador_obra in representados
+        if coordinador_obra and coordinador_obra in representados:
+            return True
         return rol_organizacional == "jefe_construccion"
 
     async def es_aprobador_direccion(self, conn, user_id: Optional[UUID]) -> bool:
@@ -3715,6 +3719,38 @@ class BomService(BomComprasServiceMixin):
             )
         )
 
+    @staticmethod
+    def puede_tener_rol_bom(context: dict) -> bool:
+        """Gate barato (sin DB) para anexar_acceso_suplencia: solo vale la
+        pena resolver suplencias/roles de BOM por proyecto si el usuario
+        podria plausiblemente ser elaborador, responsable_ing,
+        jefe_construccion o coordinador_obra de algun BOM -- roles que solo
+        recaen en Ingenieria/Construccion (o ADMIN), nunca en Compras/
+        Finanzas/RH/etc. Evita 2 queries de BD extra (suplencias + roles BOM)
+        en cada render/keystroke de proyectos/ui para usuarios que nunca
+        podrian pasar el filtro."""
+        return (
+            context.get("role") == "ADMIN"
+            or user_has_module_access("ingenieria", context)
+            or user_has_module_access("construccion", context)
+        )
+
+    @staticmethod
+    def tiene_acceso_autorizaciones_obra(context: dict) -> bool:
+        """Visibilidad del link "Aprobación de cotizaciones" (Obra) en el nav
+        de proyectos/compras: Direccion, jefe_construccion, o modulo
+        Construccion. A diferencia de tiene_acceso_indicador_pendientes_proyecto
+        (que incluye Compras/Finanzas porque monitorean su propia cotizacion),
+        coordinador_obra/jefe_construccion son roles exclusivos del lado
+        Construccion -- Compras y Finanzas nunca los tienen (regla de negocio
+        confirmada 2026-09-02), asi que este link seria un destino garantizado
+        a vacio para ellos."""
+        rol_org = (context.get("rol_organizacional") or "").strip().lower()
+        return (
+            rol_org in ("director", "jefe_construccion")
+            or user_has_module_access("construccion", context)
+        )
+
     async def tiene_acceso_paquete_compras(
         self, conn, context: dict, bom: Optional[dict],
         *, tiene_acceso_modulo: Optional[bool] = None,
@@ -3748,7 +3784,10 @@ class BomService(BomComprasServiceMixin):
         self, conn, bom: dict, user_id: UUID,
         representados: Optional[Set[UUID]] = None
     ) -> bool:
-        """True si el usuario es (o representa via suplencia) alguno de los 3 roles del BOM."""
+        """True si el usuario es (o representa via suplencia) alguno de los 4
+        roles del BOM (elaborador, responsable_ing, jefe_construccion,
+        coordinador_obra). Equivalente cross-proyecto en SQL:
+        db_compras.get_proyectos_con_rol_bom()."""
         if not bom:
             return False
         if representados is None:

@@ -846,29 +846,58 @@ class BomComprasServiceMixin:
         """Autorizaciones de Obra pendientes que el usuario (titular o suplente)
         puede aprobar, para el banner de pendientes al entrar a la app
         (PLAN_popup_pendientes_autorizacion_obra.md §1/§2). Una sola resolucion
-        de titulares + una query cross-BOM + un batch de items -- nunca por-BOM."""
+        de titulares + una query cross-BOM -- nunca por-BOM. Sin
+        _adjuntar_items_a_autorizaciones: el banner simplificado (2026-09-02) ya
+        no muestra items/PDF/monto, solo proveedor + proyecto/BOM, para no
+        duplicar el detalle que ya vive en /bom/obra/autorizaciones."""
         representados = list(await self.get_titulares_que_representa(conn, user_id))
-        autorizaciones = await self.db.get_autorizaciones_pendientes_por_coordinador(
+        return await self.db.get_autorizaciones_pendientes_por_coordinador(
             conn, representados, rol_organizacional,
         )
-        return await self._adjuntar_items_a_autorizaciones(conn, autorizaciones)
 
     async def listar_autorizaciones_obra_coordinador(
         self, conn, user_id: UUID, rol_organizacional: Optional[str],
-        limit: int = 20, offset: int = 0,
+        limit: int = 20, offset: int = 0, id_proyecto: Optional[UUID] = None,
     ) -> tuple[list, int]:
         """Variante paginada de listar_pendientes_popup_coordinador para la tabla
         cross-proyecto de "Mis Autorizaciones": a diferencia del popup, NO adjunta
         items (_adjuntar_items_a_autorizaciones) porque la tabla no los muestra y
-        ningun endpoint de aprobar/rechazar los lee. Devuelve (autorizaciones, total)."""
+        ningun endpoint de aprobar/rechazar los lee. Devuelve (autorizaciones, total).
+
+        `id_proyecto`: cuando se pasa (entrada desde el indicador de pendientes de
+        un proyecto especifico), la query deja de filtrar por `representados` y
+        trae TODO lo pendiente de ese proyecto -- un visitante que no es el
+        coordinador de ese BOM (ej. Direccion) debe poder VER quien es el
+        coordinador asignado en vez de recibir una tabla vacia indistinguible de
+        "sin pendientes". `puede_actuar` marca por fila si el usuario actual
+        puede aprobar/rechazar esa autorizacion especifica (mismo predicado que
+        el gate real, calculado aqui sin queries extra); el template usa esta
+        bandera para mostrar Aprobar/Rechazar o el nombre del coordinador."""
         representados = list(await self.get_titulares_que_representa(conn, user_id))
         autorizaciones = await self.db.get_autorizaciones_pendientes_por_coordinador(
             conn, representados, rol_organizacional, limit=limit, offset=offset,
+            id_proyecto=id_proyecto,
         )
         total = await self.db.contar_autorizaciones_pendientes_por_coordinador(
-            conn, representados, rol_organizacional,
+            conn, representados, rol_organizacional, id_proyecto=id_proyecto,
         )
+        representados_set = set(representados)
+        for aut in autorizaciones:
+            aut["puede_actuar"] = self.es_coordinador_obra(
+                aut.get("coordinador_obra"), representados_set, rol_organizacional,
+            )
         return autorizaciones, total
+
+    async def get_proyectos_con_rol_bom(
+        self, conn, proyecto_ids: List[UUID], user_id: UUID,
+    ) -> set:
+        """Proyectos donde el usuario (o algun titular que representa via
+        suplencia activa) tiene rol de BOM -- gate para el acceso a
+        "Configurar suplente" desde el menu de proyectos/ui."""
+        if not proyecto_ids:
+            return set()
+        representados = await self.get_titulares_que_representa(conn, user_id)
+        return await self.db.get_proyectos_con_rol_bom(conn, proyecto_ids, list(representados))
 
     async def get_conteo_pendientes_por_proyecto(
         self, conn, proyecto_ids: List[UUID],
@@ -899,19 +928,16 @@ class BomComprasServiceMixin:
         rol_organizacional: Optional[str], accion: str,
     ) -> None:
         """Levanta ValueError si el usuario no es el coordinador de obra
-        (titular o suplente) ni, en su ausencia, jefe de Construccion.
-        `accion` es el verbo infinitivo del paso (ej. "aprobar", "rechazar"),
-        usado para armar el mensaje. Comparte el predicado con
-        BomService.es_coordinador_obra(); este helper solo agrega el
-        envoltorio de error compartido entre aprobar_obra/rechazar_autorizacion."""
+        (titular o suplente) ni el jefe de Construccion (autoridad permanente,
+        no solo fallback -- ver BomService.es_coordinador_obra()). `accion` es
+        el verbo infinitivo del paso (ej. "aprobar", "rechazar"), usado para
+        armar el mensaje. Un solo mensaje: con jefe_construccion siempre
+        elegible, ya no hay una rama "sin coordinador asignado" distinta."""
         if self.es_coordinador_obra(coordinador_obra, representados, rol_organizacional):
             return
-        if coordinador_obra:
-            raise ValueError(
-                f"Solo el coordinador de obra del proyecto o su suplente puede {accion} este paso."
-            )
         raise ValueError(
-            f"No hay coordinador de obra asignado. Solo el jefe de Construccion puede {accion} este paso."
+            f"Solo el coordinador de obra del proyecto, su suplente, o el jefe "
+            f"de Construccion pueden {accion} este paso."
         )
 
     async def aprobar_obra(
@@ -1043,6 +1069,16 @@ class BomComprasServiceMixin:
         if estatus in ('AUTORIZADO_FINANZAS', 'RECHAZADO'):
             raise ValueError(f"La autorización ya está en estatus {estatus}.")
 
+        # El lock_version se valida ANTES de determinar el paso/permiso: si otra
+        # pestaña ya avanzo la autorizacion (ej. Obra aprobo mientras esta pestaña
+        # seguia en PENDIENTE), el estatus fresco ya corresponde al paso siguiente
+        # y el chequeo de permiso de ESE paso (ej. _require_direccion_titular)
+        # dispara con un mensaje de permisos que no describe el problema real.
+        if lock_version_esperado is None or aut['lock_version'] != lock_version_esperado:
+            raise ValueError(
+                "Esta autorización ya fue actualizada por otro paso o usuario; recarga la página."
+            )
+
         # Determinar paso y validar permisos
         if estatus == 'PENDIENTE':
             paso = 'OBRA'
@@ -1072,8 +1108,6 @@ class BomComprasServiceMixin:
             raise ValueError(f"La autorización no puede rechazarse en estatus {estatus}.")
 
         bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
-        if lock_version_esperado is None:
-            raise ValueError("La autorizacion cambio; recarga la pestaña")
         async with conn.transaction():
             bloqueada = await self.db.get_autorizacion_for_update(conn, autorizacion_id)
             if (

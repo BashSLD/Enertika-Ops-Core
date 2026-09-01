@@ -34,6 +34,9 @@ class FakeBomService:
             raise asyncpg.PostgresError("fallo simulado de BD")
         return self.conteos
 
+    async def get_proyectos_con_rol_bom(self, conn, proyecto_ids, user_id):
+        return set()
+
 
 def _fake_proyectos_service(proyectos):
     service = ProyectosService()
@@ -101,7 +104,7 @@ def test_conteo_pendientes_simetrico_entre_ui_y_partial():
     assert resp_ui.status_code == 200
     assert resp_partial.status_code == 200
     assert bom_service.calls == [[proyecto_id], [proyecto_id]]
-    marcador = 'text-[10px] font-bold">3<'
+    marcador = 'animate-pulse-subtle">3<'
     assert marcador in resp_ui.text
     assert marcador in resp_partial.text
 
@@ -122,7 +125,7 @@ def test_error_bd_en_conteo_no_tumba_la_pagina_ni_muestra_indicador(caplog):
         response = client.get("/proyectos/ui")
 
     assert response.status_code == 200
-    assert 'text-[10px] font-bold"' not in response.text
+    assert 'rounded-full bg-amber-100' not in response.text
     assert any("pendientes" in r.message.lower() for r in caplog.records)
 
 
@@ -148,7 +151,7 @@ def test_ingenieria_no_ve_el_indicador():
     response = client.get("/proyectos/ui")
 
     assert response.status_code == 200
-    assert 'text-[10px] font-bold"' not in response.text
+    assert 'rounded-full bg-amber-100' not in response.text
     assert bom_service.calls == []
 
 
@@ -169,4 +172,45 @@ def test_construccion_si_ve_el_indicador():
     response = client.get("/proyectos/ui")
 
     assert response.status_code == 200
-    assert 'text-[10px] font-bold">3<' in response.text
+    assert 'animate-pulse-subtle">3<' in response.text
+
+
+def test_compras_no_ve_link_autorizaciones_obra_pero_si_ve_cotizaciones_direccion():
+    """coordinador_obra/suplente/jefe_construccion son roles exclusivos del
+    lado Construccion -- Compras nunca los tiene (regla de negocio confirmada
+    2026-09-02), asi que el link "Aprobacion de cotizaciones" (Obra, filtra
+    por ese rol) debe ocultarse para un usuario puramente de Compras. El link
+    de Direccion ("Cotizaciones de Proyectos") si le sirve -- Compras
+    monitorea el estatus de sus propias cotizaciones -- y debe seguir viendolo."""
+    proyectos = [{
+        "id_proyecto": uuid4(), "nombre_proyecto": "Proyecto Test",
+        "nombre_corto": "Test", "proyecto_id_estandar": "MX-1-FV",
+        "area_actual": "CONSTRUCCION", "cliente_nombre": "Cliente Test",
+        "sharepoint_url": None, "created_at": datetime.now(), "dias_en_area": 0,
+    }]
+    bom_service = FakeBomService()
+    service = _fake_proyectos_service(proyectos)
+    client = _build_client(service, bom_service, _module_context("compras"))
+
+    response = client.get("/proyectos/ui")
+
+    assert response.status_code == 200
+    assert "Aprobación de cotizaciones" not in response.text
+    assert "Cotizaciones de Proyectos" in response.text
+
+
+def test_construccion_si_ve_link_autorizaciones_obra():
+    proyectos = [{
+        "id_proyecto": uuid4(), "nombre_proyecto": "Proyecto Test",
+        "nombre_corto": "Test", "proyecto_id_estandar": "MX-1-FV",
+        "area_actual": "CONSTRUCCION", "cliente_nombre": "Cliente Test",
+        "sharepoint_url": None, "created_at": datetime.now(), "dias_en_area": 0,
+    }]
+    bom_service = FakeBomService()
+    service = _fake_proyectos_service(proyectos)
+    client = _build_client(service, bom_service, _module_context("construccion"))
+
+    response = client.get("/proyectos/ui")
+
+    assert response.status_code == 200
+    assert "Aprobación de cotizaciones" in response.text

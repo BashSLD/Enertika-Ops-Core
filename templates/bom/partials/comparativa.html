@@ -91,11 +91,12 @@
                     <span class="flex-1 min-w-0 truncate" title="{{ item.descripcion }}">{{ item.descripcion }}</span>
                     <span class="shrink-0 w-16 text-right text-xs text-gray-400 font-mono">{{ '{:,.2f}'.format(item.cantidad|float) }}</span>
                     <form hx-post="/bom/rfq/{{ rfq.id }}/items/{{ item.bom_item_id }}/unidad"
-                        hx-target="#comparativa-container" hx-swap="outerHTML" class="shrink-0">
+                        hx-target="#comparativa-container" hx-swap="outerHTML"
+                        hx-disabled-elt="find select" hx-sync="this:replace" class="shrink-0">
                         <input type="hidden" name="lock_version" value="{{ rfq.lock_version }}">
                         <select name="unidad_override" @change="$el.form.requestSubmit()"
                             title="Unidad mostrada al proveedor en el PDF del RFQ; puede diferir del catálogo interno de Enertika"
-                            class="w-28 rounded border-gray-300 text-xs">
+                            class="w-28 rounded border-gray-300 text-xs disabled:cursor-wait disabled:opacity-60">
                             <option value="" {{ 'selected' if not item.unidad_override and not item.unidad_medida else '' }}>
                                 Unidad de medida
                             </option>
@@ -109,15 +110,17 @@
                     </form>
                     <form hx-post="/bom/rfq/{{ rfq.id }}/items/{{ item.bom_item_id }}/quitar"
                         hx-target="#comparativa-container" hx-swap="outerHTML"
-                        hx-confirm="¿Quitar este item del RFQ?" class="shrink-0">
+                        hx-confirm="¿Quitar este item del RFQ?"
+                        hx-disabled-elt="find button[type='submit']" hx-sync="this:replace" class="shrink-0">
                         <input type="hidden" name="lock_version" value="{{ rfq.lock_version }}">
-                        <button type="submit" class="text-xs text-red-500 hover:text-red-700">Quitar</button>
+                        <button type="submit" class="text-xs text-red-500 hover:text-red-700 disabled:cursor-wait disabled:opacity-60">Quitar</button>
                     </form>
                 </li>
                 {% endfor %}
             </ul>
             {% endif %}
             <form hx-post="/bom/rfq/{{ rfq.id }}/items" hx-target="#comparativa-container" hx-swap="outerHTML"
+                hx-disabled-elt="find button[type='submit']" hx-sync="this:replace"
                 class="flex flex-wrap items-end gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3"
                 x-data="{
                     busqueda: '', mostrarResultados: false, seleccionado: null, unidad: '',

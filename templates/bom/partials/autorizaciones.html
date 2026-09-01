@@ -132,11 +132,12 @@
                     {# Paso 3: Finanzas — usuario con rol finanzas editor+ #}
                     {% if aut.estatus == 'AUTORIZADO_DIRECCION' and es_finanzas %}
                     <form hx-post="/bom/autorizaciones/{{ aut.id }}/aprobar-finanzas"
-                          hx-target="#tab-autorizaciones" hx-swap="innerHTML">
+                          hx-target="#tab-autorizaciones" hx-swap="innerHTML"
+                          hx-disabled-elt="find button[type='submit']" hx-sync="this:replace">
                         <input type="hidden" name="nota" value="">
                         <input type="hidden" name="lock_version" value="{{ aut.lock_version }}">
                         <button type="submit"
-                            class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition">
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition disabled:cursor-wait disabled:opacity-60">
                             Aprobar (Finanzas)
                         </button>
                     </form>

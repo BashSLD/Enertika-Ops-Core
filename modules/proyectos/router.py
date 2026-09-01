@@ -54,8 +54,11 @@ async def get_proyectos_ui(
 ):
     kpis = await service.get_kpis(conn)
     proyectos = await service.get_proyectos(conn, area, status, q)
-    if BomService.tiene_acceso_indicador_pendientes_proyecto(context):
+    mostrar_pendientes = BomService.tiene_acceso_indicador_pendientes_proyecto(context)
+    if mostrar_pendientes:
         await service.anexar_conteo_pendientes(conn, proyectos, bom_service)
+    if BomService.puede_tener_rol_bom(context):
+        await service.anexar_acceso_suplencia(conn, proyectos, bom_service, context.get("user_db_id"))
     proyectos_split = _separar_proyectos_globales(proyectos, area)
     puede_crear_proyecto = check_puede_crear_proyecto(context)
     puede_editar_ingenieria = user_has_module_access("ingenieria", context, min_role="editor")
@@ -66,6 +69,7 @@ async def get_proyectos_ui(
         or user_has_module_access("compras", context)
         or user_has_module_access("finanzas", context)
     )
+    puede_ver_autorizaciones_obra = BomService.tiene_acceso_autorizaciones_obra(context)
 
     template_data = {
         "user_name": context.get("user_name"),
@@ -82,6 +86,8 @@ async def get_proyectos_ui(
         "puede_crear_proyecto": puede_crear_proyecto,
         "puede_editar_ingenieria": puede_editar_ingenieria,
         "puede_ver_aprobaciones_direccion": puede_ver_aprobaciones_direccion,
+        "puede_ver_autorizaciones_obra": puede_ver_autorizaciones_obra,
+        "mostrar_pendientes": mostrar_pendientes,
     }
 
     # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
@@ -104,8 +110,11 @@ async def get_proyectos_partial(
     bom_service: BomService = Depends(get_bom_service),
 ):
     proyectos = await service.get_proyectos(conn, area, status, q, limit)
-    if BomService.tiene_acceso_indicador_pendientes_proyecto(context):
+    mostrar_pendientes = BomService.tiene_acceso_indicador_pendientes_proyecto(context)
+    if mostrar_pendientes:
         await service.anexar_conteo_pendientes(conn, proyectos, bom_service)
+    if BomService.puede_tener_rol_bom(context):
+        await service.anexar_acceso_suplencia(conn, proyectos, bom_service, context.get("user_db_id"))
     proyectos_split = _separar_proyectos_globales(proyectos, area)
 
     return templates.TemplateResponse(request, "shared/partials/lista_proyectos.html", {"proyectos": proyectos,
@@ -114,6 +123,7 @@ async def get_proyectos_partial(
         "current_module_role": context.get("module_roles", {}).get("proyectos", "viewer"),
         "vista_global": True,
         "puede_editar_ingenieria": user_has_module_access("ingenieria", context, min_role="editor"),
+        "mostrar_pendientes": mostrar_pendientes,
     })
 
 

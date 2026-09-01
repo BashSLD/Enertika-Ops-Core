@@ -32,7 +32,7 @@ from starlette.datastructures import Headers
 # Core imports
 from core.database import get_db_connection
 from core.security import get_current_user_context
-from core.permissions import require_module_access
+from core.permissions import require_module_access, user_has_module_access
 from core.config import settings
 from core.config_service import ConfigService
 from core.timezone import now_mx, today_mx
@@ -45,7 +45,7 @@ from .service import (
 from modules.shared.utils import content_disposition_header, is_htmx
 from modules.proveedores.service import ProveedoresService, get_proveedores_service, SharePointProveedorError
 from modules.proveedores.router import _handle_sharepoint_error
-from core.bom.service import FLAG_ACTUALIZACION_PRECIOS_COMPRAS
+from core.bom.service import FLAG_ACTUALIZACION_PRECIOS_COMPRAS, BomService
 from .schemas import (
     ComprobanteFilter,
     ComprobanteUpdateForm,
@@ -176,6 +176,7 @@ async def get_compras_ui(
     catalogos = await service.get_catalogos(conn)
     current_user_id, default_usuario, filtro_usuario = _usuario_ctx(context)
     role = context.get("role")
+    puede_ver_autorizaciones_obra = BomService.tiene_acceso_autorizaciones_obra(context)
 
     # Vista default: comprobantes abiertos
     page = 1
@@ -218,6 +219,7 @@ async def get_compras_ui(
         "zip_rango_valido": rango_valido_para_zip(None, None),
         "estadisticas": estadisticas,
         "today": today_mx(),
+        "puede_ver_autorizaciones_obra": puede_ver_autorizaciones_obra,
     }
     
     # HTMX Detection

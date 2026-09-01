@@ -257,7 +257,8 @@
                         hx-target="#tab-cotizaciones"
                         hx-swap="innerHTML"
                         hx-confirm="¿Rechazar esta cotización?"
-                        class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-white bg-red-500 hover:bg-red-600 transition">
+                        hx-disabled-elt="this" hx-sync="this:replace"
+                        class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-white bg-red-500 hover:bg-red-600 transition disabled:cursor-wait disabled:opacity-60">
                         Rechazar
                     </button>
                     {% endif %}
@@ -266,11 +267,12 @@
                 <div class="flex items-center gap-2 shrink-0">
                     <form hx-post="/bom/cotizaciones/{{ cot.id }}/solicitar-aclaracion"
                         hx-target="#tab-cotizaciones" hx-swap="innerHTML"
+                        hx-disabled-elt="find button[type='submit']" hx-sync="this:replace"
                         onsubmit="const m = prompt('Motivo de la aclaración:'); if(!m || !m.trim()){ event.preventDefault(); return false; } this.querySelector('input[name=motivo]').value = m; return true;">
                         <input type="hidden" name="motivo" value="">
                         <input type="hidden" name="lock_version" value="{{ cot.lock_version }}">
                         <button type="submit"
-                            class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-amber-700 bg-amber-50 border border-amber-300 hover:bg-amber-100 transition">
+                            class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-amber-700 bg-amber-50 border border-amber-300 hover:bg-amber-100 transition disabled:cursor-wait disabled:opacity-60">
                             Solicitar aclaración
                         </button>
                     </form>

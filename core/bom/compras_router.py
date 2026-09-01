@@ -1451,10 +1451,8 @@ async def _autorizacion_ctx(request, autorizaciones, bom, context, conn, service
         await service.get_titulares_que_representa(conn, user_id) if user_id else set()
     )
     coordinador_obra = bom.get("coordinador_obra") if bom else None
-    es_coordinador_obra = (
-        coordinador_obra in representados
-        if coordinador_obra
-        else rol_org == "jefe_construccion"
+    es_coordinador_obra = BomService.es_coordinador_obra(
+        coordinador_obra, representados, rol_org,
     )
     es_finanzas = finanzas_role in ("editor", "admin")
     es_compras_editor = es_admin or module_roles.get("compras") in ("editor", "admin")
@@ -1734,12 +1732,16 @@ async def rechazar_autorizacion(
 
 async def _obra_autorizaciones_ctx(
     conn, service: BomService, context: dict, limit: int, offset: int,
+    id_proyecto: Optional[UUID] = None,
 ) -> dict:
     autorizaciones, total = await service.listar_autorizaciones_obra_coordinador(
         conn, context.get("user_db_id"), context.get("rol_organizacional"),
-        limit=limit, offset=offset,
+        limit=limit, offset=offset, id_proyecto=id_proyecto,
     )
-    return {"autorizaciones": autorizaciones, "total": total, "limit": limit, "offset": offset}
+    return {
+        "autorizaciones": autorizaciones, "total": total, "limit": limit, "offset": offset,
+        "id_proyecto": id_proyecto,
+    }
 
 
 @compras_router.api_route("/obra/autorizaciones", methods=["GET", "HEAD"], include_in_schema=False)
@@ -1747,24 +1749,31 @@ async def obra_autorizaciones_ui(
     request: Request,
     limit: int = 20,
     offset: int = 0,
+    id_proyecto: Optional[UUID] = None,
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
     _=require_authenticated_session(),
 ):
     """Vista cross-proyecto de autorizaciones de Obra pendientes que el usuario
-    (coordinador de obra titular/suplente, o jefe_construccion en paquetes sin
-    coordinador asignado) puede aprobar -- reemplaza el acceso "solo popup"
-    (plan seccion 1). Gate deliberadamente solo de sesion, nombrado /obra/... y
-    no /construccion/...: coordinador_obra es un rol de equipo de proyecto
-    independiente del modulo construccion (BomService.es_coordinador_obra) --
-    el filtro real vive en el WHERE de la query (representados + fallback
-    jefe_construccion), igual que dashboard_direccion_cotizaciones. Nunca gatear
-    con require_any_module_access aqui: bloquearia con 403 exactamente al
-    usuario objetivo. A diferencia del popup (que traga errores de BD en
-    silencio por ser un fragmento lazy no solicitado), aqui el usuario navego
-    deliberadamente a buscar sus pendientes: un error de query debe verse."""
-    ctx = await _obra_autorizaciones_ctx(conn, service, context, limit, offset)
+    (coordinador de obra titular/suplente, o jefe_construccion siempre) puede
+    aprobar -- reemplaza el acceso "solo popup" (plan seccion 1). Gate
+    deliberadamente solo de sesion, nombrado /obra/... y no /construccion/...:
+    coordinador_obra es un rol de equipo de proyecto independiente del modulo
+    construccion (BomService.es_coordinador_obra) -- el filtro real vive en el
+    WHERE de la query (representados + jefe_construccion), igual que
+    dashboard_direccion_cotizaciones. Nunca gatear con require_any_module_access
+    aqui: bloquearia con 403 exactamente al usuario objetivo. A diferencia del
+    popup (que traga errores de BD en silencio por ser un fragmento lazy no
+    solicitado), aqui el usuario navego deliberadamente a buscar sus
+    pendientes: un error de query debe verse.
+
+    `id_proyecto`: entrada desde el indicador de pendientes de un proyecto
+    especifico ("Ver todas" del bloque Obra) -- ver docstring de
+    listar_autorizaciones_obra_coordinador. Cualquier autenticado que llegue
+    con este parametro ve el modo solo-lectura (autorizaciones + coordinador
+    asignado), no un 403 ni una tabla vacia."""
+    ctx = await _obra_autorizaciones_ctx(conn, service, context, limit, offset, id_proyecto)
     ctx.update({
         "user_name": context.get("user_name"),
         "role": context.get("role"),
@@ -1778,7 +1787,7 @@ async def obra_autorizaciones_ui(
 
 async def _obra_autorizaciones_accion_o_toast(
     request: Request, conn, service: BomService, context: dict, limit: int, offset: int,
-    accion, log_msg: str, toast_msg: str,
+    accion, log_msg: str, toast_msg: str, id_proyecto: Optional[UUID] = None,
 ):
     """Comun a aprobar/rechazar de la tabla cross-proyecto: ejecuta `accion`
     (closure de cero argumentos que llama al metodo de servicio ya resuelto con
@@ -1793,7 +1802,7 @@ async def _obra_autorizaciones_accion_o_toast(
         logger.exception(log_msg)
         return _toast_response(request, toast_msg, "error", status_code=500)
 
-    ctx = await _obra_autorizaciones_ctx(conn, service, context, limit, offset)
+    ctx = await _obra_autorizaciones_ctx(conn, service, context, limit, offset, id_proyecto)
     return templates.TemplateResponse(request, "bom/partials/obra_autorizaciones.html", ctx)
 
 
@@ -1805,6 +1814,7 @@ async def obra_autorizaciones_aprobar(
     lock_version: int = Form(...),
     limit: int = Form(20),
     offset: int = Form(0),
+    id_proyecto: Optional[UUID] = Form(None),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -1828,6 +1838,7 @@ async def obra_autorizaciones_aprobar(
         ),
         "Error de BD al aprobar autorización desde la tabla cross-proyecto de Obra",
         "Error al aprobar la autorización.",
+        id_proyecto,
     )
 
 
@@ -1839,6 +1850,7 @@ async def obra_autorizaciones_rechazar(
     lock_version: int = Form(...),
     limit: int = Form(20),
     offset: int = Form(0),
+    id_proyecto: Optional[UUID] = Form(None),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -1860,6 +1872,7 @@ async def obra_autorizaciones_rechazar(
         ),
         "Error de BD al rechazar autorización desde la tabla cross-proyecto de Obra",
         "Error al rechazar la autorización.",
+        id_proyecto,
     )
 
 

@@ -32,18 +32,22 @@ class FakeDB:
         self.total = total if total is not None else len(self.autorizaciones)
         self.limit_recibido = None
         self.offset_recibido = None
+        self.id_proyecto_recibido = None
 
     async def get_titulares_que_representa(self, conn, user_id):
         return []
 
     async def get_autorizaciones_pendientes_por_coordinador(
-        self, conn, representados, rol_organizacional, limit=20, offset=0,
+        self, conn, representados, rol_organizacional, limit=20, offset=0, id_proyecto=None,
     ):
         self.limit_recibido = limit
         self.offset_recibido = offset
+        self.id_proyecto_recibido = id_proyecto
         return self.autorizaciones
 
-    async def contar_autorizaciones_pendientes_por_coordinador(self, conn, representados, rol_organizacional):
+    async def contar_autorizaciones_pendientes_por_coordinador(
+        self, conn, representados, rol_organizacional, id_proyecto=None,
+    ):
         return self.total
 
 
@@ -126,6 +130,38 @@ def test_ui_propaga_limit_offset_a_la_query():
 
     assert service.db.limit_recibido == 5
     assert service.db.offset_recibido == 10
+
+
+def test_ui_propaga_id_proyecto_a_la_query():
+    """`id_proyecto` (entrada desde el indicador de pendientes de un proyecto
+    especifico) debe llegar intacto a la query -- desactiva el filtro por
+    representados dentro del servicio/SQL (ver db_compras.py)."""
+    service = BomService()
+    service.db = FakeDB(autorizaciones=[], total=0)
+    client = _build_client(service, _context())
+    id_proyecto = uuid4()
+
+    client.get(f"/bom/obra/autorizaciones?id_proyecto={id_proyecto}")
+
+    assert service.db.id_proyecto_recibido == id_proyecto
+
+
+def test_ui_modo_solo_lectura_muestra_coordinador_en_vez_de_botones():
+    """Con id_proyecto y una fila donde el usuario no puede actuar
+    (coordinador_obra distinto y no jefe_construccion), la tabla debe mostrar el
+    nombre del coordinador en vez de Aprobar/Rechazar."""
+    service = BomService()
+    service.db = FakeDB(autorizaciones=[
+        _autorizacion(coordinador_obra=uuid4(), coordinador_nombre="Juan Perez"),
+    ], total=1)
+    client = _build_client(service, _context())
+
+    response = client.get(f"/bom/obra/autorizaciones?id_proyecto={uuid4()}")
+
+    assert response.status_code == 200
+    assert "Coordinador:" in response.text
+    assert "Juan Perez" in response.text
+    assert 'name="lock_version"' not in response.text
 
 
 def test_aprobar_re_renderiza_tabla_completa_no_autorizaciones_tab():

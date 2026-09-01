@@ -146,6 +146,28 @@ async def test_aprobar_obra_jefe_construccion_si_bom_sin_coordinador():
     assert updated["estatus"] == "AUTORIZADO_OBRA"
 
 
+@pytest.mark.asyncio
+async def test_aprobar_obra_jefe_construccion_incluso_con_coordinador_asignado():
+    """Autoridad permanente (decision 2026-09-02): jefe_construccion, siendo el
+    superior organizacional de coordinador_obra, puede aprobar en su nombre
+    aunque el BOM SI tenga un coordinador de obra asignado -- cubre el caso
+    donde el CO no puede ingresar y no configuro un suplente."""
+    jefe_construccion_id = uuid4()
+    coordinador_obra_id = uuid4()
+    bom_id, autorizacion_id = uuid4(), uuid4()
+    bom = _bom(bom_id, coordinador_obra=coordinador_obra_id)
+    aut = _autorizacion(autorizacion_id, bom_id)
+    svc, _ = _service(bom, aut)
+
+    updated = await svc.aprobar_obra(
+        FakeConn(), autorizacion_id, jefe_construccion_id, None, "USER",
+        lock_version_esperado=0, rol_organizacional="jefe_construccion",
+    )
+
+    assert updated["estatus"] == "AUTORIZADO_OBRA"
+    assert updated["aprobador_obra_id"] == jefe_construccion_id
+
+
 # ─── COORDINADOR INVALIDO ─────────────────────────────────────
 
 @pytest.mark.asyncio

@@ -119,7 +119,8 @@
                 puede_enviar=puede_enviar if puede_enviar is defined else False,
                 mostrar_area=mostrar_area,
                 mostrar_mfv=mostrar_mfv,
-                mostrar_bom=mostrar_bom
+                mostrar_bom=mostrar_bom,
+                mostrar_pendientes=mostrar_pendientes if mostrar_pendientes is defined else False
             ) }}
         </div>
         {% endif %}
@@ -136,7 +137,8 @@
                 puede_enviar=puede_enviar if puede_enviar is defined else False,
                 mostrar_area=mostrar_area,
                 mostrar_mfv=mostrar_mfv,
-                mostrar_bom=mostrar_bom
+                mostrar_bom=mostrar_bom,
+                mostrar_pendientes=mostrar_pendientes if mostrar_pendientes is defined else False
             ) }}
         </div>
         {% endif %}
@@ -152,7 +154,8 @@
         puede_enviar=puede_enviar if puede_enviar is defined else False,
         mostrar_area=mostrar_area,
         mostrar_mfv=mostrar_mfv,
-        mostrar_bom=mostrar_bom
+        mostrar_bom=mostrar_bom,
+        mostrar_pendientes=mostrar_pendientes if mostrar_pendientes is defined else False
     ) }}
 {% else %}
 {% include "shared/partials/_empty_proyectos.html" %}

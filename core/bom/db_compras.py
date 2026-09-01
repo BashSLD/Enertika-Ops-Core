@@ -580,21 +580,27 @@ class BomComprasDBMixin:
 
     async def get_autorizaciones_pendientes_por_coordinador(
         self, conn, representados: List[UUID], rol_organizacional: Optional[str],
-        limit: int = 20, offset: int = 0,
+        limit: int = 20, offset: int = 0, id_proyecto: Optional[UUID] = None,
     ) -> List[dict]:
         """Autorizaciones PENDIENTE (paso Obra) de cualquier BOM cuyo coordinador
         de obra sea alguno de los `representados` (titular o suplente activo), o
-        -- si el paquete no tiene coordinador asignado -- el usuario tenga el rol
-        organizacional jefe_construccion. Mismo predicado que
-        BomService.es_coordinador_obra() (service.py), duplicado aqui en SQL a
-        proposito: es un filtro cross-BOM (`b.coordinador_obra = ANY($1)`) sobre
+        el usuario tenga el rol organizacional jefe_construccion (autoridad
+        permanente, no solo fallback sin coordinador asignado -- ver
+        BomService.es_coordinador_obra()). Mismo predicado, duplicado aqui en SQL
+        a proposito: es un filtro cross-BOM (`b.coordinador_obra = ANY($1)`) sobre
         potencialmente muchos paquetes a la vez; resolverlo trayendo candidatos a
         Python y filtrando en memoria implicaria un N+1 o una query igual de
         grande. Si esta regla cambia, actualizar ambos lugares.
         Cross-BOM en una sola query para alimentar el popup de pendientes al
         entrar a la app (PLAN_popup_pendientes_autorizacion_obra.md §2) y la
         tabla cross-proyecto de "Mis Autorizaciones" (con `limit`/`offset` reales;
-        el default de 20/0 preserva el LIMIT 20 fijo que tenia el popup)."""
+        el default de 20/0 preserva el LIMIT 20 fijo que tenia el popup).
+
+        `id_proyecto`: cuando se pasa, el filtro de `representados` se desactiva
+        por completo y se trae TODO lo pendiente de ese proyecto -- el modo
+        solo-lectura de "Mis Autorizaciones" filtrado por proyecto necesita ver
+        las autorizaciones de un coordinador ajeno, no solo las propias, para
+        poder mostrar quien es el coordinador asignado (`coordinador_nombre`)."""
         rows = await conn.fetch("""
             SELECT a.*,
                    c.nombre_proveedor,
@@ -603,6 +609,8 @@ class BomComprasDBMixin:
                    r.nombre AS rfq_nombre,
                    b.id_paquete,
                    b.version AS bom_version,
+                   b.coordinador_obra,
+                   u.nombre AS coordinador_nombre,
                    paq.codigo AS paquete_codigo,
                    paq.nombre AS paquete_nombre,
                    o.nombre_proyecto AS proyecto_nombre,
@@ -614,32 +622,67 @@ class BomComprasDBMixin:
             LEFT JOIN tb_bom_rfq r ON r.id = c.rfq_id
             LEFT JOIN tb_proyectos_gate p ON p.id_proyecto = b.id_proyecto
             LEFT JOIN tb_oportunidades o ON o.id_oportunidad = p.id_oportunidad
+            LEFT JOIN tb_usuarios u ON u.id_usuario = b.coordinador_obra
             WHERE a.estatus = 'PENDIENTE'
+              AND ($5::uuid IS NULL OR b.id_proyecto = $5)
               AND (
-                  b.coordinador_obra = ANY($1::uuid[])
-                  OR (b.coordinador_obra IS NULL AND $2 = 'jefe_construccion')
+                  $5::uuid IS NOT NULL
+                  OR b.coordinador_obra = ANY($1::uuid[])
+                  OR $2 = 'jefe_construccion'
               )
             ORDER BY a.creado_en ASC
             LIMIT $3 OFFSET $4
-        """, representados, rol_organizacional, limit, offset)
+        """, representados, rol_organizacional, limit, offset, id_proyecto)
         return [dict(r) for r in rows]
 
     async def contar_autorizaciones_pendientes_por_coordinador(
         self, conn, representados: List[UUID], rol_organizacional: Optional[str],
+        id_proyecto: Optional[UUID] = None,
     ) -> int:
         """Total real (sin LIMIT/OFFSET) para la paginacion de la tabla
         cross-proyecto de "Mis Autorizaciones" -- mismo predicado que
-        get_autorizaciones_pendientes_por_coordinador."""
+        get_autorizaciones_pendientes_por_coordinador, incluido el `id_proyecto`
+        que desactiva el filtro de `representados`."""
         return await conn.fetchval("""
             SELECT COUNT(*)
             FROM tb_bom_autorizaciones a
             JOIN tb_bom b ON b.id_bom = a.bom_id
             WHERE a.estatus = 'PENDIENTE'
+              AND ($3::uuid IS NULL OR b.id_proyecto = $3)
               AND (
-                  b.coordinador_obra = ANY($1::uuid[])
-                  OR (b.coordinador_obra IS NULL AND $2 = 'jefe_construccion')
+                  $3::uuid IS NOT NULL
+                  OR b.coordinador_obra = ANY($1::uuid[])
+                  OR $2 = 'jefe_construccion'
               )
-        """, representados, rol_organizacional)
+        """, representados, rol_organizacional, id_proyecto)
+
+    async def get_proyectos_con_rol_bom(
+        self, conn, proyecto_ids: List[UUID], user_ids: List[UUID],
+    ) -> set:
+        """Proyectos (de proyecto_ids) donde alguno de user_ids tiene rol de
+        BOM (elaborador, responsable de ingenieria, jefe de construccion o
+        coordinador de obra) en la cabeza de trabajo de algun paquete -- gate
+        para mostrar el acceso a "Configurar suplente" desde proyectos/ui.
+        Mismo predicado de 4 roles que BomService.es_bom_role(), duplicado
+        aqui en SQL a proposito: es un filtro cross-proyecto sobre
+        potencialmente muchos paquetes/BOMs a la vez; resolverlo trayendo
+        candidatos a Python implicaria un N+1. Si la lista de roles cambia,
+        actualizar ambos lugares."""
+        if not proyecto_ids or not user_ids:
+            return set()
+        rows = await conn.fetch("""
+            SELECT DISTINCT p.id_proyecto
+            FROM tb_bom_paquetes p
+            JOIN tb_bom b ON b.id_bom = p.cabeza_trabajo_id
+            WHERE p.id_proyecto = ANY($1::uuid[])
+              AND (
+                  b.elaborado_por = ANY($2::uuid[])
+                  OR b.responsable_ing = ANY($2::uuid[])
+                  OR b.jefe_construccion = ANY($2::uuid[])
+                  OR b.coordinador_obra = ANY($2::uuid[])
+              )
+        """, proyecto_ids, user_ids)
+        return {r["id_proyecto"] for r in rows}
 
     async def get_conteo_autorizaciones_pendientes_por_proyecto(
         self, conn, proyecto_ids: List[UUID],

@@ -151,6 +151,26 @@ class ProyectosService:
             if conteo:
                 p["pendientes"] = conteo
 
+    async def anexar_acceso_suplencia(
+        self, conn, proyectos: List[Dict[str, Any]], bom_service, user_id,
+    ) -> None:
+        """Enriquece cada proyecto en memoria con `puede_configurar_suplencia`
+        (bool), para el acceso a "Configurar suplente" desde el menu de
+        proyectos/ui -- mismo criterio tolerante a fallos que
+        anexar_conteo_pendientes."""
+        proyecto_ids = [p["id_proyecto"] for p in proyectos if p.get("id_proyecto")]
+        if not proyecto_ids:
+            return
+        try:
+            ids_con_rol = await bom_service.get_proyectos_con_rol_bom(
+                conn, proyecto_ids, user_id,
+            )
+        except asyncpg.PostgresError:
+            logger.error("Error al calcular acceso a suplencia por proyecto", exc_info=True)
+            return
+        for p in proyectos:
+            p["puede_configurar_suplencia"] = p.get("id_proyecto") in ids_con_rol
+
     async def get_kpis(self, conn) -> Dict[str, Any]:
         return await self.transfers.get_kpis_global(conn)
 

@@ -1,6 +1,6 @@
 {# templates/proyectos/partials/pendientes_modal.html #}
 {# Detalle de aprobaciones pendientes de BOM para un proyecto, disparado desde
-   el nombre del proyecto en card_proyecto.html (pendientes_indicator). Modal
+   la columna "A. Pendiente" en card_proyecto.html (pendientes_columna). Modal
    global lazy en #modal-action-container, mismo patron que equipo_modal.html.
    Solo lectura: "ver todas" enlaza a los dashboards existentes en vez de
    reimplementar un tercer listado de BOM. #}
@@ -42,7 +42,7 @@
         {% endif %}
         {% endmacro %}
         <div class="p-5 flex-1 min-h-0 overflow-y-auto space-y-3">
-            {{ _tarjeta_pendiente(pendientes.compras_obra, 'compra', 'compras', 'Autorización de Obra sobre cotizaciones de compra', '/bom/obra/autorizaciones') }}
+            {{ _tarjeta_pendiente(pendientes.compras_obra, 'compra', 'compras', 'Autorización de Obra sobre cotizaciones de compra', '/bom/obra/autorizaciones?id_proyecto=' ~ id_proyecto) }}
             {{ _tarjeta_pendiente(pendientes.cotizaciones_direccion, 'cotización', 'cotizaciones', 'En espera de aprobación de Dirección', '/bom/direccion/cotizaciones?id_proyecto=' ~ id_proyecto) }}
             {% if not pendientes.compras_obra and not pendientes.cotizaciones_direccion %}
             <p class="text-sm text-gray-500 text-center py-4">Sin pendientes en este momento.</p>

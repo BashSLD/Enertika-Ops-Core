@@ -14,11 +14,16 @@
     {{ etiqueta | safe }}
 </button>
 {% endmacro %}
+{% set sufijo_proyecto = '&id_proyecto=' ~ id_proyecto if id_proyecto else '' %}
 
 <div id="obra-autorizaciones-content" class="w-full px-4 py-6 animate-fade-in-down" hx-history="false">
     <div class="mb-4">
-        <h1 class="text-2xl font-bold text-gray-800">Mis Autorizaciones</h1>
+        <h1 class="text-2xl font-bold text-gray-800">Aprobación de cotizaciones</h1>
+        {% if id_proyecto %}
+        <p class="mt-1 text-sm text-gray-500">Autorizaciones de compra (paso Obra) pendientes de este proyecto. Las filas que no puedes autorizar se muestran en modo solo lectura, con el coordinador de obra asignado.</p>
+        {% else %}
         <p class="mt-1 text-sm text-gray-500">Autorizaciones de compra (paso Obra) pendientes en todos tus proyectos.</p>
+        {% endif %}
     </div>
 
     {% if autorizaciones %}
@@ -42,8 +47,14 @@
                             <span class="font-mono font-semibold text-gray-800">{{ a.proyecto_id_estandar or '—' }}</span>
                             <span class="block text-xs text-gray-500">{{ a.proyecto_nombre or '' }}</span>
                         </td>
-                        <td class="px-4 py-3 text-sm text-gray-700">
-                            {{ a.paquete_codigo }} · v{{ a.bom_version }}
+                        <td class="px-4 py-3 text-sm">
+                            <button type="button"
+                                hx-get="/bom/paquetes/{{ a.id_paquete }}/ui"
+                                hx-target="#main-content" hx-push-url="true"
+                                hx-disabled-elt="this" hx-sync="this:drop"
+                                class="font-medium text-[#00BABB] hover:underline disabled:cursor-wait disabled:opacity-60">
+                                {{ a.paquete_codigo }} · v{{ a.bom_version }}
+                            </button>
                             <span class="block text-xs text-gray-400">{{ a.paquete_nombre }}</span>
                         </td>
                         <td class="px-4 py-3 text-sm text-gray-800">{{ a.nombre_proveedor or 'Sin proveedor' }}</td>
@@ -53,21 +64,17 @@
                         <td class="px-4 py-3 text-xs text-gray-500">{{ a.creado_en | time_mx if a.creado_en else '—' }}</td>
                         <td class="px-4 py-3 text-right">
                             <div class="flex flex-wrap justify-end items-center gap-2">
-                                <a href="/bom/paquetes/{{ a.id_paquete }}/compras"
-                                    hx-get="/bom/paquetes/{{ a.id_paquete }}/compras"
-                                    hx-target="#main-content" hx-push-url="true"
-                                    class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50">
-                                    Ir al BOM
-                                </a>
                                 {% if a.pdf_url %}
-                                {{ boton_ver_pdf_cotizacion(a.cotizacion_id, 'rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50') }}
+                                {{ boton_ver_pdf_cotizacion(a.cotizacion_id, 'rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50', texto='Ver Cotización') }}
                                 {% endif %}
+                                {% if a.puede_actuar %}
                                 <form hx-post="/bom/obra/autorizaciones/{{ a.id }}/aprobar"
                                     hx-target="#obra-autorizaciones-content" hx-swap="outerHTML"
                                     hx-disabled-elt="find button[type='submit']" hx-sync="this:replace">
                                     <input type="hidden" name="lock_version" value="{{ a.lock_version }}">
                                     <input type="hidden" name="limit" value="{{ limit }}">
                                     <input type="hidden" name="offset" value="{{ offset }}">
+                                    {% if id_proyecto %}<input type="hidden" name="id_proyecto" value="{{ id_proyecto }}">{% endif %}
                                     <button type="submit"
                                         class="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60">
                                         Aprobar
@@ -81,11 +88,17 @@
                                     <input type="hidden" name="lock_version" value="{{ a.lock_version }}">
                                     <input type="hidden" name="limit" value="{{ limit }}">
                                     <input type="hidden" name="offset" value="{{ offset }}">
+                                    {% if id_proyecto %}<input type="hidden" name="id_proyecto" value="{{ id_proyecto }}">{% endif %}
                                     <button type="submit"
                                         class="rounded-lg bg-red-500 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-red-600 disabled:cursor-wait disabled:opacity-60">
                                         Rechazar
                                     </button>
                                 </form>
+                                {% else %}
+                                <span class="text-xs text-gray-500 whitespace-nowrap">
+                                    Coordinador: <span class="font-medium text-gray-700">{{ a.coordinador_nombre or 'Sin asignar' }}</span>
+                                </span>
+                                {% endif %}
                             </div>
                         </td>
                     </tr>
@@ -99,10 +112,10 @@
         <span class="text-xs text-gray-500">{{ total }} autorización{{ 'es' if total != 1 else '' }} en total</span>
         <div class="flex items-center gap-2">
             {{ _boton_paginacion(offset > 0,
-                "/bom/obra/autorizaciones?limit=" ~ limit ~ "&offset=" ~ ([offset - limit, 0] | max),
+                "/bom/obra/autorizaciones?limit=" ~ limit ~ "&offset=" ~ ([offset - limit, 0] | max) ~ sufijo_proyecto,
                 "&lsaquo; Anterior") }}
             {{ _boton_paginacion(offset + limit < total,
-                "/bom/obra/autorizaciones?limit=" ~ limit ~ "&offset=" ~ (offset + limit),
+                "/bom/obra/autorizaciones?limit=" ~ limit ~ "&offset=" ~ (offset + limit) ~ sufijo_proyecto,
                 "Siguiente &rsaquo;") }}
         </div>
     </div>
@@ -114,7 +127,9 @@
                 d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
         <p class="text-sm font-medium text-gray-500">Sin autorizaciones pendientes</p>
-        <p class="text-xs text-gray-400 mt-1">No tienes autorizaciones de compra esperando tu aprobación.</p>
+        <p class="text-xs text-gray-400 mt-1">
+            {% if id_proyecto %}Este proyecto no tiene autorizaciones de compra pendientes.{% else %}No tienes autorizaciones de compra esperando tu aprobación.{% endif %}
+        </p>
     </div>
     {% endif %}
 </div>

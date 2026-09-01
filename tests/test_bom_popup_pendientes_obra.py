@@ -32,25 +32,29 @@ class FakePopupDB:
         self.rol_org_recibido = None
         self.limit_recibido = None
         self.offset_recibido = None
+        self.id_proyecto_recibido = None
 
     async def get_titulares_que_representa(self, conn, suplente_id):
         return self.titulares
 
     async def get_autorizaciones_pendientes_por_coordinador(
-        self, conn, representados, rol_organizacional, limit=20, offset=0,
+        self, conn, representados, rol_organizacional, limit=20, offset=0, id_proyecto=None,
     ):
         self.llamadas_autorizaciones += 1
         self.representados_recibidos = set(representados)
         self.rol_org_recibido = rol_organizacional
         self.limit_recibido = limit
         self.offset_recibido = offset
+        self.id_proyecto_recibido = id_proyecto
         return self.autorizaciones
 
     async def get_items_by_cotizacion_ids(self, conn, cotizacion_ids):
         self.llamadas_items += 1
         return self.items
 
-    async def contar_autorizaciones_pendientes_por_coordinador(self, conn, representados, rol_organizacional):
+    async def contar_autorizaciones_pendientes_por_coordinador(
+        self, conn, representados, rol_organizacional, id_proyecto=None,
+    ):
         self.llamadas_count += 1
         return self.total
 
@@ -87,12 +91,12 @@ async def test_listar_pendientes_incluye_titular_directo_y_no_hace_n_mas_uno():
     resultado = await svc.listar_pendientes_popup_coordinador(FakeConn(), user_id, None)
 
     assert len(resultado) == 1
-    assert resultado[0]["items"] == [{"cotizacion_id": cotizacion_id, "descripcion": "Item A"}]
     # user_id siempre se agrega a representados (get_titulares_que_representa en service.py)
     assert user_id in db.representados_recibidos
-    # una sola query de autorizaciones + una sola de items, sin loop por autorizacion
+    # una sola query de autorizaciones, sin loop por autorizacion; el banner
+    # simplificado (2026-09-02) ya no muestra items, asi que no se batch-fetchean
     assert db.llamadas_autorizaciones == 1
-    assert db.llamadas_items == 1
+    assert db.llamadas_items == 0
 
 
 @pytest.mark.asyncio
@@ -184,6 +188,67 @@ async def test_listar_autorizaciones_obra_coordinador_propaga_paginacion_y_total
     assert db.offset_recibido == 50
     assert db.llamadas_count == 1
     assert total == 57
+
+
+@pytest.mark.asyncio
+async def test_listar_autorizaciones_obra_coordinador_propaga_id_proyecto():
+    """`id_proyecto` (modo solo-lectura por proyecto) debe llegar tal cual a
+    ambas queries del db_service (autorizaciones y conteo)."""
+    id_proyecto = uuid4()
+    db = FakePopupDB(titulares=[], autorizaciones=[], total=0)
+    svc = BomService()
+    svc.db = db
+
+    await svc.listar_autorizaciones_obra_coordinador(
+        FakeConn(), uuid4(), None, id_proyecto=id_proyecto,
+    )
+
+    assert db.id_proyecto_recibido == id_proyecto
+
+
+@pytest.mark.asyncio
+async def test_listar_autorizaciones_obra_coordinador_marca_puede_actuar_por_fila():
+    """Cada fila lleva `puede_actuar` calculado con el mismo predicado que el
+    gate real (BomService.es_coordinador_obra) -- el template usa esta bandera
+    para decidir entre Aprobar/Rechazar o mostrar el coordinador asignado."""
+    user_id = uuid4()
+    coordinador_propio = user_id
+    coordinador_ajeno = uuid4()
+    db = FakePopupDB(
+        titulares=[],
+        autorizaciones=[
+            _autorizacion(uuid4(), uuid4(), coordinador_obra=coordinador_propio),
+            _autorizacion(uuid4(), uuid4(), coordinador_obra=coordinador_ajeno),
+        ],
+    )
+    svc = BomService()
+    svc.db = db
+
+    autorizaciones, _ = await svc.listar_autorizaciones_obra_coordinador(
+        FakeConn(), user_id, None,
+    )
+
+    assert autorizaciones[0]["puede_actuar"] is True
+    assert autorizaciones[1]["puede_actuar"] is False
+
+
+@pytest.mark.asyncio
+async def test_listar_autorizaciones_obra_coordinador_jefe_construccion_puede_actuar_con_coordinador_asignado():
+    """Autoridad permanente de jefe_construccion (decision 2026-09-02): incluso
+    con un coordinador_obra asignado que no es el usuario, jefe_construccion
+    puede actuar en cualquier fila."""
+    db = FakePopupDB(
+        titulares=[],
+        autorizaciones=[_autorizacion(uuid4(), uuid4(), coordinador_obra=uuid4())],
+    )
+    svc = BomService()
+    svc.db = db
+
+    autorizaciones, _ = await svc.listar_autorizaciones_obra_coordinador(
+        FakeConn(), uuid4(), "jefe_construccion",
+    )
+
+    assert autorizaciones[0]["puede_actuar"] is True
 
 
 # ─── Gate de acceso extendido (§4): compras_paquete_ui / preview_pdf_cotizacion ───
