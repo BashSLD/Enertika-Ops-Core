@@ -1,7 +1,6 @@
 {# templates/bom/partials/cotizaciones.html #}
 {# Tab de cotizaciones del BOM — cargado lazy via HTMX #}
 {% from "bom/partials/_macros.html" import boton_adjudicar, icono_caja, boton_ver_pdf_cotizacion %}
-{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
 
 {% if bulk_toast %}
 {% with message=bulk_toast.message, type=bulk_toast.type, title=bulk_toast.title %}
@@ -60,11 +59,6 @@
 
     {# Lista de cotizaciones #}
     {% if cotizaciones %}
-    <style>
-        .form-subir-pdf-cotizacion.htmx-request .pdf-label-idle { display: none; }
-        .form-subir-pdf-cotizacion.htmx-request .pdf-label-loading { display: inline-flex; }
-        .form-subir-pdf-cotizacion.htmx-request label { pointer-events: none; opacity: .7; }
-    </style>
     <div class="space-y-3">
         {% for cot in cotizaciones %}
         {% set estatus_styles = {
@@ -130,16 +124,8 @@
                     </div>
                 </div>
 
-                <button type="button" @click="colapsada = !colapsada"
-                    :title="colapsada ? 'Expandir' : 'Colapsar'"
-                    class="shrink-0 p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
-                    <svg class="w-4 h-4 transition-transform" :class="{ '-rotate-90': colapsada }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </button>
-
                 {# Acciones #}
-                <div x-show="!colapsada" class="contents">
+                <div class="contents">
                 {% if cot.aprobacion_estatus == 'PENDIENTE_VIGENCIA_COMPRAS' and es_compras_editor %}
                 <button type="button"
                     @click="abrirModalVigencia('{{ cot.id }}', {{ cot.aprobacion_lock_version | tojson }}, {{ cot.autorizacion_lock_version | tojson }}, {{ (cot.nombre_proveedor or 'Sin proveedor') | tojson }})"
@@ -206,25 +192,10 @@
                     } %}
                     <button type="button" @click="abrirModalEditar(JSON.parse($el.dataset.cot))"
                         data-cot='{{ cot_payload | tojson | replace("'", "&#39;") }}'
+                        title="El PDF del proveedor se carga o reemplaza aquí, dentro del modal de edición"
                         class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-gray-700 bg-gray-100 border border-gray-300 hover:bg-gray-200 transition">
                         Editar
                     </button>
-                    <form class="form-subir-pdf-cotizacion"
-                        hx-post="/bom/cotizaciones/{{ cot.id }}/pdf"
-                        hx-target="#tab-cotizaciones" hx-swap="innerHTML"
-                        hx-encoding="multipart/form-data"
-                        hx-sync="this:drop">
-                        <input type="hidden" name="lock_version" value="{{ cot.lock_version }}">
-                        <label class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-blue-700 bg-blue-50 border border-blue-300 hover:bg-blue-100 transition cursor-pointer">
-                            <span class="pdf-label-idle">{{ 'Reemplazar PDF' if cot.pdf_url else 'Subir PDF' }}</span>
-                            <span class="pdf-label-loading hidden items-center gap-1.5">
-                                {{ spinner_icon('w-3.5 h-3.5') }}
-                                Subiendo...
-                            </span>
-                            <input type="file" name="archivo" accept="application/pdf" class="hidden"
-                                onchange="this.closest('form').requestSubmit()">
-                        </label>
-                    </form>
                     {{ boton_adjudicar(
                         cot.id, cot.lock_version,
                         "¿Adjudicar esta cotización? Se generará la autorización de compra.",
@@ -258,6 +229,14 @@
                 </div>
                 {% endif %}
                 </div>
+
+                <button type="button" @click="colapsada = !colapsada"
+                    :title="colapsada ? 'Expandir' : 'Colapsar'"
+                    class="shrink-0 p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
+                    <svg class="w-4 h-4 transition-transform" :class="{ '-rotate-90': colapsada, 'rotate-180': !colapsada }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
             </div>
 
             <div x-show="!colapsada">
