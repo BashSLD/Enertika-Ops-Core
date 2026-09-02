@@ -11,24 +11,7 @@ from uuid import uuid4
 import pytest
 
 from core.bom.service import BomService
-from core.config_service import ConfigService
 from core.timezone import today_mx
-
-
-@pytest.fixture(autouse=True)
-def _config_sin_db(monkeypatch):
-    """_alerta_variacion_costo() (gate de vigencia) lee el umbral via
-    ConfigService.get_global_config, que golpea BD si no hay cache -- FakeConn
-    de este archivo no implementa fetchrow. Los tests aqui no ejercen ese
-    ajuste de configuracion, solo el default."""
-    async def _get_global_config(cls, conn, clave, default, tipo=str):
-        return default
-
-    monkeypatch.setattr(
-        ConfigService,
-        "get_global_config",
-        classmethod(_get_global_config),
-    )
 
 
 class FakeConn:
@@ -457,35 +440,6 @@ class FakeAprobacionesDB:
             "lock_version": lock_version_esperado + 1,
         })
         return dict(ap)
-
-    async def actualizar_total_pdf_cotizacion_vigencia(
-        self, conn, cotizacion_id, nuevo_total, nuevo_pdf_url, lock_version_esperado,
-    ):
-        cot = self.cotizaciones.get(cotizacion_id)
-        if (
-            not cot
-            or cot["estatus"] != "SELECCIONADA"
-            or cot["lock_version"] != lock_version_esperado
-        ):
-            return None
-        cot.update({
-            "total": nuevo_total,
-            "pdf_url": nuevo_pdf_url or cot["pdf_url"],
-            "lock_version": lock_version_esperado + 1,
-        })
-        return dict(cot)
-
-    async def sincronizar_monto_autorizacion_db(
-        self, conn, autorizacion_id, monto_total, lock_version_esperado,
-    ):
-        aut = self.autorizaciones.get(autorizacion_id)
-        if not aut or aut["lock_version"] != lock_version_esperado:
-            return None
-        aut.update({
-            "monto_total": monto_total,
-            "lock_version": lock_version_esperado + 1,
-        })
-        return dict(aut)
 
 
 def make_service(db):
@@ -1247,13 +1201,11 @@ async def test_confirmar_vigencia_vigente_regresa_a_pendiente_direccion():
     svc, db, _, cotizacion_id = build_escenario()
     reactivada = await _llevar_a_pendiente_vigencia(svc, db, cotizacion_id)
     autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
-    cotizacion = db.cotizaciones[cotizacion_id]
 
     resultado = await svc.confirmar_vigencia_reactivacion(
         FakeConn(), cotizacion_id, uuid4(), vigente=True,
         aprobacion_lock_version_esperado=reactivada["lock_version"],
         autorizacion_lock_version_esperado=autorizacion["lock_version"],
-        cotizacion_lock_version_esperado=cotizacion["lock_version"],
     )
 
     assert resultado["estatus"] == "PENDIENTE_DIRECCION"
@@ -1269,14 +1221,12 @@ async def test_confirmar_vigencia_no_vigente_rechaza_aprobacion_y_autorizacion()
     svc, db, _, cotizacion_id = build_escenario()
     reactivada = await _llevar_a_pendiente_vigencia(svc, db, cotizacion_id)
     autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
-    cotizacion = db.cotizaciones[cotizacion_id]
 
     resultado = await svc.confirmar_vigencia_reactivacion(
         FakeConn(), cotizacion_id, uuid4(), vigente=False,
         motivo="El proveedor ya no puede cumplir",
         aprobacion_lock_version_esperado=reactivada["lock_version"],
         autorizacion_lock_version_esperado=autorizacion["lock_version"],
-        cotizacion_lock_version_esperado=cotizacion["lock_version"],
     )
 
     assert resultado["estatus"] == "RECHAZADA"
@@ -1294,7 +1244,6 @@ async def test_confirmar_vigencia_bloqueado_por_pago():
     svc, db, _, cotizacion_id = build_escenario()
     reactivada = await _llevar_a_pendiente_vigencia(svc, db, cotizacion_id)
     autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
-    cotizacion = db.cotizaciones[cotizacion_id]
 
     original_for_update = db.get_autorizacion_for_update
 
@@ -1308,27 +1257,4 @@ async def test_confirmar_vigencia_bloqueado_por_pago():
             FakeConn(), cotizacion_id, uuid4(), vigente=True,
             aprobacion_lock_version_esperado=reactivada["lock_version"],
             autorizacion_lock_version_esperado=autorizacion["lock_version"],
-            cotizacion_lock_version_esperado=cotizacion["lock_version"],
         )
-
-
-@pytest.mark.asyncio
-async def test_confirmar_vigencia_sincroniza_monto_autorizacion():
-    """Gap #7: si se actualiza el total, tb_bom_autorizaciones.monto_total debe
-    sincronizarse en la misma operacion (evita el RAISE EXCEPTION del trigger
-    DEFERRED fn_bom_validar_documento_cotizacion en un UPDATE futuro)."""
-    svc, db, _, cotizacion_id = build_escenario()
-    reactivada = await _llevar_a_pendiente_vigencia(svc, db, cotizacion_id)
-    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
-    cotizacion = db.cotizaciones[cotizacion_id]
-
-    await svc.confirmar_vigencia_reactivacion(
-        FakeConn(), cotizacion_id, uuid4(), vigente=True,
-        nuevo_total=1500.0,
-        aprobacion_lock_version_esperado=reactivada["lock_version"],
-        autorizacion_lock_version_esperado=autorizacion["lock_version"],
-        cotizacion_lock_version_esperado=cotizacion["lock_version"],
-    )
-
-    assert db.cotizaciones[cotizacion_id]["total"] == 1500.0
-    assert db.autorizaciones[autorizacion["id"]]["monto_total"] == 1500.0

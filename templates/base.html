@@ -407,11 +407,9 @@
 
                 // Confirmar vigencia (Punto B, reactivacion de standby)
                 modalVigenciaAbierto: false,
-                vigencia: { cotizacionId: null, aprobacionLockVersion: null, autorizacionLockVersion: null, cotizacionLockVersion: null, proveedor: '' },
+                vigencia: { cotizacionId: null, aprobacionLockVersion: null, autorizacionLockVersion: null, proveedor: '' },
                 vigenciaEsVigente: true,
                 vigenciaMotivo: '',
-                vigenciaNuevoTotal: '',
-                vigenciaArchivo: null,
                 vigenciaGuardando: false,
                 vigenciaError: '',
 
@@ -878,12 +876,10 @@
                     }
                 },
 
-                abrirModalVigencia(cotizacionId, aprobacionLockVersion, autorizacionLockVersion, cotizacionLockVersion, proveedor) {
-                    this.vigencia = { cotizacionId, aprobacionLockVersion, autorizacionLockVersion, cotizacionLockVersion, proveedor };
+                abrirModalVigencia(cotizacionId, aprobacionLockVersion, autorizacionLockVersion, proveedor) {
+                    this.vigencia = { cotizacionId, aprobacionLockVersion, autorizacionLockVersion, proveedor };
                     this.vigenciaEsVigente = true;
                     this.vigenciaMotivo = '';
-                    this.vigenciaNuevoTotal = '';
-                    this.vigenciaArchivo = null;
                     this.vigenciaError = '';
                     this.modalVigenciaAbierto = true;
                 },
@@ -901,17 +897,8 @@
                         const form = new FormData();
                         form.append('vigente', this.vigenciaEsVigente ? 'true' : 'false');
                         if (this.vigenciaMotivo) form.append('motivo', this.vigenciaMotivo);
-                        if (this.vigenciaEsVigente && this.vigenciaNuevoTotal) {
-                            form.append('nuevo_total', this.vigenciaNuevoTotal);
-                        }
-                        if (this.vigenciaEsVigente && this.vigenciaArchivo) {
-                            form.append('archivo_vigencia', this.vigenciaArchivo);
-                        }
                         form.append('aprobacion_lock_version', this.vigencia.aprobacionLockVersion);
                         form.append('autorizacion_lock_version', this.vigencia.autorizacionLockVersion);
-                        if (this.vigencia.cotizacionLockVersion !== null) {
-                            form.append('cotizacion_lock_version', this.vigencia.cotizacionLockVersion);
-                        }
                         const resp = await fetch(`/bom/cotizaciones/${this.vigencia.cotizacionId}/confirmar-vigencia`, {
                             method: 'POST',
                             headers: { 'HX-Request': 'true' },

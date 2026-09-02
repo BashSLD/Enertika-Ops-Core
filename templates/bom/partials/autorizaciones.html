@@ -159,6 +159,50 @@
                 </div>
             </div>
 
+            {# Paso 2: Dirección — Compras solicita la aprobación documental
+               (tb_bom_cotizacion_aprobaciones) que habilita a Dirección a aprobar
+               arriba. Solo se ofrece si todavía no hay una aprobación activa/pendiente
+               para esta cotización. Barra horizontal de ancho completo (no columna
+               apilada) para no inflar la altura de la tarjeta. #}
+            {% if aut.estatus == 'AUTORIZADO_OBRA'
+                  and aut.cotizacion_estatus == 'SELECCIONADA'
+                  and aut.aprobacion_estatus not in ('PENDIENTE_DIRECCION', 'APROBADA', 'EN_STANDBY', 'PENDIENTE_VIGENCIA_COMPRAS')
+                  and es_compras_editor %}
+            <form class="flex flex-wrap items-center gap-2 mb-2 rounded-lg border border-violet-100 bg-violet-50/50 px-3 py-2"
+                x-data="{ vigente: true }"
+                hx-post="/bom/cotizaciones/{{ aut.cotizacion_id }}/solicitar-aprobacion"
+                hx-target="#tab-autorizaciones" hx-swap="innerHTML"
+                hx-disabled-elt="find button[type='submit']"
+                hx-sync="this:replace">
+                <input type="hidden" name="cotizacion_lock_version" value="{{ aut.cotizacion_lock_version }}">
+                <input type="hidden" name="autorizacion_lock_version" value="{{ aut.lock_version }}">
+                <div class="flex shrink-0 items-center gap-1.5 text-xs text-gray-600">
+                    <span class="font-medium">¿Sigue vigente?</span>
+                    <label class="flex items-center gap-1"><input type="radio" name="vigente" x-model.boolean="vigente" :value="true"> Sí</label>
+                    <label class="flex items-center gap-1"><input type="radio" name="vigente" x-model.boolean="vigente" :value="false"> No</label>
+                </div>
+                <template x-if="!vigente">
+                    <textarea name="motivo_no_vigente" rows="1" required
+                        placeholder="Motivo: por qué ya no está vigente (obligatorio)"
+                        class="min-w-[12rem] flex-1 text-xs border border-gray-300 rounded-lg px-2 py-1.5 resize-none"></textarea>
+                </template>
+                {% if reemplazables %}
+                <select name="reemplaza_aprobacion_id"
+                    class="shrink-0 text-xs border border-gray-300 rounded-lg px-1.5 py-1.5 max-w-[11rem]"
+                    title="Si esta cotización reemplaza a un proveedor incumplido, liga el historial aquí (opcional)">
+                    <option value="">No reemplaza a nadie</option>
+                    {% for r in reemplazables %}
+                    <option value="{{ r.id }}">Reemplaza a: {{ r.nombre_proveedor or 'Sin proveedor' }}</option>
+                    {% endfor %}
+                </select>
+                {% endif %}
+                <button type="submit"
+                    class="ml-auto shrink-0 rounded-lg bg-violet-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:cursor-wait disabled:opacity-60">
+                    Solicitar aprobación de Dirección
+                </button>
+            </form>
+            {% endif %}
+
             {# Stepper compacto del flujo de autorización — flecha entre pasos coloreada
                una vez que el flujo ya pasó por ahí; "ping" pulsante en el paso que está
                esperando acción de alguien ahora mismo. #}

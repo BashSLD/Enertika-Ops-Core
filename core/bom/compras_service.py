@@ -17,7 +17,6 @@ import asyncpg
 from core.bom.pdf_cotizacion_extractor import extraer_costos_cotizacion
 from core.bom.schemas import EstatusBOM, EstatusCotizacionAprobacion
 from core.config import settings
-from core.config_service import ConfigService
 from core.timezone import today_mx
 
 logger = logging.getLogger("BOM.Service")
@@ -39,12 +38,6 @@ ESTATUS_COMPRA_BLOQUEA_ADENDA = {
 # estatus nuevo no pueda quedar agregado a uno de los dos sets y no al otro.
 ESTATUS_COMPRA_CERRADO_COTIZACION = ESTATUS_COMPRA_BLOQUEA_ADENDA - {"PARCIALMENTE_COTIZADO"}
 ESTATUS_ADENDA_APROBADA = "APROBADA"
-# Umbral no bloqueante del gate de vigencia (standby/vigencia 2026-08-28): a
-# partir de esta variacion porcentual del total, la respuesta del servicio
-# incluye una alerta para que la UI la muestre -- nunca impide la operacion.
-# Default de _alerta_variacion_costo(); el valor real, ajustable sin deploy,
-# vive en tb_configuracion_global (clave bom_umbral_alerta_variacion_costo_pct).
-UMBRAL_ALERTA_VARIACION_COSTO_PCT = Decimal("0.05")
 
 
 def cantidad_pendiente_item(item: dict) -> Decimal:
@@ -1196,8 +1189,6 @@ class BomComprasServiceMixin:
         reemplaza_aprobacion_id: Optional[UUID] = None,
         vigente: bool = True,
         motivo_no_vigente: Optional[str] = None,
-        nuevo_total: Optional[Decimal] = None,
-        nuevo_pdf_url: Optional[str] = None,
     ) -> dict:
         """
         Crea la aprobacion documental de Direccion (tb_bom_cotizacion_aprobaciones)
@@ -1211,12 +1202,9 @@ class BomComprasServiceMixin:
         Punto A del gate de vigencia (plan standby/vigencia 2026-08-28): Compras
         debe confirmar `vigente` en la misma solicitud. Si `vigente=False`, no se
         crea aprobacion alguna -- se rechaza la autorizacion Fase D directamente
-        (RECHAZO_VIGENCIA) via `_rechazar_por_vigencia`. Si `vigente=True`, admite
-        opcionalmente `nuevo_total`/`nuevo_pdf_url` (alcance: solo total agregado,
-        no detalle por item) y procede como hoy. Parametros nuevos al final de la
-        firma -- el call site posicional de compras_router.py no debe desalinearse
-        (Gap #2); default `vigente=True` mantiene retrocompatibles los call sites
-        existentes que aun no pasan el gate explicitamente.
+        (RECHAZO_VIGENCIA) via `_rechazar_por_vigencia`. Si `vigente=True`, procede
+        como hoy -- si el precio cambio, la cotizacion se edita aparte antes de
+        llegar a este paso (BORRADOR/RECIBIDA), no desde este gate.
         """
         if not vigente and (not motivo_no_vigente or not motivo_no_vigente.strip()):
             raise ValueError("El motivo es obligatorio cuando la cotización ya no está vigente.")
@@ -1278,13 +1266,6 @@ class BomComprasServiceMixin:
                 )
                 return rechazada
 
-            alerta_variacion = await self._aplicar_actualizacion_vigencia(
-                conn, cotizacion_id, autorizacion["id"], autorizacion_bloqueada,
-                nuevo_total, nuevo_pdf_url,
-                cotizacion_lock_version_esperado, autorizacion_lock_version_esperado,
-                cotizacion_bloqueada=cotizacion_bloqueada,
-            )
-
             reemplazada = None
             if reemplaza_aprobacion_id:
                 reemplazada = await self.db.get_cotizacion_aprobacion_for_update(
@@ -1330,8 +1311,6 @@ class BomComprasServiceMixin:
             "Aprobación de cotización %s solicitada (aprobación %s) por usuario %s",
             cotizacion_id, aprobacion['id'], user_id
         )
-        if alerta_variacion:
-            aprobacion = {**aprobacion, "alerta_variacion_costo": alerta_variacion}
         return aprobacion
 
     async def _require_direccion_titular(
@@ -1389,116 +1368,6 @@ class BomComprasServiceMixin:
         )
         return rechazada
 
-    async def _aplicar_actualizacion_vigencia(
-        self, conn, cotizacion_id: UUID, autorizacion_id: UUID, autorizacion_bloqueada: dict,
-        nuevo_total: Optional[Decimal], nuevo_pdf_url: Optional[str],
-        cotizacion_lock_version_esperado: Optional[int], autorizacion_lock_version_esperado: int,
-        cotizacion_bloqueada: Optional[dict] = None,
-    ) -> Optional[dict]:
-        """Aplica la actualizacion opcional de total/PDF del gate de vigencia
-        (compartida por Punto A y Punto B) -- no-op si no se paso ni nuevo_total
-        ni nuevo_pdf_url. Sincroniza monto_total en la autorizacion (Gap #7) y
-        calcula la alerta de variacion de costo (Gap #12); retorna la alerta o
-        None.
-
-        `cotizacion_bloqueada`: si el caller ya tiene la fila bloqueada (Punto A,
-        donde el bloqueo es incondicional para la validacion principal), se
-        reutiliza en vez de re-bloquearla. Si no (Punto B, donde la mayoria de
-        las confirmaciones no traen cambios), se bloquea aqui mismo solo cuando
-        realmente hace falta.
-        """
-        if nuevo_total is None and nuevo_pdf_url is None:
-            return None
-        if cotizacion_lock_version_esperado is None:
-            raise ValueError("La cotización cambió; recarga la pestaña.")
-        if cotizacion_bloqueada is None:
-            cotizacion_bloqueada = await self.db.get_cotizacion_for_update(conn, cotizacion_id)
-            if (
-                not cotizacion_bloqueada
-                or cotizacion_bloqueada["lock_version"] != cotizacion_lock_version_esperado
-            ):
-                raise ValueError("La cotización cambió; recarga la pestaña.")
-
-        total_anterior = Decimal(str(cotizacion_bloqueada["total"]))
-        cot_actualizada = await self.db.actualizar_total_pdf_cotizacion_vigencia(
-            conn, cotizacion_id,
-            nuevo_total if nuevo_total is not None else total_anterior,
-            nuevo_pdf_url, cotizacion_lock_version_esperado,
-        )
-        if not cot_actualizada:
-            raise ValueError("La cotización cambió; recarga la pestaña.")
-        if nuevo_total is None:
-            return None
-
-        alerta_variacion = await self._alerta_variacion_costo(
-            conn, total_anterior, Decimal(str(nuevo_total)), autorizacion_bloqueada,
-        )
-        sincronizada = await self.db.sincronizar_monto_autorizacion_db(
-            conn, autorizacion_id, nuevo_total, autorizacion_lock_version_esperado,
-        )
-        if not sincronizada:
-            raise ValueError("La autorización cambió; recarga la pestaña.")
-        return alerta_variacion
-
-    async def _alerta_variacion_costo(
-        self, conn, total_anterior: Decimal, total_nuevo: Decimal, autorizacion: dict,
-    ) -> Optional[dict]:
-        """Alerta no bloqueante (Gap #12) si el total actualizado en el gate de
-        vigencia se aparta >= umbral configurado (tb_configuracion_global,
-        default UMBRAL_ALERTA_VARIACION_COSTO_PCT) del total previo.
-        Comparacion siempre en la moneda propia de la cotizacion (nunca se mezcla
-        MXN/USD crudos): ambos montos ya estan en esa moneda por construccion, el
-        trigger fn_bom_validar_documento_cotizacion exige NEW.moneda = cotizacion.moneda.
-        El tipo_cambio_snapshot congelado en la autorizacion se incluye solo como
-        contexto informativo para quien revise la alerta."""
-        if total_anterior <= 0:
-            return None
-        variacion_pct = (total_nuevo - total_anterior) / total_anterior
-        umbral = Decimal(str(await ConfigService.get_global_config(
-            conn, "bom_umbral_alerta_variacion_costo_pct",
-            float(UMBRAL_ALERTA_VARIACION_COSTO_PCT), float,
-        )))
-        if abs(variacion_pct) < umbral:
-            return None
-        return {
-            "total_anterior": str(total_anterior),
-            "total_nuevo": str(total_nuevo),
-            "variacion_pct": str(variacion_pct.quantize(Decimal("0.0001"))),
-            "moneda": autorizacion.get("moneda"),
-            "tipo_cambio_snapshot": (
-                str(autorizacion["tipo_cambio_snapshot"])
-                if autorizacion.get("tipo_cambio_snapshot") is not None else None
-            ),
-        }
-
-    @staticmethod
-    def mensaje_alerta_variacion_costo(alerta: dict) -> str:
-        """Texto del toast no bloqueante de _alerta_variacion_costo (Gap #12) --
-        antes se calculaba pero el router descartaba el dict, sin llegar nunca
-        a la UI."""
-        moneda = alerta.get("moneda") or "MXN"
-        variacion_pct = Decimal(alerta["variacion_pct"]) * 100
-        total_anterior = Decimal(alerta["total_anterior"])
-        total_nuevo = Decimal(alerta["total_nuevo"])
-        return (
-            f"El total pasó de {moneda} {total_anterior:,.2f} a {moneda} {total_nuevo:,.2f} "
-            f"({variacion_pct:+.1f}%). Revisa antes de continuar."
-        )
-
-    @classmethod
-    def bulk_toast_variacion_costo(cls, aprobacion: dict) -> Optional[dict]:
-        """bulk_toast (warning) para el gate de vigencia si trae alerta_variacion_costo,
-        o None si no aplica -- compartido por los dos call sites del Punto A/B
-        (solicitar_aprobacion_cotizacion, confirmar_vigencia_cotizacion)."""
-        alerta = aprobacion.get("alerta_variacion_costo")
-        if not alerta:
-            return None
-        return {
-            "type": "warning",
-            "title": "Variación de costo",
-            "message": cls.mensaje_alerta_variacion_costo(alerta),
-        }
-
     async def aprobar_cotizacion_direccion(
         self, conn, cotizacion_id: UUID, user_id: UUID,
         user_role: str, rol_org: Optional[str],
@@ -1512,11 +1381,11 @@ class BomComprasServiceMixin:
         superficie standalone, se rechaza la operacion); la avanza en la misma
         transaccion y notifica a Finanzas despues del commit (## 8.5).
         """
-        await self._require_direccion_titular(conn, user_id, "aprobar")
-
         aprobacion = await self.db.get_cotizacion_aprobacion_activa(conn, cotizacion_id)
         if not aprobacion or aprobacion['estatus'] != EstatusCotizacionAprobacion.PENDIENTE_DIRECCION:
             raise ValueError("La cotización no tiene una aprobación pendiente de Dirección.")
+
+        await self._require_direccion_titular(conn, user_id, "aprobar")
 
         if aprobacion_lock_version_esperado is None or autorizacion_lock_version_esperado is None:
             raise ValueError("La aprobación o autorización cambió; recarga la pestaña.")
@@ -1599,11 +1468,12 @@ class BomComprasServiceMixin:
         """
         if not motivo or not motivo.strip():
             raise ValueError("El motivo de rechazo es obligatorio.")
-        await self._require_direccion_titular(conn, user_id, "rechazar")
 
         aprobacion = await self.db.get_cotizacion_aprobacion_activa(conn, cotizacion_id)
         if not aprobacion or aprobacion['estatus'] != EstatusCotizacionAprobacion.PENDIENTE_DIRECCION:
             raise ValueError("La cotización no tiene una aprobación pendiente de Dirección.")
+
+        await self._require_direccion_titular(conn, user_id, "rechazar")
 
         if aprobacion_lock_version_esperado is None or autorizacion_lock_version_esperado is None:
             raise ValueError("La aprobación o autorización cambió; recarga la pestaña.")
@@ -1771,19 +1641,16 @@ class BomComprasServiceMixin:
     async def confirmar_vigencia_reactivacion(
         self, conn, cotizacion_id: UUID, user_id: UUID,
         vigente: bool, motivo: Optional[str] = None,
-        nuevo_total: Optional[Decimal] = None, nuevo_pdf_url: Optional[str] = None,
         aprobacion_lock_version_esperado: Optional[int] = None,
         autorizacion_lock_version_esperado: Optional[int] = None,
-        cotizacion_lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """
         Punto B del gate de vigencia: Compras confirma si la cotizacion sigue
         vigente tras la reactivacion del standby (PENDIENTE_VIGENCIA_COMPRAS,
         disparada por el worker). Mismo ciclo vigente/no-vigente que el Punto A
         (`solicitar_aprobacion_cotizacion`): si vigente, regresa a
-        PENDIENTE_DIRECCION (opcionalmente con total/PDF actualizado); si no,
-        rechaza la autorizacion Fase D via `_rechazar_por_vigencia` y cierra esta
-        aprobacion como RECHAZADA.
+        PENDIENTE_DIRECCION; si no, rechaza la autorizacion Fase D via
+        `_rechazar_por_vigencia` y cierra esta aprobacion como RECHAZADA.
         """
         if not vigente and (not motivo or not motivo.strip()):
             raise ValueError("El motivo es obligatorio cuando la cotización ya no está vigente.")
@@ -1854,12 +1721,6 @@ class BomComprasServiceMixin:
                 )
                 return rechazada_aprob
 
-            alerta_variacion = await self._aplicar_actualizacion_vigencia(
-                conn, cotizacion_id, autorizacion["id"], autorizacion_bloqueada,
-                nuevo_total, nuevo_pdf_url,
-                cotizacion_lock_version_esperado, autorizacion_lock_version_esperado,
-            )
-
             reactivada = await self.db.confirmar_vigencia_reactiva_direccion_db(
                 conn, aprobacion["id"], aprobacion_lock_version_esperado,
             )
@@ -1883,8 +1744,6 @@ class BomComprasServiceMixin:
             "Cotización %s vigencia confirmada, regresa a Dirección (usuario %s)",
             cotizacion_id, user_id,
         )
-        if alerta_variacion:
-            reactivada = {**reactivada, "alerta_variacion_costo": alerta_variacion}
         return reactivada
 
     async def reemplazar_cotizacion_proveedor(

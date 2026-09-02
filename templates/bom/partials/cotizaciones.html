@@ -23,8 +23,18 @@
             <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide">Cotizaciones</h3>
             <p class="text-xs text-gray-400 mt-0.5">{{ cotizaciones | length }} cotización{{ 'es' if cotizaciones | length != 1 else '' }} registrada{{ 's' if cotizaciones | length != 1 else '' }}</p>
         </div>
-        {% if es_compras_editor and bom_cotizable %}
         <div class="flex items-center gap-2">
+        {% if cotizaciones | length > 1 %}
+        <button type="button" @click="$dispatch('collapse-all-cotizaciones')"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg text-gray-600 bg-gray-50 border border-gray-200 hover:bg-gray-100 transition">
+            Colapsar todas
+        </button>
+        <button type="button" @click="$dispatch('expand-all-cotizaciones')"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg text-gray-600 bg-gray-50 border border-gray-200 hover:bg-gray-100 transition">
+            Expandir todas
+        </button>
+        {% endif %}
+        {% if es_compras_editor and bom_cotizable %}
         <button hx-get="/bom/{{ bom.id_bom }}/cotizaciones/comparativa"
             hx-target="#tab-cotizaciones" hx-swap="innerHTML"
             hx-indicator="#global-loading-overlay"
@@ -44,8 +54,8 @@
             {{ icono_caja('w-4 h-4', '2') }}
             Capturar Cotización
         </button>
-        </div>
         {% endif %}
+        </div>
     </div>
 
     {# Lista de cotizaciones #}
@@ -64,7 +74,11 @@
             'RECHAZADA':   'bg-red-100 text-red-700 border-red-300',
         } %}
         {% set style = estatus_styles.get(cot.estatus, 'bg-gray-100 text-gray-700 border-gray-300') %}
-        <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+        <div class="bg-white rounded-xl border border-gray-200 px-4 shadow-sm"
+            x-data="{ colapsada: true }"
+            @collapse-all-cotizaciones.window="colapsada = true"
+            @expand-all-cotizaciones.window="colapsada = false"
+            :class="colapsada ? 'py-2' : 'py-4'">
             <div class="flex items-start justify-between gap-3">
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2 flex-wrap">
@@ -87,7 +101,11 @@
                         </span>
                         {% endif %}
                         <span class="text-xs text-gray-400">{{ cot.moneda }}</span>
+                        <span x-show="colapsada" x-cloak class="text-sm font-bold text-emerald-700">
+                            ${{ "{:,.2f}".format(cot.total | float) if cot.total else '—' }}
+                        </span>
                     </div>
+                    <div x-show="!colapsada">
                     <div class="flex items-center gap-4 mt-2 text-sm">
                         <span class="text-gray-500">Subtotal: <span class="font-semibold text-gray-800">${{ "{:,.2f}".format(cot.subtotal | float) if cot.subtotal else '—' }}</span></span>
                         <span class="text-gray-500">IVA: <span class="font-semibold text-gray-800">${{ "{:,.2f}".format(cot.iva | float) if cot.iva else '—' }}</span></span>
@@ -109,61 +127,22 @@
                         <span class="text-xs text-amber-600 ml-1">{{ cot.comentarios_revision }}</span>
                     </div>
                     {% endif %}
+                    </div>
                 </div>
 
+                <button type="button" @click="colapsada = !colapsada"
+                    :title="colapsada ? 'Expandir' : 'Colapsar'"
+                    class="shrink-0 p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition">
+                    <svg class="w-4 h-4 transition-transform" :class="{ '-rotate-90': colapsada }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+
                 {# Acciones #}
-                {% if cot.estatus == 'SELECCIONADA'
-                      and cot.autorizacion_estatus == 'AUTORIZADO_OBRA'
-                      and cot.aprobacion_estatus not in ('PENDIENTE_DIRECCION', 'APROBADA', 'EN_STANDBY', 'PENDIENTE_VIGENCIA_COMPRAS')
-                      and es_compras_editor %}
-                <form class="flex shrink-0 flex-col items-end gap-1.5" x-data="{ vigente: true }"
-                    hx-post="/bom/cotizaciones/{{ cot.id }}/solicitar-aprobacion"
-                    hx-encoding="multipart/form-data"
-                    hx-target="#tab-cotizaciones" hx-swap="innerHTML"
-                    hx-disabled-elt="find button[type='submit']"
-                    hx-sync="this:replace">
-                    <input type="hidden" name="cotizacion_lock_version" value="{{ cot.lock_version }}">
-                    <input type="hidden" name="autorizacion_lock_version" value="{{ cot.autorizacion_lock_version }}">
-                    <div class="flex items-center gap-2 text-xs text-gray-600">
-                        <span class="font-medium">¿Sigue vigente?</span>
-                        <label class="flex items-center gap-1"><input type="radio" name="vigente" x-model="vigente" :value="true"> Sí</label>
-                        <label class="flex items-center gap-1"><input type="radio" name="vigente" x-model="vigente" :value="false"> No</label>
-                    </div>
-                    <template x-if="!vigente">
-                        <textarea name="motivo_no_vigente" rows="2" required
-                            placeholder="Motivo: por qué ya no está vigente (obligatorio)"
-                            class="w-56 text-xs border border-gray-300 rounded-lg px-2 py-1.5 resize-none"></textarea>
-                    </template>
-                    <template x-if="vigente">
-                        <div class="flex items-center gap-1.5">
-                            <input type="number" name="nuevo_total" step="0.01" min="0"
-                                placeholder="Nuevo total (opcional)"
-                                class="w-32 text-xs border border-gray-300 rounded-lg px-2 py-1.5">
-                            <label class="text-xs text-gray-500 cursor-pointer px-2 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50"
-                                title="Reemplazar el PDF de la cotización (opcional)">
-                                PDF
-                                <input type="file" name="archivo_vigencia" accept="application/pdf" class="hidden">
-                            </label>
-                        </div>
-                    </template>
-                    {% if reemplazables %}
-                    <select name="reemplaza_aprobacion_id"
-                        class="text-xs border border-gray-300 rounded-lg px-1.5 py-1.5 max-w-[11rem]"
-                        title="Si esta cotización reemplaza a un proveedor incumplido, liga el historial aquí (opcional)">
-                        <option value="">No reemplaza a nadie</option>
-                        {% for r in reemplazables %}
-                        <option value="{{ r.id }}">Reemplaza a: {{ r.nombre_proveedor or 'Sin proveedor' }}</option>
-                        {% endfor %}
-                    </select>
-                    {% endif %}
-                    <button type="submit"
-                        class="rounded-lg bg-violet-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:cursor-wait disabled:opacity-60">
-                        Solicitar aprobación de Dirección
-                    </button>
-                </form>
-                {% elif cot.aprobacion_estatus == 'PENDIENTE_VIGENCIA_COMPRAS' and es_compras_editor %}
+                <div x-show="!colapsada" class="contents">
+                {% if cot.aprobacion_estatus == 'PENDIENTE_VIGENCIA_COMPRAS' and es_compras_editor %}
                 <button type="button"
-                    @click="abrirModalVigencia('{{ cot.id }}', {{ cot.aprobacion_lock_version | tojson }}, {{ cot.autorizacion_lock_version | tojson }}, {{ cot.lock_version | tojson }}, {{ (cot.nombre_proveedor or 'Sin proveedor') | tojson }})"
+                    @click="abrirModalVigencia('{{ cot.id }}', {{ cot.aprobacion_lock_version | tojson }}, {{ cot.autorizacion_lock_version | tojson }}, {{ (cot.nombre_proveedor or 'Sin proveedor') | tojson }})"
                     class="shrink-0 rounded-lg bg-sky-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-sky-700">
                     Confirmar vigencia
                 </button>
@@ -278,8 +257,10 @@
                     </form>
                 </div>
                 {% endif %}
+                </div>
             </div>
 
+            <div x-show="!colapsada">
             {% if cot.aprobacion_estatus %}
             <div class="mt-2 rounded-lg border px-2.5 py-1.5 text-xs
                 {% if cot.aprobacion_estatus == 'APROBADA' %}border-emerald-200 bg-emerald-50 text-emerald-700
@@ -307,6 +288,7 @@
                 {{ boton_ver_pdf_cotizacion(cot.id) }}
             </div>
             {% endif %}
+            </div>
         </div>
         {% endfor %}
     </div>
@@ -446,8 +428,8 @@
             </p>
             <div class="flex items-center gap-2 text-sm text-gray-700">
                 <span class="font-medium">¿Sigue vigente?</span>
-                <label class="flex items-center gap-1"><input type="radio" x-model="vigenciaEsVigente" :value="true"> Sí</label>
-                <label class="flex items-center gap-1"><input type="radio" x-model="vigenciaEsVigente" :value="false"> No</label>
+                <label class="flex items-center gap-1"><input type="radio" x-model.boolean="vigenciaEsVigente" :value="true"> Sí</label>
+                <label class="flex items-center gap-1"><input type="radio" x-model.boolean="vigenciaEsVigente" :value="false"> No</label>
             </div>
             <template x-if="!vigenciaEsVigente">
                 <div>
@@ -455,22 +437,6 @@
                     <textarea x-model="vigenciaMotivo" rows="3"
                         class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-sky-500 resize-none"
                         placeholder="Explica por qué ya no está vigente..."></textarea>
-                </div>
-            </template>
-            <template x-if="vigenciaEsVigente">
-                <div class="space-y-2">
-                    <p class="text-xs text-gray-500">
-                        Solo se actualiza el total agregado -- el detalle por ítem se recalcula en una
-                        recotización completa si aplica.
-                    </p>
-                    <input type="number" x-model="vigenciaNuevoTotal" step="0.01" min="0"
-                        placeholder="Nuevo total (opcional)"
-                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2">
-                    <label class="block text-xs text-gray-500 cursor-pointer">
-                        Reemplazar PDF (opcional)
-                        <input type="file" @change="vigenciaArchivo = $event.target.files[0] || null" accept="application/pdf"
-                            class="mt-1 block w-full text-xs">
-                    </label>
                 </div>
             </template>
             <p x-show="vigenciaError" x-text="vigenciaError" class="text-sm text-red-600 font-medium"></p>

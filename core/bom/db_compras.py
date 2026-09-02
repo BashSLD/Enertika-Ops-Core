@@ -543,11 +543,14 @@ class BomComprasDBMixin:
                    c.nombre_proveedor,
                    c.pdf_url,
                    c.folio_proveedor,
+                   c.estatus AS cotizacion_estatus,
+                   c.lock_version AS cotizacion_lock_version,
                    r.nombre AS rfq_nombre,
                    u1.nombre AS aprobador_obra_nombre,
                    u2.nombre AS aprobador_direccion_nombre,
                    u3.nombre AS aprobador_finanzas_nombre,
-                   u4.nombre AS rechazado_por_nombre
+                   u4.nombre AS rechazado_por_nombre,
+                   ap.estatus AS aprobacion_estatus
             FROM tb_bom_autorizaciones a
             JOIN tb_bom_cotizaciones c ON c.id = a.cotizacion_id
             LEFT JOIN tb_bom_rfq r ON r.id = c.rfq_id
@@ -555,6 +558,13 @@ class BomComprasDBMixin:
             LEFT JOIN tb_usuarios u2 ON u2.id_usuario = a.aprobador_direccion_id
             LEFT JOIN tb_usuarios u3 ON u3.id_usuario = a.aprobador_finanzas_id
             LEFT JOIN tb_usuarios u4 ON u4.id_usuario = a.rechazado_por
+            LEFT JOIN LATERAL (
+                SELECT aprobacion.estatus
+                FROM tb_bom_cotizacion_aprobaciones aprobacion
+                WHERE aprobacion.cotizacion_id = c.id
+                ORDER BY aprobacion.created_at DESC, aprobacion.id DESC
+                LIMIT 1
+            ) ap ON TRUE
             WHERE a.bom_id = $1
             ORDER BY a.creado_en DESC
         """, bom_id)
@@ -1049,45 +1059,6 @@ class BomComprasDBMixin:
               AND lock_version = $4
             RETURNING *
         """, aprobacion_id, user_id, motivo, lock_version_esperado)
-        return dict(row) if row else None
-
-    async def actualizar_total_pdf_cotizacion_vigencia(
-        self, conn, cotizacion_id: UUID, nuevo_total, nuevo_pdf_url: Optional[str],
-        lock_version_esperado: int,
-    ) -> Optional[dict]:
-        """Actualiza solo el total agregado (y opcionalmente el PDF) de una
-        cotizacion SELECCIONADA sin tocarle estatus -- decision de alcance
-        2026-08-28: no reabre el detalle por item (bulk_replace_cotizacion_items).
-        No reutiliza actualizar_cotizacion/actualizar_pdf_cotizacion: ambas exigen
-        estatus IN ('BORRADOR','RECIBIDA') y la segunda ademas fuerza
-        estatus='RECIBIDA' como efecto secundario."""
-        row = await conn.fetchrow("""
-            UPDATE tb_bom_cotizaciones
-            SET total = $2,
-                pdf_url = COALESCE($3, pdf_url),
-                actualizado_en = NOW(),
-                lock_version = lock_version + 1
-            WHERE id = $1 AND estatus = 'SELECCIONADA' AND lock_version = $4
-            RETURNING *
-        """, cotizacion_id, nuevo_total, nuevo_pdf_url, lock_version_esperado)
-        return dict(row) if row else None
-
-    async def sincronizar_monto_autorizacion_db(
-        self, conn, autorizacion_id: UUID, monto_total, lock_version_esperado: int,
-    ) -> Optional[dict]:
-        """Sincroniza tb_bom_autorizaciones.monto_total tras una actualizacion de
-        vigencia, en la misma transaccion que actualizar_total_pdf_cotizacion_vigencia.
-        Sin este paso, el CONSTRAINT TRIGGER DEFERRED fn_bom_validar_documento_cotizacion
-        (migraciones 160/177) revienta con RAISE EXCEPTION en cualquier UPDATE futuro
-        no relacionado de tb_bom_autorizaciones, al comparar contra el total ya
-        desincronizado (Gap #7)."""
-        row = await conn.fetchrow("""
-            UPDATE tb_bom_autorizaciones
-            SET monto_total = $2,
-                lock_version = lock_version + 1
-            WHERE id = $1 AND lock_version = $3
-            RETURNING *
-        """, autorizacion_id, monto_total, lock_version_esperado)
         return dict(row) if row else None
 
     async def get_paquete_tiene_standby_activo(self, conn, id_paquete: UUID) -> bool:

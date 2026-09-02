@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Request, HTTPException, Form, File, Uplo
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, Response
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from uuid import UUID
 from typing import Optional
 import asyncpg
@@ -43,33 +43,6 @@ compras_router = APIRouter()
 def _js_str(value: str) -> str:
     """Codifica un string para uso seguro como literal JS dentro de un atributo HTML con comillas dobles."""
     return html.escape(json.dumps(value), quote=True)
-
-
-def _parse_decimal_form(valor: Optional[str]) -> Optional[Decimal]:
-    """Parsea `nuevo_total` de un form-field opcional a Decimal.
-
-    Optional[str] en vez de Optional[Decimal] en el parametro del endpoint --
-    un input numerico vacio llega como "" via multipart, y Pydantic no lo
-    trata como None para un Optional[Decimal] (422 antes de poder manejarlo
-    limpio). Levanta ValueError si el valor no es un decimal valido; cada
-    caller decide como envolver ese error (toast vs HTTPException) segun si
-    su endpoint se invoca via hx-* o via fetch() manual.
-
-    Rechaza explicitamente NaN/Infinity: Decimal("nan")/Decimal("inf") no
-    levantan InvalidOperation al parsear (a diferencia de lo que hacia
-    Pydantic para el Optional[Decimal] previo, que los rechazaba con 422 via
-    su validador finite_number), y un total no finito hace explotar
-    _alerta_variacion_costo mas adelante (comparacion/quantize sobre NaN o
-    Infinity) con un decimal.InvalidOperation sin capturar."""
-    if not valor:
-        return None
-    try:
-        parsed = Decimal(valor)
-    except InvalidOperation as exc:
-        raise ValueError("Nuevo total inválido.") from exc
-    if not parsed.is_finite():
-        raise ValueError("Nuevo total inválido.")
-    return parsed
 
 
 async def _exigir_acceso_paquete_o_403(
@@ -244,19 +217,6 @@ async def _render_cotizaciones_tab(
     es_compras_editor = role == "ADMIN" or module_roles.get("compras") in ("editor", "admin")
     user_id = context.get("user_db_id")
     es_aprobador_direccion = await service.es_aprobador_direccion(conn, user_id)
-    # Solo aplica cuando existe una cotizacion lista para solicitar aprobacion
-    # (mismo gate que el formulario en cotizaciones.html) — evita la consulta
-    # en el caso comun (BOM sin cotizaciones o sin ninguna en ese punto exacto).
-    puede_solicitar_aprobacion = es_compras_editor and any(
-        c.get("estatus") == "SELECCIONADA"
-        and c.get("autorizacion_estatus") == "AUTORIZADO_OBRA"
-        and c.get("aprobacion_estatus") not in ("PENDIENTE_DIRECCION", "APROBADA")
-        for c in cotizaciones
-    )
-    reemplazables = (
-        await service.db.get_cotizacion_aprobaciones_reemplazables(conn, bom_id)
-        if puede_solicitar_aprobacion else []
-    )
     return templates.TemplateResponse(
         request, "bom/partials/cotizaciones.html",
         {
@@ -265,7 +225,6 @@ async def _render_cotizaciones_tab(
             "total_rfqs": len(rfqs),
             "es_aprobador_direccion": es_aprobador_direccion,
             "es_admin_o_director": role == "ADMIN" or rol_org == "director",
-            "reemplazables": reemplazables,
             **extra,
         }
     )
@@ -956,24 +915,6 @@ async def preview_pdf_cotizacion(
 # APROBACIONES DE COTIZACION (post-BOM)
 # ========================================
 
-async def _subir_pdf_vigencia_opcional(
-    conn, service: BomService, archivo: Optional[UploadFile], cotizacion_id: UUID, user_id: UUID,
-) -> Optional[dict]:
-    """Sube a SharePoint el PDF opcional del gate de vigencia (Puntos A y B) via
-    BomService._subir_pdf_sharepoint_o_raise (misma orquestacion que
-    subir_pdf_cotizacion -- el router no reimplementa la llamada a
-    ComprasService), o None si no se adjuntó archivo."""
-    if archivo is None or not archivo.filename:
-        return None
-    return await service._subir_pdf_sharepoint_o_raise(conn, archivo, user_id, cotizacion_id)
-
-
-async def _sin_pdf_huerfano(conn, service: BomService, upload_result: Optional[dict], coro):
-    """Delega en BomService._con_cleanup_pdf_huerfano (misma limpieza que usa
-    subir_pdf_cotizacion). Compartido por los Puntos A y B."""
-    return await service._con_cleanup_pdf_huerfano(conn, upload_result, coro)
-
-
 @compras_router.post("/cotizaciones/{cotizacion_id}/solicitar-aprobacion", include_in_schema=False)
 async def solicitar_aprobacion_cotizacion(
     request: Request,
@@ -984,8 +925,6 @@ async def solicitar_aprobacion_cotizacion(
     reemplaza_aprobacion_id: Optional[str] = Form(None),
     vigente: bool = Form(True),
     motivo_no_vigente: Optional[str] = Form(None),
-    nuevo_total: Optional[str] = Form(None),
-    archivo_vigencia: Optional[UploadFile] = File(None),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -1002,25 +941,11 @@ async def solicitar_aprobacion_cotizacion(
     except ValueError:
         return _toast_response(request, "reemplaza_aprobacion_id inválido", "error", status_code=400)
     try:
-        nuevo_total_dec = _parse_decimal_form(nuevo_total)
-    except ValueError:
-        return _toast_response(request, "Nuevo total inválido.", "error", status_code=400)
-    try:
-        # Si no vigente, el archivo (si vino) se descarta -- evita el upload a
-        # SharePoint de un PDF que nunca se va a referenciar.
-        upload_result = await _subir_pdf_vigencia_opcional(
-            conn, service, archivo_vigencia if vigente else None, cotizacion_id, user_id,
-        )
-        nuevo_pdf_url = upload_result['url_sharepoint'] if upload_result else None
-        aprobacion = await _sin_pdf_huerfano(
-            conn, service, upload_result,
-            service.solicitar_aprobacion_cotizacion(
-                conn, cotizacion_id, user_id, comentarios,
-                cotizacion_lock_version, autorizacion_lock_version,
-                reemplaza_aprobacion_id=reemplaza_id,
-                vigente=vigente, motivo_no_vigente=motivo_no_vigente,
-                nuevo_total=nuevo_total_dec, nuevo_pdf_url=nuevo_pdf_url,
-            ),
+        aprobacion = await service.solicitar_aprobacion_cotizacion(
+            conn, cotizacion_id, user_id, comentarios,
+            cotizacion_lock_version, autorizacion_lock_version,
+            reemplaza_aprobacion_id=reemplaza_id,
+            vigente=vigente, motivo_no_vigente=motivo_no_vigente,
         )
     except ValueError as e:
         return _toast_response(request, str(e), "error", status_code=400)
@@ -1028,9 +953,8 @@ async def solicitar_aprobacion_cotizacion(
         logger.exception("Error de BD al solicitar aprobación de cotización")
         return _toast_response(request, "Error al solicitar la aprobación.", "error", status_code=500)
 
-    return await _render_cotizaciones_tab(
+    return await _render_autorizaciones_tab(
         request, conn, service, context, aprobacion['bom_id'],
-        bulk_toast=service.bulk_toast_variacion_costo(aprobacion),
     )
 
 
@@ -1161,11 +1085,8 @@ async def confirmar_vigencia_cotizacion(
     cotizacion_id: UUID,
     vigente: bool = Form(...),
     motivo: Optional[str] = Form(None),
-    nuevo_total: Optional[str] = Form(None),
-    archivo_vigencia: Optional[UploadFile] = File(None),
     aprobacion_lock_version: int = Form(...),
     autorizacion_lock_version: int = Form(...),
-    cotizacion_lock_version: Optional[int] = Form(None),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
@@ -1175,23 +1096,9 @@ async def confirmar_vigencia_cotizacion(
     Invocado via fetch() manual -- errores como HTTPException, no _toast_response."""
     user_id = context.get("user_db_id")
     try:
-        nuevo_total_dec = _parse_decimal_form(nuevo_total)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Nuevo total inválido.")
-    try:
-        # Si no vigente, el archivo (si vino) se descarta -- evita el upload a
-        # SharePoint de un PDF que nunca se va a referenciar.
-        upload_result = await _subir_pdf_vigencia_opcional(
-            conn, service, archivo_vigencia if vigente else None, cotizacion_id, user_id,
-        )
-        nuevo_pdf_url = upload_result['url_sharepoint'] if upload_result else None
-        aprobacion = await _sin_pdf_huerfano(
-            conn, service, upload_result,
-            service.confirmar_vigencia_reactivacion(
-                conn, cotizacion_id, user_id, vigente, motivo,
-                nuevo_total_dec, nuevo_pdf_url,
-                aprobacion_lock_version, autorizacion_lock_version, cotizacion_lock_version,
-            ),
+        aprobacion = await service.confirmar_vigencia_reactivacion(
+            conn, cotizacion_id, user_id, vigente, motivo,
+            aprobacion_lock_version, autorizacion_lock_version,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1201,7 +1108,6 @@ async def confirmar_vigencia_cotizacion(
 
     return await _render_cotizaciones_tab(
         request, conn, service, context, aprobacion['bom_id'],
-        bulk_toast=service.bulk_toast_variacion_costo(aprobacion),
     )
 
 
@@ -1474,6 +1380,40 @@ async def _autorizacion_ctx(request, autorizaciones, bom, context, conn, service
     }
 
 
+async def _render_autorizaciones_tab(
+    request: Request,
+    conn,
+    service: BomService,
+    context: dict,
+    bom_id: UUID,
+    **extra,
+):
+    bom = await service.get_bom_by_id(conn, bom_id)
+    if not bom:
+        raise HTTPException(status_code=404, detail="BOM no encontrado")
+    autorizaciones = await service.listar_autorizaciones(conn, bom_id)
+    ctx = await _autorizacion_ctx(request, autorizaciones, bom, context, conn, service)
+    # Solo aplica cuando existe una autorizacion lista para solicitar aprobacion
+    # de Direccion (mismo gate que el formulario en autorizaciones.html) — evita
+    # la consulta en el caso comun (BOM sin autorizaciones en ese punto exacto).
+    puede_solicitar_aprobacion = ctx["es_compras_editor"] and any(
+        a.get("cotizacion_estatus") == "SELECCIONADA"
+        and a.get("estatus") == "AUTORIZADO_OBRA"
+        and a.get("aprobacion_estatus") not in (
+            "PENDIENTE_DIRECCION", "APROBADA", "EN_STANDBY", "PENDIENTE_VIGENCIA_COMPRAS",
+        )
+        for a in autorizaciones
+    )
+    ctx["reemplazables"] = (
+        await service.db.get_cotizacion_aprobaciones_reemplazables(conn, bom_id)
+        if puede_solicitar_aprobacion else []
+    )
+    return templates.TemplateResponse(
+        request, "bom/partials/autorizaciones.html",
+        {**ctx, **extra},
+    )
+
+
 @compras_router.get("/{id_bom:uuid}/autorizaciones", include_in_schema=False)
 async def get_autorizaciones_tab(
     request: Request,
@@ -1486,15 +1426,12 @@ async def get_autorizaciones_tab(
     # Gate: require_any_module_access reemplazado por chequeo imperativo (OR
     # coordinador de obra) -- ver PLAN 2026-08-31, seccion 5.
     tiene_acceso_modulo = BomService.tiene_acceso_modulo_compras(context)
-    bom = await service.get_bom_by_id(conn, id_bom)  # autorizaciones tab
-    if not bom:
-        raise HTTPException(status_code=404, detail="BOM no encontrado")
-    await _exigir_acceso_paquete_o_403(service, conn, context, bom, tiene_acceso_modulo, "este BOM")
-    autorizaciones = await service.listar_autorizaciones(conn, id_bom)
-    return templates.TemplateResponse(
-        request, "bom/partials/autorizaciones.html",
-        await _autorizacion_ctx(request, autorizaciones, bom, context, conn, service),
-    )
+    if not tiene_acceso_modulo:
+        await _exigir_acceso_paquete_o_403(
+            service, conn, context, await service.get_bom_by_id(conn, id_bom),
+            tiene_acceso_modulo, "este BOM",
+        )
+    return await _render_autorizaciones_tab(request, conn, service, context, id_bom)
 
 
 @compras_router.get("/{id_bom:uuid}/resumen-compra", include_in_schema=False)
@@ -1642,12 +1579,7 @@ async def aprobar_autorizacion_obra(
     except asyncpg.PostgresError:
         return _toast_response(request, "Error al aprobar la autorización.", "error", status_code=500)
 
-    bom = await service.get_bom_by_id(conn, aut['bom_id'])
-    autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
-    return templates.TemplateResponse(
-        request, "bom/partials/autorizaciones.html",
-        await _autorizacion_ctx(request, autorizaciones, bom, context, conn, service),
-    )
+    return await _render_autorizaciones_tab(request, conn, service, context, aut['bom_id'])
 
 
 @compras_router.post("/autorizaciones/{autorizacion_id}/aprobar-finanzas", include_in_schema=False)
@@ -1676,12 +1608,7 @@ async def aprobar_autorizacion_finanzas(
     except asyncpg.PostgresError:
         return _toast_response(request, "Error al aprobar la autorización.", "error", status_code=500)
 
-    bom = await service.get_bom_by_id(conn, aut['bom_id'])
-    autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
-    return templates.TemplateResponse(
-        request, "bom/partials/autorizaciones.html",
-        await _autorizacion_ctx(request, autorizaciones, bom, context, conn, service),
-    )
+    return await _render_autorizaciones_tab(request, conn, service, context, aut['bom_id'])
 
 
 @compras_router.post("/autorizaciones/{autorizacion_id}/rechazar", include_in_schema=False)
@@ -1717,12 +1644,7 @@ async def rechazar_autorizacion(
     except asyncpg.PostgresError:
         return _toast_response(request, "Error al rechazar la autorización.", "error", status_code=500)
 
-    bom = await service.get_bom_by_id(conn, aut['bom_id'])
-    autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
-    return templates.TemplateResponse(
-        request, "bom/partials/autorizaciones.html",
-        await _autorizacion_ctx(request, autorizaciones, bom, context, conn, service),
-    )
+    return await _render_autorizaciones_tab(request, conn, service, context, aut['bom_id'])
 
 
 # ========================================
