@@ -20,8 +20,8 @@
                 </div>
             </div>
             <div class="flex items-center gap-2 shrink-0">
-                <label class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg text-white bg-white/15 hover:bg-white/25 transition-colors cursor-pointer"
-                    title="Extrae precios candidatos del PDF para asistir la captura (sin match automático)">
+                <label class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold rounded-lg text-emerald-800 bg-white border-2 border-white hover:bg-emerald-50 transition-colors cursor-pointer shadow-sm"
+                    title="Sube aquí el PDF del proveedor: se guarda como PDF de la cotización y además extrae precios candidatos para asistir la captura (sin match automático)">
                     {{ spinner_icon('w-3.5 h-3.5', attrs='x-show="extrayendoPdf" x-cloak') }}
                     <svg x-show="!extrayendoPdf" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3-3m0 0l3 3m-3-3v8"/>
