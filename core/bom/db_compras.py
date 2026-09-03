@@ -10,6 +10,26 @@ from uuid import UUID, uuid4
 from typing import Optional, List, Dict
 
 
+def _filtro_coordinador_obra_sql(id_proyecto_param: int) -> str:
+    """Predicado compartido por get_autorizaciones_pendientes_por_coordinador y
+    contar_autorizaciones_pendientes_por_coordinador (mismo criterio, uno
+    paginado y otro COUNT(*) -- deben coincidir exactamente o la paginacion de
+    "Mis Autorizaciones" queda desincronizada del total). `$1`/`$2`
+    (representados/rol_organizacional) son fijos en ambos callers; solo la
+    posicion del parametro `id_proyecto` cambia entre queries, de ahi el
+    parametro `id_proyecto_param`. Ver docstring de
+    get_autorizaciones_pendientes_por_coordinador para el porque de desactivar
+    el filtro de representados cuando id_proyecto viene presente."""
+    p = id_proyecto_param
+    return f"""
+              AND (${p}::uuid IS NULL OR b.id_proyecto = ${p})
+              AND (
+                  ${p}::uuid IS NOT NULL
+                  OR b.coordinador_obra = ANY($1::uuid[])
+                  OR $2 = 'jefe_construccion'
+              )"""
+
+
 class BomComprasDBMixin:
     """Cotizaciones, autorizaciones Fase D, conciliacion, resumen de compra y RFQ."""
 
@@ -651,11 +671,13 @@ class BomComprasDBMixin:
         de obra sea alguno de los `representados` (titular o suplente activo), o
         el usuario tenga el rol organizacional jefe_construccion (autoridad
         permanente, no solo fallback sin coordinador asignado -- ver
-        BomService.es_coordinador_obra()). Mismo predicado, duplicado aqui en SQL
-        a proposito: es un filtro cross-BOM (`b.coordinador_obra = ANY($1)`) sobre
-        potencialmente muchos paquetes a la vez; resolverlo trayendo candidatos a
-        Python y filtrando en memoria implicaria un N+1 o una query igual de
-        grande. Si esta regla cambia, actualizar ambos lugares.
+        BomService.es_coordinador_obra()). Mismo predicado en SQL (filtro
+        cross-BOM sobre `b.coordinador_obra = ANY($1)` que resolverlo trayendo
+        candidatos a Python y filtrando en memoria volveria un N+1) compartido
+        con contar_autorizaciones_pendientes_por_coordinador via
+        _filtro_coordinador_obra_sql -- si esta regla cambia, solo hace falta
+        tocar esa funcion (y BomService.es_coordinador_obra, su equivalente en
+        Python).
         Cross-BOM en una sola query para alimentar el popup de pendientes al
         entrar a la app (PLAN_popup_pendientes_autorizacion_obra.md §2) y la
         tabla cross-proyecto de "Mis Autorizaciones" (con `limit`/`offset` reales;
@@ -666,7 +688,7 @@ class BomComprasDBMixin:
         solo-lectura de "Mis Autorizaciones" filtrado por proyecto necesita ver
         las autorizaciones de un coordinador ajeno, no solo las propias, para
         poder mostrar quien es el coordinador asignado (`coordinador_nombre`)."""
-        rows = await conn.fetch("""
+        rows = await conn.fetch(f"""
             SELECT a.*,
                    c.nombre_proveedor,
                    c.pdf_url,
@@ -689,12 +711,7 @@ class BomComprasDBMixin:
             LEFT JOIN tb_oportunidades o ON o.id_oportunidad = p.id_oportunidad
             LEFT JOIN tb_usuarios u ON u.id_usuario = b.coordinador_obra
             WHERE a.estatus = 'PENDIENTE'
-              AND ($5::uuid IS NULL OR b.id_proyecto = $5)
-              AND (
-                  $5::uuid IS NOT NULL
-                  OR b.coordinador_obra = ANY($1::uuid[])
-                  OR $2 = 'jefe_construccion'
-              )
+            {_filtro_coordinador_obra_sql(5)}
             ORDER BY a.creado_en ASC
             LIMIT $3 OFFSET $4
         """, representados, rol_organizacional, limit, offset, id_proyecto)
@@ -706,19 +723,15 @@ class BomComprasDBMixin:
     ) -> int:
         """Total real (sin LIMIT/OFFSET) para la paginacion de la tabla
         cross-proyecto de "Mis Autorizaciones" -- mismo predicado que
-        get_autorizaciones_pendientes_por_coordinador, incluido el `id_proyecto`
-        que desactiva el filtro de `representados`."""
-        return await conn.fetchval("""
+        get_autorizaciones_pendientes_por_coordinador (compartido via
+        _filtro_coordinador_obra_sql), incluido el `id_proyecto` que
+        desactiva el filtro de `representados`."""
+        return await conn.fetchval(f"""
             SELECT COUNT(*)
             FROM tb_bom_autorizaciones a
             JOIN tb_bom b ON b.id_bom = a.bom_id
             WHERE a.estatus = 'PENDIENTE'
-              AND ($3::uuid IS NULL OR b.id_proyecto = $3)
-              AND (
-                  $3::uuid IS NOT NULL
-                  OR b.coordinador_obra = ANY($1::uuid[])
-                  OR $2 = 'jefe_construccion'
-              )
+            {_filtro_coordinador_obra_sql(3)}
         """, representados, rol_organizacional, id_proyecto)
 
     async def get_proyectos_con_rol_bom(
