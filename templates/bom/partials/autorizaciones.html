@@ -40,12 +40,26 @@
         {% set paso_obra_activo = aut.estatus == 'PENDIENTE' %}
 
         {% set paso_direccion_ok = aut.fecha_aprobacion_direccion is not none %}
-        {% set paso_direccion_pendiente = aut.estatus == 'AUTORIZADO_OBRA' %}
         {% set paso_direccion_rechazado = aut.estatus == 'RECHAZADO' and aut.rechazado_en_paso == 'DIRECCION' %}
+        {# "pendiente" = ya esta en la bandeja de Direccion esperando SU accion (se
+           le mando o esta en standby) -> ping en el badge. "en_transito" = Obra
+           ya aprobo pero todavia falta que Compras confirme vigencia y lo envie
+           (o lo reenvie tras vencer un standby) -> ping en la FLECHA Obra-
+           Direccion, no en el badge, para no sugerir que ya llego a Direccion
+           cuando en realidad sigue del lado de Compras (2026-09-02, feedback
+           de UI: el badge parpadeando ahi confundia). #}
+        {% set paso_direccion_pendiente = aut.aprobacion_estatus in ('PENDIENTE_DIRECCION', 'EN_STANDBY') %}
+        {% set paso_direccion_en_transito = aut.estatus == 'AUTORIZADO_OBRA' and aut.aprobacion_estatus in (none, 'PENDIENTE_VIGENCIA_COMPRAS') %}
 
         {% set paso_finanzas_ok = aut.fecha_aprobacion_finanzas is not none %}
         {% set paso_finanzas_pendiente = aut.estatus == 'AUTORIZADO_DIRECCION' %}
         {% set paso_finanzas_rechazado = aut.estatus == 'RECHAZADO' and aut.rechazado_en_paso == 'FINANZAS' %}
+
+        {# Mismo criterio que paso_direccion_en_transito: mientras el balon siga
+           del lado de Compras (sin enviar o re-confirmar vigencia), el label no
+           debe decir "Esperando Dirección" -- ese texto solo aplica una vez que
+           de verdad esta en su bandeja (2026-09-02, feedback de UI). #}
+        {% set estatus_label_aut = 'Aprobado Obra — Pendiente de envío a Dirección' if paso_direccion_en_transito else estatus_label.get(aut.estatus, aut.estatus) %}
 
         <div class="rounded-xl border border-gray-200 bg-white p-4"
             x-data="{ modalDetalle: false, modalConciliacion: false }">
@@ -55,7 +69,7 @@
                 <div class="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span class="text-sm font-semibold text-gray-800">{{ aut.nombre_proveedor or 'Sin proveedor' }}</span>
                     <span class="px-2 py-0.5 text-xs font-bold rounded-lg border {{ badge_styles.get(aut.estatus, '') }}">
-                        {{ estatus_label.get(aut.estatus, aut.estatus) }}
+                        {{ estatus_label_aut }}
                     </span>
                     {% if aut.rfq_nombre %}
                     <span class="text-gray-300">·</span>
@@ -159,58 +173,17 @@
                 </div>
             </div>
 
-            {# Paso 2: Dirección — Compras solicita la aprobación documental
-               (tb_bom_cotizacion_aprobaciones) que habilita a Dirección a aprobar
-               arriba. Solo se ofrece si todavía no hay una aprobación activa/pendiente
-               para esta cotización. Barra horizontal de ancho completo (no columna
-               apilada) para no inflar la altura de la tarjeta. #}
-            {% if aut.estatus == 'AUTORIZADO_OBRA'
-                  and aut.cotizacion_estatus == 'SELECCIONADA'
-                  and aut.aprobacion_estatus not in ('PENDIENTE_DIRECCION', 'APROBADA', 'EN_STANDBY', 'PENDIENTE_VIGENCIA_COMPRAS')
-                  and es_compras_editor %}
-            <form class="flex flex-wrap items-center gap-2 mb-2 rounded-lg border border-violet-100 bg-violet-50/50 px-3 py-2"
-                x-data="{ vigente: true }"
-                hx-post="/bom/cotizaciones/{{ aut.cotizacion_id }}/solicitar-aprobacion"
-                hx-target="#tab-autorizaciones" hx-swap="innerHTML"
-                hx-disabled-elt="find button[type='submit']"
-                hx-sync="this:replace">
-                <input type="hidden" name="cotizacion_lock_version" value="{{ aut.cotizacion_lock_version }}">
-                <input type="hidden" name="autorizacion_lock_version" value="{{ aut.lock_version }}">
-                <div class="flex shrink-0 items-center gap-1.5 text-xs text-gray-600">
-                    <span class="font-medium">¿Sigue vigente?</span>
-                    <label class="flex items-center gap-1"><input type="radio" name="vigente" x-model.boolean="vigente" :value="true"> Sí</label>
-                    <label class="flex items-center gap-1"><input type="radio" name="vigente" x-model.boolean="vigente" :value="false"> No</label>
-                </div>
-                <template x-if="!vigente">
-                    <textarea name="motivo_no_vigente" rows="1" required
-                        placeholder="Motivo: por qué ya no está vigente (obligatorio)"
-                        class="min-w-[12rem] flex-1 text-xs border border-gray-300 rounded-lg px-2 py-1.5 resize-none"></textarea>
-                </template>
-                {% if reemplazables %}
-                <select name="reemplaza_aprobacion_id"
-                    class="shrink-0 text-xs border border-gray-300 rounded-lg px-1.5 py-1.5 max-w-[11rem]"
-                    title="Si esta cotización reemplaza a un proveedor incumplido, liga el historial aquí (opcional)">
-                    <option value="">No reemplaza a nadie</option>
-                    {% for r in reemplazables %}
-                    <option value="{{ r.id }}">Reemplaza a: {{ r.nombre_proveedor or 'Sin proveedor' }}</option>
-                    {% endfor %}
-                </select>
-                {% endif %}
-                <button type="submit"
-                    class="ml-auto shrink-0 rounded-lg bg-violet-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-violet-700 disabled:cursor-wait disabled:opacity-60">
-                    Solicitar aprobación de Dirección
-                </button>
-            </form>
-            {% endif %}
-
             {# Stepper compacto del flujo de autorización — flecha entre pasos coloreada
                una vez que el flujo ya pasó por ahí; "ping" pulsante en el paso que está
-               esperando acción de alguien ahora mismo. #}
+               esperando acción de alguien ahora mismo. El botón "Enviar a aprobación" vive en
+               esta misma fila (2026-09-02, decisión de UX: antes era un formulario aparte
+               arriba de la tarjeta) para que Compras lo vea justo junto al paso que va a
+               destrabar; abre el modal compartido en compras_paquete.html. #}
             <div class="flex items-center gap-1 mt-2">
                 {{ paso_badge('Obra', paso_obra_ok, paso_obra_rechazado, paso_obra_activo,
                     'bg-blue-50 border-blue-200 text-blue-700',
                     tooltip_paso(paso_obra_ok, aut.aprobador_obra_nombre, aut.fecha_aprobacion_obra, aut.nota_obra, paso_obra_rechazado, aut.rechazado_por_nombre, paso_obra_activo, 'Obra')) }}
-                {{ paso_conector(paso_obra_ok) }}
+                {{ paso_conector(paso_obra_ok, paso_direccion_en_transito) }}
                 {{ paso_badge('Dirección', paso_direccion_ok, paso_direccion_rechazado, paso_direccion_pendiente,
                     'bg-violet-50 border-violet-200 text-violet-700',
                     tooltip_paso(paso_direccion_ok, aut.aprobador_direccion_nombre, aut.fecha_aprobacion_direccion, aut.nota_direccion, paso_direccion_rechazado, aut.rechazado_por_nombre, paso_direccion_pendiente, 'Dirección')) }}
@@ -218,6 +191,23 @@
                 {{ paso_badge('Finanzas', paso_finanzas_ok, paso_finanzas_rechazado, paso_finanzas_pendiente,
                     'bg-emerald-50 border-emerald-200 text-emerald-700',
                     tooltip_paso(paso_finanzas_ok, aut.aprobador_finanzas_nombre, aut.fecha_aprobacion_finanzas, aut.nota_finanzas, paso_finanzas_rechazado, aut.rechazado_por_nombre, paso_finanzas_pendiente, 'Finanzas')) }}
+                {% if aut.estatus == 'AUTORIZADO_OBRA'
+                      and aut.cotizacion_estatus == 'SELECCIONADA'
+                      and aut.aprobacion_estatus not in ('PENDIENTE_DIRECCION', 'APROBADA', 'EN_STANDBY', 'PENDIENTE_VIGENCIA_COMPRAS')
+                      and es_compras_editor %}
+                <button type="button"
+                    @click='abrirModalVigencia({
+                        origen: "A", cotizacionId: "{{ aut.cotizacion_id }}", aprobacionLockVersion: null,
+                        autorizacionLockVersion: {{ aut.lock_version }},
+                        proveedor: {{ (aut.nombre_proveedor or "Sin proveedor") | tojson }},
+                        cotizacionLockVersion: {{ aut.cotizacion_lock_version }},
+                        items: {{ aut.items_costo_json | tojson }}, reemplazables: {{ reemplazables | tojson }},
+                    })'
+                    class="ml-2 shrink-0 rounded-lg bg-sky-600 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-sky-700"
+                    title="Confirma si el precio y las condiciones del proveedor siguen vigentes antes de mandarlo a Dirección">
+                    Enviar a aprobación
+                </button>
+                {% endif %}
             </div>
 
             {# Detalle del rechazo #}

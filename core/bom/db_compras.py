@@ -265,6 +265,7 @@ class BomComprasDBMixin:
         rows = await conn.fetch("""
             SELECT ci.*, ci.bom_item_id AS id_item,
                    bi.descripcion, bi.unidad_medida, bi.id_categoria,
+                   bi.precio_unitario AS precio_bom_estimado,
                    cat.nombre AS categoria_nombre
             FROM tb_bom_cotizacion_items ci
             JOIN tb_bom_items bi ON bi.id_item = ci.bom_item_id
@@ -351,6 +352,60 @@ class BomComprasDBMixin:
         """, cotizacion_id, proveedor_id, nombre_proveedor, moneda,
             subtotal, iva, total, notas, lock_version_esperado, modo_simplificado,
             folio_proveedor)
+        return dict(row) if row else None
+
+    async def actualizar_items_precio_cotizacion(
+        self, conn, cotizacion_id: UUID, items: list,
+    ) -> None:
+        """Actualiza precio_unitario/subtotal_linea de items YA existentes de una
+        cotizacion (no inserta ni borra filas) -- Camino 2 del gate de vigencia:
+        Compras corrige el costo sin reabrir el detalle completo (a diferencia de
+        bulk_replace_cotizacion_items, que usa DELETE+INSERT para crear/editar).
+        `items`: [{'bom_item_id':, 'precio_unitario':, 'subtotal_linea':}]."""
+        await conn.executemany("""
+            UPDATE tb_bom_cotizacion_items
+            SET precio_unitario = $3, subtotal_linea = $4
+            WHERE cotizacion_id = $1 AND bom_item_id = $2
+        """, [
+            (cotizacion_id, item['bom_item_id'], item['precio_unitario'], item['subtotal_linea'])
+            for item in items
+        ])
+
+    async def actualizar_totales_pdf_cotizacion_seleccionada(
+        self, conn, cotizacion_id: UUID, subtotal, iva, total,
+        nuevo_pdf_url: Optional[str], lock_version_esperado: int,
+    ) -> Optional[dict]:
+        """Actualiza subtotal/iva/total (y opcionalmente el PDF) de una cotizacion
+        SELECCIONADA sin tocarle estatus -- Camino 2 del gate de vigencia. No
+        reutiliza actualizar_cotizacion (exige estatus IN ('BORRADOR','RECIBIDA'))
+        ni actualizar_pdf_cotizacion (fuerza estatus='RECIBIDA' como efecto
+        secundario)."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_cotizaciones
+            SET subtotal = $2, iva = $3, total = $4,
+                pdf_url = COALESCE($5, pdf_url),
+                actualizado_en = NOW(),
+                lock_version = lock_version + 1
+            WHERE id = $1 AND estatus = 'SELECCIONADA' AND lock_version = $6
+            RETURNING *
+        """, cotizacion_id, subtotal, iva, total, nuevo_pdf_url, lock_version_esperado)
+        return dict(row) if row else None
+
+    async def sincronizar_monto_autorizacion_db(
+        self, conn, autorizacion_id: UUID, monto_total, lock_version_esperado: int,
+    ) -> Optional[dict]:
+        """Sincroniza tb_bom_autorizaciones.monto_total tras actualizar el total de
+        su cotizacion (Camino 2 del gate de vigencia), en la misma transaccion que
+        actualizar_totales_pdf_cotizacion_seleccionada. Sin este paso, el CONSTRAINT
+        TRIGGER DEFERRED trg_bom_validar_autorizacion_cotizacion revienta con
+        RAISE EXCEPTION en cualquier UPDATE futuro de tb_bom_autorizaciones."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_autorizaciones
+            SET monto_total = $2,
+                lock_version = lock_version + 1
+            WHERE id = $1 AND lock_version = $3
+            RETURNING *
+        """, autorizacion_id, monto_total, lock_version_esperado)
         return dict(row) if row else None
 
     async def eliminar_attachment_huerfano(self, conn, doc_id: UUID) -> None:

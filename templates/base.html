@@ -64,6 +64,61 @@
             });
         }
 
+        // Par de helpers para inputs de dinero con separador de miles, compartidos
+        // por cotizacionesBom() y gateVigenciaBom(): parseMoneda ignora comas al
+        // convertir a numero, formatMoneda muestra el numero con comas (patron
+        // buffer: texto libre mientras se edita, formateado al perder el foco).
+        // Funciones globales (no metodos de un x-data) para que ambos componentes
+        // las usen sin duplicar la logica.
+        function parseMoneda(val) {
+            return parseFloat(String(val).replace(/,/g, '')) || 0;
+        }
+
+        function formatMoneda(val) {
+            return val > 0 ? val.toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '';
+        }
+
+        // Sube un PDF al endpoint de solo-lectura que devuelve precios candidatos
+        // para asistir la captura (no persiste nada). Compartido por
+        // cotizacionesBom() y gateVigenciaBom() -- ambos lo usan para poblar su
+        // propio estado de candidatos/metodo/moneda/error tras seleccionar un PDF.
+        async function extraerCandidatosPdfCostos(file) {
+            try {
+                const formData = new FormData();
+                formData.append('archivo', file);
+                const resp = await fetch('/bom/cotizaciones/extraer-pdf-costos', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok) {
+                    return {
+                        candidatos: data.candidatos || [],
+                        metodo: data.metodo || null,
+                        monedaDetectada: data.moneda_detectada || null,
+                        error: data.error || null,
+                    };
+                }
+                return { candidatos: [], metodo: null, monedaDetectada: null, error: data.detail || 'No se pudo leer el PDF.' };
+            } catch (e) {
+                return { candidatos: [], metodo: null, monedaDetectada: null, error: 'No se pudo leer el PDF (error de conexión).' };
+            }
+        }
+
+        // Items ofrecidos para asignar un candidato detectado en el PDF: excluye
+        // los ya asignados a OTRO candidato del mismo PDF (identificados por
+        // `keyField`), para no poder repetir el mismo item en dos renglones. El
+        // propio item del candidato actual se conserva para que su seleccion
+        // actual siga visible. Compartido por cotizacionesBom() y gateVigenciaBom().
+        function itemsDisponiblesParaCandidato(items, candidatos, candidatoActual, keyField) {
+            const asignadosAOtros = new Set(
+                candidatos
+                    .filter(c => c !== candidatoActual && c.asignado_a)
+                    .map(c => c.asignado_a)
+            );
+            return items.filter(item => !asignadosAOtros.has(item[keyField]));
+        }
+
         document.addEventListener('alpine:init', () => {
             Alpine.store('notifications', { count: 0 });
             Alpine.store('activeModule', { slug: '' });
@@ -405,14 +460,6 @@
                 standbyGuardando: false,
                 standbyError: '',
 
-                // Confirmar vigencia (Punto B, reactivacion de standby)
-                modalVigenciaAbierto: false,
-                vigencia: { cotizacionId: null, aprobacionLockVersion: null, autorizacionLockVersion: null, proveedor: '' },
-                vigenciaEsVigente: true,
-                vigenciaMotivo: '',
-                vigenciaGuardando: false,
-                vigenciaError: '',
-
                 init() {
                     try {
                         this.itemsDisponibles = JSON.parse(this.$el.dataset.items || '[]');
@@ -523,21 +570,8 @@
                     return this.precios[id_item] || 0;
                 },
 
-                // Par de helpers para inputs de dinero con separador de miles:
-                // parseMoneda ignora comas al convertir a numero, formatMoneda
-                // muestra el numero con comas (usado en el patron buffer de
-                // _modal_cargar_cotizacion.html: texto libre mientras se edita,
-                // formateado al perder el foco).
-                parseMoneda(val) {
-                    return parseFloat(String(val).replace(/,/g, '')) || 0;
-                },
-
-                formatMoneda(val) {
-                    return val > 0 ? val.toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '';
-                },
-
                 setPrecio(id_item, val) {
-                    this.precios[id_item] = this.parseMoneda(val);
+                    this.precios[id_item] = parseMoneda(val);
                 },
 
                 getCantidad(id_item) {
@@ -548,7 +582,7 @@
                 // Cotizar mas que el remanente lo rechaza el backend (_calcular_items_cotizacion),
                 // pero clampear aqui evita el viaje redondo con el error mas comun.
                 setCantidad(id_item, val, tope) {
-                    let cantidad = this.parseMoneda(val);
+                    let cantidad = parseMoneda(val);
                     if (tope !== undefined && tope !== null && cantidad > tope) {
                         cantidad = tope;
                     }
@@ -611,33 +645,18 @@
                     this._limpiarEstadoPdf();
                     this.pdfPendiente = file;
                     this.extrayendoPdf = true;
-                    try {
-                        const formData = new FormData();
-                        formData.append('archivo', file);
-                        const resp = await fetch('/bom/cotizaciones/extraer-pdf-costos', {
-                            method: 'POST',
-                            body: formData,
-                        });
-                        const data = await resp.json().catch(() => ({}));
-                        if (resp.ok) {
-                            this.candidatosPdf = data.candidatos || [];
-                            this.pdfMetodo = data.metodo || null;
-                            this.pdfMonedaDetectada = data.moneda_detectada || null;
-                            this.pdfError = data.error || null;
-                            // Panel comprimido dentro del modal es dificil de trabajar
-                            // (feedback de usuario) -- si hay resultados, se abre de
-                            // una vez el modal secundario con mas espacio.
-                            if (this.candidatosPdf.length > 0) {
-                                this.modalPdfAbierto = true;
-                            }
-                        } else {
-                            this.pdfError = data.detail || 'No se pudo leer el PDF.';
-                        }
-                    } catch (e) {
-                        this.pdfError = 'No se pudo leer el PDF (error de conexión).';
-                    } finally {
-                        this.extrayendoPdf = false;
+                    const { candidatos, metodo, monedaDetectada, error } = await extraerCandidatosPdfCostos(file);
+                    this.candidatosPdf = candidatos;
+                    this.pdfMetodo = metodo;
+                    this.pdfMonedaDetectada = monedaDetectada;
+                    this.pdfError = error;
+                    // Panel comprimido dentro del modal es dificil de trabajar
+                    // (feedback de usuario) -- si hay resultados, se abre de
+                    // una vez el modal secundario con mas espacio.
+                    if (this.candidatosPdf.length > 0) {
+                        this.modalPdfAbierto = true;
                     }
+                    this.extrayendoPdf = false;
                 },
 
                 limpiarPdf() {
@@ -668,12 +687,7 @@
                 // el mismo item en dos renglones. El propio item de "candidato"
                 // se conserva en la lista para que su seleccion actual siga visible.
                 itemsParaCandidato(candidato) {
-                    const asignadosAOtros = new Set(
-                        this.candidatosPdf
-                            .filter(c => c !== candidato && c.asignado_a)
-                            .map(c => c.asignado_a)
-                    );
-                    return this.itemsDisponibles.filter(item => !asignadosAOtros.has(item.id_item));
+                    return itemsDisponiblesParaCandidato(this.itemsDisponibles, this.candidatosPdf, candidato, 'id_item');
                 },
 
                 // Sube el PDF ya adjunto en el modal a la cotizacion recien guardada
@@ -876,10 +890,39 @@
                     }
                 },
 
-                abrirModalVigencia(cotizacionId, aprobacionLockVersion, autorizacionLockVersion, proveedor) {
-                    this.vigencia = { cotizacionId, aprobacionLockVersion, autorizacionLockVersion, proveedor };
+            }));
+
+            // Gate de vigencia (Puntos A/B) + "Actualizar costos" (Camino 2) --
+            // componente compartido entre autorizaciones.html (Punto A) y
+            // cotizaciones.html (Punto B). Vive en su propio Alpine.data() en vez
+            // de en cotizacionesBom() porque ese componente solo se instancia
+            // dentro de #tab-cotizaciones -- un boton en autorizaciones.html no es
+            // descendiente de ese x-data. Se instancia una sola vez en
+            // templates/bom/partials/compras_paquete.html (envuelve ambos tabs
+            // como hermanos), asi que su estado sobrevive los swaps de
+            // #tab-cotizaciones/#tab-autorizaciones (2026-09-02).
+            Alpine.data('gateVigenciaBom', () => ({
+                modalVigenciaAbierto: false,
+                vigencia: {
+                    origen: 'A', cotizacionId: null, aprobacionLockVersion: null,
+                    autorizacionLockVersion: null, proveedor: '', cotizacionLockVersion: null,
+                    items: [], reemplazables: [],
+                },
+                vigenciaEsVigente: true,
+                vigenciaMotivo: '',
+                vigenciaReemplazaAprobacionId: '',
+                vigenciaGuardando: false,
+                vigenciaError: '',
+
+                abrirModalVigencia({ origen, cotizacionId, aprobacionLockVersion, autorizacionLockVersion,
+                    proveedor, cotizacionLockVersion, items, reemplazables }) {
+                    this.vigencia = {
+                        origen, cotizacionId, aprobacionLockVersion, autorizacionLockVersion,
+                        proveedor, cotizacionLockVersion, items: items || [], reemplazables: reemplazables || [],
+                    };
                     this.vigenciaEsVigente = true;
                     this.vigenciaMotivo = '';
+                    this.vigenciaReemplazaAprobacionId = '';
                     this.vigenciaError = '';
                     this.modalVigenciaAbierto = true;
                 },
@@ -894,12 +937,22 @@
                     this.vigenciaGuardando = true;
                     this.vigenciaError = '';
                     try {
+                        const esA = this.vigencia.origen === 'A';
                         const form = new FormData();
                         form.append('vigente', this.vigenciaEsVigente ? 'true' : 'false');
-                        if (this.vigenciaMotivo) form.append('motivo', this.vigenciaMotivo);
-                        form.append('aprobacion_lock_version', this.vigencia.aprobacionLockVersion);
+                        if (esA) {
+                            if (this.vigenciaMotivo) form.append('motivo_no_vigente', this.vigenciaMotivo);
+                            if (this.vigenciaReemplazaAprobacionId) form.append('reemplaza_aprobacion_id', this.vigenciaReemplazaAprobacionId);
+                        } else {
+                            if (this.vigenciaMotivo) form.append('motivo', this.vigenciaMotivo);
+                        }
+                        form.append('cotizacion_lock_version', this.vigencia.cotizacionLockVersion);
                         form.append('autorizacion_lock_version', this.vigencia.autorizacionLockVersion);
-                        const resp = await fetch(`/bom/cotizaciones/${this.vigencia.cotizacionId}/confirmar-vigencia`, {
+                        if (!esA) form.append('aprobacion_lock_version', this.vigencia.aprobacionLockVersion);
+                        const url = esA
+                            ? `/bom/cotizaciones/${this.vigencia.cotizacionId}/solicitar-aprobacion`
+                            : `/bom/cotizaciones/${this.vigencia.cotizacionId}/confirmar-vigencia`;
+                        const resp = await fetch(url, {
                             method: 'POST',
                             headers: { 'HX-Request': 'true' },
                             body: form,
@@ -909,14 +962,195 @@
                             throw new Error(err.detail || 'Error al confirmar vigencia');
                         }
                         const html = await resp.text();
-                        swapTabCotizaciones(html);
+                        if (esA) {
+                            swapTab('tab-autorizaciones', html);
+                        } else {
+                            swapTabCotizaciones(html);
+                        }
                         this.cerrarModalVigencia();
                     } catch(e) {
                         this.vigenciaError = e.message;
                     } finally {
                         this.vigenciaGuardando = false;
                     }
-                }
+                },
+
+                // Actualizar costos (Camino 2 del gate de vigencia, Puntos A/B) --
+                // reusa vigencia.* (cotizacionId, items, locks) porque siempre se
+                // abre desde dentro del modal de vigencia ya poblado.
+                modalCostosVigenciaAbierto: false,
+                costosVigenciaMotivo: '',
+                costosVigenciaIvaPct: 16,
+                costosVigenciaItems: [],
+                costosVigenciaArchivo: null,
+                costosVigenciaNotas: '',
+                costosVigenciaGuardando: false,
+                costosVigenciaError: '',
+
+                // Captura asistida por PDF (mismo endpoint/patron que cotizacionesBom,
+                // ver onPdfSeleccionado arriba) -- aqui los items ya son fijos, solo se
+                // asigna el precio detectado a un renglon existente.
+                costosVigenciaExtrayendoPdf: false,
+                costosVigenciaCandidatosPdf: [],
+                costosVigenciaPdfMetodo: null,
+                costosVigenciaPdfMonedaDetectada: null,
+                costosVigenciaPdfError: null,
+                modalCostosVigenciaPdfAbierto: false,
+
+                abrirModalCostosVigencia() {
+                    this.costosVigenciaMotivo = this.vigenciaMotivo || '';
+                    this.costosVigenciaIvaPct = 16;
+                    this.costosVigenciaItems = (this.vigencia.items || []).map(it => ({
+                        bom_item_id: it.id_item, descripcion: it.descripcion,
+                        unidad_medida: it.unidad_medida, cantidad: it.cantidad,
+                        precio_unitario: it.precio_unitario || 0,
+                        precio_bom_estimado: it.precio_bom_estimado || null,
+                    }));
+                    this.costosVigenciaArchivo = null;
+                    this.costosVigenciaNotas = '';
+                    this.costosVigenciaError = '';
+                    this.costosVigenciaExtrayendoPdf = false;
+                    this.costosVigenciaCandidatosPdf = [];
+                    this.costosVigenciaPdfMetodo = null;
+                    this.costosVigenciaPdfMonedaDetectada = null;
+                    this.costosVigenciaPdfError = null;
+                    this.modalCostosVigenciaPdfAbierto = false;
+                    this.modalCostosVigenciaAbierto = true;
+                    this.modalVigenciaAbierto = false;
+                    // Si se reabre para la misma cotizacion, los bom_item_id (usados
+                    // como :key en el x-for) no cambian -- Alpine no reinicializa el
+                    // x-data de cada fila por si solo, hay que forzar el resync del
+                    // buffer de precio con comas (mismo patron que cotizacion-modal-reset).
+                    this.$dispatch('costos-vigencia-modal-reset');
+                },
+
+                cerrarModalCostosVigencia() { this.modalCostosVigenciaAbierto = false; },
+
+                // Usa extraerCandidatosPdfCostos (compartida con onPdfSeleccionado en
+                // cotizacionesBom): no persiste nada, solo regresa candidatos texto+precio
+                // para asistir la captura. El PDF real se sube al guardar (guardarCostosVigencia).
+                async onCostosVigenciaArchivoSeleccionado(file) {
+                    this.costosVigenciaArchivo = file;
+                    this.costosVigenciaCandidatosPdf = [];
+                    this.costosVigenciaPdfMetodo = null;
+                    this.costosVigenciaPdfMonedaDetectada = null;
+                    this.costosVigenciaPdfError = null;
+                    if (!file) return;
+                    this.costosVigenciaExtrayendoPdf = true;
+                    const { candidatos, metodo, monedaDetectada, error } = await extraerCandidatosPdfCostos(file);
+                    this.costosVigenciaCandidatosPdf = candidatos;
+                    this.costosVigenciaPdfMetodo = metodo;
+                    this.costosVigenciaPdfMonedaDetectada = monedaDetectada;
+                    this.costosVigenciaPdfError = error;
+                    if (this.costosVigenciaCandidatosPdf.length > 0) {
+                        this.modalCostosVigenciaPdfAbierto = true;
+                    }
+                    this.costosVigenciaExtrayendoPdf = false;
+                },
+
+                // Asigna el precio de un candidato detectado al renglon elegido. A
+                // diferencia de usarCandidatoPdf (cotizacionesBom), aqui los items ya
+                // estan fijos -- no hay que seleccionarlos, solo actualizar su precio.
+                // Dispara el reset del buffer con comas porque el input vive en un
+                // x-data por-renglon separado (mismo motivo que costos-vigencia-modal-reset).
+                usarCandidatoPdfCostos(candidato, bom_item_id) {
+                    if (!bom_item_id) return;
+                    const item = this.costosVigenciaItems.find(it => it.bom_item_id === bom_item_id);
+                    if (item) item.precio_unitario = candidato.precio;
+                    candidato.asignado_a = bom_item_id;
+                    this.$dispatch('costos-vigencia-modal-reset');
+                },
+
+                // Usa itemsDisponiblesParaCandidato (compartida con itemsParaCandidato
+                // en cotizacionesBom): un renglon ya asignado a OTRO candidato
+                // desaparece de las opciones, para no poder repetir el mismo item en
+                // dos precios distintos.
+                itemsParaCandidatoCostos(candidato) {
+                    return itemsDisponiblesParaCandidato(this.costosVigenciaItems, this.costosVigenciaCandidatosPdf, candidato, 'bom_item_id');
+                },
+
+                costosVigenciaSubtotal() {
+                    return this.costosVigenciaItems.reduce(
+                        (acc, it) => acc + (Number(it.precio_unitario) || 0) * (Number(it.cantidad) || 0), 0
+                    );
+                },
+                costosVigenciaTotal() {
+                    const subtotal = this.costosVigenciaSubtotal();
+                    return subtotal + subtotal * (Number(this.costosVigenciaIvaPct) || 0) / 100;
+                },
+
+                // Mismo criterio que _validar_sobrecosto (core/bom/compras_service.py):
+                // item cotizado por encima de precio_bom_estimado (bi.precio_unitario).
+                // Se calcula en el cliente para mostrar el campo de Notas solo cuando
+                // aplica, en vez de que el usuario lo descubra hasta que el backend
+                // rechace el guardado (2026-09-02).
+                costosVigenciaSobrecostos() {
+                    return this.costosVigenciaItems
+                        .filter(it => it.precio_bom_estimado && Number(it.precio_unitario) > Number(it.precio_bom_estimado))
+                        .map(it => ({
+                            descripcion: it.descripcion,
+                            diferencia_pct: Math.round(
+                                (Number(it.precio_unitario) - Number(it.precio_bom_estimado))
+                                / Number(it.precio_bom_estimado) * 1000
+                            ) / 10,
+                        }));
+                },
+                costosVigenciaMensajeSobrecosto() {
+                    const sobrecostos = this.costosVigenciaSobrecostos();
+                    if (!sobrecostos.length) return '';
+                    const itemsStr = sobrecostos.slice(0, 3)
+                        .map(s => `${s.descripcion} (+${s.diferencia_pct}%)`)
+                        .join(', ');
+                    return `Se detectaron ${sobrecostos.length} ítem(s) con precio mayor al estimado: ${itemsStr}. Debes agregar una justificación en el campo de notas.`;
+                },
+
+                async guardarCostosVigencia() {
+                    if (!this.costosVigenciaMotivo.trim()) {
+                        this.costosVigenciaError = 'El motivo es obligatorio.';
+                        return;
+                    }
+                    if (this.costosVigenciaSobrecostos().length && !this.costosVigenciaNotas.trim()) {
+                        this.costosVigenciaError = this.costosVigenciaMensajeSobrecosto();
+                        return;
+                    }
+                    this.costosVigenciaGuardando = true;
+                    this.costosVigenciaError = '';
+                    try {
+                        const form = new FormData();
+                        form.append('items_json', JSON.stringify(this.costosVigenciaItems.map(it => ({
+                            bom_item_id: it.bom_item_id, precio_unitario: it.precio_unitario,
+                        }))));
+                        form.append('iva_pct', this.costosVigenciaIvaPct);
+                        form.append('motivo', this.costosVigenciaMotivo);
+                        if (this.costosVigenciaNotas) form.append('notas', this.costosVigenciaNotas);
+                        form.append('cotizacion_lock_version', this.vigencia.cotizacionLockVersion);
+                        form.append('autorizacion_lock_version', this.vigencia.autorizacionLockVersion);
+                        if (this.vigencia.origen === 'B') {
+                            form.append('aprobacion_lock_version', this.vigencia.aprobacionLockVersion);
+                        }
+                        if (this.costosVigenciaArchivo) form.append('archivo', this.costosVigenciaArchivo);
+
+                        const url = this.vigencia.origen === 'A'
+                            ? `/bom/cotizaciones/${this.vigencia.cotizacionId}/actualizar-costos-vigencia`
+                            : `/bom/cotizaciones/${this.vigencia.cotizacionId}/actualizar-costos-vigencia-standby`;
+                        const resp = await fetch(url, { method: 'POST', headers: { 'HX-Request': 'true' }, body: form });
+                        if (!resp.ok) {
+                            const err = await resp.json().catch(() => ({}));
+                            throw new Error(err.detail || 'Error al actualizar el costo');
+                        }
+                        const html = await resp.text();
+                        if (this.vigencia.origen === 'A') {
+                            swapTab('tab-autorizaciones', html);
+                        } else {
+                            swapTabCotizaciones(html);
+                        }
+                        this.cerrarModalCostosVigencia();
+                    } catch (e) {
+                        this.costosVigenciaError = e.message;
+                    } finally {
+                        this.costosVigenciaGuardando = false;
+                    }
+                },
             }));
 
             // Modal de standby/reprogramar del dashboard de Direccion
@@ -963,10 +1197,10 @@
             }));
         });
 
-        // Reemplaza el contenido de la tab de Cotizaciones tras guardar/reemplazar
-        // (fetch manual, no hx-swap) y reprocesa sus atributos hx-* con htmx.
-        function swapTabCotizaciones(html) {
-            const tabCotizaciones = document.getElementById('tab-cotizaciones');
+        // Reemplaza el contenido de un tab de BOM tras guardar/reemplazar (fetch
+        // manual, no hx-swap) y reprocesa sus atributos hx-* con htmx.
+        function swapTab(tabId, html) {
+            const tab = document.getElementById(tabId);
             // hx-swap-oob (ej. el toast de "PDF actualizado", ver templates/shared/
             // toast.html) solo lo interpreta htmx cuando su propio pipeline de swap
             // procesa la respuesta (hx-get/hx-post o su API JS de peticiones). Esta
@@ -986,8 +1220,12 @@
                 }
                 oobEl.remove();
             });
-            tabCotizaciones.innerHTML = parsed.body.innerHTML;
-            htmx.process(tabCotizaciones);
+            tab.innerHTML = parsed.body.innerHTML;
+            htmx.process(tab);
+        }
+
+        function swapTabCotizaciones(html) {
+            swapTab('tab-cotizaciones', html);
         }
 
         // Función global llamada desde el autocomplete de proveedores del modal

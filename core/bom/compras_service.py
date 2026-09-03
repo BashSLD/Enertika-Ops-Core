@@ -327,6 +327,38 @@ class BomComprasServiceMixin:
 
         return cotizaciones
 
+    @staticmethod
+    def _validar_sobrecosto(items_data: list, bom_items_map: dict, notas: Optional[str]) -> None:
+        """Exige justificacion en `notas` si algun item se cotiza por encima del
+        precio_unitario estimado en el BOM. Compartido por _calcular_items_cotizacion
+        (Fase C, crear/editar cotizacion) y _actualizar_costos_vigencia (gate de
+        vigencia, Camino 2 -- 2026-09-02)."""
+        sobrecostos = []
+        for i in items_data:
+            pu = Decimal(str(i.get('precio_unitario') or 0))
+            if pu <= 0:
+                continue
+            bom_item = bom_items_map.get(str(i['bom_item_id']))
+            if bom_item and bom_item.get('precio_unitario'):
+                precio_bom = Decimal(str(bom_item['precio_unitario']))
+                if pu > precio_bom:
+                    sobrecostos.append({
+                        'item_id': str(i['bom_item_id']),
+                        'descripcion': bom_item.get('descripcion', '')[:60],
+                        'precio_bom': precio_bom,
+                        'precio_cotizado': pu,
+                        'diferencia_pct': round((pu - precio_bom) / precio_bom * 100, 1),
+                    })
+        if sobrecostos and not (notas and notas.strip()):
+            items_str = ', '.join(
+                f"{s['descripcion']} (+{s['diferencia_pct']}%)"
+                for s in sobrecostos[:3]
+            )
+            raise ValueError(
+                f"Se detectaron {len(sobrecostos)} items con precio mayor al estimado: {items_str}. "
+                "Debes agregar una justificacion en el campo de notas."
+            )
+
     async def _calcular_items_cotizacion(
         self, conn, id_bom: UUID, items_data: list, moneda: str,
         iva_pct: float, notas: Optional[str],
@@ -381,32 +413,7 @@ class BomComprasServiceMixin:
             )
 
         if tiene_precios:
-            sobrecostos = []
-            for i in items_data:
-                pu = Decimal(str(i.get('precio_unitario') or 0))
-                if pu <= 0:
-                    continue
-                bom_item = bom_items_map_cot.get(str(i['bom_item_id']))
-                if bom_item and bom_item.get('precio_unitario'):
-                    precio_bom = Decimal(str(bom_item['precio_unitario']))
-                    if pu > precio_bom:
-                        sobrecostos.append({
-                            'item_id': str(i['bom_item_id']),
-                            'descripcion': bom_item.get('descripcion', '')[:60],
-                            'precio_bom': precio_bom,
-                            'precio_cotizado': pu,
-                            'diferencia_pct': round((pu - precio_bom) / precio_bom * 100, 1),
-                        })
-
-            if sobrecostos and not (notas and notas.strip()):
-                items_str = ', '.join(
-                    f"{s['descripcion']} (+{s['diferencia_pct']}%)"
-                    for s in sobrecostos[:3]
-                )
-                raise ValueError(
-                    f"Se detectaron {len(sobrecostos)} items con precio mayor al estimado: {items_str}. "
-                    "Debes agregar una justificacion en el campo de notas."
-                )
+            self._validar_sobrecosto(items_data, bom_items_map_cot, notas)
 
         # Calcular subtotal: suma de precios individuales o subtotal_externo
         if subtotal_externo is not None:
@@ -1367,6 +1374,171 @@ class BomComprasServiceMixin:
             id_documento=autorizacion['id'],
         )
         return rechazada
+
+    async def _actualizar_costos_vigencia(
+        self, conn, cotizacion_id: UUID, user_id: UUID,
+        items_data: list, iva_pct: float, motivo: str,
+        notas: Optional[str] = None, nuevo_pdf_url: Optional[str] = None,
+        cotizacion_lock_version_esperado: Optional[int] = None,
+        autorizacion_lock_version_esperado: Optional[int] = None,
+    ) -> dict:
+        """Camino 2 del gate de vigencia (decision de negocio 2026-09-02): cuando
+        Compras marca una cotizacion como "no vigente" porque cambio el costo
+        (mismos items, sin cambios de alcance), corrige precio_unitario por item
+        y recalcula subtotal/iva/total de la cotizacion SELECCIONADA -- sin
+        reabrir su detalle completo (a diferencia de Camino 1, "liberar y
+        recotizar", que regresa la cotizacion a RECIBIDA via
+        _rechazar_por_vigencia) y sin que Obra vuelva a aprobar: el alcance de
+        Obra es validar que los items cotizados sean correctos, no el costo, asi
+        que solo aplica si la autorizacion ya esta AUTORIZADO_OBRA. El caller
+        (actualizar_costos_y_solicitar_aprobacion / _y_confirmar_vigencia)
+        encadena hacia el flujo normal de aprobacion de Direccion con
+        vigente=True una vez aplicado este ajuste.
+
+        Sincroniza tb_bom_autorizaciones.monto_total en la misma transaccion --
+        el CONSTRAINT TRIGGER DEFERRED trg_bom_validar_autorizacion_cotizacion
+        exige que coincida con el total de la cotizacion."""
+        if not motivo or not motivo.strip():
+            raise ValueError("El motivo es obligatorio cuando la cotización ya no está vigente.")
+        if cotizacion_lock_version_esperado is None or autorizacion_lock_version_esperado is None:
+            raise ValueError("La cotización o autorización cambió; recarga la pestaña.")
+
+        cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
+        if not cotizacion or cotizacion['estatus'] != 'SELECCIONADA':
+            raise ValueError("La cotización debe estar seleccionada para actualizar su costo.")
+        autorizacion = await self.db.get_autorizacion_by_cotizacion(conn, cotizacion_id)
+        if not autorizacion or autorizacion['estatus'] != 'AUTORIZADO_OBRA':
+            raise ValueError("Solo puedes actualizar el costo si Obra ya aprobó esta cotización.")
+        bom = await self.db.get_bom_by_id(conn, cotizacion['bom_id'])
+
+        items_existentes = await self.db.get_items_cotizacion(conn, cotizacion_id)
+        ids_existentes = {str(it['bom_item_id']) for it in items_existentes}
+        ids_nuevos = {str(i['bom_item_id']) for i in items_data}
+        if ids_existentes != ids_nuevos:
+            raise ValueError(
+                "Solo puedes actualizar el costo de los items existentes; "
+                "para agregar o quitar items, libera la cotización y recotiza."
+            )
+        precios = {str(i['bom_item_id']): Decimal(str(i['precio_unitario'])) for i in items_data}
+        if any(p <= 0 for p in precios.values()):
+            raise ValueError("Captura un precio mayor a cero para cada item.")
+
+        bom_items = await self.db.get_items_by_ids(
+            conn, [it['bom_item_id'] for it in items_existentes]
+        )
+        bom_items_map = {str(bi['id_item']): bi for bi in bom_items}
+        items_calculo = [
+            {
+                'bom_item_id': it['bom_item_id'],
+                'precio_unitario': precios[str(it['bom_item_id'])],
+                'cantidad': Decimal(str(it['cantidad'])),
+            }
+            for it in items_existentes
+        ]
+        self._validar_sobrecosto(items_calculo, bom_items_map, notas)
+
+        subtotal = sum(i['precio_unitario'] * i['cantidad'] for i in items_calculo)
+        iva = round(subtotal * Decimal(str(iva_pct)) / Decimal("100"), 2)
+        total = round(subtotal + iva, 2)
+        subtotal = round(subtotal, 2)
+
+        async with conn.transaction():
+            cotizacion_bloqueada = await self.db.get_cotizacion_for_update(conn, cotizacion_id)
+            autorizacion_bloqueada = await self.db.get_autorizacion_for_update(conn, autorizacion['id'])
+            if (
+                not cotizacion_bloqueada
+                or cotizacion_bloqueada['estatus'] != 'SELECCIONADA'
+                or cotizacion_bloqueada['lock_version'] != cotizacion_lock_version_esperado
+                or not autorizacion_bloqueada
+                or autorizacion_bloqueada['estatus'] != 'AUTORIZADO_OBRA'
+                or autorizacion_bloqueada['lock_version'] != autorizacion_lock_version_esperado
+            ):
+                raise ValueError("La cotización o autorización cambió; recarga la pestaña.")
+
+            await self.db.actualizar_items_precio_cotizacion(
+                conn, cotizacion_id,
+                [
+                    {
+                        'bom_item_id': i['bom_item_id'],
+                        'precio_unitario': i['precio_unitario'],
+                        'subtotal_linea': round(i['precio_unitario'] * i['cantidad'], 2),
+                    }
+                    for i in items_calculo
+                ],
+            )
+            cot_actualizada = await self.db.actualizar_totales_pdf_cotizacion_seleccionada(
+                conn, cotizacion_id, subtotal, iva, total, nuevo_pdf_url,
+                cotizacion_lock_version_esperado,
+            )
+            if not cot_actualizada:
+                raise ValueError("La cotización cambió; recarga la pestaña.")
+            aut_sincronizada = await self.db.sincronizar_monto_autorizacion_db(
+                conn, autorizacion['id'], total, autorizacion_lock_version_esperado,
+            )
+            if not aut_sincronizada:
+                raise ValueError("La autorización cambió; recarga la pestaña.")
+            await self.db.registrar_evento_outbox(
+                conn,
+                f"COTIZACION:{cotizacion_id}:{cot_actualizada['lock_version']}:COSTO_ACTUALIZADO_VIGENCIA",
+                "COTIZACION_COSTO_ACTUALIZADO_VIGENCIA", bom["id_proyecto"], user_id,
+                {
+                    "id_cotizacion": str(cotizacion_id),
+                    "motivo": motivo.strip(),
+                    "total_anterior": str(cotizacion['total']),
+                    "total_nuevo": str(total),
+                },
+                id_paquete=bom.get("id_paquete"), id_bom=cotizacion["bom_id"],
+                id_documento=cotizacion_id,
+            )
+
+        logger.info(
+            "Costo de cotización %s actualizado por vigencia (usuario %s): total %s -> %s",
+            cotizacion_id, user_id, cotizacion['total'], total,
+        )
+        return {**cot_actualizada, "autorizacion_lock_version": aut_sincronizada['lock_version']}
+
+    async def actualizar_costos_y_solicitar_aprobacion(
+        self, conn, cotizacion_id: UUID, user_id: UUID,
+        items_data: list, iva_pct: float, motivo: str,
+        notas: Optional[str] = None, nuevo_pdf_url: Optional[str] = None,
+        cotizacion_lock_version_esperado: Optional[int] = None,
+        autorizacion_lock_version_esperado: Optional[int] = None,
+    ) -> dict:
+        """Punto A, Camino 2: actualiza costo/PDF y encadena a
+        solicitar_aprobacion_cotizacion(vigente=True) con los locks frescos."""
+        actualizada = await self._actualizar_costos_vigencia(
+            conn, cotizacion_id, user_id, items_data, iva_pct, motivo,
+            notas, nuevo_pdf_url,
+            cotizacion_lock_version_esperado, autorizacion_lock_version_esperado,
+        )
+        return await self.solicitar_aprobacion_cotizacion(
+            conn, cotizacion_id, user_id,
+            cotizacion_lock_version_esperado=actualizada['lock_version'],
+            autorizacion_lock_version_esperado=actualizada['autorizacion_lock_version'],
+            vigente=True,
+        )
+
+    async def actualizar_costos_y_confirmar_vigencia(
+        self, conn, cotizacion_id: UUID, user_id: UUID,
+        items_data: list, iva_pct: float, motivo: str,
+        notas: Optional[str] = None, nuevo_pdf_url: Optional[str] = None,
+        cotizacion_lock_version_esperado: Optional[int] = None,
+        aprobacion_lock_version_esperado: Optional[int] = None,
+        autorizacion_lock_version_esperado: Optional[int] = None,
+    ) -> dict:
+        """Punto B, Camino 2: actualiza costo/PDF y encadena a
+        confirmar_vigencia_reactivacion(vigente=True) con el lock de autorizacion
+        fresco (el de aprobacion no cambia con este ajuste)."""
+        actualizada = await self._actualizar_costos_vigencia(
+            conn, cotizacion_id, user_id, items_data, iva_pct, motivo,
+            notas, nuevo_pdf_url,
+            cotizacion_lock_version_esperado, autorizacion_lock_version_esperado,
+        )
+        return await self.confirmar_vigencia_reactivacion(
+            conn, cotizacion_id, user_id, vigente=True,
+            aprobacion_lock_version_esperado=aprobacion_lock_version_esperado,
+            autorizacion_lock_version_esperado=actualizada['autorizacion_lock_version'],
+        )
 
     async def aprobar_cotizacion_direccion(
         self, conn, cotizacion_id: UUID, user_id: UUID,

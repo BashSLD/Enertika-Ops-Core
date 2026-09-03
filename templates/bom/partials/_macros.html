@@ -85,10 +85,19 @@ Aún no aplica
 </span>
 {% endmacro %}
 
-{% macro paso_conector(activo) %}
+{% macro paso_conector(activo, en_transito=False) %}
+{% if en_transito %}
+<span class="relative inline-flex shrink-0 items-center justify-center w-3.5 h-3.5">
+    <span class="animate-ping absolute inline-flex h-2.5 w-2.5 rounded-full bg-amber-400 opacity-75"></span>
+    <svg class="relative w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+    </svg>
+</span>
+{% else %}
 <svg class="w-3.5 h-3.5 shrink-0 {{ 'text-gray-400' if activo else 'text-gray-200' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
     <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
 </svg>
+{% endif %}
 {% endmacro %}
 
 {# Shell de modal Alpine (x-teleport + x-show, persiste montado y solo se oculta al

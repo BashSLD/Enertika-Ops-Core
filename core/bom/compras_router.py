@@ -101,6 +101,7 @@ def _item_cotizacion_json(item: dict, *, cantidad_pendiente=None) -> dict:
     """
     cantidad = item.get("cantidad")
     precio_unitario = item.get("precio_unitario")
+    precio_bom_estimado = item.get("precio_bom_estimado")
     if cantidad_pendiente is None:
         cantidad_pendiente = cantidad_pendiente_item(item)
     return {
@@ -111,6 +112,12 @@ def _item_cotizacion_json(item: dict, *, cantidad_pendiente=None) -> dict:
         "cantidad": float(cantidad) if cantidad is not None else None,
         "cantidad_pendiente": float(cantidad_pendiente),
         "precio_unitario": float(precio_unitario) if precio_unitario is not None else None,
+        # Precio estimado en el BOM (bi.precio_unitario) -- solo viene poblado
+        # cuando `item` es una fila de get_items_by_cotizacion_ids (Fase D, gate
+        # de vigencia). Permite al modal "Actualizar costos" detectar sobrecosto
+        # en el cliente y mostrar el campo de Notas solo cuando aplica, en vez
+        # de descubrirlo hasta que el backend rechaza el guardado (2026-09-02).
+        "precio_bom_estimado": float(precio_bom_estimado) if precio_bom_estimado is not None else None,
     }
 
 
@@ -915,6 +922,27 @@ async def preview_pdf_cotizacion(
 # APROBACIONES DE COTIZACION (post-BOM)
 # ========================================
 
+def _parse_items_precio_form(items_json: str) -> list:
+    """Parsea el campo `items_json` del form (Camino 2 del gate de vigencia):
+    [{"bom_item_id": "...", "precio_unitario": 123.45}, ...]."""
+    try:
+        raw = json.loads(items_json)
+    except (ValueError, TypeError):
+        raise ValueError("Formato de items inválido.")
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("Debes capturar el precio de al menos un item.")
+    items_data = []
+    for it in raw:
+        try:
+            items_data.append({
+                "bom_item_id": UUID(it["bom_item_id"]),
+                "precio_unitario": float(it["precio_unitario"]),
+            })
+        except (KeyError, ValueError, TypeError):
+            raise ValueError("Formato de items inválido.")
+    return items_data
+
+
 @compras_router.post("/cotizaciones/{cotizacion_id}/solicitar-aprobacion", include_in_schema=False)
 async def solicitar_aprobacion_cotizacion(
     request: Request,
@@ -934,12 +962,13 @@ async def solicitar_aprobacion_cotizacion(
 
     Punto A del gate de vigencia: si `vigente=False`, no se crea aprobación --
     se rechaza la autorización Fase D directamente (RECHAZO_VIGENCIA).
-    """
+    Invocado via fetch() manual -- errores como HTTPException, no _toast_response
+    (mismo patron que confirmar_vigencia_cotizacion)."""
     user_id = context.get("user_db_id")
     try:
         reemplaza_id = UUID(reemplaza_aprobacion_id) if reemplaza_aprobacion_id else None
     except ValueError:
-        return _toast_response(request, "reemplaza_aprobacion_id inválido", "error", status_code=400)
+        raise HTTPException(status_code=400, detail="reemplaza_aprobacion_id inválido")
     try:
         aprobacion = await service.solicitar_aprobacion_cotizacion(
             conn, cotizacion_id, user_id, comentarios,
@@ -948,14 +977,62 @@ async def solicitar_aprobacion_cotizacion(
             vigente=vigente, motivo_no_vigente=motivo_no_vigente,
         )
     except ValueError as e:
-        return _toast_response(request, str(e), "error", status_code=400)
+        raise HTTPException(status_code=400, detail=str(e))
     except asyncpg.PostgresError:
         logger.exception("Error de BD al solicitar aprobación de cotización")
-        return _toast_response(request, "Error al solicitar la aprobación.", "error", status_code=500)
+        raise HTTPException(status_code=500, detail="Error al solicitar la aprobación.")
 
     return await _render_autorizaciones_tab(
         request, conn, service, context, aprobacion['bom_id'],
     )
+
+
+@compras_router.post("/cotizaciones/{cotizacion_id}/actualizar-costos-vigencia", include_in_schema=False)
+async def actualizar_costos_vigencia_cotizacion(
+    request: Request,
+    cotizacion_id: UUID,
+    items_json: str = Form(...),
+    iva_pct: float = Form(...),
+    motivo: str = Form(...),
+    notas: Optional[str] = Form(None),
+    cotizacion_lock_version: int = Form(...),
+    autorizacion_lock_version: int = Form(...),
+    archivo: Optional[UploadFile] = File(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Punto A, Camino 2 del gate de vigencia: Compras corrige el costo de los
+    items existentes (mismos items) y envia directo a Direccion, sin pasar de
+    nuevo por Obra. Invocado via fetch() manual -- errores como HTTPException,
+    no _toast_response (mismo patron que confirmar_vigencia_cotizacion)."""
+    user_id = context.get("user_db_id")
+    try:
+        items_data = _parse_items_precio_form(items_json)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
+        upload_result = None
+        if archivo is not None and archivo.filename:
+            upload_result = await service._subir_pdf_sharepoint_o_raise(conn, archivo, user_id, cotizacion_id)
+        nuevo_pdf_url = upload_result['url_sharepoint'] if upload_result else None
+        aprobacion = await service._con_cleanup_pdf_huerfano(
+            conn, upload_result,
+            service.actualizar_costos_y_solicitar_aprobacion(
+                conn, cotizacion_id, user_id, items_data, iva_pct, motivo,
+                notas=notas, nuevo_pdf_url=nuevo_pdf_url,
+                cotizacion_lock_version_esperado=cotizacion_lock_version,
+                autorizacion_lock_version_esperado=autorizacion_lock_version,
+            ),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al actualizar costos por vigencia")
+        raise HTTPException(status_code=500, detail="Error al actualizar el costo.")
+
+    return await _render_autorizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
 
 
 @compras_router.post("/cotizaciones/{cotizacion_id}/aprobar-direccion", include_in_schema=False)
@@ -1109,6 +1186,55 @@ async def confirmar_vigencia_cotizacion(
     return await _render_cotizaciones_tab(
         request, conn, service, context, aprobacion['bom_id'],
     )
+
+
+@compras_router.post("/cotizaciones/{cotizacion_id}/actualizar-costos-vigencia-standby", include_in_schema=False)
+async def actualizar_costos_vigencia_standby(
+    request: Request,
+    cotizacion_id: UUID,
+    items_json: str = Form(...),
+    iva_pct: float = Form(...),
+    motivo: str = Form(...),
+    notas: Optional[str] = Form(None),
+    cotizacion_lock_version: int = Form(...),
+    aprobacion_lock_version: int = Form(...),
+    autorizacion_lock_version: int = Form(...),
+    archivo: Optional[UploadFile] = File(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Punto B, Camino 2 del gate de vigencia (tras reactivacion de standby).
+    Invocado via fetch() manual -- errores como HTTPException, no _toast_response
+    (mismo patron que confirmar_vigencia_cotizacion)."""
+    user_id = context.get("user_db_id")
+    try:
+        items_data = _parse_items_precio_form(items_json)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
+        upload_result = None
+        if archivo is not None and archivo.filename:
+            upload_result = await service._subir_pdf_sharepoint_o_raise(conn, archivo, user_id, cotizacion_id)
+        nuevo_pdf_url = upload_result['url_sharepoint'] if upload_result else None
+        aprobacion = await service._con_cleanup_pdf_huerfano(
+            conn, upload_result,
+            service.actualizar_costos_y_confirmar_vigencia(
+                conn, cotizacion_id, user_id, items_data, iva_pct, motivo,
+                notas=notas, nuevo_pdf_url=nuevo_pdf_url,
+                cotizacion_lock_version_esperado=cotizacion_lock_version,
+                aprobacion_lock_version_esperado=aprobacion_lock_version,
+                autorizacion_lock_version_esperado=autorizacion_lock_version,
+            ),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al actualizar costos por vigencia (standby)")
+        raise HTTPException(status_code=500, detail="Error al actualizar el costo.")
+
+    return await _render_cotizaciones_tab(request, conn, service, context, aprobacion['bom_id'])
 
 
 # ========================================
@@ -1368,6 +1494,21 @@ async def _autorizacion_ctx(request, autorizaciones, bom, context, conn, service
     aprobador_direccion = await service.db.get_aprobador_final_id(conn)
     es_aprobador_direccion = bool(aprobador_direccion and aprobador_direccion in representados)
 
+    # Solo se serializan los items de las autorizaciones donde el boton "Enviar
+    # a aprobacion" realmente se renderiza (mismo gate que autorizaciones.html)
+    # -- evita recalcular y embeber via tojson los items de TODAS las
+    # cotizaciones en cada refresh del tab cuando solo una o dos son elegibles.
+    for aut in autorizaciones:
+        if (
+            es_compras_editor
+            and aut.get("estatus") == "AUTORIZADO_OBRA"
+            and aut.get("cotizacion_estatus") == "SELECCIONADA"
+            and aut.get("aprobacion_estatus") not in (
+                "PENDIENTE_DIRECCION", "APROBADA", "EN_STANDBY", "PENDIENTE_VIGENCIA_COMPRAS",
+            )
+        ):
+            aut["items_costo_json"] = [_item_cotizacion_json(it) for it in aut.get("items", [])]
+
     return {
         "autorizaciones": autorizaciones,
         "bom": bom,
@@ -1404,10 +1545,18 @@ async def _render_autorizaciones_tab(
         )
         for a in autorizaciones
     )
-    ctx["reemplazables"] = (
+    reemplazables = (
         await service.db.get_cotizacion_aprobaciones_reemplazables(conn, bom_id)
         if puede_solicitar_aprobacion else []
     )
+    # Proyeccion JSON-safe (id UUID + nombre_proveedor) para pasarla al modal
+    # de vigencia via tojson -- el dict crudo trae updated_at (datetime) y
+    # cotizacion_id (UUID), que el tojson por default de Jinja no serializa
+    # (mismo motivo que _item_cotizacion_json).
+    ctx["reemplazables"] = [
+        {"id": str(r["id"]), "nombre_proveedor": r.get("nombre_proveedor")}
+        for r in reemplazables
+    ]
     return templates.TemplateResponse(
         request, "bom/partials/autorizaciones.html",
         {**ctx, **extra},

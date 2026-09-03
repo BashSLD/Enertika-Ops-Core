@@ -6,6 +6,7 @@ y cancelacion en cascada con paso RECHAZO_COTIZACION.
 """
 
 from datetime import timedelta
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -440,6 +441,34 @@ class FakeAprobacionesDB:
             "lock_version": lock_version_esperado + 1,
         })
         return dict(ap)
+
+    # ── Camino 2 del gate de vigencia: actualizar costos (2026-09-02) ──
+    async def actualizar_items_precio_cotizacion(self, conn, cotizacion_id, items):
+        for item in items:
+            for it in self.items_cotizacion:
+                if it["bom_item_id"] == item["bom_item_id"]:
+                    it["precio_unitario"] = item["precio_unitario"]
+                    it["subtotal_linea"] = item["subtotal_linea"]
+
+    async def actualizar_totales_pdf_cotizacion_seleccionada(
+        self, conn, cotizacion_id, subtotal, iva, total, nuevo_pdf_url, lock_version_esperado,
+    ):
+        cot = self.cotizaciones.get(cotizacion_id)
+        if not cot or cot["estatus"] != "SELECCIONADA" or cot["lock_version"] != lock_version_esperado:
+            return None
+        cot.update({
+            "subtotal": subtotal, "iva": iva, "total": total,
+            "pdf_url": nuevo_pdf_url or cot["pdf_url"],
+            "lock_version": lock_version_esperado + 1,
+        })
+        return dict(cot)
+
+    async def sincronizar_monto_autorizacion_db(self, conn, autorizacion_id, monto_total, lock_version_esperado):
+        aut = self.autorizaciones.get(autorizacion_id)
+        if not aut or aut["lock_version"] != lock_version_esperado:
+            return None
+        aut.update({"monto_total": monto_total, "lock_version": lock_version_esperado + 1})
+        return dict(aut)
 
 
 def make_service(db):
@@ -1256,5 +1285,81 @@ async def test_confirmar_vigencia_bloqueado_por_pago():
         await svc.confirmar_vigencia_reactivacion(
             FakeConn(), cotizacion_id, uuid4(), vigente=True,
             aprobacion_lock_version_esperado=reactivada["lock_version"],
+            autorizacion_lock_version_esperado=autorizacion["lock_version"],
+        )
+
+
+def test_validar_sobrecosto_exige_notas_si_excede_estimado():
+    from core.bom.compras_service import BomComprasServiceMixin
+
+    items_data = [{"bom_item_id": "abc", "precio_unitario": Decimal("150")}]
+    bom_items_map = {"abc": {"precio_unitario": 100, "descripcion": "Item X"}}
+
+    with pytest.raises(ValueError, match="precio mayor al estimado"):
+        BomComprasServiceMixin._validar_sobrecosto(items_data, bom_items_map, notas=None)
+
+    # con notas, no debe levantar
+    BomComprasServiceMixin._validar_sobrecosto(items_data, bom_items_map, notas="Proveedor subió precio")
+
+
+@pytest.mark.asyncio
+async def test_actualizar_costos_solicita_aprobacion_sin_pasar_por_obra():
+    """Camino 2 del gate de vigencia (Punto A): actualiza precio/total y envia
+    directo a Direccion, sin tocar el estatus de Obra (sigue AUTORIZADO_OBRA
+    -- Obra ya no vuelve a intervenir, decision de negocio 2026-09-02)."""
+    svc, db, _, cotizacion_id = build_escenario()
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    items = db.items_cotizacion  # 2 items, cantidad 1 c/u
+
+    resultado = await svc.actualizar_costos_y_solicitar_aprobacion(
+        FakeConn(), cotizacion_id, uuid4(),
+        items_data=[
+            {"bom_item_id": items[0]["bom_item_id"], "precio_unitario": 120.0},
+            {"bom_item_id": items[1]["bom_item_id"], "precio_unitario": 130.0},
+        ],
+        iva_pct=16.0,
+        motivo="El proveedor actualizó precios",
+        notas="Sobrecosto justificado: alza de materia prima",
+        cotizacion_lock_version_esperado=db.cotizaciones[cotizacion_id]["lock_version"],
+        autorizacion_lock_version_esperado=autorizacion["lock_version"],
+    )
+
+    assert resultado["estatus"] == "PENDIENTE_DIRECCION"
+    cot = db.cotizaciones[cotizacion_id]
+    assert cot["subtotal"] == 250.0
+    assert cot["total"] == 290.0  # 250 + 16%
+    aut_final = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    assert aut_final["estatus"] == "AUTORIZADO_OBRA"  # Obra no cambia
+    assert aut_final["monto_total"] == 290.0
+
+
+@pytest.mark.asyncio
+async def test_actualizar_costos_falla_si_obra_no_aprobo():
+    svc, db, _, cotizacion_id = build_escenario(aut_estatus="PENDIENTE")
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+    items = db.items_cotizacion
+
+    with pytest.raises(ValueError, match="Obra"):
+        await svc.actualizar_costos_y_solicitar_aprobacion(
+            FakeConn(), cotizacion_id, uuid4(),
+            items_data=[{"bom_item_id": items[0]["bom_item_id"], "precio_unitario": 120.0},
+                        {"bom_item_id": items[1]["bom_item_id"], "precio_unitario": 130.0}],
+            iva_pct=16.0, motivo="motivo",
+            cotizacion_lock_version_esperado=db.cotizaciones[cotizacion_id]["lock_version"],
+            autorizacion_lock_version_esperado=autorizacion["lock_version"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_actualizar_costos_falla_si_cambian_los_items():
+    svc, db, _, cotizacion_id = build_escenario()
+    autorizacion = await db.get_autorizacion_by_cotizacion(None, cotizacion_id)
+
+    with pytest.raises(ValueError, match="items existentes"):
+        await svc.actualizar_costos_y_solicitar_aprobacion(
+            FakeConn(), cotizacion_id, uuid4(),
+            items_data=[{"bom_item_id": uuid4(), "precio_unitario": 120.0}],  # item inventado
+            iva_pct=16.0, motivo="motivo",
+            cotizacion_lock_version_esperado=db.cotizaciones[cotizacion_id]["lock_version"],
             autorizacion_lock_version_esperado=autorizacion["lock_version"],
         )

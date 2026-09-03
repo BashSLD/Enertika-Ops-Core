@@ -1,4 +1,5 @@
-<div class="w-full px-4 py-6" hx-history="false">
+{% from "shared/partials/_spinner_overlay.html" import spinner_icon %}
+<div class="w-full px-4 py-6" hx-history="false" x-data="gateVigenciaBom()">
     <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
             <button type="button" onclick="history.back()"
@@ -58,4 +59,255 @@
     </div>
 
     <div id="bom-modal-container"></div>
+
+    {# Modal "¿Sigue vigente?" -- compartido por el Punto A (boton junto al stepper
+       en autorizaciones.html) y el Punto B (boton "Confirmar vigencia" en
+       cotizaciones.html), generalizado por vigencia.origen. Vive aqui (no en
+       cada tab) porque ambos tabs son hermanos cargados en paralelo dentro de
+       este mismo contenedor -- ver Alpine.data('gateVigenciaBom') en base.html. #}
+    <div x-show="modalVigenciaAbierto" x-cloak
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm modal-overlay-layer"
+        @keydown.escape.window="cerrarModalVigencia()">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-md mx-3 max-h-[90dvh] flex flex-col">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0"
+                style="background: linear-gradient(135deg, #0369a1 0%, #0ea5e9 100%);">
+                <div>
+                    <h2 class="text-base font-semibold text-white">¿Sigue vigente?</h2>
+                    <p class="text-xs text-sky-100">Cotización de: <strong class="font-bold text-white" x-text="vigencia.proveedor"></strong></p>
+                </div>
+                <button @click="cerrarModalVigencia()" class="text-white/60 hover:text-white transition-colors p-1">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="overflow-y-auto flex-1 min-h-0 px-5 py-4 space-y-4">
+                <p class="text-sm text-gray-600" x-show="vigencia.origen === 'B'" x-cloak>
+                    El standby de esta cotización venció. Confirma si el precio y las condiciones del
+                    proveedor siguen vigentes antes de regresarla a Dirección.
+                </p>
+                <p class="text-sm text-gray-600" x-show="vigencia.origen === 'A'" x-cloak>
+                    Antes de mandar esta cotización a Dirección, confirma que el precio y las
+                    condiciones del proveedor siguen siendo los mismos que cuando Obra aprobó.
+                </p>
+                <div class="flex items-center gap-2 text-sm text-gray-700">
+                    <span class="font-medium">¿Sigue vigente?</span>
+                    <label class="flex items-center gap-1"><input type="radio" x-model.boolean="vigenciaEsVigente" :value="true"> Sí</label>
+                    <label class="flex items-center gap-1"><input type="radio" x-model.boolean="vigenciaEsVigente" :value="false"> No</label>
+                </div>
+                <template x-if="!vigenciaEsVigente">
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Motivo (obligatorio)</label>
+                            <textarea x-model="vigenciaMotivo" rows="3"
+                                class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-sky-500 resize-none"
+                                placeholder="Explica por qué ya no está vigente..."></textarea>
+                            <template x-if="vigencia.origen === 'A' && vigencia.reemplazables && vigencia.reemplazables.length">
+                                <select x-model="vigenciaReemplazaAprobacionId"
+                                    class="mt-2 w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5"
+                                    title="Si esta cotización reemplaza a un proveedor incumplido, liga el historial aquí (opcional)">
+                                    <option value="">No reemplaza a nadie</option>
+                                    <template x-for="r in vigencia.reemplazables" :key="r.id">
+                                        <option :value="r.id" x-text="'Reemplaza a: ' + (r.nombre_proveedor || 'Sin proveedor')"></option>
+                                    </template>
+                                </select>
+                            </template>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 items-stretch">
+                            <div class="flex flex-col rounded-lg border border-violet-200 bg-violet-50 p-3">
+                                <button type="button" @click="abrirModalCostosVigencia()"
+                                    :disabled="!vigenciaMotivo.trim()"
+                                    class="w-full rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50">
+                                    Actualizar costo
+                                </button>
+                                <p class="text-xs text-gray-600 mt-2">
+                                    Solo corrige el precio de los ítems ya cotizados (mismos ítems). Obra
+                                    no vuelve a revisar — su aprobación fue sobre los ítems, no sobre el costo.
+                                </p>
+                            </div>
+                            <div class="flex flex-col rounded-lg border border-red-200 bg-red-50 p-3">
+                                <button type="button" @click="guardarVigencia()"
+                                    :disabled="vigenciaGuardando || !vigenciaMotivo.trim()"
+                                    class="w-full flex items-center justify-center gap-2 rounded-lg bg-red-500 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-red-600 disabled:opacity-50">
+                                    <svg class="w-4 h-4" :class="{'animate-spin': vigenciaGuardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                    </svg>
+                                    <span x-text="vigenciaGuardando ? 'Guardando...' : 'Liberar y recotizar'"></span>
+                                </button>
+                                <p class="text-xs text-gray-600 mt-2">
+                                    Regresa la cotización a edición completa; vuelve a pasar por Obra y
+                                    Dirección desde cero. Úsalo si cambiaron los ítems (se quitó, agregó o
+                                    reemplazó alguno) o el proveedor ya no puede surtir.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+                <p x-show="vigenciaError" x-text="vigenciaError" class="text-sm text-red-600 font-medium"></p>
+            </div>
+            <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 shrink-0"
+                x-show="vigenciaEsVigente" x-cloak>
+                <button type="button" @click="guardarVigencia()" :disabled="vigenciaGuardando"
+                    class="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-lg transition-colors bg-sky-600 hover:bg-sky-700 disabled:opacity-60 disabled:cursor-not-allowed">
+                    <svg class="w-4 h-4" :class="{'animate-spin': vigenciaGuardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                    <span x-text="vigenciaGuardando ? 'Guardando...' : 'Confirmar'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {# Modal "Actualizar costos" -- Camino 2 del gate de vigencia (Puntos A/B).
+       Cada fila de items alterna fondo blanco/gris + borde para que precios
+       parecidos no se confundan entre si al editar varios items seguidos
+       (feedback de UI 2026-09-02). #}
+    <div x-show="modalCostosVigenciaAbierto" x-cloak
+        class="fixed inset-0 z-[10100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm modal-overlay-layer"
+        @keydown.escape.window="cerrarModalCostosVigencia()">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-3 max-h-[90dvh] flex flex-col">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0"
+                style="background: linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%);">
+                <div>
+                    <h2 class="text-base font-semibold text-white">Actualizar costos</h2>
+                    <p class="text-xs text-violet-100" x-text="'Cotización de: ' + (vigencia.proveedor || 'Sin proveedor')"></p>
+                </div>
+                <button @click="cerrarModalCostosVigencia()" class="text-white/60 hover:text-white transition-colors p-1">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="overflow-y-auto flex-1 min-h-0 px-5 py-4 space-y-3">
+                <div>
+                    <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Motivo (obligatorio)</label>
+                    <textarea x-model="costosVigenciaMotivo" rows="2"
+                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 resize-none"
+                        placeholder="Por qué cambió el costo..."></textarea>
+                </div>
+                <div class="border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-200">
+                    <div class="grid grid-cols-[1fr_5rem_7rem] gap-x-2 bg-gray-100 text-gray-500 uppercase text-[10px] font-bold px-3 py-1.5">
+                        <span>Ítem</span><span class="text-right">Cant.</span><span class="text-right">Precio unit.</span>
+                    </div>
+                    <template x-for="(it, idx) in costosVigenciaItems" :key="it.bom_item_id">
+                        <div class="grid grid-cols-[1fr_5rem_7rem] gap-x-2 items-center px-3 py-2"
+                            :class="idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'"
+                            x-data="{ buffer: '' }" x-init="buffer = formatMoneda(it.precio_unitario)"
+                            @costos-vigencia-modal-reset.window="buffer = formatMoneda(it.precio_unitario)">
+                            <span class="text-xs text-gray-700 truncate" x-text="it.descripcion"></span>
+                            <span class="text-xs text-gray-500 text-right" x-text="it.cantidad + ' ' + (it.unidad_medida || '')"></span>
+                            <input type="text" inputmode="decimal" x-model="buffer"
+                                @input="it.precio_unitario = parseMoneda(buffer)"
+                                @focus="buffer = String(it.precio_unitario || '')"
+                                @blur="buffer = formatMoneda(it.precio_unitario)"
+                                class="w-full text-xs border border-violet-300 rounded px-2 py-1 text-right bg-white">
+                        </div>
+                    </template>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wide mb-0.5">IVA %</label>
+                        <input type="number" x-model.number="costosVigenciaIvaPct" min="0" max="100" step="0.01"
+                            class="w-full text-sm border border-gray-300 rounded-lg px-3 py-1.5">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wide mb-0.5">PDF actualizado (opcional)</label>
+                        <label class="flex items-center gap-1.5 w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 cursor-pointer hover:bg-gray-50"
+                            title="Se guarda como PDF de la cotización y además extrae precios candidatos para asistir la captura (sin match automático)">
+                            {{ spinner_icon('w-3.5 h-3.5', attrs='x-show="costosVigenciaExtrayendoPdf" x-cloak') }}
+                            <svg x-show="!costosVigenciaExtrayendoPdf" class="w-3.5 h-3.5 shrink-0 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3-3m0 0l3 3m-3-3v8"/>
+                            </svg>
+                            <span x-show="!costosVigenciaArchivo" x-cloak class="text-gray-500">Cargar PDF actualizado</span>
+                            <span x-show="costosVigenciaArchivo" x-cloak class="truncate text-gray-700" x-text="costosVigenciaArchivo && costosVigenciaArchivo.name"></span>
+                            <input type="file" accept="application/pdf" class="hidden"
+                                @change="onCostosVigenciaArchivoSeleccionado($event.target.files[0] || null); $event.target.value = ''">
+                        </label>
+                    </div>
+                </div>
+                <button type="button" x-show="costosVigenciaCandidatosPdf.length > 0" x-cloak @click="modalCostosVigenciaPdfAbierto = true"
+                    class="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 transition-colors text-left">
+                    <span class="text-xs font-medium text-blue-700">
+                        <span x-text="costosVigenciaCandidatosPdf.length"></span> precio(s) detectados en el PDF
+                    </span>
+                    <span class="text-[11px] font-semibold text-blue-600 shrink-0">Revisar y asignar →</span>
+                </button>
+                <p x-show="costosVigenciaArchivo && costosVigenciaCandidatosPdf.length === 0 && !costosVigenciaExtrayendoPdf && costosVigenciaPdfError" x-cloak
+                    class="text-xs text-red-500">
+                    No se pudo leer el PDF (<span x-text="costosVigenciaPdfError"></span>) — captura manual.
+                </p>
+                <p x-show="costosVigenciaArchivo && costosVigenciaCandidatosPdf.length === 0 && !costosVigenciaExtrayendoPdf && !costosVigenciaPdfError" x-cloak
+                    class="text-xs text-gray-500">
+                    No se detectaron precios en el PDF — captura manual.
+                </p>
+                <div x-show="costosVigenciaSobrecostos().length > 0" x-cloak>
+                    <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-1.5"
+                        x-text="costosVigenciaMensajeSobrecosto()"></p>
+                    <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wide mb-0.5">Notas (justificación de sobrecosto)</label>
+                    <textarea x-model="costosVigenciaNotas" rows="2"
+                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 resize-none"></textarea>
+                </div>
+                <p class="text-sm font-bold text-violet-700" x-text="'Total: $' + costosVigenciaTotal().toLocaleString('es-MX', {minimumFractionDigits: 2})"></p>
+                <p x-show="costosVigenciaError" x-text="costosVigenciaError" class="text-sm text-red-600 font-medium"></p>
+            </div>
+            <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
+                <button type="button" @click="guardarCostosVigencia()" :disabled="costosVigenciaGuardando"
+                    class="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-60 bg-violet-600 hover:bg-violet-700">
+                    <svg class="w-4 h-4" :class="{'animate-spin': costosVigenciaGuardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                    <span x-text="costosVigenciaGuardando ? 'Guardando...' : 'Enviar a Dirección'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {# Modal secundario: revisar/asignar precios detectados en el PDF de "Actualizar
+       costos". Mismo patron que el modal equivalente de _modal_cargar_cotizacion.html,
+       simplificado porque aqui los items ya estan fijos (misma cotizacion, solo
+       cambia precio) -- no hay seleccion de items, solo asignar cada candidato
+       a uno de los renglones existentes. #}
+    <div x-show="modalCostosVigenciaPdfAbierto" x-cloak
+        class="fixed inset-0 z-[10200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm modal-overlay-layer"
+        @keydown.escape.window="modalCostosVigenciaPdfAbierto = false">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-3 max-h-[85dvh] flex flex-col">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200 shrink-0 bg-blue-50 rounded-t-xl">
+                <div>
+                    <h3 class="text-sm font-semibold text-blue-900">Precios detectados en el PDF</h3>
+                    <p class="text-xs text-blue-500">
+                        <span x-text="costosVigenciaPdfMetodo === 'tabla' ? 'Extraído de una tabla' : 'Extraído de texto'"></span>
+                        <template x-if="costosVigenciaPdfMonedaDetectada"> · Moneda en PDF: <span x-text="costosVigenciaPdfMonedaDetectada"></span></template>
+                    </p>
+                </div>
+                <button type="button" @click="modalCostosVigenciaPdfAbierto = false" class="text-blue-400 hover:text-blue-700 p-1" aria-label="Cerrar">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-1.5">
+                <template x-for="(cand, idx) in costosVigenciaCandidatosPdf" :key="idx">
+                    <div class="flex items-center gap-3 px-3 py-2 rounded-lg border"
+                        :class="cand.asignado_a ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-200'">
+                        <div class="flex-1 min-w-0 text-sm text-gray-700" x-text="cand.texto"></div>
+                        <div class="text-sm font-semibold text-blue-700 whitespace-nowrap" x-text="'$' + formatMoneda(cand.precio)"></div>
+                        <select class="text-xs border border-gray-300 rounded px-2 py-1 max-w-[12rem] shrink-0"
+                            :value="cand.asignado_a || ''"
+                            @change="usarCandidatoPdfCostos(cand, $event.target.value)">
+                            <option value="">Asignar a ítem...</option>
+                            <template x-for="it in itemsParaCandidatoCostos(cand)" :key="it.bom_item_id">
+                                <option :value="it.bom_item_id" x-text="it.descripcion"></option>
+                            </template>
+                        </select>
+                    </div>
+                </template>
+            </div>
+            <div class="flex justify-end px-5 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl shrink-0">
+                <button type="button" @click="modalCostosVigenciaPdfAbierto = false"
+                    class="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg">
+                    Listo
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
