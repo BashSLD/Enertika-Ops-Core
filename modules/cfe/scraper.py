@@ -203,6 +203,9 @@ def _chromium_launch_kwargs() -> dict:
             "--no-sandbox",
             "--disable-dev-shm-usage",
             "--disable-gpu",
+            "--no-zygote",
+            "--disable-software-rasterizer",
+            "--renderer-process-limit=1",
         ],
     }
     if browser_path:
