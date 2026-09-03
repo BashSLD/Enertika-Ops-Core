@@ -54,6 +54,7 @@ venv\Scripts\python.exe -m devtools quality --no-tests
   sin haber sido pedido (`HTMX003`, heuristico multilinea).
 - `Depends()` envolviendo `require_module_access`/`require_manager_access`, que ya retornan `Depends()` (`RBAC001`).
 - `|tojson` dentro de `x-data` de Alpine (`ALPINE001`).
+- `|tojson` dentro de un atributo JS con comillas dobles (`@click="..."`, `onsubmit="..."`, `hx-on::evt="..."`): tojson nunca escapa `"`, rompe el HTML (`ALPINE002`, heuristico multilinea sin `root`; exacto con `root`).
 - SQL armado con f-strings o concatenacion en `db_service.py` (`SQL002`, heuristico).
 - `EXTRACT(DOW)` sin la conversion `((... + 6) % 7)` (`TZ004`, heuristico).
 - Backdrop raiz de modal sin la clase `modal-overlay-layer` (`UI001`, heuristico).

@@ -127,7 +127,7 @@
                                     </button>
                                 </form>
                                 <button type="button"
-                                    @click="abrirStandby('standby-form-{{ a.cotizacion_id }}', {{ (a.nombre_proveedor or 'Sin proveedor') | tojson }}, false, '', '')"
+                                    @click='abrirStandby("standby-form-{{ a.cotizacion_id }}", {{ (a.nombre_proveedor or "Sin proveedor") | tojson }}, false, "", "")'
                                     class="rounded-lg bg-amber-500 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600">
                                     Poner en espera
                                 </button>
@@ -146,7 +146,7 @@
                             </form>
                             {% elif a.aprobacion_estatus == 'EN_STANDBY' %}
                             <button type="button"
-                                @click="abrirStandby('standby-form-{{ a.cotizacion_id }}', {{ (a.nombre_proveedor or 'Sin proveedor') | tojson }}, true, {{ (a.motivo_standby or '') | tojson }}, {{ (a.fecha_recordatorio.isoformat() if a.fecha_recordatorio else '') | tojson }})"
+                                @click='abrirStandby("standby-form-{{ a.cotizacion_id }}", {{ (a.nombre_proveedor or "Sin proveedor") | tojson }}, true, {{ (a.motivo_standby or "") | tojson }}, {{ (a.fecha_recordatorio.isoformat() if a.fecha_recordatorio else "") | tojson }})'
                                 class="rounded-lg bg-amber-500 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-amber-600">
                                 Reprogramar
                             </button>

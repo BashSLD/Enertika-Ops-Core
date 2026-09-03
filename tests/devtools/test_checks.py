@@ -152,6 +152,83 @@ def test_alpine_tojson_in_x_data_is_flagged():
     assert {item.code for item in findings} == {"ALPINE001"}
 
 
+def test_tojson_in_double_quoted_js_attr_is_flagged():
+    snapshot = _snapshot(
+        _changed_file(
+            "templates/demo/boton.html",
+            '<button @click="abrirModal({{ payload | tojson }})">Abrir</button>',
+        )
+    )
+
+    findings = run_checks(snapshot)
+
+    alpine002 = [item for item in findings if item.code == "ALPINE002"]
+    assert len(alpine002) == 1
+    assert alpine002[0].severity is Severity.ERROR
+
+
+def test_tojson_in_single_quoted_js_attr_is_not_flagged():
+    snapshot = _snapshot(
+        _changed_file(
+            "templates/demo/boton_ok.html",
+            "<button @click='abrirModal({{ payload | tojson }})'>Abrir</button>",
+        ),
+        _changed_file(
+            "templates/demo/data_attr_ok.html",
+            "<div data-items='{{ items | tojson }}'>",
+        ),
+    )
+
+    findings = run_checks(snapshot)
+
+    assert [item for item in findings if item.code == "ALPINE002"] == []
+
+
+def test_tojson_with_forceescape_in_double_quoted_attr_is_not_flagged():
+    snapshot = _snapshot(
+        _changed_file(
+            "templates/demo/hidden_ok.html",
+            '<input type="hidden" value="{{ payload | tojson | forceescape }}">',
+        )
+    )
+
+    findings = run_checks(snapshot)
+
+    assert [item for item in findings if item.code == "ALPINE002"] == []
+
+
+def test_tojson_beyond_lookahead_window_in_double_quoted_attr_needs_root(tmp_path):
+    """Igual que el caso analogo de HTMX003: sin `root`, la ventana fija (6
+    lineas) no alcanza a ver un `| tojson` que aparece mas lejos dentro del
+    mismo atributo multilinea -- falso negativo. Con `root`, el escaneo de
+    archivo completo balanceando comillas lo encuentra sin importar cuantas
+    lineas tenga el atributo en medio."""
+    relative_path = "templates/demo/tojson_lejano.html"
+    lines = (
+        '<button @click="abrirModal(',
+        "    1,",
+        "    2,",
+        "    3,",
+        "    4,",
+        "    5,",
+        "    6,",
+        "    {{ payload | tojson }}",
+        ')">Abrir</button>',
+    )
+    file_path = tmp_path / relative_path
+    file_path.parent.mkdir(parents=True)
+    file_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    snapshot = _snapshot(_changed_file(relative_path, lines[0]))
+
+    findings_without_root = run_checks(snapshot)
+    findings_with_root = run_checks(snapshot, tmp_path)
+
+    assert [item for item in findings_without_root if item.code == "ALPINE002"] == []
+    alpine002 = [item for item in findings_with_root if item.code == "ALPINE002"]
+    assert len(alpine002) == 1
+    assert alpine002[0].line == 1
+
+
 def test_rbac_double_depends_is_flagged():
     snapshot = _snapshot(
         _changed_file(

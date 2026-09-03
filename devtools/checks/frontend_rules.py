@@ -20,6 +20,10 @@ _OVERLAY_DIM_RE = re.compile(r"bg-opacity|backdrop-blur")
 _HTMX_AJAX_RE = re.compile(r"htmx\.ajax\(")
 _HTMX_AJAX_SOURCE_RE = re.compile(r"\bsource\s*[:,]")
 _HTMX_AJAX_LOOKAHEAD_LINES = 6
+_JS_ATTR_OPEN_RE = re.compile(
+    r'(?<![\w:.-])(?:@[\w:.$-]+|x-on:[\w:.$-]+|on[a-z]+|hx-on::[\w-]+)="'
+)
+_JS_ATTR_LOOKAHEAD_LINES = 6
 
 
 def check_frontend_rules(
@@ -112,6 +116,23 @@ def check_frontend_rules(
                     line=hit.number,
                 )
             )
+        for hit in _find_tojson_in_double_quoted_js_attr(changed_file, root):
+            findings.append(
+                Finding(
+                    code="ALPINE002",
+                    severity=Severity.ERROR,
+                    message=(
+                        "|tojson dentro de un atributo con comillas dobles (@click=\"...\", "
+                        "onsubmit=\"...\", hx-on::...=\"...\"): tojson nunca escapa comillas "
+                        "dobles, la primera '\"' de su salida cierra el atributo antes de "
+                        "tiempo y rompe el HTML. Usar comillas simples en el atributo "
+                        "(y comillas dobles para strings JS internos), o forceescape si "
+                        "debe quedar en comillas dobles."
+                    ),
+                    path=hit.path,
+                    line=hit.number,
+                )
+            )
     return findings
 
 
@@ -167,6 +188,70 @@ def _find_htmx_ajax_missing_source(
         if not any(_HTMX_AJAX_SOURCE_RE.search(candidate.text) for candidate in window):
             hits.append(line)
     return hits
+
+
+def _find_tojson_in_double_quoted_js_attr(
+    changed_file: ChangedFile, root: Path | None
+) -> list[AddedLine]:
+    """Busca `| tojson` dentro del valor de un atributo JS con comillas dobles.
+
+    Igual que `_find_htmx_ajax_missing_source`: con `root` disponible, lee el
+    archivo actual y extrae el valor exacto del atributo balanceando comillas
+    a partir de donde abre (`@click="`, `onsubmit="`, `hx-on::evt="`, etc.),
+    sin depender de que el atributo entero este en las lineas agregadas del
+    diff. Sin `root` (tests con ChangedFile sinteticos), cae a una ventana
+    fija sobre added_lines."""
+    hits: list[AddedLine] = []
+    lines = changed_file.added_lines
+    file_lines = _read_file_lines(root, changed_file.path) if root is not None else None
+
+    for index, line in enumerate(lines):
+        if not _JS_ATTR_OPEN_RE.search(line.text):
+            continue
+
+        if file_lines is not None and 1 <= line.number <= len(file_lines):
+            match = _JS_ATTR_OPEN_RE.search(file_lines[line.number - 1])
+            if match is not None:
+                value = _extract_double_quoted_value(
+                    file_lines, line.number - 1, match.end()
+                )
+                if value is not None:
+                    if "tojson" in value and "forceescape" not in value:
+                        hits.append(line)
+                    continue
+
+        window = [line] + [
+            candidate
+            for candidate in lines[index + 1 : index + 1 + _JS_ATTR_LOOKAHEAD_LINES]
+            if candidate.number - line.number <= _JS_ATTR_LOOKAHEAD_LINES
+        ]
+        joined = " ".join(candidate.text for candidate in window)
+        if "tojson" in joined and "forceescape" not in joined:
+            hits.append(line)
+    return hits
+
+
+def _extract_double_quoted_value(
+    file_lines: list[str], start_index: int, start_col: int
+) -> str | None:
+    """Valor de un atributo `="..."` que empieza en file_lines[start_index]
+    en la columna start_col (justo despues de la comilla de apertura), hasta
+    la comilla doble de cierre (sin escape -- los atributos HTML no usan
+    backslash-escape para comillas)."""
+    collected: list[str] = []
+    for offset, raw in enumerate(
+        file_lines[start_index : start_index + _JS_ATTR_VALUE_MAX_LINES]
+    ):
+        text = raw[start_col:] if offset == 0 else raw
+        closing = text.find('"')
+        if closing != -1:
+            collected.append(text[:closing])
+            return "\n".join(collected)
+        collected.append(text)
+    return None
+
+
+_JS_ATTR_VALUE_MAX_LINES = 200
 
 
 def _read_file_lines(root: Path, relative_path: str) -> list[str] | None:
