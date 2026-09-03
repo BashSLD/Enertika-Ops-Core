@@ -29,7 +29,7 @@ from modules.shared.utils import content_disposition_header, is_htmx
 from .compras_service import ESTATUS_COTIZABLE, cantidad_pendiente_item, item_disponible_cotizacion
 from .router import _toast_response
 from .schemas import EstatusBOM
-from .service import BomService, get_bom_service
+from .service import BomService, get_bom_service, MODULOS_PAQUETE_COMPRAS
 
 logger = logging.getLogger("BOM.ComprasRouter")
 
@@ -65,6 +65,22 @@ async def _exigir_acceso_paquete_o_403(
     raise HTTPException(status_code=403, detail=f"No tienes acceso a {recurso}.")
 
 
+def _tiene_acceso_modulo_compras_sin_bypass_director(context: dict) -> bool:
+    """Variante de BomService.tiene_acceso_modulo_compras sin el carve-out de
+    Direccion (ADMIN si se conserva) -- usada solo por
+    _exigir_acceso_autorizacion_o_403 (paso Obra: aprobar/rechazar). Direccion
+    actua en un paso posterior distinto (AUTORIZADO_DIRECCION); dejarla pasar
+    aqui solo por ser Direccion no es exploit hoy porque
+    BomService._exigir_coordinador_obra bloquea a un Director puro mas
+    adelante con ValueError, pero confiar en el bypass de modulo compartido
+    en este gate especifico removeria esa capa si _exigir_coordinador_obra
+    alguna vez se relaja (hallazgo code-review 2026-09-03)."""
+    return (
+        context.get("role") == "ADMIN"
+        or any(user_has_module_access(slug, context) for slug in MODULOS_PAQUETE_COMPRAS)
+    )
+
+
 async def _exigir_acceso_autorizacion_o_403(
     service: BomService, conn, context: dict, autorizacion_id: UUID, recurso: str,
 ) -> None:
@@ -75,7 +91,7 @@ async def _exigir_acceso_autorizacion_o_403(
     autorizacion no existe, no hace nada -- el metodo de servicio que sigue
     (aprobar_obra/rechazar_autorizacion) ya reporta 'Autorizacion no encontrada'
     con su propio mensaje/status, y no hay BOM que resolver para el OR."""
-    if BomService.tiene_acceso_modulo_compras(context):
+    if _tiene_acceso_modulo_compras_sin_bypass_director(context):
         return
     aut = await service.db.get_autorizacion_by_id(conn, autorizacion_id)
     if not aut:
@@ -1841,9 +1857,15 @@ async def obra_autorizaciones_ui(
 
     `id_proyecto`: entrada desde el indicador de pendientes de un proyecto
     especifico ("Ver todas" del bloque Obra) -- ver docstring de
-    listar_autorizaciones_obra_coordinador. Cualquier autenticado que llegue
-    con este parametro ve el modo solo-lectura (autorizaciones + coordinador
-    asignado), no un 403 ni una tabla vacia."""
+    listar_autorizaciones_obra_coordinador. En este modo el filtro por
+    `representados` se desactiva (trae TODO lo pendiente del proyecto), asi
+    que se re-exige aqui el mismo gate que ya decide si el link se muestra
+    (BomService.tiene_acceso_indicador_pendientes_proyecto) -- si no, cualquier
+    autenticado sin relacion con el proyecto podria navegar directo a esta URL
+    con un id_proyecto ajeno y ver proveedor/monto/moneda de sus autorizaciones
+    pendientes."""
+    if id_proyecto is not None and not BomService.tiene_acceso_indicador_pendientes_proyecto(context):
+        raise HTTPException(status_code=403, detail="No tienes acceso a las autorizaciones de este proyecto.")
     ctx = await _obra_autorizaciones_ctx(conn, service, context, limit, offset, id_proyecto)
     ctx.update({
         "user_name": context.get("user_name"),

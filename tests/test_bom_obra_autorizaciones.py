@@ -8,9 +8,13 @@ llaman los MISMOS metodos de servicio que las rutas por-BOM ya existentes
 re-renderizan bom/partials/obra_autorizaciones.html (tabla completa) en vez de
 autorizaciones.html (que depende de un #tab-autorizaciones inexistente aqui).
 
-Gate: solo require_authenticated_session() -- el filtro real vive en el WHERE de
-la query cross-BOM (representados/rol_organizacional), no en el gate de ruta. Ya
-cubierto por separado en test_bom_gates_coordinador_obra.py (gates) y
+Gate: require_authenticated_session() para el modo "mis autorizaciones" (sin
+id_proyecto) -- el filtro real vive en el WHERE de la query cross-BOM
+(representados/rol_organizacional). Con id_proyecto (modo solo-lectura de un
+proyecto especifico) se re-exige ademas BomService.tiene_acceso_indicador_pendientes_proyecto
+en el router, el mismo gate que ya decide si el link "Ver todas" se muestra
+(proyectos/router.py) -- sin acceso de modulo/Direccion, 403. Ya cubierto por
+separado en test_bom_gates_coordinador_obra.py (gates) y
 test_bom_popup_pendientes_obra.py (logica de listar_autorizaciones_obra_coordinador).
 Este archivo cubre el cableado router-service-template de las 3 rutas nuevas.
 """
@@ -85,6 +89,12 @@ def _context(user_id=None):
     }
 
 
+def _context_visitante(user_id=None):
+    """Direccion u otro rol con tiene_acceso_indicador_pendientes_proyecto --
+    unico contexto valido para consultar el modo solo-lectura (id_proyecto)."""
+    return {**_context(user_id), "rol_organizacional": "director"}
+
+
 def _build_client(service, context):
     app = FastAPI()
     app.include_router(router)
@@ -138,7 +148,7 @@ def test_ui_propaga_id_proyecto_a_la_query():
     representados dentro del servicio/SQL (ver db_compras.py)."""
     service = BomService()
     service.db = FakeDB(autorizaciones=[], total=0)
-    client = _build_client(service, _context())
+    client = _build_client(service, _context_visitante())
     id_proyecto = uuid4()
 
     client.get(f"/bom/obra/autorizaciones?id_proyecto={id_proyecto}")
@@ -154,7 +164,7 @@ def test_ui_modo_solo_lectura_muestra_coordinador_en_vez_de_botones():
     service.db = FakeDB(autorizaciones=[
         _autorizacion(coordinador_obra=uuid4(), coordinador_nombre="Juan Perez"),
     ], total=1)
-    client = _build_client(service, _context())
+    client = _build_client(service, _context_visitante())
 
     response = client.get(f"/bom/obra/autorizaciones?id_proyecto={uuid4()}")
 
@@ -162,6 +172,19 @@ def test_ui_modo_solo_lectura_muestra_coordinador_en_vez_de_botones():
     assert "Coordinador:" in response.text
     assert "Juan Perez" in response.text
     assert 'name="lock_version"' not in response.text
+
+
+def test_ui_id_proyecto_sin_acceso_de_indicador_devuelve_403():
+    """Un autenticado sin acceso de modulo/Direccion (ej. RH) que navega
+    directo a la URL con un id_proyecto ajeno no debe ver proveedor/monto/
+    moneda de ese proyecto -- ver core/bom/compras_router.py::obra_autorizaciones_ui."""
+    service = BomService()
+    service.db = FakeDB(autorizaciones=[_autorizacion()], total=1)
+    client = _build_client(service, _context())
+
+    response = client.get(f"/bom/obra/autorizaciones?id_proyecto={uuid4()}")
+
+    assert response.status_code == 403
 
 
 def test_aprobar_re_renderiza_tabla_completa_no_autorizaciones_tab():
