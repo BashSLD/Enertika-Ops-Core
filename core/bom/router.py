@@ -696,11 +696,20 @@ async def paquete_ui(
 
     # Coordinador de obra / jefe de Construccion sin acceso de modulo llega
     # aqui solo via el OR imperativo de tiene_acceso_paquete_compras (linea
-    # 643) -- si tiene_acceso_modulo es False, el acceso ya confirmado solo
-    # pudo venir de ese OR. Es un rol exclusivo del lado Construccion (ver
+    # 643). Es un rol exclusivo del lado Construccion (ver
     # tiene_acceso_autorizaciones_obra), asi que debe quedar sujeto al mismo
     # gate por etapa que module_roles["construccion"], no saltarselo.
-    es_coordinador_sin_modulo = not tiene_acceso_modulo
+    # Re-derivado directo (no `not tiene_acceso_modulo`): esa negacion solo es
+    # correcta mientras tiene_acceso_paquete_compras tenga exactamente 2 ramas
+    # (modulo OR coordinador); si alguna vez gana una tercera rama, la
+    # negacion clasificaria mal a quien entro por ahi.
+    if tiene_acceso_modulo or not bom:
+        es_coordinador_sin_modulo = False
+    else:
+        representados_obra = await service.get_titulares_que_representa(conn, context.get("user_db_id"))
+        es_coordinador_sin_modulo = BomService.es_coordinador_obra(
+            bom.get("coordinador_obra"), representados_obra, context.get("rol_organizacional"),
+        )
     is_construccion_only = (
         not is_admin
         and not module_roles.get("ingenieria")
