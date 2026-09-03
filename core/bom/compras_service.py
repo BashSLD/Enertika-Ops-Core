@@ -1505,18 +1505,24 @@ class BomComprasServiceMixin:
         autorizacion_lock_version_esperado: Optional[int] = None,
     ) -> dict:
         """Punto A, Camino 2: actualiza costo/PDF y encadena a
-        solicitar_aprobacion_cotizacion(vigente=True) con los locks frescos."""
-        actualizada = await self._actualizar_costos_vigencia(
-            conn, cotizacion_id, user_id, items_data, iva_pct, motivo,
-            notas, nuevo_pdf_url,
-            cotizacion_lock_version_esperado, autorizacion_lock_version_esperado,
-        )
-        return await self.solicitar_aprobacion_cotizacion(
-            conn, cotizacion_id, user_id,
-            cotizacion_lock_version_esperado=actualizada['lock_version'],
-            autorizacion_lock_version_esperado=actualizada['autorizacion_lock_version'],
-            vigente=True,
-        )
+        solicitar_aprobacion_cotizacion(vigente=True) con los locks frescos.
+        Ambos pasos comparten una sola transaccion externa -- _actualizar_costos_vigencia
+        y solicitar_aprobacion_cotizacion abren cada uno su propio `async with
+        conn.transaction()`, que asyncpg anida como SAVEPOINT bajo esta; si el
+        segundo paso falla, se revierte el ajuste de costo/PDF del primero en
+        vez de dejar la cotizacion repreciada sin una aprobacion en curso."""
+        async with conn.transaction():
+            actualizada = await self._actualizar_costos_vigencia(
+                conn, cotizacion_id, user_id, items_data, iva_pct, motivo,
+                notas, nuevo_pdf_url,
+                cotizacion_lock_version_esperado, autorizacion_lock_version_esperado,
+            )
+            return await self.solicitar_aprobacion_cotizacion(
+                conn, cotizacion_id, user_id,
+                cotizacion_lock_version_esperado=actualizada['lock_version'],
+                autorizacion_lock_version_esperado=actualizada['autorizacion_lock_version'],
+                vigente=True,
+            )
 
     async def actualizar_costos_y_confirmar_vigencia(
         self, conn, cotizacion_id: UUID, user_id: UUID,
@@ -1528,17 +1534,19 @@ class BomComprasServiceMixin:
     ) -> dict:
         """Punto B, Camino 2: actualiza costo/PDF y encadena a
         confirmar_vigencia_reactivacion(vigente=True) con el lock de autorizacion
-        fresco (el de aprobacion no cambia con este ajuste)."""
-        actualizada = await self._actualizar_costos_vigencia(
-            conn, cotizacion_id, user_id, items_data, iva_pct, motivo,
-            notas, nuevo_pdf_url,
-            cotizacion_lock_version_esperado, autorizacion_lock_version_esperado,
-        )
-        return await self.confirmar_vigencia_reactivacion(
-            conn, cotizacion_id, user_id, vigente=True,
-            aprobacion_lock_version_esperado=aprobacion_lock_version_esperado,
-            autorizacion_lock_version_esperado=actualizada['autorizacion_lock_version'],
-        )
+        fresco (el de aprobacion no cambia con este ajuste). Misma transaccion
+        externa que actualizar_costos_y_solicitar_aprobacion -- ver su docstring."""
+        async with conn.transaction():
+            actualizada = await self._actualizar_costos_vigencia(
+                conn, cotizacion_id, user_id, items_data, iva_pct, motivo,
+                notas, nuevo_pdf_url,
+                cotizacion_lock_version_esperado, autorizacion_lock_version_esperado,
+            )
+            return await self.confirmar_vigencia_reactivacion(
+                conn, cotizacion_id, user_id, vigente=True,
+                aprobacion_lock_version_esperado=aprobacion_lock_version_esperado,
+                autorizacion_lock_version_esperado=actualizada['autorizacion_lock_version'],
+            )
 
     async def aprobar_cotizacion_direccion(
         self, conn, cotizacion_id: UUID, user_id: UUID,
